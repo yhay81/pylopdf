@@ -239,9 +239,10 @@ interpret the page separately and agree with it on the bundled corpus.
 | `page.index`, `page.document`, `page.xref`, `page.obj` | Two `Page` views are equal when they share document, generation, and index. |
 | `page.rect`, `page.rotation`, `page.boxes`, `page.label` | `rotation` is assignable. `boxes` has `media`, `crop`, `bleed`, `trim`, and `art`, assignable in PDF user space and validated against the MediaBox. |
 | `page.resources` | The fonts, images, Form XObjects, color spaces, and graphics states that the page's resources reach, as handles. |
-| `doc.metadata` | A live mutable mapping of the Info dictionary: `title`, `author`, `subject`, `keywords`, `creator`, `producer`, `created`, `modified`, and `trapped`. |
-| `doc.xmp` | The XMP packet as text; assignable and deletable. |
-| `doc.language`, `doc.page_mode`, `doc.page_layout`, `doc.mark_info` | Assignable. `language` is the complete BCP 47 tag. |
+| `doc.metadata` | A live mutable mapping of the Info entries present: `title`, `author`, `subject`, `keywords`, `creator`, `producer`, `created`, `modified`, and `trapped`, the dates as the PDF date strings stored ([D7](../ROADMAP.md#decisions)). Values are non-empty strings; `del` removes an entry, and assigning a mapping replaces every entry. |
+| `doc.version`, `doc.encryption_method`, `doc.pdfa_claim` | The header version, such as `"1.7"`; the encryption the document was opened with, or `None`; and the PDF/A self-declaration as a `PdfaClaim(part, conformance)` record, or `None`. |
+| `doc.xmp` | The XMP packet as text, or `None`; assignable and deletable. |
+| `doc.language`, `doc.page_mode`, `doc.page_layout`, `doc.mark_info` | Assignable and deletable. `language` is the complete BCP 47 tag, `page_mode` and `page_layout` take `PageMode` and `PageLayout`, and `mark_info` a `MarkInfo(marked, user_properties, suspects)` record. |
 | `doc.outline` | A tree of `OutlineItem` handles (`title`, `destination`, `children`, `color`, `bold`, `italic`, `is_open`), editable in place; assigning a list of `OutlineEntry` values replaces the tree. |
 | `doc.page_labels` | A list of `PageLabelRange(start, style, prefix, first)` values; assigning a list replaces the ranges. |
 | `doc.attachments` | A mapping of `Attachment` handles with `add(name, data, /, *, filename=None, description=None)`; each handle has `filename`, `description`, `size`, `created`, `modified`, `read()`, and `write(data)`. |
@@ -468,7 +469,5 @@ section 11, `attachments`, `limits`, `complexity`, `DocumentLimits`,
 
 ## 15. Open questions
 
-- How `doc.metadata` represents dates: `datetime` where the string parses,
-  and the raw string otherwise, or always the raw string.
 - Which parts of the HTML and CSS subset for text boxes parley covers, and
   which need pylopdf's own code.

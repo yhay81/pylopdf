@@ -36,10 +36,11 @@ python -m pylopdf.migrate src/
 | `pymupdf.open()`、`pymupdf.Document()` | `pylopdf.Document()` | 空文档 |
 | `doc[i]`、`doc.load_page(i)`、`len(doc)`、`doc.page_count`、迭代 | `doc.pages[i]`、`len(doc.pages)`、迭代`doc.pages` | `doc.pages`也支持切片，作用与pymupdf的`doc.pages(start, stop)`相同 |
 | `page.number`、`page.parent` | `page.index`、`page.document` | |
-| `doc.metadata`、`set_metadata()` | 相同 | |
-| `doc.get_xml_metadata()`、`set_xml_metadata()`、`del_xml_metadata()` | 相同 | 读写默认以1 MiB为上限；`max_size=None`可取消上限 |
-| `doc.language`、`set_language(tag)` | `doc.language_tag`、`set_language_tag(tag)` | 使用完整的标签：pymupdf最多只保留三个字母，因此`zh-TW`和`zh-HK`都会变成`zh-Hant`；迁移工具会改写`set_language` |
-| `doc.pagemode`、`pagelayout`、`markinfo`及其`set_*`方法、`has_links()`、`has_annots()`、`is_closed` | 相同 | |
+| `doc.metadata`、`set_metadata(m)` | `doc.metadata`、`doc.metadata.update(m)` | 现有条目的实时映射：不存在的条目用`.get(key, "")`读取，用`del doc.metadata[key]`删除。`created`和`modified`取代`creationDate`和`modDate`，`doc.version`和`doc.encryption_method`取代`format`和`encryption` |
+| `doc.get_xml_metadata()`、`set_xml_metadata(xml)`、`del_xml_metadata()` | `doc.xmp`、`doc.xmp = xml`、`del doc.xmp` | 没有数据包时为`None`；读写均以1 MiB为上限 |
+| `doc.language`、`set_language(tag)` | `doc.language`、`doc.language = tag` | 使用完整的标签：pymupdf最多只保留三个字母，因此`zh-TW`和`zh-HK`都会变成`zh-Hant`；`del doc.language`将其删除 |
+| `doc.pagemode`、`pagelayout`、`markinfo`及其`set_*`方法 | 对`doc.page_mode`、`page_layout`、`mark_info`赋值 | `PageMode`和`PageLayout`枚举以及`MarkInfo`记录；名称须完全匹配，而pymupdf不区分大小写 |
+| `doc.has_links()`、`has_annots()`、`is_closed` | 相同 | |
 | `doc.name` | `doc.path` | 一个`pathlib.Path`；从bytes打开或新建的空文档为`None`。由于所有文档都是PDF，`is_pdf`已被移除 |
 | `doc.needs_pass`、`doc.is_encrypted` | `doc.needs_password` | 在文档解锁之前为True |
 | `doc.authenticate(password)` | `doc.unlock(password)` | 返回`Access.USER`或`Access.OWNER`；密码错误时抛出`PasswordError`，而不是返回0 |

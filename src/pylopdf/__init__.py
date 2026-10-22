@@ -122,6 +122,7 @@ from pylopdf._geometry import (
 from pylopdf._hints import missing_attribute
 from pylopdf._images import EncodedImage, ImageObject, Images, Resources
 from pylopdf._limits import DocumentLimits
+from pylopdf._metadata import MarkInfo, Metadata, PageLayout, PageMode, PdfaClaim
 from pylopdf._objects import Array, Dictionary, Name, Objects, Stream, String
 from pylopdf._ocr import OcrEngine, OcrWord
 from pylopdf._page import Page
@@ -151,13 +152,10 @@ from pylopdf._types import (
     TEXT_ALIGN_RIGHT,
     Access,
     DocumentComplexity,
-    DocumentMetadata,
     FormFieldInfo,
     ImageCompressionResult,
     LinkInfo,
     LinkKind,
-    MarkInfo,
-    MetadataUpdate,
     OutlineEntry,
     PageLabelInfo,
     PageLabelSpec,
@@ -262,7 +260,6 @@ __all__ = [
     "DocumentClosedError",
     "DocumentComplexity",
     "DocumentLimits",
-    "DocumentMetadata",
     "EncodedImage",
     "EncryptedDocumentError",
     "Encryption",
@@ -294,7 +291,7 @@ __all__ = [
     "MarkInfo",
     "MarkedContent",
     "Matrix",
-    "MetadataUpdate",
+    "Metadata",
     "MoveTo",
     "Name",
     "Objects",
@@ -306,12 +303,15 @@ __all__ = [
     "Page",
     "PageLabelInfo",
     "PageLabelSpec",
+    "PageLayout",
+    "PageMode",
     "Pages",
     "Paint",
     "PasswordError",
     "Path",
     "PathBuilder",
     "PdfError",
+    "PdfaClaim",
     "Permissions",
     "Point",
     "Probe",

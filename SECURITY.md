@@ -108,10 +108,11 @@ risky. When processing untrusted files:
   32 levels, or 1 MiB of encoded or decoded names. Caller lookup/deletion names
   and aggregate add-time name/filename/description text stop at 1 MiB before
   tree traversal or attachment-data copying, using `embedded_file_input_size`.
-- `Document.get_pdfa_claim()` bounds every XMP metadata decoding layer to 1 MiB
-  by default and raises `LimitError` with code `xmp_metadata_size`. Raise
-  `max_size=` for a known large packet; `None` explicitly accepts unbounded
-  materialization.
+- `Document.xmp` and `Document.pdfa_claim` bound every XMP metadata decoding
+  layer to 1 MiB and raise `LimitError` with code `xmp_metadata_size`. Read a
+  known large packet through `Stream.read(max_size=)` on the catalog's
+  `/Metadata` stream; `None` explicitly accepts unbounded materialization.
+  Assigned XMP stops at 1 MiB with `xmp_metadata_input_size`.
 - Page-label number-tree reads reject partial output above 4,096 entries/nodes,
   32 levels, or 1 MiB of encoded or decoded style/prefix text. Reference cycles
   are visited once, and writes enforce the same entry/text boundary before
@@ -154,7 +155,7 @@ risky. When processing untrusted files:
   enforce the entry, depth, and source/encoded-title boundaries before PyO3
   copying and mutation with `toc_entry_count` and `toc_input_size`, and page
   deletion/selection shares the outline limits.
-- `Document.metadata` decodes only the eight standard Info fields and rejects
+- `Document.metadata` decodes only the nine standard Info entries and rejects
   aggregate source or returned text above 1 MiB; custom dictionary entries are
   not materialized into Python output. `probe()` caps returned standard
   text too. Writes preflight 1 MiB aggregate source/encoded text before PyO3

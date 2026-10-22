@@ -376,8 +376,17 @@ the canvas.
   channels)` for `numpy.asarray`, `Pixmap.from_array`, and PNG and JPEG
   through `to_bytes`, `save`, and `doc.render(format=...)`. CMYK waits for a
   renderer that produces it.
-- Still to come, each with its codemod rules: document properties,
-  interaction, writing, and the remaining constants and records.
+- Done: document properties. `doc.metadata` is a live `Metadata` mapping of
+  the Info entries present, `doc.xmp`, `doc.language`, `doc.page_mode`,
+  `doc.page_layout`, and `doc.mark_info` are assigned and deleted as
+  attributes, with the `PageMode` and `PageLayout` enums and the `MarkInfo`
+  record, and `doc.version`, `doc.encryption_method`, and `doc.pdfa_claim`
+  (a `PdfaClaim` record) replace the `format` and `encryption` entries and
+  `get_pdfa_claim()`. The outline, page labels, page boxes, and fallback
+  fonts follow with their own records.
+- Still to come, each with its codemod rules: the outline and page labels,
+  page geometry, interaction, writing, and the remaining constants and
+  records.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs
@@ -676,6 +685,11 @@ Three capabilities stay with ecosystem tools, through tested recipes:
   unreachable objects by default, as qpdf and pikepdf write files. Both make
   smaller files without changing what a viewer shows; `compress=False` and
   `prune=False` keep the document's streams and objects as they are.
+- **D7** (2026-10-22): `doc.metadata` keeps dates as the PDF date strings
+  the file stores, such as `D:20260101120000+09'00'`. Producers write
+  malformed dates often enough that a `datetime` would need a fallback to the
+  raw string anyway, and reading and writing the same string round-trips
+  exactly; a parsing helper can follow without changing the mapping.
 
 ## Evidence log
 

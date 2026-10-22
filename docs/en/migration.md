@@ -59,10 +59,11 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `pymupdf.open()`, `pymupdf.Document()` | `pylopdf.Document()` | An empty document |
 | `doc[i]`, `doc.load_page(i)`, `len(doc)`, `doc.page_count`, iteration | `doc.pages[i]`, `len(doc.pages)`, iteration over `doc.pages` | `doc.pages` also takes slices, as `doc.pages(start, stop)` did |
 | `page.number`, `page.parent` | `page.index`, `page.document` | |
-| `doc.metadata`, `set_metadata()` | Same | |
-| `doc.get_xml_metadata()`, `set_xml_metadata()`, `del_xml_metadata()` | Same | Reads and writes stop at 1 MiB by default; `max_size=None` lifts the limit |
-| `doc.language`, `set_language(tag)` | `doc.language_tag`, `set_language_tag(tag)` | The complete tag: pymupdf keeps at most three letters, so `zh-TW` and `zh-HK` both become `zh-Hant`; the codemod rewrites `set_language` |
-| `doc.pagemode`, `pagelayout`, `markinfo` and their `set_*` methods, `has_links()`, `has_annots()`, `is_closed` | Same | |
+| `doc.metadata`, `set_metadata(m)` | `doc.metadata`, `doc.metadata.update(m)` | A live mapping of the entries present: read an absent entry with `.get(key, "")`, remove one with `del doc.metadata[key]`. `created` and `modified` replace `creationDate` and `modDate`, and `doc.version` and `doc.encryption_method` replace `format` and `encryption` |
+| `doc.get_xml_metadata()`, `set_xml_metadata(xml)`, `del_xml_metadata()` | `doc.xmp`, `doc.xmp = xml`, `del doc.xmp` | `None` without a packet; reads and writes stop at 1 MiB |
+| `doc.language`, `set_language(tag)` | `doc.language`, `doc.language = tag` | The complete tag: pymupdf keeps at most three letters, so `zh-TW` and `zh-HK` both become `zh-Hant`; `del doc.language` removes it |
+| `doc.pagemode`, `pagelayout`, `markinfo` and their `set_*` methods | `doc.page_mode`, `page_layout`, `mark_info`, assigned | `PageMode` and `PageLayout` enums and a `MarkInfo` record; names are matched exactly, where pymupdf ignored case |
+| `doc.has_links()`, `has_annots()`, `is_closed` | Same | |
 | `doc.name` | `doc.path` | A `pathlib.Path`, or `None` for a document opened from bytes or created empty; `is_pdf` is gone because every document is a PDF |
 | `doc.needs_pass`, `doc.is_encrypted` | `doc.needs_password` | True until the document is unlocked |
 | `doc.authenticate(password)` | `doc.unlock(password)` | Returns `Access.USER` or `Access.OWNER` and raises `PasswordError` for a wrong password instead of returning 0 |

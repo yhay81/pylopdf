@@ -29,7 +29,8 @@ pylopdf.Document(*, limits=None)
 | 成员 | 用途 |
 |---|---|
 | `pages` | 文档的页面；参见[页面](#document-pages) |
-| `metadata` / `set_metadata(m)` | 标题、作者等Info字段，以及`format`和`encryption`。`set_metadata`会删除值为空的键，传入`{}`则全部删除 |
+| `metadata` | 现有Info条目的实时映射，键为`title`、`author`、`subject`、`keywords`、`creator`、`producer`、`created`、`modified`和`trapped`，日期为PDF日期字符串。给键赋值或调用`update()`即写入，`del`删除条目，赋值一个映射会替换全部条目，赋值`{}`或调用`clear()`则全部删除 |
+| `version`、`encryption_method` | 文件头中的PDF版本（例如`"1.7"`），以及打开文档时使用的加密方式（例如`"Standard V5 R6 256-bit AES"`）或`None` |
 | `needs_password`、`unlock(password)` | 文档是否处于锁定状态，以及解锁文档：`unlock`返回`Access.USER`或`Access.OWNER`，密码错误时抛出`PasswordError` |
 | `is_repaired` | 打开时是否修复了损坏的交叉引用数据 |
 | `permissions` | 文档允许的操作，以`Permissions`标志表示：锁定期间为空，未加密的文档或使用所有者密码解锁后为`Permissions.ALL`，否则为加密所授予的标志。用`Permissions.PRINT in doc.permissions`检查某个标志 |
@@ -111,15 +112,15 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 颠倒页面顺序
 | `get_form_fields()` | 所有表单字段及其名称、类型、值和选项 |
 | `set_form_field(name, value, *, font=, fontfile=, fontbuffer=, fontindex=, font_language=)` | 填写字段并重新生成其外观；参见[表单](#forms) |
 | `attachments` | 以映射形式访问嵌入文件；参见[附件](#attachments) |
-| `get_pdfa_claim()` | 文件声明的PDF/A部分和一致性级别，例如`(2, "B")`。这只读取声明，并不进行验证 |
-| `get_xml_metadata(*, max_size=1 MiB)` / `set_xml_metadata(metadata, *, max_size=1 MiB)` / `del_xml_metadata()` | 以文本形式读写XMP元数据包（没有时为`""`）。`set_metadata`不会修改它 |
-| `language_tag` / `set_language_tag(tag)` | 文档的语言，为完整的BCP 47标签，例如`zh-TW`或`sr-Latn-RS`，或为`None`。`set_language_tag(None)`会删除它，格式不正确的标签会抛出异常 |
-| `pagemode` / `set_pagemode(mode)`、`pagelayout` / `set_pagelayout(layout)` | 阅读器打开文档的方式，例如`"UseOutlines"`或`"TwoColumnLeft"`；未设置时为`"UseNone"`和`"SinglePage"` |
-| `markinfo` / `set_markinfo(markinfo)` | 以`MarkInfo`字典表示的标签PDF标志（不存在时为`{}`）。设置时会写入全部三个标志，省略的标志为`False` |
+| `pdfa_claim` | 文件声明的PDF/A部分和一致性级别，为`PdfaClaim(part=2, conformance="B")`记录，或为`None`。这只读取声明，并不进行验证 |
+| `xmp` | 以文本形式表示的XMP元数据包，或为`None`。赋值字符串即写入，`del doc.xmp`将其删除。读写均以1 MiB为上限；更大的数据包可用`doc.catalog["Metadata"].read(max_size=None)`读取。`metadata`不会修改它 |
+| `language` | 文档的语言，为完整的BCP 47标签，例如`zh-TW`或`sr-Latn-RS`，或为`None`。赋值标签即写入，`del doc.language`将其删除；格式不正确的标签会抛出异常 |
+| `page_mode`、`page_layout` | 阅读器打开文档的方式，为`PageMode`和`PageLayout`成员，例如`PageMode.USE_OUTLINES`或`PageLayout.TWO_COLUMN_LEFT`；未设置时为`USE_NONE`和`SINGLE_PAGE`。可赋值成员或其准确名称 |
+| `mark_info` | 以`MarkInfo(marked=, user_properties=, suspects=)`记录表示的标签PDF标志，不存在时为`None`。赋值时写入全部三个标志，`del`将其删除 |
 | `has_links()`、`has_annots()` | 是否有任何页面带有链接，或带有链接和表单控件以外的批注 |
 | `objects`、`trailer`、`catalog` | 直接访问PDF对象；参见[底层对象](#low-level-objects) |
 
-`language_tag`取代了pymupdf的`language`：后者最多只保留标签的三个字母，因此`zh-TW`和`zh-HK`都会被读成`zh-Hant`。写入XMP时，即使保存时压缩流也不会压缩数据包，因此在文件中搜索XMP的工具仍能找到它。
+`language`保留完整的标签，而pymupdf的`language`最多只保留三个字母，因此在那里`zh-TW`和`zh-HK`都会被读成`zh-Hant`。写入XMP时，即使保存时压缩流也不会压缩数据包，因此在文件中搜索XMP的工具仍能找到它。
 
 ## Page { #page }
 
@@ -590,7 +591,7 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 
 常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）和`AnnotFlags`（`PDF_ANNOT_IS_*`）。`Access`的成员是`USER`和`OWNER`，`Encryption`描述如何加密保存的文件。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
 
-文本、表格、OCR和页面内容的结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`和`Image`等不可变的数据类（frozen dataclass）。API返回的其他字典都是普通的`dict`对象，并通过`LinkInfo`、`FormFieldInfo`和`DocumentMetadata`等`TypedDict`类向类型检查器描述；`OutlineEntry`是具名元组。
+文本、表格、OCR和页面内容的结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`和`PdfaClaim`等不可变的数据类（frozen dataclass）。API返回的其他字典都是普通的`dict`对象，并通过`LinkInfo`和`FormFieldInfo`等`TypedDict`类向类型检查器描述；`OutlineEntry`是具名元组。
 
 ## 异常与警告 { #exceptions }
 

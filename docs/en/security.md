@@ -109,7 +109,7 @@ a default that is safe for most uses. Raise it with the keyword shown, or pass
 | `Page.replace_text()` | 64 MiB of page content | `max_size` |
 | Attachments: `add()`, `read()`, `write()` | 64 MiB per file | `max_size` |
 | `Stream.read()` | 64 MiB | `max_size` |
-| `Document.get_pdfa_claim()`, `get_xml_metadata()`, `set_xml_metadata()` | 1 MiB of XMP metadata | `max_size` |
+| `Document.xmp`, `pdfa_claim` | 1 MiB of XMP metadata | `Stream.read(max_size=)` on `doc.catalog["Metadata"]` |
 | `OcrEngine()` | 64 MiB of model files | `max_model_size` |
 
 A few limits are fixed. Rendering is capped at 64 million pixels per page.
@@ -148,8 +148,8 @@ change.
 | `password_input_size`, `metadata_input_size`, `annotation_input_size`, `form_field_input_size`, `toc_input_size`, `page_label_input_size`, `replacement_input_size` | Text passed to the method is too large |
 | `page_entry_count` | A list of pages is longer than allowed |
 | `toc_entry_count`, `toc_text_size`, `named_destination_count`, `named_destination_text_size`, `structure_tree_count`, `form_content_size` | An outline, link destination table, tagged-PDF structure, or imported page is too large |
-| `xmp_metadata_size` | The XMP metadata is larger than `max_size` |
-| `xmp_metadata_input_size` | XMP metadata passed to `set_xml_metadata()` is larger than `max_size` |
+| `xmp_metadata_size` | The XMP metadata is larger than 1 MiB |
+| `xmp_metadata_input_size` | XMP metadata assigned to `Document.xmp` is larger than 1 MiB |
 | `ocr_model_size`, `ocr_dictionary_entries` | OCR model files are too large |
 
 ## Built-in protections { #built-in-protections }

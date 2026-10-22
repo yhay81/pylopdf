@@ -171,63 +171,6 @@ class PageLabelSpec(_PageLabelStart, total=False):
     firstpagenum: int
 
 
-class _InfoMetadata(TypedDict):
-    """The PDF version and the Info text fields, as pymupdf names them."""
-
-    format: str
-    title: str
-    author: str
-    subject: str
-    keywords: str
-    creator: str
-    producer: str
-    creationDate: str
-    modDate: str
-
-
-class DocumentMetadata(_InfoMetadata):
-    """Metadata returned by :attr:`Document.metadata`, with pymupdf's keys.
-
-    ``encryption`` describes the encryption the document was opened with, as
-    in ``"Standard V5 R6 256-bit AES"``, or is ``None``.
-    """
-
-    trapped: str
-    encryption: str | None
-
-
-class MetadataUpdate(TypedDict, total=False):
-    """Keys accepted by :meth:`Document.set_metadata`.
-
-    ``format`` and ``encryption`` are read-only and ignored, so that
-    ``doc.set_metadata(doc.metadata)`` works.
-    """
-
-    title: str | None
-    author: str | None
-    subject: str | None
-    keywords: str | None
-    creator: str | None
-    producer: str | None
-    creationDate: str | None
-    modDate: str | None
-    trapped: str | None
-    format: str | None
-    encryption: str | None
-
-
-class MarkInfo(TypedDict, total=False):
-    """The catalog's ``/MarkInfo`` flags, as :attr:`Document.markinfo` returns them.
-
-    The keys are the PDF names. A document without ``/MarkInfo`` returns an
-    empty dictionary; otherwise all three keys are present.
-    """
-
-    Marked: bool
-    UserProperties: bool
-    Suspects: bool
-
-
 class DocumentComplexity(TypedDict):
     """Cheap structural facts that require no stream decoding or rendering."""
 
@@ -250,9 +193,6 @@ for _public in (
     FormFieldInfo,
     PageLabelInfo,
     PageLabelSpec,
-    DocumentMetadata,
-    MetadataUpdate,
-    MarkInfo,
     DocumentComplexity,
 ):
     _public.__module__ = "pylopdf"

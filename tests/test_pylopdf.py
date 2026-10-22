@@ -78,29 +78,29 @@ def test_empty_document() -> None:
 
 def test_metadata_roundtrip(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
-    doc.set_metadata({"title": "Report", "author": "Alice"})
+    doc.metadata.update(title="Report", author="Alice")
     md = doc.metadata
     assert md["title"] == "Report"
     assert md["author"] == "Alice"
-    assert md["subject"] == ""
-    assert md["format"].startswith("PDF ")
+    assert "subject" not in md
+    assert doc.version.startswith("1.")
 
 
 def test_metadata_unknown_key_raises(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
-    with pytest.raises(ValueError, match="unknown metadata key"):
-        doc.set_metadata({"bogus": "x"})  # ty: ignore[invalid-argument-type]
+    with pytest.raises(KeyError, match="unknown metadata key"):
+        doc.metadata["bogus"] = "x"
 
 
 def test_metadata_validation_is_atomic(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
-    with pytest.raises(ValueError, match="unknown metadata key"):
-        doc.set_metadata({"title": "変更されない", "bogus": "x"})  # ty: ignore[invalid-argument-type]
-    assert doc.metadata["title"] == ""
+    with pytest.raises(KeyError, match="unknown metadata key"):
+        doc.metadata.update({"title": "変更されない", "bogus": "x"})
+    assert "title" not in doc.metadata
 
-    with pytest.raises(TypeError, match="must be a string"):
-        doc.set_metadata({"author": "変更されない", "title": 42})  # ty: ignore[invalid-argument-type]
-    assert doc.metadata["author"] == ""
+    with pytest.raises(TypeError, match="metadata values are strings"):
+        doc.metadata.update({"author": "変更されない", "title": 42})
+    assert "author" not in doc.metadata
 
 
 def test_metadata_ignores_large_custom_info_values() -> None:
@@ -114,25 +114,24 @@ def test_metadata_reads_reject_excessive_standard_text() -> None:
     pdf = _build_info_fixture(f"<< /Title ({title}) >>")
     doc = pylopdf.open(pdf)
     with pytest.raises(pylopdf.PdfError, match="source text exceeds the 1048576-byte safety limit"):
-        _ = doc.metadata
+        dict(doc.metadata)
     with pytest.raises(pylopdf.PdfError, match="returned text exceeds the 1048576-byte safety limit"):
         pylopdf.probe(pdf)
 
 
 def test_metadata_text_limit_is_atomic(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
-    doc.set_metadata({"title": "original"})
+    doc.metadata["title"] = "original"
     with pytest.raises(pylopdf.LimitError, match="1048576-byte encoded-text safety limit") as caught:
-        doc.set_metadata({"title": "é" * 524288})
+        doc.metadata.update(title="é" * 524288)
     assert caught.value.code == "metadata_input_size"
-    assert doc.metadata["title"] == "original"
-    assert doc.metadata["subject"] == ""
+    assert dict(doc.metadata) == {"title": "original"}
 
 
 def test_metadata_text_boundary_roundtrip(one_page_pdf: bytes) -> None:
     title = "x" * (1024 * 1024)
     doc = pylopdf.open(one_page_pdf)
-    doc.set_metadata({"title": title})
+    doc.metadata["title"] = title
     assert doc.metadata["title"] == title
     assert pylopdf.open(doc.to_bytes()).metadata["title"] == title
 
@@ -467,7 +466,7 @@ def test_probe_takes_a_path_or_bytes() -> None:
 def test_probe_reports_metadata_by_pylopdf_names() -> None:
     data = pylopdf.Document()
     data.pages.new()
-    data.set_metadata({"title": "Report", "author": "Ann", "creationDate": "D:20260101000000Z"})
+    data.metadata.update(title="Report", author="Ann", created="D:20260101000000Z")
 
     probe = pylopdf.probe(data.to_bytes())
 
@@ -509,7 +508,7 @@ def test_closed_document_repr(one_page_pdf: bytes) -> None:
 
 def test_unicode_metadata(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
-    doc.set_metadata({"title": "日本語タイトル", "author": "山田 太郎"})
+    doc.metadata.update(title="日本語タイトル", author="山田 太郎")
     reloaded = pylopdf.open(doc.to_bytes())
     assert reloaded.metadata["title"] == "日本語タイトル"
     assert reloaded.metadata["author"] == "山田 太郎"
@@ -790,7 +789,7 @@ def test_save_options_roundtrip(tmp_path: Path, three_page_pdf: bytes) -> None:
     assert len(reopened.pages) == 3
     assert "Page two" in reopened.pages[1].text()
     # Object streams require PDF 1.5+, so the version is raised.
-    assert reopened.metadata["format"] == "PDF 1.5"
+    assert reopened.version == "1.5"
 
 
 def test_to_bytes_with_object_streams_renders_consistently(three_page_pdf: bytes) -> None:

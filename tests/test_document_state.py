@@ -100,30 +100,32 @@ def test_unlock_refuses_an_empty_owner_password_alone() -> None:
         ("owneronly-aes-256.pdf", "Standard V5 R6 256-bit AES"),
     ],
 )
-def test_metadata_describes_encryption(name: str, description: str) -> None:
+def test_encryption_method_describes_the_encryption(name: str, description: str) -> None:
     doc = pylopdf.open(ENCRYPTED / name, password="userpw")
 
-    assert doc.metadata["encryption"] == description
+    assert doc.encryption_method == description
 
 
-def test_metadata_has_pymupdf_keys() -> None:
-    metadata = pylopdf.open(build_pdf(["Plain"])).metadata
+def test_version_and_encryption_method_of_a_plain_document() -> None:
+    doc = pylopdf.open(build_pdf(["Plain"]))
 
-    assert list(metadata) == [
-        "format",
-        "title",
-        "author",
-        "subject",
-        "keywords",
-        "creator",
-        "producer",
-        "creationDate",
-        "modDate",
-        "trapped",
-        "encryption",
-    ]
-    assert metadata["encryption"] is None
-    assert metadata["trapped"] == ""
+    assert doc.encryption_method is None
+    assert doc.version == pylopdf.probe(build_pdf(["Plain"])).version
+
+
+def test_metadata_lists_only_the_entries_present() -> None:
+    assert dict(pylopdf.open(build_pdf(["Plain"])).metadata) == {}
+    doc = pylopdf.open(_info_pdf("<< /Trapped /False /Title (Report) /CreationDate (D:20260101) /Custom (x) >>"))
+
+    # Keys follow pylopdf's order, whatever the dictionary's; other Info keys are not listed.
+    assert list(doc.metadata) == ["title", "created", "trapped"]
+    assert doc.metadata == {"title": "Report", "created": "D:20260101", "trapped": "False"}
+    assert len(doc.metadata) == 3
+    assert "author" not in doc.metadata
+    with pytest.raises(KeyError):
+        _ = doc.metadata["author"]
+    assert doc.metadata.get("author", "") == ""
+    assert repr(doc.metadata) == "Metadata({'title': 'Report', 'created': 'D:20260101', 'trapped': 'False'})"
 
 
 @pytest.mark.parametrize("trapped", ["/True", "(True)"])
@@ -135,67 +137,97 @@ def test_metadata_reads_trapped_as_a_name_or_a_string(trapped: str) -> None:
     assert "trapped" not in pylopdf.probe(data).metadata
 
 
-def test_set_metadata_round_trips_the_metadata_dictionary() -> None:
-    doc = pylopdf.open(_info_pdf("<< /Title (Report) /Author (Alice) /Trapped /False >>"))
-    before = doc.metadata
+def test_metadata_is_a_live_view() -> None:
+    doc = pylopdf.open(build_pdf(["Plain"]))
+    metadata = doc.metadata
 
-    doc.set_metadata(before)
+    doc.metadata["title"] = "Report"
+    assert metadata["title"] == "Report"
+    assert pylopdf.open(doc.to_bytes()).metadata["title"] == "Report"
+
+
+def test_assigning_metadata_round_trips_the_mapping() -> None:
+    doc = pylopdf.open(_info_pdf("<< /Title (Report) /Author (Alice) /Trapped /False >>"))
+    before = dict(doc.metadata)
+
+    doc.metadata = before
 
     assert doc.metadata == before
 
 
-def test_set_metadata_writes_trapped_as_a_name() -> None:
+def test_assigning_metadata_replaces_every_entry() -> None:
+    doc = pylopdf.open(_info_pdf("<< /Title (Report) /Author (Alice) /Custom (kept) >>"))
+
+    doc.metadata = {"subject": "New"}
+
+    assert dict(doc.metadata) == {"subject": "New"}
+    # Info keys outside the mapping stay, as the mapping does not list them.
+    info = doc.trailer["Info"]
+    assert info["Custom"].text == "kept"
+
+
+def test_metadata_writes_trapped_as_a_name() -> None:
     doc = pylopdf.open(build_pdf(["Plain"]))
 
-    doc.set_metadata({"trapped": "True", "title": "Trapped"})
+    doc.metadata.update(trapped="True", title="Trapped")
 
     assert doc.metadata["trapped"] == "True"
     data = doc.to_bytes()
     assert b"/Trapped/True" in data
     assert pylopdf.open(data).metadata["trapped"] == "True"
-    doc.set_metadata({"trapped": "maybe"})
-    assert doc.metadata["trapped"] == "maybe"
+    with pytest.raises(ValueError, match="trapped"):
+        doc.metadata["trapped"] = "maybe"
+    assert doc.metadata["trapped"] == "True"
 
 
-@pytest.mark.parametrize("removal", [None, "", "none", "null"])
-def test_set_metadata_false_values_remove_entries(removal: str | None) -> None:
+def test_deleting_a_metadata_key_removes_the_entry() -> None:
     doc = pylopdf.open(_info_pdf("<< /Title (Report) /Author (Alice) >>"))
 
-    doc.set_metadata({"title": removal})
+    del doc.metadata["title"]
 
-    assert doc.metadata["title"] == ""
-    assert doc.metadata["author"] == "Alice"
-
-
-def test_set_metadata_ignores_read_only_keys() -> None:
-    doc = pylopdf.open(build_pdf(["Plain"]))
-    version = doc.metadata["format"]
-
-    doc.set_metadata({"format": "PDF 2.0", "encryption": "Standard", "title": "Kept"})
-
-    assert doc.metadata["format"] == version
-    assert doc.metadata["encryption"] is None
-    assert doc.metadata["title"] == "Kept"
+    assert dict(doc.metadata) == {"author": "Alice"}
+    with pytest.raises(KeyError):
+        del doc.metadata["title"]
+    assert doc.metadata.pop("author") == "Alice"
+    assert dict(doc.metadata) == {}
 
 
-def test_set_metadata_empty_dictionary_removes_info() -> None:
+@pytest.mark.parametrize("value", ["", None, 5, b"x"])
+def test_metadata_values_are_nonempty_strings(value: object) -> None:
     doc = pylopdf.open(_info_pdf("<< /Title (Report) >>"))
-    assert doc.trailer.get("Info") is not None
 
-    doc.set_metadata({})
+    with pytest.raises((TypeError, ValueError)):
+        doc.metadata["title"] = value  # ty: ignore[invalid-assignment]
+    with pytest.raises((TypeError, ValueError)):
+        doc.metadata = {"title": value}  # ty: ignore[invalid-assignment]
 
-    assert doc.trailer.get("Info") is None
-    assert doc.metadata["title"] == ""
-    reopened = pylopdf.open(doc.to_bytes())
-    assert reopened.metadata["title"] == ""
-    assert b"Report" not in doc.to_bytes()
+    assert doc.metadata["title"] == "Report"
 
 
-def test_set_metadata_rejects_unknown_keys_and_non_dicts() -> None:
+def test_clearing_metadata_removes_info() -> None:
+    for clear in (lambda doc: doc.metadata.clear(), lambda doc: setattr(doc, "metadata", {})):
+        doc = pylopdf.open(_info_pdf("<< /Title (Report) >>"))
+        assert doc.trailer.get("Info") is not None
+
+        clear(doc)
+
+        assert doc.trailer.get("Info") is None
+        assert dict(doc.metadata) == {}
+        assert dict(pylopdf.open(doc.to_bytes()).metadata) == {}
+        assert b"Report" not in doc.to_bytes()
+
+
+def test_metadata_refuses_unknown_keys_and_other_values_before_any_change() -> None:
     doc = pylopdf.open(build_pdf(["Plain"]))
 
-    with pytest.raises(ValueError, match="unknown metadata key"):
-        doc.set_metadata({"bogus": "x", "title": "Unchanged"})  # ty: ignore[invalid-argument-type]
-    assert doc.metadata["title"] == ""
-    with pytest.raises(TypeError, match="metadata must be a dict"):
-        doc.set_metadata([("title", "x")])  # ty: ignore[invalid-argument-type]
+    with pytest.raises(KeyError, match="unknown metadata key"):
+        doc.metadata.update({"bogus": "x", "title": "Unchanged"})
+    with pytest.raises(KeyError, match="unknown metadata key"):
+        doc.metadata = {"format": "PDF 2.0"}
+    with pytest.raises(KeyError, match="unknown metadata key"):
+        doc.metadata["creationDate"] = "D:2026"
+    assert dict(doc.metadata) == {}
+    with pytest.raises(TypeError, match="metadata must be a mapping"):
+        doc.metadata = [("title", "x")]  # ty: ignore[invalid-assignment]
+    doc.metadata.update([("title", "pairs")], author="keywords")
+    assert dict(doc.metadata) == {"title": "pairs", "author": "keywords"}

@@ -41,7 +41,7 @@ def test_one_input(data: bytes) -> None:
                     page.search("pdf")
                     page.pixmap(dpi=18, alpha=True)
 
-                doc.set_metadata({"producer": "pylopdf fuzz"})
+                doc.metadata.update({"producer": "pylopdf fuzz"})
                 saved = doc.to_bytes(dedupe=True, renumber=True, object_streams=True)
 
             with pylopdf.open(saved, limits=_FUZZ_LIMITS) as reopened:

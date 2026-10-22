@@ -45,8 +45,8 @@ import pylopdf
 
 with pylopdf.open("input.pdf") as doc:     # pylopdf.open(pdf_bytes)도 가능
     print(len(doc.pages))
-    print(doc.metadata["title"])
-    doc.set_metadata({"title": "Report", "author": "Alice"})
+    print(doc.metadata.get("title"))
+    doc.metadata.update(title="Report", author="Alice")
 
     doc.save("out.pdf")                    # 압축하고 사용하지 않는 객체는 제외
     data = doc.to_bytes()                  # 같은 PDF를 bytes로

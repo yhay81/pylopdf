@@ -42,7 +42,8 @@ untrusted input. Use the document as a context manager, or call `close()`.
 | Member | Purpose |
 |---|---|
 | `pages` | The pages; see [Pages](#document-pages) |
-| `metadata` / `set_metadata(m)` | Title, author, and the other Info fields, plus `format` and `encryption`. `set_metadata` removes keys whose value is empty, and `{}` removes all of them |
+| `metadata` | The Info entries present as a live mapping: `title`, `author`, `subject`, `keywords`, `creator`, `producer`, `created`, `modified`, and `trapped`, the dates as PDF date strings. Assigning a key or calling `update()` writes, `del` removes an entry, assigning a mapping replaces every entry, and `{}` or `clear()` removes them all |
+| `version`, `encryption_method` | The PDF version of the file header, such as `"1.7"`, and the encryption the document was opened with, such as `"Standard V5 R6 256-bit AES"`, or `None` |
 | `needs_password`, `unlock(password)` | Whether the document is locked, and unlock it: `unlock` returns `Access.USER` or `Access.OWNER` and raises `PasswordError` for a wrong password |
 | `is_repaired` | Whether opening had to repair damaged cross-reference data |
 | `permissions` | What the document permits, as `Permissions` flags: none while it is locked, `Permissions.ALL` for an unencrypted document or after the owner password, else the flags the encryption grants. Test one with `Permissions.PRINT in doc.permissions` |
@@ -153,16 +154,16 @@ encoding would not be smaller, and returns statistics.
 | `get_form_fields()` | Every form field with its name, type, value, and options |
 | `set_form_field(name, value, *, font=, fontfile=, fontbuffer=, fontindex=, font_language=)` | Fill a field and regenerate how it looks; see [Forms](#forms) |
 | `attachments` | Embedded files as a mapping; see [Attachments](#attachments) |
-| `get_pdfa_claim()` | The PDF/A part and conformance the file declares, such as `(2, "B")`. This reads the declaration only; it does not validate |
-| `get_xml_metadata(*, max_size=1 MiB)` / `set_xml_metadata(metadata, *, max_size=1 MiB)` / `del_xml_metadata()` | The XMP metadata packet as text (`""` when there is none). `set_metadata` does not change it |
-| `language_tag` / `set_language_tag(tag)` | The document's language as a complete BCP 47 tag, such as `zh-TW` or `sr-Latn-RS`, or `None`. `set_language_tag(None)` removes it, and a malformed tag raises |
-| `pagemode` / `set_pagemode(mode)`, `pagelayout` / `set_pagelayout(layout)` | How a viewer opens the document, such as `"UseOutlines"` or `"TwoColumnLeft"`; `"UseNone"` and `"SinglePage"` when unset |
-| `markinfo` / `set_markinfo(markinfo)` | The tagged-PDF flags as a `MarkInfo` dictionary (`{}` when absent). The setter writes all three flags, and a flag left out becomes `False` |
+| `pdfa_claim` | The PDF/A part and conformance the file declares, as a `PdfaClaim(part=2, conformance="B")` record, or `None`. This reads the declaration only; it does not validate |
+| `xmp` | The XMP metadata packet as text, or `None`. Assign a string to write it and `del doc.xmp` to remove it. Reads and writes stop at 1 MiB; read a larger packet with `doc.catalog["Metadata"].read(max_size=None)`. `metadata` does not change it |
+| `language` | The document's language as a complete BCP 47 tag, such as `zh-TW` or `sr-Latn-RS`, or `None`. Assign a tag to write it and `del doc.language` to remove it; a malformed tag raises |
+| `page_mode`, `page_layout` | How a viewer opens the document, as `PageMode` and `PageLayout` members such as `PageMode.USE_OUTLINES` or `PageLayout.TWO_COLUMN_LEFT`; `USE_NONE` and `SINGLE_PAGE` when unset. Assign a member or its exact name |
+| `mark_info` | The tagged-PDF flags as a `MarkInfo(marked=, user_properties=, suspects=)` record, or `None` when absent. Assigning writes all three flags; `del` removes them |
 | `has_links()`, `has_annots()` | Whether any page has a link, or an annotation other than a link or form widget |
 | `objects`, `trailer`, `catalog` | Direct access to PDF objects; see [Low-level objects](#low-level-objects) |
 
-`language_tag` replaces pymupdf's `language`, which keeps at most three
-letters of the tag, so `zh-TW` and `zh-HK` both read as `zh-Hant`. Writing XMP
+`language` keeps the complete tag, where pymupdf's keeps at most three
+letters, so that `zh-TW` and `zh-HK` both read as `zh-Hant` there. Writing XMP
 leaves the packet uncompressed even when saving compresses streams, so tools
 that search files for it still find it.
 
@@ -814,10 +815,10 @@ are `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`,
 
 Text, table, OCR, and page content results are records: frozen dataclasses
 such as `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`,
-`TableDiagnostics`, `OcrWord`, `Path`, and `Image`. Other dictionaries
-returned by the API are plain `dict` objects, described for type checkers by
-`TypedDict` classes such as `LinkInfo`, `FormFieldInfo`, and
-`DocumentMetadata`, and `OutlineEntry` is a named tuple.
+`TableDiagnostics`, `OcrWord`, `Path`, `Image`, `MarkInfo`, and `PdfaClaim`.
+Other dictionaries returned by the API are plain `dict` objects, described
+for type checkers by `TypedDict` classes such as `LinkInfo` and
+`FormFieldInfo`, and `OutlineEntry` is a named tuple.
 
 ## Exceptions and warnings { #exceptions }
 

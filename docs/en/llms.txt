@@ -79,6 +79,7 @@ replacement, and the migration hint):
 - Document.__len__ -> Pages.__len__: Use len(doc.pages).
 - Document.authenticate -> Document.unlock: Use doc.unlock(password), which returns Access.USER or Access.OWNER and raises PasswordError for a wrong password.
 - Document.copy_page -> Pages.insert: Use doc.pages.insert(to, doc.pages[i]); the copy is a new page object, not a second reference.
+- Document.del_xml_metadata -> Document.xmp: del doc.xmp removes the catalog's XMP metadata entry.
 - Document.delete_page -> Pages.__delitem__: Use del doc.pages[i].
 - Document.delete_pages -> Pages.__delitem__: Use del doc.pages[a:b], or doc.pages.select(...) to keep the other pages.
 - Document.embfile_add -> Document.attachments: Use doc.attachments.add(name, data, filename=..., description=...).
@@ -96,24 +97,32 @@ replacement, and the migration hint):
 - Document.get_page_pixmap -> Page.pixmap: Use doc.pages[i].pixmap(...).
 - Document.get_page_text -> Page.text: Use doc.pages[i].text(), or words() and layout() for the other options.
 - Document.get_toc -> Document.get_outline: pylopdf's get_outline uses zero-based pages; get_toc used one-based pages.
+- Document.get_xml_metadata -> Document.xmp: doc.xmp returns the XMP packet as text, or None without one where pymupdf returns an empty string.
 - Document.insert_pdf -> Pages.insert: Use doc.pages.insert(index, other.pages[a:b + 1]), or doc.pages.extend(other.pages) to append.
 - Document.is_encrypted -> Document.needs_password: Read doc.needs_password, which is true until unlock() succeeds.
 - Document.is_stream -> Stream: Check isinstance(doc.objects[xref], pylopdf.Stream).
-- Document.language -> Document.language_tag: pylopdf's language_tag keeps the complete BCP 47 tag, such as zh-TW, where pymupdf's language keeps at most three letters.
 - Document.load_page -> Pages.__getitem__: Use doc.pages[i].
+- Document.markinfo -> Document.mark_info: doc.mark_info returns a MarkInfo record with marked, user_properties, and suspects, or None; assign a MarkInfo to replace it.
 - Document.move_page -> Pages.move: Use doc.pages.move(i, to); to is the index where the page ends up, where pymupdf inserted before page to.
 - Document.name -> Document.path: Read doc.path, a pathlib.Path, or None for a document opened from bytes or created empty.
 - Document.needs_pass -> Document.needs_password: Read doc.needs_password, which is true until unlock() succeeds; pymupdf's needs_pass stays true after authentication.
 - Document.new_page -> Pages.new: Use doc.pages.new((width, height), index=i); without index the page is appended.
 - Document.page_count -> Pages.__len__: Use len(doc.pages).
 - Document.page_xref -> Page.xref: Use doc.pages[i].xref.
+- Document.pagelayout -> Document.page_layout: doc.page_layout returns a PageLayout, SinglePage when unset.
+- Document.pagemode -> Document.page_mode: doc.page_mode returns a PageMode, UseNone when unset.
 - Document.pages -> Document.pages: doc.pages is a sequence; slice it, as in doc.pages[start:stop:step], instead of calling it.
 - Document.pdf_catalog -> Document.catalog: Use doc.catalog, a live dictionary handle; doc.catalog.xref is its object number.
 - Document.pdf_trailer -> Document.trailer: Use doc.trailer, a live dictionary handle, instead of its PDF syntax.
 - Document.reload_page -> Pages.__getitem__: Fetch the page again with doc.pages[page.index].
 - Document.select -> Pages.select: Use doc.pages.select(indexes).
-- Document.set_language -> Document.set_language_tag: pylopdf's set_language_tag writes the complete BCP 47 tag, such as zh-TW, where pymupdf's set_language keeps at most three letters.
+- Document.set_language -> Document.language: Assign doc.language = tag, or del doc.language to remove it; pylopdf keeps the complete BCP 47 tag, such as zh-TW, where pymupdf keeps at most three letters.
+- Document.set_markinfo -> Document.mark_info: Assign doc.mark_info = MarkInfo(marked=..., user_properties=..., suspects=...); flags left out are written false, as in pymupdf.
+- Document.set_metadata -> Document.metadata: doc.metadata is a live mapping of the entries present: assign or update() keys to store values, del a key to remove it; created and modified replace creationDate and modDate.
+- Document.set_pagelayout -> Document.page_layout: Assign doc.page_layout = PageLayout.TWO_COLUMN_LEFT or its exact name, such as "TwoColumnLeft".
+- Document.set_pagemode -> Document.page_mode: Assign doc.page_mode = PageMode.USE_OUTLINES or its exact name, such as "UseOutlines".
 - Document.set_toc -> Document.set_outline: pylopdf's set_outline uses zero-based pages; set_toc used one-based pages.
+- Document.set_xml_metadata -> Document.xmp: Assign doc.xmp = packet to rewrite or add the XMP metadata stream.
 - Document.to_markdown -> Document.markdown: Call doc.markdown(...).
 - Document.to_text -> Document.text: Call doc.text() for the plain text of every page.
 - Document.tobytes -> Document.to_bytes: Use doc.to_bytes(...), which takes the options of save() and a max_size bound.
@@ -205,11 +214,22 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - BlockEntry -> Block: page.layout().blocks holds Block records with text, bbox, and lines.
 - Document.__iter__ -> Pages.__iter__: Iterate over doc.pages.
 - Document.compress_images -> Document.rewrite_images: Use doc.rewrite_images(dpi_threshold=..., dpi_target=..., quality=...).
+- Document.get_pdfa_claim -> Document.pdfa_claim: doc.pdfa_claim returns a PdfaClaim record with part and conformance, or None, instead of a tuple.
 - Document.get_text -> Document.text: Call doc.text(pages).
 - Document.render_page -> Page.pixmap: Use doc.pages[i].pixmap(dpi=72 * scale, alpha=True).to_bytes() for the PNG.
 - Document.render_page_svg -> Page.svg: Use doc.pages[i].svg().
 - Document.render_pages -> Document.render: Use doc.render(pages, ...), which takes dpi or matrix, not both.
 - Document.to_markdown -> Document.markdown: Call doc.markdown(...).
+- DocumentMetadata -> Metadata: doc.metadata returns a Metadata mapping of the entries present; doc.version and doc.encryption_method replace format and encryption.
+- DocumentMetadata.author -> Metadata: Read doc.metadata.get("author", "").
+- DocumentMetadata.creationDate -> Metadata: Read doc.metadata.get("created", "").
+- DocumentMetadata.creator -> Metadata: Read doc.metadata.get("creator", "").
+- DocumentMetadata.format -> Document.version: Read doc.version, such as "1.7".
+- DocumentMetadata.keywords -> Metadata: Read doc.metadata.get("keywords", "").
+- DocumentMetadata.modDate -> Metadata: Read doc.metadata.get("modified", "").
+- DocumentMetadata.producer -> Metadata: Read doc.metadata.get("producer", "").
+- DocumentMetadata.subject -> Metadata: Read doc.metadata.get("subject", "").
+- DocumentMetadata.title -> Metadata: Read doc.metadata.get("title", "").
 - DrawingInfo -> Path: page.content(text_runs=False, images=False).paths returns Path records instead of DrawingInfo dictionaries.
 - DrawingInfo.closePath -> Path.segments: A path is closed where its segments hold a ClosePath.
 - DrawingInfo.color -> Stroke.paint: Read path.stroke.paint.rgb; path.stroke is None for a path that is not stroked.
@@ -244,6 +264,15 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - MetadataProbe.repaired -> Probe.is_repaired: Read probe.is_repaired.
 - MetadataProbe.subject -> Probe.metadata: Read probe.metadata["subject"].
 - MetadataProbe.title -> Probe.metadata: Read probe.metadata["title"].
+- MetadataUpdate -> Metadata.update: Pass the values to doc.metadata.update(); del doc.metadata[key] removes an entry.
+- MetadataUpdate.author -> Metadata.update: Pass author to doc.metadata.update().
+- MetadataUpdate.creationDate -> Metadata.update: Pass created to doc.metadata.update().
+- MetadataUpdate.creator -> Metadata.update: Pass creator to doc.metadata.update().
+- MetadataUpdate.keywords -> Metadata.update: Pass keywords to doc.metadata.update().
+- MetadataUpdate.modDate -> Metadata.update: Pass modified to doc.metadata.update().
+- MetadataUpdate.producer -> Metadata.update: Pass producer to doc.metadata.update().
+- MetadataUpdate.subject -> Metadata.update: Pass subject to doc.metadata.update().
+- MetadataUpdate.title -> Metadata.update: Pass title to doc.metadata.update().
 - Page.add_link_annot -> Page.insert_link: Use page.insert_link({"kind": pylopdf.LinkKind.URI, "from": rect, "uri": uri}).
 - Page.get_text_ocr -> Page.ocr: Call page.ocr(...), which returns OcrWord records with text, bbox, and confidence.
 - Page.insert_ocr_text_layer -> Page.apply_ocr: Call page.apply_ocr(words=[OcrWord(text=..., bbox=..., confidence=...), ...], skip_existing=False).

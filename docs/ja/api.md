@@ -29,7 +29,8 @@ pylopdf.Document(*, limits=None)
 | メンバ | 用途 |
 |---|---|
 | `pages` | ページ。[ページ](#document-pages)を参照 |
-| `metadata` / `set_metadata(m)` | タイトル・作成者などのInfo項目と、`format`・`encryption`。`set_metadata`は値が空のキーを削除し、`{}`ですべて削除します |
+| `metadata` | 存在するInfo項目のライブなマッピング。キーは`title`・`author`・`subject`・`keywords`・`creator`・`producer`・`created`・`modified`・`trapped`で、日付はPDFの日付文字列です。キーへの代入や`update()`で書き込み、`del`で項目を削除し、マッピングを代入するとすべての項目を置き換え、`{}`の代入や`clear()`ですべて削除します |
+| `version`, `encryption_method` | ファイルヘッダーのPDFバージョン（`"1.7"`など）と、開いたときの暗号化方式（`"Standard V5 R6 256-bit AES"`など）または`None` |
 | `needs_password`, `unlock(password)` | 文書がロックされているかどうかと、その復号。`unlock`は`Access.USER`か`Access.OWNER`を返し、パスワードが違えば`PasswordError`を送出します |
 | `is_repaired` | 開く際に壊れた相互参照データを修復したかどうか |
 | `permissions` | 文書が許可する操作を表す`Permissions`フラグ。ロックされている間は何もなく、暗号化されていない文書やオーナーパスワードで開いた後は`Permissions.ALL`、それ以外は暗号化が許可するフラグです。フラグは`Permissions.PRINT in doc.permissions`で調べます |
@@ -111,15 +112,15 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 順序を逆にす�
 | `get_form_fields()` | すべてのフォームフィールドと、その名前・種類・値・選択肢 |
 | `set_form_field(name, value, *, font=, fontfile=, fontbuffer=, fontindex=, font_language=)` | フィールドに記入し、見た目を生成し直します。[フォーム](#forms)を参照 |
 | `attachments` | 埋め込みファイルのマッピング。[添付ファイル](#attachments)を参照 |
-| `get_pdfa_claim()` | ファイルが宣言しているPDF/Aのパートと適合レベル（`(2, "B")`など）。宣言を読むだけで、検証はしません |
-| `get_xml_metadata(*, max_size=1 MiB)` / `set_xml_metadata(metadata, *, max_size=1 MiB)` / `del_xml_metadata()` | XMPメタデータのパケットをテキストで（ない場合は`""`）。`set_metadata`はこれを変更しません |
-| `language_tag` / `set_language_tag(tag)` | 文書の言語を表す`zh-TW`や`sr-Latn-RS`のような完全なBCP 47タグ、または`None`。`set_language_tag(None)`で削除し、形式の正しくないタグは例外になります |
-| `pagemode` / `set_pagemode(mode)`, `pagelayout` / `set_pagelayout(layout)` | ビューアーが文書をどう開くか（`"UseOutlines"`、`"TwoColumnLeft"`など）。未設定のときは`"UseNone"`と`"SinglePage"` |
-| `markinfo` / `set_markinfo(markinfo)` | タグ付きPDFのフラグを表す`MarkInfo`辞書（ない場合は`{}`）。設定するときは3つのフラグをすべて書き込み、省略したフラグは`False`になります |
+| `pdfa_claim` | ファイルが宣言しているPDF/Aのパートと適合レベルを表す`PdfaClaim(part=2, conformance="B")`レコード、または`None`。宣言を読むだけで、検証はしません |
+| `xmp` | XMPメタデータのパケットをテキストで、または`None`。文字列を代入すると書き込み、`del doc.xmp`で削除します。読み書きとも1 MiBまでで、それより大きいパケットは`doc.catalog["Metadata"].read(max_size=None)`で読めます。`metadata`はこれを変更しません |
+| `language` | 文書の言語を表す`zh-TW`や`sr-Latn-RS`のような完全なBCP 47タグ、または`None`。タグを代入すると書き込み、`del doc.language`で削除します。形式の正しくないタグは例外になります |
+| `page_mode`, `page_layout` | ビューアーが文書をどう開くかを表す`PageMode`・`PageLayout`のメンバー（`PageMode.USE_OUTLINES`、`PageLayout.TWO_COLUMN_LEFT`など）。未設定のときは`USE_NONE`と`SINGLE_PAGE`。メンバーかその正確な名前を代入します |
+| `mark_info` | タグ付きPDFのフラグを表す`MarkInfo(marked=, user_properties=, suspects=)`レコード、またはない場合は`None`。代入すると3つのフラグをすべて書き込み、`del`で削除します |
 | `has_links()`, `has_annots()` | いずれかのページにリンクがあるか、リンクとフォームウィジェット以外の注釈があるか |
 | `objects`, `trailer`, `catalog` | PDFオブジェクトへの直接アクセス。[低レベルオブジェクト](#low-level-objects)を参照 |
 
-`language_tag`はpymupdfの`language`に代わるものです。`language`はタグを3文字までしか保持しないため、`zh-TW`と`zh-HK`はどちらも`zh-Hant`として読まれます。XMPを書き込むと、保存時にストリームを圧縮してもパケットは圧縮されないので、ファイルの中からXMPを探すツールでも見つけられます。
+`language`は完全なタグを保持します。pymupdfの`language`はタグを3文字までしか保持しないため、`zh-TW`と`zh-HK`はどちらも`zh-Hant`として読まれます。XMPを書き込むと、保存時にストリームを圧縮してもパケットは圧縮されないので、ファイルの中からXMPを探すツールでも見つけられます。
 
 ## Page { #page }
 
@@ -590,7 +591,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 
 定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）、`AnnotFlags`（`PDF_ANNOT_IS_*`）です。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
 
-テキスト、表、OCR、ページの内容の結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`などの変更できないデータクラス（frozen dataclass）です。APIが返すそのほかの辞書はただの`dict`で、型チェッカー向けに`LinkInfo`、`FormFieldInfo`、`DocumentMetadata`などの`TypedDict`クラスで記述しています。`OutlineEntry`は名前付きタプルです。
+テキスト、表、OCR、ページの内容の結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`などの変更できないデータクラス（frozen dataclass）です。APIが返すそのほかの辞書はただの`dict`で、型チェッカー向けに`LinkInfo`、`FormFieldInfo`などの`TypedDict`クラスで記述しています。`OutlineEntry`は名前付きタプルです。
 
 ## 例外と警告 { #exceptions }
 

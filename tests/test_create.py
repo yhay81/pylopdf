@@ -199,7 +199,7 @@ def test_metadata(font: pylopdf.Font) -> None:
     assert metadata["subject"] == "Quarterly numbers"
     assert "finance" in metadata["keywords"]
     assert metadata["producer"].startswith("pylopdf ")
-    assert doc.language_tag == "en-US"
+    assert doc.language == "en-US"
 
 
 def test_tagged_documents(font: pylopdf.Font) -> None:
@@ -270,7 +270,7 @@ def test_pdf_a_documents_validate(font: pylopdf.Font) -> None:
         with canvas.opacity(0.5):
             canvas.rect((0, 0, 50, 50), fill=RED)
     doc = builder.finish()
-    assert doc.get_pdfa_claim() == (2, "B")
+    assert doc.pdfa_claim == pylopdf.PdfaClaim(part=2, conformance="B")
 
 
 def test_violations_are_refused(font: pylopdf.Font) -> None:
@@ -291,7 +291,7 @@ def test_pdf_ua_documents(font: pylopdf.Font) -> None:
         with canvas.tag(TagRole.PARAGRAPH):
             canvas.text("Readable", (10, 50), font=font)
     doc = builder.finish()
-    assert "pdfuaid" in doc.get_xml_metadata()
+    assert "pdfuaid" in (doc.xmp or "")
 
 
 def test_invalid_settings() -> None:
@@ -355,4 +355,4 @@ def test_a_fixed_creation_date_makes_output_reproducible(font: pylopdf.Font) -> 
 
     first = build()
     assert first == build()
-    assert pylopdf.open(first).metadata["creationDate"].startswith("D:20260102030405")
+    assert pylopdf.open(first).metadata["created"].startswith("D:20260102030405")

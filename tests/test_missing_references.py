@@ -100,9 +100,9 @@ def test_annotations_start_a_new_array_for_a_null_annots_entry(value: str) -> No
 def test_metadata_creates_an_info_dictionary_for_a_null_info_entry(value: str) -> None:
     """Setting metadata raised `PdfError` for the indirect null and missing `/Info`."""
     doc = pylopdf.open(_pdf(trailer=f"/Info {value}"))
-    assert doc.metadata["title"] == ""
+    assert "title" not in doc.metadata
 
-    doc.set_metadata({"title": "Edited"})
+    doc.metadata.update({"title": "Edited"})
 
     for current in _with_reloaded(doc):
         assert current.metadata["title"] == "Edited"

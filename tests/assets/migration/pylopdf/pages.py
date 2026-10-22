@@ -21,9 +21,9 @@ other.pages.new((200, 200)).insert_text((50, 100), "D", fontsize=24)
 doc.pages.extend(other.pages)
 assert doc.pages[-1].text().strip() == "D"
 
-doc.set_language_tag("zh-TW")
-doc.set_pagemode("UseThumbs")
-assert doc.pagemode == "UseThumbs"
+doc.language = "zh-TW"
+doc.page_mode = "UseThumbs"
+assert doc.page_mode == "UseThumbs"
 
 doc.pages[0].set_rotation(90)
 pixmap = doc.pages[0].pixmap(dpi=36)

@@ -71,13 +71,13 @@ def test_emphasis_markers_stay_outside_inferred_word_gaps() -> None:
 
 
 def test_pdfa_claim_reads_typst_output() -> None:
-    # get_pdfa_claim reads typst/krilla's validated PDF/A declaration.
+    # pdfa_claim reads typst/krilla's validated PDF/A declaration.
     pdf_a = typst.compile(TYP_SOURCE, pdf_standards="a-2b")
     with pylopdf.open(pdf_a) as doc:
-        assert doc.get_pdfa_claim() == (2, "B")
+        assert doc.pdfa_claim == pylopdf.PdfaClaim(part=2, conformance="B")
     plain = typst.compile(TYP_SOURCE)
     with pylopdf.open(plain) as doc:
-        assert doc.get_pdfa_claim() is None
+        assert doc.pdfa_claim is None
 
 
 def test_typst_japanese_watermark_via_show_pdf_page() -> None:
@@ -154,7 +154,7 @@ def test_pyhanko_signs_pylopdf_output_incrementally(tmp_path: Path) -> None:
     # updates append bytes, preserving pylopdf's complete output unchanged.
     doc = pylopdf.Document()
     doc.pages.new()
-    doc.set_metadata({"title": "pylopdf interop test"})
+    doc.metadata.update({"title": "pylopdf interop test"})
     original = doc.to_bytes()
 
     key_path, cert_path = _make_self_signed_cert(tmp_path)

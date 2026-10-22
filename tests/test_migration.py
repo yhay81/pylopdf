@@ -316,6 +316,23 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ("import fitz\npix.save('out.jpg', jpg_quality=70)\n", "pix.save('out.jpg', quality=70)"),
         ("import fitz\npix.save(path, output='png')\n", 'pix.save(path, format="png")'),
         ("import fitz\ncs = fitz.csGRAY\n", "cs = pylopdf.Colorspace.GRAY"),
+        (
+            "import fitz\ndoc.set_metadata({'title': t, 'creationDate': d, 'format': 'PDF 1.7'})\n",
+            'doc.metadata.update({"title": t, "created": d})',
+        ),
+        ("import fitz\ndoc.set_metadata({})\n", "doc.metadata.clear()"),
+        ("import fitz\ntitle = doc.metadata['title']\n", 'title = doc.metadata.get("title", "")'),
+        ("import fitz\nwhen = doc.metadata.get('modDate')\n", 'when = doc.metadata.get("modified", "")'),
+        ("import fitz\nversion = doc.metadata['format']\n", 'version = f"PDF {doc.version}"'),
+        ("import fitz\nmethod = doc.metadata['encryption']\n", "method = doc.encryption_method"),
+        ("import fitz\nxmp = doc.get_xml_metadata()\n", 'xmp = (doc.xmp or "")'),
+        ("import fitz\ndoc.set_xml_metadata(packet)\n", "doc.xmp = packet"),
+        ("import fitz\ndoc.del_xml_metadata()\n", "del doc.xmp"),
+        ("import fitz\nmode = (doc.pagemode, doc.pagelayout)\n", "mode = (doc.page_mode, doc.page_layout)"),
+        ("import fitz\ndoc.set_pagemode('/useoutlines')\n", 'doc.page_mode = "UseOutlines"'),
+        ("import fitz\ndoc.set_pagelayout('twocolumnleft')\n", 'doc.page_layout = "TwoColumnLeft"'),
+        ("import fitz\ndoc.set_language('zh-TW')\n", "doc.language = 'zh-TW'"),
+        ("import fitz\ndoc.set_language(None)\n", "del doc.language"),
     ],
 )
 def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> None:
@@ -362,6 +379,11 @@ def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> N
             "import pylopdf\ntable = page.find_tables(strategy=None)[0]\nscore = (table.confidence, table.strategy)\n",
             "table = page.tables()[0]\nscore = (table.diagnostics.confidence, table.diagnostics.strategy)",
         ),
+        (
+            'import pylopdf\ndoc.set_metadata({"author": "A", "modDate": "D:2026"})\n',
+            'doc.metadata.update({"author": "A", "modified": "D:2026"})',
+        ),
+        ("import pylopdf\ncreated = doc.metadata['creationDate']\n", 'created = doc.metadata.get("created", "")'),
     ],
 )
 def test_codemod_migrates_pylopdf_015_programs(migrate_source: Migrate, source: str, expected: str) -> None:
@@ -394,7 +416,7 @@ def test_codemod_preserves_none_passwords(
     assert isinstance(data, bytes)
     with pylopdf.open(data, password=password) as doc:
         assert len(doc.pages) == 1
-        assert (doc.metadata["encryption"] is not None) is encrypted
+        assert (doc.encryption_method is not None) is encrypted
 
 
 def test_codemod_migrates_a_document_named_pages(migrate_source: Migrate) -> None:
@@ -466,6 +488,10 @@ def test_codemod_marks_probe_results_for_review(migrate_source: Migrate) -> None
             "import pylopdf\nfor table in page.tables():\n    print(table.rows, table.cells)\n"
             "page.apply_ocr(words=page.ocr())\n"
         ),
+        (
+            "import pylopdf\ndoc.metadata['title'] = doc.metadata['author']\ndel doc.metadata['subject']\n"
+            "doc.page_mode = doc.page_layout = None\ndel doc.xmp\nlanguage = doc.language\n"
+        ),
     ],
 )
 def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, source: str) -> None:
@@ -515,6 +541,13 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import fitz\nchannels = pix.n\n", "Pixmap.n is Pixmap.channels"),
         ("import fitz\ncs = fitz.csCMYK\n", "csCMYK"),
         ("import fitz\ndata = pix.tobytes('pnm')\n", "to_bytes"),
+        ("import fitz\ndoc.set_metadata(values)\n", "doc.metadata is a live mapping"),
+        ("import fitz\ndoc.set_metadata({'title': ''})\n", "del a key to remove it"),
+        ("import fitz\ndoc.set_pagelayout(layout)\n", "Assign doc.page_layout"),
+        ("import fitz\nflags = doc.markinfo\n", "MarkInfo record"),
+        ("import fitz\ndoc.set_markinfo({'Marked': True})\n", "Assign doc.mark_info = MarkInfo("),
+        ("import pylopdf\nclaim = doc.get_pdfa_claim()\n", "PdfaClaim record"),
+        ("import pylopdf\nfrom pylopdf import DocumentMetadata\n", "DocumentMetadata is Metadata"),
     ],
 )
 def test_codemod_marks_what_it_cannot_rewrite(migrate_source: Migrate, source: str, hint: str) -> None:

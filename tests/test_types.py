@@ -14,13 +14,16 @@ def test_public_type_contracts_are_runtime_importable() -> None:
         "Block",
         "DocumentComplexity",
         "DocumentLimits",
-        "DocumentMetadata",
+        "Metadata",
         "FormFieldInfo",
         "FormFieldType",
         "ImageCompressionResult",
         "LinkInfo",
         "LimitError",
-        "MetadataUpdate",
+        "MarkInfo",
+        "PageLayout",
+        "PageMode",
+        "PdfaClaim",
         "OcrRotation",
         "OcrWord",
         "PageLabelInfo",
@@ -48,11 +51,9 @@ def test_public_names_report_the_package_rather_than_a_private_module() -> None:
 def test_typed_dict_required_and_optional_keys() -> None:
     typed_dicts = (
         pylopdf.DocumentComplexity,
-        pylopdf.DocumentMetadata,
         pylopdf.FormFieldInfo,
         pylopdf.ImageCompressionResult,
         pylopdf.LinkInfo,
-        pylopdf.MetadataUpdate,
         pylopdf.PageLabelInfo,
         pylopdf.PageLabelSpec,
     )
@@ -61,7 +62,6 @@ def test_typed_dict_required_and_optional_keys() -> None:
     assert pylopdf.LinkInfo.__optional_keys__ == frozenset({"uri", "page", "to", "zoom", "nameddest", "file", "name"})
     assert pylopdf.PageLabelSpec.__required_keys__ == frozenset({"startpage"})
     assert pylopdf.PageLabelSpec.__optional_keys__ == frozenset({"style", "prefix", "firstpagenum"})
-    assert pylopdf.MetadataUpdate.__required_keys__ == frozenset()
     assert get_type_hints(pylopdf.Image)["bbox"] is pylopdf.Rect
     assert get_type_hints(pylopdf.OcrWord)["bbox"] is pylopdf.Rect
     assert get_type_hints(pylopdf.Table)["diagnostics"] is pylopdf.TableDiagnostics
@@ -70,7 +70,7 @@ def test_typed_dict_required_and_optional_keys() -> None:
 def test_public_return_annotations_describe_real_values() -> None:
     doc = pylopdf.open(build_pdf(["Typed layout"]))
     layout: dict[str, Any] = doc.pages[0].layout().to_dict()
-    metadata: pylopdf.DocumentMetadata = doc.metadata
+    metadata: pylopdf.Metadata = doc.metadata
     complexity: pylopdf.DocumentComplexity = doc.complexity
     labels: list[pylopdf.PageLabelInfo] = doc.get_page_labels()
     fields: list[pylopdf.FormFieldInfo] = doc.get_form_fields()
@@ -78,7 +78,7 @@ def test_public_return_annotations_describe_real_values() -> None:
     compression: pylopdf.ImageCompressionResult = doc.rewrite_images(quality=75)
 
     assert layout["blocks"][0]["lines"][0]["spans"][0]["text"] == "Typed layout"
-    assert metadata["format"].startswith("PDF ")
+    assert isinstance(metadata, pylopdf.Metadata)
     assert complexity["page_count"] == 1
     assert labels == []
     assert fields == []

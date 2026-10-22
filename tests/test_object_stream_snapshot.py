@@ -155,7 +155,7 @@ def test_nothing_is_read_before_the_first_interpretation_and_after_an_edit() -> 
     assert doc._doc.snapshot_source() == "none"  # noqa: SLF001
     doc.text(pages=[0])
     assert doc._doc.snapshot_source() == "serialized"  # noqa: SLF001
-    doc.set_metadata({"title": "Edited"})
+    doc.metadata.update({"title": "Edited"})
     assert doc._doc.snapshot_source() == "none"  # noqa: SLF001
     doc.text(pages=[0])
     assert doc._doc.snapshot_source() == "serialized"  # noqa: SLF001
