@@ -60,6 +60,7 @@ with pylopdf.open("input.pdf") as doc:     # or pylopdf.open(pdf_bytes)
         "locked.pdf",
         encryption=pylopdf.Encryption(
             user_password="secret",
+            owner_password="owner-secret",
             permissions=pylopdf.Permissions.PRINT,
         ),
     )

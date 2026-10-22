@@ -303,6 +303,45 @@ def test_codemod_preserves_none_passwords(
         assert (doc.metadata["encryption"] is not None) is encrypted
 
 
+def test_codemod_migrates_a_document_named_pages(migrate_source: Migrate) -> None:
+    source = (
+        "import fitz\npages = fitz.open()\npages.new_page(width=100, height=200)\n"
+        "pages.new_page(width=300, height=400)\npages.select([1])\n"
+    )
+
+    result = migrate_source(source)
+    namespace: dict[str, object] = {}
+    exec(result.code, namespace)  # noqa: S102 - execute the trusted migration fixture.
+    doc = namespace["pages"]
+
+    assert result.todos == ()
+    assert isinstance(doc, pylopdf.Document)
+    assert len(doc.pages) == 1
+    assert doc.pages[0].rect == pylopdf.Rect(0, 0, 300, 400)
+
+
+@pytest.mark.parametrize(
+    ("imports", "factory"),
+    [
+        ("import fitz", "fitz.Document()"),
+        ("import fitz as pdf", "pdf.open(stream=source_pdf)"),
+        ("from fitz import open", "open(stream=source_pdf)"),
+        ("from fitz import Document as Pdf", "Pdf()"),
+        ("import pylopdf", "pylopdf.Document()"),
+    ],
+)
+def test_codemod_migrates_inline_document_serialization(migrate_source: Migrate, imports: str, factory: str) -> None:
+    source = f"{imports}\ndata = {factory}.tobytes()\n"
+
+    result = migrate_source(source)
+    namespace: dict[str, object] = {"source_pdf": pylopdf.Document().to_bytes()}
+    exec(result.code, namespace)  # noqa: S102 - execute the trusted migration fixture.
+
+    assert result.todos == ()
+    assert isinstance(namespace["data"], bytes)
+    assert migrate_source(result.code).code == result.code
+
+
 def test_codemod_marks_probe_results_for_review(migrate_source: Migrate) -> None:
     result = migrate_source("import pylopdf\ninfo = pylopdf.peek_metadata(stream=data)\n")
 

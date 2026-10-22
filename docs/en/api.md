@@ -67,7 +67,11 @@ defaults to the user password, and the document in memory stays unencrypted.
 doc.save("out.pdf", dedupe=True, object_streams=True)
 doc.save(
     "locked.pdf",
-    encryption=pylopdf.Encryption(user_password="secret", permissions=pylopdf.Permissions.PRINT),
+    encryption=pylopdf.Encryption(
+        user_password="secret",
+        owner_password="owner-secret",
+        permissions=pylopdf.Permissions.PRINT,
+    ),
 )
 ```
 

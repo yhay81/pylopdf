@@ -13,5 +13,7 @@ until the document is unlocked and replaces `is_encrypted`, and
 `Document.permissions` returns `Permissions` flags. The codemod migrates
 pymupdf's and pylopdf 0.15's save options and `authenticate` calls,
 preserves literal `None` password defaults, and flags dynamic pymupdf
-encryption choices for manual review. Locked-document errors direct callers
-to `unlock()`.
+encryption choices for manual review. It recognizes document variables named
+`pages` and inline document factory calls. Locked-document errors direct callers
+to `unlock()`, and permission-restricting examples use separate user and
+owner passwords.

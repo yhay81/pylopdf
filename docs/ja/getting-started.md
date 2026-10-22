@@ -49,6 +49,7 @@ with pylopdf.open("input.pdf") as doc:     # pylopdf.open(pdf_bytes) でも可
         "locked.pdf",
         encryption=pylopdf.Encryption(
             user_password="secret",
+            owner_password="owner-secret",
             permissions=pylopdf.Permissions.PRINT,
         ),
     )

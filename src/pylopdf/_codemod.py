@@ -352,9 +352,13 @@ def _move_page(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     return f"{receiver}.pages.move({index}, {destination})"
 
 
-def _select(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
-    # A receiver named pages is pylopdf's Pages already.
-    if receiver.rsplit(".", 1)[-1] == "pages" or len(args.positional) != 1 or args.keywords:
+def _select(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    # A receiver named pages can already be Pages, unless it is a known document.
+    if (
+        (receiver.rsplit(".", 1)[-1] == "pages" and not migrator.is_document(receiver))
+        or len(args.positional) != 1
+        or args.keywords
+    ):
         return None
     return f"{receiver}.pages.select({args.positional[0]})"
 
@@ -1059,8 +1063,18 @@ class _Migrator(cst.CSTTransformer):
         return self._scan.pymupdf
 
     def is_document(self, receiver: str) -> bool:
-        """Return whether ``receiver`` is a name bound only to documents."""
-        return receiver in self._documents
+        """Return whether ``receiver`` is a known document name or document factory call."""
+        if receiver in self._documents:
+            return True
+        expression = cst.parse_expression(receiver)
+        if isinstance(expression, cst.Name):
+            return expression.value in self._documents
+        if not isinstance(expression, cst.Call):
+            return False
+        function = expression.func
+        if isinstance(function, cst.Attribute) and isinstance(function.value, cst.Name):
+            return function.value.value in self.module_names and function.attr.value in DOCUMENT_FACTORIES
+        return isinstance(function, cst.Name) and self._scan.imported.get(function.value) in DOCUMENT_FACTORIES
 
     def _member_todo(self, name: str) -> None:
         if not self._scan.pymupdf and name not in _removed_015_members():
