@@ -93,7 +93,7 @@ risky. When processing untrusted files:
   4,096 UTF-8 bytes and counts it incrementally before PyO3 copying rather than
   allocating complete encoded copies. Its decoded content, encoding data,
   growth, and final stream share the configured output budget.
-- Open, authenticate, fast metadata probe, and AES-256 output passwords stop at
+- Open, unlock, fast metadata probe, and AES-256 output passwords stop at
   127 UTF-8 bytes before PyO3 copying or password-KDF work. Refusals use
   `password_input_size`; encryption refusal precedes document mutation and
   output creation.

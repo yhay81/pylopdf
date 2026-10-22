@@ -95,7 +95,7 @@ def test_dictionary_writes_take_effect_immediately() -> None:
 
     assert page.rotation == 90
     assert "UserUnit" not in page.obj
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     assert reopened.pages[0].rotation == 90
 
 
@@ -122,7 +122,7 @@ def test_stream_write_without_a_filter_stores_the_data() -> None:
     assert "Filter" not in contents
     assert contents["Length"] == len(b"BT /F1 12 Tf 72 720 Td (plain) Tj ET")
     assert contents.read(decode=False) == contents.read()
-    assert pylopdf.open(doc.tobytes()).pages[0].get_text().strip() == "plain"
+    assert pylopdf.open(doc.to_bytes()).pages[0].get_text().strip() == "plain"
 
 
 def test_stream_read_is_bounded() -> None:
@@ -162,7 +162,7 @@ def test_add_builds_a_new_page_from_raw_objects() -> None:
     assert doc.pages[0].get_text().strip() == "raw"
     # An indirect handle stored inside a container is a reference.
     assert doc.pages[0].obj["Resources"]["Font"]["F9"].xref == font
-    saved = doc.tobytes()
+    saved = doc.to_bytes()
     assert b"/F9 " + str(font).encode() + b" 0 R" in saved
     assert pylopdf.open(saved).pages[0].get_text().strip() == "raw"
 
@@ -237,7 +237,7 @@ def test_a_str_value_is_a_text_string_not_a_name() -> None:
     doc.catalog["PageMode"] = "UseOutlines"
 
     assert isinstance(doc.catalog["PageMode"], String)
-    assert b"/PageMode(UseOutlines)" in doc.tobytes()
+    assert b"/PageMode(UseOutlines)" in doc.to_bytes()
 
 
 def test_array_editing() -> None:
@@ -287,10 +287,10 @@ def test_handles_go_stale_when_objects_are_renumbered() -> None:
     pages = doc.catalog["Pages"]
     doc.objects.add({"Unreferenced": True})
 
-    doc.tobytes(garbage=1)
+    doc.to_bytes()
     assert pages["Count"] == 2
 
-    doc.tobytes(garbage=2)
+    doc.to_bytes(renumber=True)
     with pytest.raises(pylopdf.StaleObjectError):
         pages["Count"]
     assert doc.catalog["Pages"]["Count"] == 2
@@ -363,7 +363,7 @@ def test_handles_compare_and_hash_by_address() -> None:
 def test_closed_and_encrypted_documents_are_refused() -> None:
     doc = _two_pages()
     catalog = doc.catalog
-    encrypted = pylopdf.open(doc.tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="secret"))
+    encrypted = pylopdf.open(doc.to_bytes(encryption=pylopdf.Encryption(user_password="secret")))
     doc.close()
 
     with pytest.raises(pylopdf.DocumentClosedError):
@@ -372,14 +372,14 @@ def test_closed_and_encrypted_documents_are_refused() -> None:
         encrypted.objects  # noqa: B018 - property access is the operation under test.
 
 
-def test_objects_are_readable_after_authentication() -> None:
+def test_objects_are_readable_after_unlocking() -> None:
     encrypted = pylopdf.open(
-        _two_pages().tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="user", owner_pw="owner")
+        _two_pages().to_bytes(encryption=pylopdf.Encryption(user_password="user", owner_password="owner"))
     )
     with pytest.raises(pylopdf.EncryptedDocumentError):
         encrypted.catalog  # noqa: B018 - property access is the operation under test.
 
-    assert encrypted.authenticate("user") == 2
+    assert encrypted.unlock("user") is pylopdf.Access.USER
     assert encrypted.catalog["Pages"]["Count"] == 2
 
 

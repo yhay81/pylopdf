@@ -114,7 +114,7 @@ def test_text_length_equals_the_drawn_advance(regular: pylopdf.Font) -> None:
         offsets.append(offsets[-1] + len(char["c"]))
     following = chars[offsets.index(len(prefix))]
     assert following["origin"][0] == pytest.approx(x + regular.text_length(prefix, size), abs=1e-2)
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     assert reopened.pages[0].get_text().strip() == MIXED_LINE
 
 
@@ -142,7 +142,7 @@ def test_font_parameter_draws_the_same_bytes_as_fontbuffer(regular: pylopdf.Font
     expected[1].insert_textbox((20, 120, 200, 190), "折り返す本文です。" * 3, fontbuffer=data, fontsize=11)
     actual[1].insert_textbox((20, 120, 200, 190), "折り返す本文です。" * 3, font=regular, fontsize=11)
 
-    assert actual[0].tobytes() == expected[0].tobytes()
+    assert actual[0].to_bytes() == expected[0].to_bytes()
 
 
 def test_a_bold_face_loaded_from_its_file_draws_as_given(bold_data: bytes) -> None:
@@ -152,7 +152,7 @@ def test_a_bold_face_loaded_from_its_file_draws_as_given(bold_data: bytes) -> No
     expected, actual = (_new_page() for _ in range(2))
     expected[1].insert_text((20, 60), "太字", fontbuffer=bold_data, fontsize=18)
     actual[1].insert_text((20, 60), "太字", font=bold, fontsize=18)
-    assert actual[0].tobytes() == expected[0].tobytes()
+    assert actual[0].to_bytes() == expected[0].to_bytes()
 
 
 @pytest.mark.parametrize(
@@ -198,7 +198,7 @@ def test_standard_14_fonts_measure_and_draw_with_afm_widths() -> None:
     actual[1].insert_text((10, 40), "Hello", font=pylopdf.Font("Helvetica-Bold"), fontsize=14)
     expected[1].insert_textbox((10, 60, 300, 150), "Wrapped Times text " * 4, fontname="tiro", align=2)
     actual[1].insert_textbox((10, 60, 300, 150), "Wrapped Times text " * 4, font=pylopdf.Font("tiro"), align=2)
-    assert actual[0].tobytes() == expected[0].tobytes()
+    assert actual[0].to_bytes() == expected[0].to_bytes()
     with pytest.raises(ValueError, match="WinAnsi"):
         actual[1].insert_text((10, 40), "日本語", font=helvetica)
 
@@ -307,7 +307,7 @@ def test_an_explicit_weight_must_match_a_static_face(regular: pylopdf.Font, bold
         assert (face.name, face.weight) == ("Noto Sans JP Regular", 400)
         drawn = _new_page()
         drawn[1].insert_text((20, 60), MIXED_LINE, font=face, fontsize=18)
-        assert drawn[0].tobytes() == as_given[0].tobytes()
+        assert drawn[0].to_bytes() == as_given[0].to_bytes()
     with pytest.raises(pylopdf.PdfError, match="no weight axis, and its only face is regular, not bold; load the bold"):
         pylopdf.Font(fontfile=NOTO_SANS_JP, weight=700)
     with pytest.raises(pylopdf.PdfError, match="its only face is regular, not weight-500"):
@@ -349,11 +349,11 @@ def test_font_parameter_rejects_other_font_sources(regular: pylopdf.Font) -> Non
 
 def test_textbox_with_font_keeps_its_no_draw_boundaries(regular: pylopdf.Font) -> None:
     doc, page = _new_page()
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     assert page.insert_textbox((10, 10, 110, 15), "折り返せない長さの本文", font=regular, fontsize=10) < 0
     assert page.insert_textbox((10, 10, 110, 25), "", font=regular, fontsize=10) == 15
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 def test_language_and_family_select_installed_extra_faces() -> None:

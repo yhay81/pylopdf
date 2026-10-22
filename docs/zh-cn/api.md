@@ -30,17 +30,25 @@ pylopdf.Document(*, limits=None)
 |---|---|
 | `pages` | 文档的页面；参见[页面](#document-pages) |
 | `metadata` / `set_metadata(m)` | 标题、作者等Info字段，以及`format`和`encryption`。`set_metadata`会删除值为空的键，传入`{}`则全部删除 |
-| `needs_password`、`is_encrypted`、`authenticate(password)` | 加密状态；`authenticate`解锁文档并返回与pymupdf相同的代码：密码错误时为0，否则为1、2、4或6 |
+| `needs_password`、`unlock(password)` | 文档是否处于锁定状态，以及解锁文档：`unlock`返回`Access.USER`或`Access.OWNER`，密码错误时抛出`PasswordError` |
 | `is_repaired` | 打开时是否修复了损坏的交叉引用数据 |
-| `permissions` | 与pymupdf报告方式相同的权限标志：需要密码时为`0`，未加密的文档或使用所有者密码解锁后为`-4`（全部权限），否则为加密的`/P`值。用`doc.permissions & Permissions.PRINT`检查某个标志 |
+| `permissions` | 文档允许的操作，以`Permissions`标志表示：锁定期间为空，未加密的文档或使用所有者密码解锁后为`Permissions.ALL`，否则为加密所授予的标志。用`Permissions.PRINT in doc.permissions`检查某个标志 |
 | `is_dirty` | 文档自打开以来是否被编辑过。与pymupdf相同，新建的空文档一开始就算作已编辑，保存也不会重置该状态 |
 | `is_closed`、`path` | 文档是否已关闭，以及打开时所用文件的`pathlib.Path`；从bytes打开的文档和空文档为`None` |
 | `limits`、`complexity` | 打开文档时使用的策略，以及用于判断是否处理该文档的轻量结构信息（页数、对象数、流数） |
-| `save(filename, *, garbage=0, deflate=False, use_objstms=False, encryption=, user_pw=, owner_pw=, permissions=)` | 写出PDF。只有在完整写入成功后才会替换文件 |
-| `tobytes(..., max_size=512 MiB)` | 以`bytes`形式返回相同的输出 |
+| `save(path, /, *, compress=True, prune=True, dedupe=False, renumber=False, object_streams=False, encryption=None)` | 写出PDF。只有在完整写入成功后才会替换文件 |
+| `to_bytes(..., max_size=512 MiB)` | 以`bytes`形式返回相同的输出 |
 | `close()` | 释放文档；使用`with`时会自动调用 |
 
-`garbage`采用pymupdf的级别：1删除未使用的对象，2还会对其余对象重新编号，3和4还会合并重复的对象和流。`deflate`压缩流，`use_objstms`将对象打包进压缩的对象流。`encryption`为`PDF_ENCRYPT_NONE`（默认）或`PDF_ENCRYPT_AES_256`；未指定AES-256却传入密码时会抛出异常。
+默认情况下，保存时会压缩经Flate压缩后变小的流，并删除没有任何引用的对象；`compress=False`和`prune=False`会让它们保持原样。`dedupe=True`合并重复的对象和流，`renumber=True`为其余对象连续编号，`object_streams=True`将对象打包进压缩的对象流。这些选项改变的是文档本身，而不仅是输出。要加密，请传入`encryption=Encryption(user_password=..., owner_password=..., permissions=...)`，它会写出AES-256加密；所有者密码默认与用户密码相同，内存中的文档保持未加密状态。
+
+```python
+doc.save("out.pdf", dedupe=True, object_streams=True)
+doc.save(
+    "locked.pdf",
+    encryption=pylopdf.Encryption(user_password="secret", permissions=pylopdf.Permissions.PRINT),
+)
+```
 
 ### 页面 { #document-pages }
 
@@ -105,7 +113,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 颠倒页面顺序
 | `has_links()`、`has_annots()` | 是否有任何页面带有链接，或带有链接和表单控件以外的批注 |
 | `objects`、`trailer`、`catalog` | 直接访问PDF对象；参见[底层对象](#low-level-objects) |
 
-`language_tag`取代了pymupdf的`language`：后者最多只保留标签的三个字母，因此`zh-TW`和`zh-HK`都会被读成`zh-Hant`。写入XMP时，即使指定`deflate=True`也不会压缩数据包，因此在文件中搜索XMP的工具仍能找到它。
+`language_tag`取代了pymupdf的`language`：后者最多只保留标签的三个字母，因此`zh-TW`和`zh-HK`都会被读成`zh-Hant`。写入XMP时，即使保存时压缩流也不会压缩数据包，因此在文件中搜索XMP的工具仍能找到它。
 
 ## Page { #page }
 
@@ -450,7 +458,7 @@ doc.objects[content].read()                     # 解码后的流数据
 | 数组、字典 | `Array`（可变序列）、`Dictionary`（可变映射） |
 | 流 | `Stream`，带有`read(*, decode=True)`和`write(data, *, filter="FlateDecode")`的字典 |
 
-修改会立即生效。指向不存在对象的引用读取为`None`。将句柄存入另一个对象时，存储的是指向它的引用。对象被删除后，或`save(garbage=2)`及以上级别对对象重新编号后，句柄会抛出`StaleObjectError`。pylopdf不会检查你的修改在PDF层面是否合理。
+修改会立即生效。指向不存在对象的引用读取为`None`。将句柄存入另一个对象时，存储的是指向它的引用。对象被删除后，或`save(renumber=True)`对对象重新编号后，句柄会抛出`StaleObjectError`。pylopdf不会检查你的修改在PDF层面是否合理。
 
 ## 几何 { #geometry-types }
 
@@ -530,7 +538,7 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 | 名称 | 用途 |
 |---|---|
 | `open(source, /, *, password=None, limits=None)` | 打开文档；参见[Document](#document) |
-| `probe(source, /, *, password=None, max_file_size=None)` | 无需加载文档即可读取的`Probe`记录，包含`page_count`、`version`、`is_encrypted`、`is_repaired`和`metadata`（存在时包含`title`、`author`、`subject`、`keywords`、`creator`、`producer`、`created`和`modified`） |
+| `probe(source, /, *, password=None, max_file_size=None)` | 无需加载文档即可读取的`Probe`记录，包含`page_count`、`version`、`needs_password`、`is_repaired`和`metadata`（存在时包含`title`、`author`、`subject`、`keywords`、`creator`、`producer`、`created`和`modified`） |
 | `DocumentLimits`、`DocumentLimits.web()` | 用于不可信输入的资源上限；参见[安全](security.md#untrusted-pdfs) |
 | `OcrEngine` | 可复用的OCR引擎；参见[离线OCR](ocr.md) |
 | `Canvas`、`PathBuilder`、`TextFit` | 参见[画布](#canvas) |
@@ -541,7 +549,7 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 | `Content`、`TextRun`、`Path`、`Image`、`Glyph`、`FontRef`、`Color`、`Stroke`、`GraphicsContext`及其他内容类型 | [页面内容](#content) |
 | `Colorspace`、`csRGB`、`csGRAY`、`csCMYK` | pymupdf的设备颜色空间 |
 
-常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`EncryptionMethod`（`PDF_ENCRYPT_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）和`AnnotFlags`（`PDF_ANNOT_IS_*`）。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
+常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）和`AnnotFlags`（`PDF_ANNOT_IS_*`）。`Access`的成员是`USER`和`OWNER`，`Encryption`描述如何加密保存的文件。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
 
 API返回的字典都是普通的`dict`对象，并通过`TextPageDict`、`RawTextPageDict`、`DrawingInfo`、`ImageInfo`、`LinkInfo`、`FormFieldInfo`、`DocumentMetadata`和`OcrWord`等`TypedDict`类向类型检查器描述。`Word`、`Block`、`ImageItem`和`OutlineEntry`等元组都是具名元组。
 
@@ -551,8 +559,8 @@ API返回的字典都是普通的`dict`对象，并通过`TextPageDict`、`RawTe
 |---|---|
 | `PdfError` | pylopdf错误的基类；`ValueError`的子类 |
 | `MalformedPdfError` | 输入不是可读取的PDF，包括输入为空的情况 |
-| `PasswordError` | 使用给定的密码解密失败 |
-| `EncryptedDocumentError` | 必须先用`authenticate()`解锁文档 |
+| `PasswordError` | 密码既不是用户密码也不是所有者密码 |
+| `EncryptedDocumentError` | 必须先用`unlock()`解锁文档 |
 | `LimitError` | 达到了[大小或资源上限](security.md#error-codes)；`.code`说明是哪一个 |
 | `DocumentClosedError` | 文档已关闭 |
 | `StalePageError` | `Page`是在添加、删除或重排页面之前获取的 |

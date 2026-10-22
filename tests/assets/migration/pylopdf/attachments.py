@@ -11,7 +11,7 @@ assert list(doc.attachments) == ["data.csv"]
 assert doc.attachments["data.csv"].read() == b"a,b\n1,2\n"
 
 doc.attachments["data.csv"].write(b"a,b\n3,4\n")
-saved = pylopdf.open(doc.tobytes())
+saved = pylopdf.open(doc.to_bytes())
 assert saved.attachments["data.csv"].read() == b"a,b\n3,4\n"
 
 del saved.attachments["data.csv"]

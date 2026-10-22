@@ -42,18 +42,19 @@ with pylopdf.open("input.pdf") as doc:     # 也可使用 pylopdf.open(pdf_bytes
     print(doc.metadata["title"])
     doc.set_metadata({"title": "Report", "author": "Alice"})
 
-    doc.save("out.pdf")
-    data = doc.tobytes()                   # 以bytes形式得到同一份PDF
-    doc.save("small.pdf", garbage=3, deflate=True, use_objstms=True)
+    doc.save("out.pdf")                    # 压缩，且不含未使用的对象
+    data = doc.to_bytes()                  # 以bytes形式得到同一份PDF
+    doc.save("small.pdf", dedupe=True, object_streams=True)
     doc.save(
         "locked.pdf",
-        encryption=pylopdf.PDF_ENCRYPT_AES_256,
-        user_pw="secret",
-        permissions=pylopdf.PDF_PERM_PRINT,
+        encryption=pylopdf.Encryption(
+            user_password="secret",
+            permissions=pylopdf.Permissions.PRINT,
+        ),
     )
 ```
 
-- **加密文件**：打开时传入`password=`，或在打开后调用`doc.authenticate(password)`。
+- **加密文件**：打开时传入`password=`，或在打开后调用`doc.unlock(password)`；`doc.needs_password`表明是否需要这样做。
 - **只读元数据**：`pylopdf.probe(path)`无需加载整个文档即可读取页数、版本和元数据，适合扫描大量文件。
 - **损坏的文件**：如果pylopdf需要修复损坏的文件才能打开，它会发出`PylopdfWarning`并设置`doc.is_repaired`。保存时会写出一份完好的文件。
 

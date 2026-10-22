@@ -1,6 +1,7 @@
 {
   "api_line": "0.15",
   "exports": [
+    "Access",
     "Annot",
     "AnnotFlags",
     "AnnotType",
@@ -36,7 +37,7 @@
     "EMPTY_QUAD",
     "EMPTY_RECT",
     "EncryptedDocumentError",
-    "EncryptionMethod",
+    "Encryption",
     "ExtractedImage",
     "FZ_MAX_INF_RECT",
     "FZ_MIN_INF_RECT",
@@ -124,13 +125,6 @@
     "PDF_ANNOT_UNKNOWN",
     "PDF_ANNOT_WATERMARK",
     "PDF_ANNOT_WIDGET",
-    "PDF_ENCRYPT_AES_128",
-    "PDF_ENCRYPT_AES_256",
-    "PDF_ENCRYPT_KEEP",
-    "PDF_ENCRYPT_NONE",
-    "PDF_ENCRYPT_RC4_128",
-    "PDF_ENCRYPT_RC4_40",
-    "PDF_ENCRYPT_UNKNOWN",
     "PDF_PERM_ACCESSIBILITY",
     "PDF_PERM_ANNOTATE",
     "PDF_PERM_ASSEMBLE",
@@ -201,6 +195,13 @@
   ],
   "schema": 1,
   "symbols": {
+    "Access": {
+      "kind": "enum",
+      "members": {
+        "OWNER": 2,
+        "USER": 1
+      }
+    },
     "Annot": {
       "kind": "class",
       "members": {
@@ -1923,23 +1924,6 @@
           "kind": "property",
           "returns": "Attachments"
         },
-        "authenticate": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "password"
-              }
-            ],
-            "returns": "int"
-          }
-        },
         "catalog": {
           "kind": "property",
           "returns": "Dictionary"
@@ -2111,10 +2095,6 @@
           "kind": "property",
           "returns": "bool"
         },
-        "is_encrypted": {
-          "kind": "property",
-          "returns": "bool"
-        },
         "is_repaired": {
           "kind": "property",
           "returns": "bool"
@@ -2161,7 +2141,7 @@
         },
         "permissions": {
           "kind": "property",
-          "returns": "int"
+          "returns": "Permissions"
         },
         "render_pages": {
           "kind": "method",
@@ -2294,55 +2274,49 @@
           "signature": {
             "parameters": [
               {
-                "kind": "positional_or_keyword",
+                "kind": "positional_only",
                 "name": "self"
               },
               {
                 "annotation": "str | os.PathLike[str]",
-                "kind": "positional_or_keyword",
-                "name": "filename"
+                "kind": "positional_only",
+                "name": "path"
               },
               {
-                "annotation": "int",
-                "default": 0,
+                "annotation": "bool",
+                "default": true,
                 "kind": "keyword_only",
-                "name": "garbage"
+                "name": "compress"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "prune"
               },
               {
                 "annotation": "bool",
                 "default": false,
                 "kind": "keyword_only",
-                "name": "deflate"
+                "name": "dedupe"
               },
               {
                 "annotation": "bool",
                 "default": false,
                 "kind": "keyword_only",
-                "name": "use_objstms"
+                "name": "renumber"
               },
               {
-                "annotation": "int",
-                "default": 1,
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "object_streams"
+              },
+              {
+                "annotation": "Encryption | None",
+                "default": null,
                 "kind": "keyword_only",
                 "name": "encryption"
-              },
-              {
-                "annotation": "str | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "user_pw"
-              },
-              {
-                "annotation": "str | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "owner_pw"
-              },
-              {
-                "annotation": "int",
-                "default": 3900,
-                "kind": "keyword_only",
-                "name": "permissions"
               }
             ],
             "returns": "None"
@@ -2589,6 +2563,60 @@
             "returns": "None"
           }
         },
+        "to_bytes": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "compress"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "prune"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "dedupe"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "renumber"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "object_streams"
+              },
+              {
+                "annotation": "Encryption | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "encryption"
+              },
+              {
+                "annotation": "int | None",
+                "default": 536870912,
+                "kind": "keyword_only",
+                "name": "max_size"
+              }
+            ],
+            "returns": "bytes"
+          }
+        },
         "to_markdown": {
           "kind": "method",
           "signature": {
@@ -2619,7 +2647,11 @@
             "returns": "str"
           }
         },
-        "tobytes": {
+        "trailer": {
+          "kind": "property",
+          "returns": "Dictionary"
+        },
+        "unlock": {
           "kind": "method",
           "signature": {
             "parameters": [
@@ -2628,60 +2660,13 @@
                 "name": "self"
               },
               {
-                "annotation": "int",
-                "default": 0,
-                "kind": "keyword_only",
-                "name": "garbage"
-              },
-              {
-                "annotation": "bool",
-                "default": false,
-                "kind": "keyword_only",
-                "name": "deflate"
-              },
-              {
-                "annotation": "bool",
-                "default": false,
-                "kind": "keyword_only",
-                "name": "use_objstms"
-              },
-              {
-                "annotation": "int",
-                "default": 1,
-                "kind": "keyword_only",
-                "name": "encryption"
-              },
-              {
-                "annotation": "str | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "user_pw"
-              },
-              {
-                "annotation": "str | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "owner_pw"
-              },
-              {
-                "annotation": "int",
-                "default": 3900,
-                "kind": "keyword_only",
-                "name": "permissions"
-              },
-              {
-                "annotation": "int | None",
-                "default": 536870912,
-                "kind": "keyword_only",
-                "name": "max_size"
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "password"
               }
             ],
-            "returns": "bytes"
+            "returns": "Access"
           }
-        },
-        "trailer": {
-          "kind": "property",
-          "returns": "Dictionary"
         }
       },
       "signature": {
@@ -2950,16 +2935,62 @@
       "kind": "exception",
       "members": {}
     },
-    "EncryptionMethod": {
-      "kind": "enum",
+    "Encryption": {
+      "annotations": {
+        "method": "Literal['aes-256']",
+        "owner_password": "str | None",
+        "permissions": "Permissions",
+        "user_password": "str"
+      },
+      "dataclass_fields": [
+        "user_password",
+        "owner_password",
+        "permissions",
+        "method"
+      ],
+      "kind": "class",
       "members": {
-        "AES_128": 4,
-        "AES_256": 5,
-        "KEEP": 0,
-        "NONE": 1,
-        "RC4_128": 3,
-        "RC4_40": 2,
-        "UNKNOWN": 6
+        "method": {
+          "kind": "property"
+        },
+        "owner_password": {
+          "kind": "property"
+        },
+        "permissions": {
+          "kind": "property"
+        },
+        "user_password": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "default": "",
+            "kind": "keyword_only",
+            "name": "user_password"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "owner_password"
+          },
+          {
+            "annotation": "Permissions",
+            "default": 3900,
+            "kind": "keyword_only",
+            "name": "permissions"
+          },
+          {
+            "annotation": "Literal['aes-256']",
+            "default": "aes-256",
+            "kind": "keyword_only",
+            "name": "method"
+          }
+        ],
+        "returns": "None"
       }
     },
     "ExtractedImage": {
@@ -5205,34 +5236,6 @@
     "PDF_ANNOT_WIDGET": {
       "kind": "constant",
       "value": 21
-    },
-    "PDF_ENCRYPT_AES_128": {
-      "kind": "constant",
-      "value": 4
-    },
-    "PDF_ENCRYPT_AES_256": {
-      "kind": "constant",
-      "value": 5
-    },
-    "PDF_ENCRYPT_KEEP": {
-      "kind": "constant",
-      "value": 0
-    },
-    "PDF_ENCRYPT_NONE": {
-      "kind": "constant",
-      "value": 1
-    },
-    "PDF_ENCRYPT_RC4_128": {
-      "kind": "constant",
-      "value": 3
-    },
-    "PDF_ENCRYPT_RC4_40": {
-      "kind": "constant",
-      "value": 2
-    },
-    "PDF_ENCRYPT_UNKNOWN": {
-      "kind": "constant",
-      "value": 6
     },
     "PDF_PERM_ACCESSIBILITY": {
       "kind": "constant",
@@ -8066,28 +8069,28 @@
     },
     "Probe": {
       "annotations": {
-        "is_encrypted": "bool",
         "is_repaired": "bool",
         "metadata": "Mapping[str, str]",
+        "needs_password": "bool",
         "page_count": "int",
         "version": "str"
       },
       "dataclass_fields": [
         "page_count",
         "version",
-        "is_encrypted",
+        "needs_password",
         "is_repaired",
         "metadata"
       ],
       "kind": "class",
       "members": {
-        "is_encrypted": {
-          "kind": "property"
-        },
         "is_repaired": {
           "kind": "property"
         },
         "metadata": {
+          "kind": "property"
+        },
+        "needs_password": {
           "kind": "property"
         },
         "page_count": {
@@ -8112,7 +8115,7 @@
           {
             "annotation": "bool",
             "kind": "keyword_only",
-            "name": "is_encrypted"
+            "name": "needs_password"
           },
           {
             "annotation": "bool",

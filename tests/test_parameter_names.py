@@ -47,7 +47,7 @@ def test_show_pdf_page_takes_pymupdf_docsrc_keyword() -> None:
     with pytest.raises(TypeError, match="src"):
         target.pages[0].show_pdf_page((0, 0, 300, 200), src=source)  # ty: ignore[unknown-argument, missing-argument]
 
-    reopened = pylopdf.open(target.tobytes())
+    reopened = pylopdf.open(target.to_bytes())
     assert "Stamp" in reopened.pages[0].get_text()
 
 
@@ -61,30 +61,6 @@ def test_pixmap_save_takes_pymupdf_filename_keyword(tmp_path: Path) -> None:
     with pytest.raises(TypeError):
         pixmap.save(path=tmp_path / "other.png")  # ty: ignore[unknown-argument, missing-argument]
     assert not (tmp_path / "other.png").exists()
-
-
-@pytest.mark.parametrize("method", ["save", "tobytes"])
-def test_save_takes_pymupdf_use_objstms_keyword(tmp_path: Path, method: str) -> None:
-    doc = pylopdf.open(build_pdf(["Compact"] * 3))
-
-    if method == "save":
-        target = tmp_path / "out.pdf"
-        doc.save(target, use_objstms=True)
-        data = target.read_bytes()
-        with pytest.raises(TypeError, match="object_streams"):
-            doc.save(tmp_path / "old.pdf", object_streams=True)  # ty: ignore[unknown-argument]
-        assert not (tmp_path / "old.pdf").exists()
-    else:
-        data = doc.tobytes(use_objstms=True)
-        with pytest.raises(TypeError, match="object_streams"):
-            doc.tobytes(object_streams=True)  # ty: ignore[unknown-argument]
-
-    assert b"/ObjStm" in data
-    assert b"/ObjStm" not in doc.tobytes()
-    reopened = pylopdf.open(data)
-    assert [page.get_text().strip() for page in reopened.pages] == ["Compact"] * 3
-    with pytest.raises(ValueError, match="use_objstms cannot both be specified"):
-        doc.tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="secret", use_objstms=True)
 
 
 def _word_left_edges(expandtabs: int | None) -> list[tuple[str, float]]:

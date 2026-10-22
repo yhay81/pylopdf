@@ -803,9 +803,9 @@ def test_no_scope_crashes_any_operation(tmp_path: Path) -> None:
 
 
 SAVED: dict[str, dict[str, Any]] = {
-    "compressed": {"deflate": True},
-    "object-streams": {"deflate": True, "use_objstms": True},
-    "encrypted": {"deflate": True, "encryption": pylopdf.PDF_ENCRYPT_AES_256, "user_pw": "secret"},
+    "compressed": {},
+    "object-streams": {"object_streams": True},
+    "encrypted": {"encryption": pylopdf.Encryption(user_password="secret")},
 }
 
 
@@ -816,7 +816,7 @@ def test_saved_variants_are_refused_too(tmp_path: Path) -> None:
         original = pylopdf.open(CASES[case](CRASHING[_structure_of(case)]))
         for saved, options in SAVED.items():
             documents[f"{case}-{saved}"] = Crash(
-                original.tobytes(**options), password="secret" if saved == "encrypted" else ""
+                original.to_bytes(**options), password="secret" if saved == "encrypted" else ""
             )
 
     assert _run_many(tmp_path, documents, SOME_OPERATIONS[:2]) == _expected(documents, SOME_OPERATIONS[:2])

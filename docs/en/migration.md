@@ -64,9 +64,13 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `doc.language`, `set_language(tag)` | `doc.language_tag`, `set_language_tag(tag)` | The complete tag: pymupdf keeps at most three letters, so `zh-TW` and `zh-HK` both become `zh-Hant`; the codemod rewrites `set_language` |
 | `doc.pagemode`, `pagelayout`, `markinfo` and their `set_*` methods, `has_links()`, `has_annots()`, `is_closed` | Same | |
 | `doc.name` | `doc.path` | A `pathlib.Path`, or `None` for a document opened from bytes or created empty; `is_pdf` is gone because every document is a PDF |
-| `doc.needs_pass`, `authenticate()`, `permissions`, `is_dirty` | `doc.needs_password`; the others are the same | Same return codes and values |
-| `doc.save(garbage=4, deflate=True)` | Same | Pages, annotations, form fields, and layers are never merged by `garbage` |
-| `doc.save(encryption=…, user_pw=…)` | Same | Only `PDF_ENCRYPT_NONE` and `PDF_ENCRYPT_AES_256`; a password without encryption raises instead of being ignored |
+| `doc.needs_pass`, `doc.is_encrypted` | `doc.needs_password` | True until the document is unlocked |
+| `doc.authenticate(password)` | `doc.unlock(password)` | Returns `Access.USER` or `Access.OWNER` and raises `PasswordError` for a wrong password instead of returning 0 |
+| `doc.permissions`, `is_dirty` | Same | `permissions` is a `Permissions` flag value: `Permissions.ALL` instead of `-4` |
+| `doc.save(garbage=4, deflate=True)` | `doc.save(dedupe=True, renumber=True)` | Saving compresses streams and removes unused objects by default; `garbage=0` becomes `prune=False` and `deflate=False` `compress=False`. Pages, annotations, form fields, and layers are never merged |
+| `doc.save(encryption=PDF_ENCRYPT_AES_256, user_pw=…, owner_pw=…, permissions=…)` | `doc.save(encryption=Encryption(user_password=…, owner_password=…, permissions=…))` | AES-256 only |
+| `doc.tobytes(...)`, `doc.write(...)` | `doc.to_bytes(...)` | The options of `save()` |
+| `doc.save(use_objstms=True)` | `doc.save(object_streams=True)` | |
 | `doc.select(indexes)` | `doc.pages.select(indexes)` | Also removes form fields and tagged-PDF structure of the pages left out |
 | `doc.delete_page(i)`, `delete_pages(a, b)` | `del doc.pages[i]`, `del doc.pages[a:b + 1]` | Keep the other pages of a list with `doc.pages.select(...)` |
 | `doc.new_page(pno, width=, height=)` | `doc.pages.new((width, height), index=pno)` | Appended unless `index` is given |
@@ -181,5 +185,5 @@ doc = pylopdf.open("in.pdf")
 page = doc.pages[0]
 page.add_highlight_annot(page.search_for("total"))   # takes the whole list
 page.get_pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
-doc.save("out.pdf", garbage=4, deflate=True)
+doc.save("out.pdf", dedupe=True, renumber=True)
 ```

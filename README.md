@@ -73,8 +73,8 @@ page.add_highlight_annot(hits)
 del doc.pages[1:3]
 doc.pages.extend(pylopdf.open("appendix.pdf").pages)   # append another document
 
-# Save
-doc.save("output.pdf", garbage=True, deflate=True)
+# Save, compressed and without unused objects
+doc.save("output.pdf")
 ```
 
 The [getting started guide](https://pylopdf.haya.works/getting-started/)

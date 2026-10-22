@@ -119,23 +119,23 @@ def test_del_takes_an_index_or_a_slice(edit: Callable[[pylopdf.Pages], None], re
 def test_deleting_no_pages_changes_nothing() -> None:
     doc = _doc(2)
     page = doc.pages[0]
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     del doc.pages[1:1]
 
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
     assert page.get_text().strip() == "Page 0"
 
 
 @pytest.mark.parametrize(("index", "error"), [(6, IndexError), (-7, IndexError), (1.0, TypeError)])
 def test_del_refuses_bad_indexes_before_changing(index: object, error: type[Exception]) -> None:
     doc = _doc()
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     with pytest.raises(error):
         del doc.pages[index]  # ty: ignore[invalid-argument-type]
 
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 @pytest.mark.parametrize(
@@ -186,7 +186,7 @@ def test_a_copy_is_independent_of_the_original() -> None:
     assert doc.pages[1].xref != xref
     assert "Only on the copy" not in doc.pages[0].get_text()
     assert doc.pages[0].rotation == 0
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     assert "Only on the copy" in reopened.pages[1].get_text()
 
 
@@ -206,7 +206,7 @@ def test_insert_refuses_mixed_or_repeated_sources_before_changing() -> None:
     target = _doc(1)
     first = _doc(2)
     second = _doc(2)
-    before = target.tobytes()
+    before = target.to_bytes()
 
     with pytest.raises(ValueError, match="one document"):
         target.pages.extend([first.pages[0], second.pages[0]])
@@ -223,9 +223,9 @@ def test_insert_refuses_mixed_or_repeated_sources_before_changing() -> None:
     with pytest.raises(pylopdf.StalePageError):
         target.pages.extend(stale)
 
-    assert target.tobytes() == before
+    assert target.to_bytes() == before
     target.pages.extend([])
-    assert target.tobytes() == before
+    assert target.to_bytes() == before
 
 
 def test_select_keeps_and_repeats_pages_in_order() -> None:

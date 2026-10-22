@@ -30,7 +30,7 @@ def test_labels_roundtrip_through_save() -> None:
         {"startpage": 2, "style": "a", "prefix": "付-", "firstpagenum": 1},
     ]
     doc.set_page_labels(labels)
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     assert reopened.get_page_labels() == [
         {"startpage": 0, "style": "R", "prefix": "", "firstpagenum": 5},
         {"startpage": 2, "style": "a", "prefix": "付-", "firstpagenum": 1},
@@ -154,13 +154,13 @@ def test_page_label_tree_rejects_excessive_text_without_partial_output() -> None
 
 def test_set_page_labels_refuses_to_create_over_limit_output_atomically() -> None:
     doc = _six_page_doc()
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     with pytest.raises(ValueError, match="4096 ranges"):
         doc.set_page_labels([{"startpage": 0}] * 4097)
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
     with pytest.raises(pylopdf.LimitError, match="1048576-byte") as caught:
         doc.set_page_labels([{"startpage": 0, "prefix": "x" * (1024 * 1024 + 1)}])
     assert caught.value.code == "page_label_input_size"
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before

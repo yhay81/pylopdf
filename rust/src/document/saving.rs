@@ -235,25 +235,76 @@ pub(super) fn save_bytes_encrypted(
     })
 }
 
-/// Implements [`_Document::collect_garbage`].
-pub(super) fn collect_garbage(this: &mut _Document, py: Python<'_>, level: u8) -> PyResult<()> {
-    if level == 0 || level > 4 {
-        return Err(PdfError::new_err(format!(
-            "garbage must be between 0 and 4, got {level}"
-        )));
-    }
-    if level >= 2 {
-        this.invalidate_hayro_pdf();
-    } else {
-        this.invalidate_hayro_pdf_keeping_placements();
+/// Return whether `object` is a stream that compression may change.
+fn compressible(object: &Object) -> bool {
+    matches!(object, Object::Stream(stream) if stream.allows_compression && stream.dict.get(b"Filter").is_err())
+}
+
+/// Implements [`_Document::compress`].
+pub(super) fn compress(this: &mut _Document, py: Python<'_>) {
+    // Reading first keeps the page index when there is nothing to compress.
+    if !this.doc.objects.values().any(compressible) {
+        return;
     }
     let doc: &mut Document = &mut this.doc;
-    let renumbered = py.detach(|| -> PyResult<_> {
-        if level >= 3 {
-            crate::garbage::merge_identical_objects(doc, level >= 4)?;
+    let changed = py.detach(|| {
+        let mut changed = false;
+        for object in doc.objects.values_mut() {
+            if compressible(object)
+                && let Object::Stream(stream) = object
+            {
+                // As in lopdf's Document::compress, a failure leaves the
+                // stream as it was, and so does Flate output that is not
+                // smaller.
+                let _ = stream.compress();
+                changed |= stream.dict.has(b"Filter");
+            }
         }
-        prune_unreachable_objects(doc)?;
-        if level >= 2 {
+        changed
+    });
+    if changed {
+        this.invalidate_hayro_pdf();
+    }
+}
+
+/// Implements [`_Document::collect_garbage`].
+pub(super) fn collect_garbage(
+    this: &mut _Document,
+    py: Python<'_>,
+    dedupe: bool,
+    prune: bool,
+    renumber: bool,
+) -> PyResult<()> {
+    if dedupe && !prune {
+        return Err(PdfError::new_err(
+            "dedupe leaves the merged duplicates unreachable, so it needs prune",
+        ));
+    }
+    if !(prune || renumber) {
+        return Ok(());
+    }
+    if !(dedupe || renumber) {
+        // Pruning alone reads the graph first, so that saving a document
+        // without unreachable objects keeps every cache, including the
+        // original-byte rendering path.
+        let doc: &Document = &this.doc;
+        let reachable = py.detach(|| crate::prune::trailer_reachable_object_ids(doc))?;
+        if reachable.len() < this.doc.objects.len() {
+            this.invalidate_hayro_pdf_keeping_placements();
+            this.doc.objects.retain(|id, _| reachable.contains(id));
+        }
+        return Ok(());
+    }
+    this.invalidate_hayro_pdf();
+    let doc: &mut Document = &mut this.doc;
+    let renumbered = py.detach(|| -> PyResult<_> {
+        if dedupe {
+            crate::garbage::merge_identical_objects(doc, true)?;
+        }
+        if prune {
+            prune_unreachable_objects(doc)?;
+        }
+        if renumber {
             return crate::garbage::compact_object_numbers(doc).map(Some);
         }
         Ok(None)

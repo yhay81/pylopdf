@@ -226,7 +226,7 @@ def test_zapf_dingbats_falls_back_to_pymupdfs_default_leading(via: str) -> None:
     _insert_text(page, via, LATIN, fontname="zadb")
 
     # ZapfDingbats spans 0.963 em, so pymupdf sets its lines 1.2 em apart.
-    assert re.findall(rb"\b([\d.]+) TL\b", page.document.tobytes()) == [b"12"]
+    assert re.findall(rb"\b([\d.]+) TL\b", page.document.to_bytes()) == [b"12"]
 
 
 @pytest.mark.parametrize("via", ["page", "shape"])
@@ -299,7 +299,7 @@ def test_insert_textbox_places_zapf_dingbats_as_pymupdf_does(via: str) -> None:
     assert _insert_textbox(page, via, RECT, LATIN, fontname="zadb") == pytest.approx(162.56, abs=1e-5)
 
     # Display baselines 108.19, 118.018, and 127.846 on an 842-point page.
-    origins = re.findall(rb"1 0 0 1 72 ([\d.]+) Tm", page.document.tobytes())
+    origins = re.findall(rb"1 0 0 1 72 ([\d.]+) Tm", page.document.to_bytes())
     assert [842 - float(origin) for origin in origins] == pytest.approx([108.19, 118.018, 127.846], abs=1e-3)
 
 
@@ -359,8 +359,8 @@ def test_insert_textbox_raises_pdf_error_for_unsupported_options(
 @pytest.mark.parametrize("via", ["page", "shape"])
 def test_insert_text_rejects_a_line_distance_beyond_floating_point(via: str) -> None:
     page = _page()
-    before = page.document.tobytes()
+    before = page.document.to_bytes()
 
     with pytest.raises(pylopdf.PdfError, match="lineheight times fontsize must be a finite number"):
         _insert_text(page, via, LATIN, lineheight=1e300, fontsize=1e10)
-    assert page.document.tobytes() == before
+    assert page.document.to_bytes() == before

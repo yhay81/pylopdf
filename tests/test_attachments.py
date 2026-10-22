@@ -44,7 +44,7 @@ def test_attachment_add_get_roundtrip() -> None:
     assert list(doc.attachments) == ["invoice.xml"]
     assert doc.attachments["invoice.xml"].read() == payload
 
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     assert list(reopened.attachments) == ["invoice.xml"]
     assert reopened.attachments["invoice.xml"].read() == payload
 
@@ -54,11 +54,11 @@ def test_attachment_add_bounds_input_atomically() -> None:
     payload = b"1234"
 
     doc.attachments.add("exact.bin", payload, max_size=len(payload))
-    before = doc.tobytes()
+    before = doc.to_bytes()
     with pytest.raises(pylopdf.LimitError) as caught:
         doc.attachments.add("too-large.bin", payload, max_size=len(payload) - 1)
     assert caught.value.code == "embedded_file_size"
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
     assert list(doc.attachments) == ["exact.bin"]
 
     doc.attachments.add("unbounded.bin", payload, max_size=None)
@@ -83,7 +83,7 @@ def test_attachment_survives_compressed_and_garbage_save() -> None:
     doc = pylopdf.open(build_pdf(["Hello"]))
     payload = b"repetitive " * 1000
     doc.attachments.add("data.txt", payload)
-    data = doc.tobytes(garbage=True, deflate=True, use_objstms=True)
+    data = doc.to_bytes(object_streams=True)
     reopened = pylopdf.open(data)
     assert reopened.attachments["data.txt"].read() == payload
 
@@ -112,13 +112,13 @@ def test_inline_filespec_reads_do_not_mutate_document() -> None:
         }
     )
     doc = pylopdf.open(pdf)
-    before = len(doc.tobytes())
+    before = len(doc.to_bytes())
 
     for _ in range(4):
         assert list(doc.attachments) == ["x.txt"]
         assert doc.attachments["x.txt"].read() == b"abc"
 
-    assert len(doc.tobytes()) == before
+    assert len(doc.to_bytes()) == before
     doc.attachments.add("y.txt", b"def")
     assert list(doc.attachments) == ["x.txt", "y.txt"]
     assert doc.attachments["x.txt"].read() == b"abc"
@@ -133,7 +133,7 @@ def test_attachment_del_removes() -> None:
     doc.attachments.add("b.txt", b"B")
     del doc.attachments["a.txt"]
     assert list(doc.attachments) == ["b.txt"]
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     assert list(reopened.attachments) == ["b.txt"]
 
 
@@ -279,10 +279,10 @@ def test_attachment_add_refuses_to_create_an_unreadable_oversized_tree() -> None
         }
     )
     doc = pylopdf.open(pdf)
-    before = doc.tobytes()
+    before = doc.to_bytes()
     with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit is reached"):
         doc.attachments.add("one-too-many", b"x")
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 def test_attachment_writes_bound_inline_filespec_clone_shape() -> None:
@@ -300,7 +300,7 @@ def test_attachment_writes_bound_inline_filespec_clone_shape() -> None:
         }
     )
     doc = pylopdf.open(pdf)
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     assert list(doc.attachments) == ["x.txt"]
     assert doc.attachments["x.txt"].read() == b"x"
@@ -308,7 +308,7 @@ def test_attachment_writes_bound_inline_filespec_clone_shape() -> None:
         doc.attachments.add("y.txt", b"y")
     with pytest.raises(pylopdf.PdfError, match="4096-object safety limit"):
         del doc.attachments["x.txt"]
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 @pytest.mark.parametrize(
@@ -324,19 +324,19 @@ def test_attachment_add_bounds_input_metadata_atomically(
     desc: str | None,
 ) -> None:
     doc = pylopdf.open(build_pdf(["Hello"]))
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     with pytest.raises(pylopdf.LimitError) as caught:
         doc.attachments.add("x", b"x", filename=filename, description=desc)
     assert caught.value.code == "embedded_file_input_size"
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 @pytest.mark.parametrize("method", ["get", "del"])
 def test_attachment_lookup_bounds_name_input_before_traversal(method: str) -> None:
     doc = pylopdf.open(build_pdf(["Hello"]))
     doc.attachments.add("x", b"x")
-    before = doc.tobytes()
+    before = doc.to_bytes()
     name = "é" * (512 * 1024 + 1)
 
     def call() -> None:
@@ -349,7 +349,7 @@ def test_attachment_lookup_bounds_name_input_before_traversal(method: str) -> No
         call()
 
     assert caught.value.code == "embedded_file_input_size"
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 def _described_pdf() -> bytes:
@@ -410,13 +410,13 @@ def test_attachment_write_replaces_the_data_and_keeps_the_metadata() -> None:
 
     attachment.write(b"x,y,z\n1,2,3")
 
-    for current in (doc, pylopdf.open(doc.tobytes(garbage=True))):
+    for current in (doc, pylopdf.open(doc.to_bytes())):
         rewritten = current.attachments["data"]
         assert rewritten.read() == b"x,y,z\n1,2,3"
         assert (rewritten.filename, rewritten.description, rewritten.size) == ("data.csv", "Rows", 11)
         assert rewritten.creation_date == "D:20260101000000Z"
         assert list(current.attachments) == ["data"]
-    assert b"CheckSum" not in doc.tobytes(garbage=True)
+    assert b"CheckSum" not in doc.to_bytes()
 
 
 def test_attachment_write_updates_an_inline_file_specification() -> None:
@@ -436,19 +436,19 @@ def test_attachment_write_updates_an_inline_file_specification() -> None:
     doc.attachments["x.txt"].write(b"new")
 
     assert doc.attachments["x.txt"].read() == b"new"
-    assert pylopdf.open(doc.tobytes()).attachments["x.txt"].read() == b"new"
+    assert pylopdf.open(doc.to_bytes()).attachments["x.txt"].read() == b"new"
 
 
 def test_attachment_write_bounds_its_input_atomically() -> None:
     doc = pylopdf.Document()
     doc.pages.new()
     attachment = doc.attachments.add("a.bin", b"1234")
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     with pytest.raises(pylopdf.LimitError) as caught:
         attachment.write(b"12345", max_size=4)
     assert caught.value.code == "embedded_file_size"
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
     attachment.write(b"12345", max_size=None)
     assert attachment.read() == b"12345"
 

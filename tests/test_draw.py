@@ -240,11 +240,11 @@ def test_drawing_allows_exact_final_contents_boundary() -> None:
     doc = _many_contents_doc(4093)
     page = doc.pages[0]
     page.insert_text((10, 20), "Exact boundary")
-    after_first = doc.tobytes()
+    after_first = doc.to_bytes()
 
     with pytest.raises(pylopdf.PdfError, match="4096-stream page Contents"):
         page.insert_text((10, 40), "One too many")
-    assert doc.tobytes() == after_first
+    assert doc.to_bytes() == after_first
 
 
 @pytest.mark.parametrize("shape", ["stream", "direct_array", "indirect_array"])
@@ -271,11 +271,11 @@ def test_drawing_preserves_content_shape_order_and_shared_pages(
 
 def test_drawing_rejects_raw_contents_array_before_input_decode() -> None:
     doc = _many_contents_doc(4097)
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     with pytest.raises(pylopdf.PdfError, match="4096-entry"):
         doc.pages[0].insert_image((0, 0, 10, 10), stream=b"not an image")
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 @pytest.mark.parametrize(
@@ -312,7 +312,7 @@ def test_drawing_preflights_resource_shape_before_mutation(
     operation: str,
     message: str,
 ) -> None:
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     def run_operation() -> None:
         if operation == "image":
@@ -322,17 +322,17 @@ def test_drawing_preflights_resource_shape_before_mutation(
 
     with pytest.raises(pylopdf.PdfError, match=message):
         run_operation()
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 def test_drawing_rejects_full_resource_category_before_mutation() -> None:
     entries = " ".join(f"/R{index} null" for index in range(4096))
     doc = _resource_shape_doc("4 0 R", f"<< /XObject << {entries} >> >>")
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
         doc.pages[0].insert_image((0, 0, 10, 10), stream=b"not an image")
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 def test_drawing_detaches_shared_resources_from_other_pages() -> None:
@@ -346,7 +346,7 @@ def test_drawing_detaches_shared_resources_from_other_pages() -> None:
     assert _pixel(doc.pages[1], 100, 50) == RED
 
     del doc.pages[0]
-    compacted = doc.tobytes(garbage=True)
+    compacted = doc.to_bytes()
     assert b"/PyloX" not in compacted
     assert _pixel(pylopdf.open(compacted).pages[0], 100, 50) == RED
 
@@ -376,31 +376,31 @@ def test_drawing_rejects_page_inheritance_amplification(
     doc: pylopdf.Document,
     message: str,
 ) -> None:
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     with pytest.raises(pylopdf.PdfError, match=message):
         doc.pages[0].insert_text((10, 20), "Text")
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 def test_show_pdf_page_rejects_source_inheritance_before_target_mutation() -> None:
     target = _resource_shape_doc("<< >>")
-    before = target.tobytes()
+    before = target.to_bytes()
 
     with pytest.raises(pylopdf.PdfError, match="64-level safety limit"):
         target.pages[0].show_pdf_page((0, 0, 100, 100), _page_parent_chain_doc(63))
-    assert target.tobytes() == before
+    assert target.to_bytes() == before
 
 
 def test_show_pdf_page_bounds_decompressed_source_content_before_target_mutation() -> None:
     target = _resource_shape_doc("<< >>")
-    before = target.tobytes()
+    before = target.to_bytes()
     source = _compressed_content_doc(64 * 1024 * 1024)
 
     with pytest.raises(pylopdf.LimitError, match=r"Form source page content.*limit") as caught:
         target.pages[0].show_pdf_page((0, 0, 100, 100), source)
     assert caught.value.code == "form_content_size"
-    assert target.tobytes() == before
+    assert target.to_bytes() == before
 
 
 @pytest.mark.parametrize(
@@ -421,12 +421,12 @@ def test_show_pdf_page_rejects_undecodable_source_content_before_target_mutation
     decode_params: str,
 ) -> None:
     target = _resource_shape_doc("<< >>")
-    before = target.tobytes()
+    before = target.to_bytes()
     source = _filtered_content_doc(filter_name, payload, decode_params=decode_params)
 
     with pytest.raises(pylopdf.PdfError, match="failed to decode Form source page content"):
         target.pages[0].show_pdf_page((0, 0, 100, 100), source)
-    assert target.tobytes() == before
+    assert target.to_bytes() == before
 
 
 def test_show_pdf_page_decodes_abbreviated_source_content_filter() -> None:
@@ -455,12 +455,12 @@ def test_show_pdf_page_decodes_ascii_hex_and_run_length_source_content(filter_na
 
 def test_show_pdf_page_rejects_excessive_source_filter_chain_before_target_mutation() -> None:
     target = _resource_shape_doc("<< >>")
-    before = target.tobytes()
+    before = target.to_bytes()
 
     with pytest.raises(pylopdf.LimitError) as caught:
         target.pages[0].show_pdf_page((0, 0, 100, 100), _filter_chain_content_doc(17))
     assert caught.value.code == "stream_filter_count"
-    assert target.tobytes() == before
+    assert target.to_bytes() == before
 
 
 @pytest.mark.parametrize(
@@ -474,18 +474,18 @@ def test_drawing_rejects_contents_reference_amplification(
     doc: pylopdf.Document,
     message: str,
 ) -> None:
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     with pytest.raises(pylopdf.PdfError, match=message):
         doc.pages[0].insert_text((10, 20), "Text")
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 @pytest.mark.parametrize("operation", ["image", "ocr", "pdf", "text", "textbox"])
 def test_drawing_preflights_contents_before_mutation(operation: str) -> None:
     doc = _many_contents_doc(4094)
     page = doc.pages[0]
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     def run_operation() -> None:
         if operation == "image":
@@ -501,7 +501,7 @@ def test_drawing_preflights_contents_before_mutation(operation: str) -> None:
 
     with pytest.raises(pylopdf.PdfError, match="4096-stream page Contents"):
         run_operation()
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 def test_insert_png_draws_at_rect() -> None:
@@ -547,7 +547,7 @@ def test_insert_pixmap_directly_preserves_alpha() -> None:
     target.pages[0].insert_image((0, 0, 40, 20), pixmap=pixmap, keep_proportion=False)
     assert _pixel(target.pages[0], 10, 10) == RED
     assert _pixel(target.pages[0], 30, 10) == WHITE
-    reopened = pylopdf.open(target.tobytes())
+    reopened = pylopdf.open(target.to_bytes())
     assert _pixel(reopened.pages[0], 10, 10) == RED
     assert _pixel(reopened.pages[0], 30, 10) == WHITE
 
@@ -559,7 +559,7 @@ def test_insert_opaque_pixmap_omits_soft_mask() -> None:
     target = _new_page_doc(40, 20)
     target.pages[0].insert_image((0, 0, 40, 20), pixmap=pixmap)
     assert _pixel(target.pages[0], 20, 10) == GREEN
-    assert b"/SMask" not in target.tobytes()
+    assert b"/SMask" not in target.to_bytes()
 
 
 def test_insert_pixmap_on_rotated_page_uses_display_coordinates() -> None:
@@ -682,7 +682,7 @@ def test_insert_jpeg_roundtrips_bytes_exactly() -> None:
 def test_insert_image_survives_save_roundtrip() -> None:
     doc = _new_page_doc()
     doc.pages[0].insert_image((20, 30, 60, 70), stream=_solid_png(4, 4, RED))
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     assert _pixel(reopened.pages[0], 40, 50) == RED
 
 
@@ -864,7 +864,7 @@ def test_show_pdf_page_does_not_keep_unreachable_source_data() -> None:
     page.show_pdf_page((0, 0, 100, 100), source)
 
     assert list(target.attachments) == []
-    assert secret not in target.tobytes()
+    assert secret not in target.to_bytes()
 
 
 def test_show_pdf_page_accepts_negative_pno() -> None:
@@ -940,7 +940,7 @@ def test_insert_text_subset_embeds_unicode_font() -> None:
     assert page.get_text().strip() == "日本語テキスト"
     assert page.search_for("日本語")
     # The 4.5 MB source is subset to the glyphs used by this one-page Form.
-    saved = doc.tobytes()
+    saved = doc.to_bytes()
     assert len(saved) < 50_000
     reopened = pylopdf.open(saved)
     assert reopened.pages[0].get_text().strip() == "日本語テキスト"
@@ -959,7 +959,7 @@ def test_insert_text_auto_embeds_optional_jp_font() -> None:
     spans = [span for block in page.get_text("dict")["blocks"] for line in block["lines"] for span in line["spans"]]
     assert spans[0]["font"].startswith("NotoSansJP")
     assert spans[1]["font"].startswith("NotoSerifJP")
-    assert len(doc.tobytes()) < 100_000
+    assert len(doc.to_bytes()) < 100_000
 
 
 @pytest.mark.parametrize(
@@ -984,7 +984,7 @@ def test_insert_text_optional_font_conformance(
     doc = _new_page_doc(300, 150)
     doc.pages[0].insert_text((20, 60), text, fontsize=24, font_language=font_language)
 
-    saved = doc.tobytes()
+    saved = doc.to_bytes()
     assert len(saved) < 100_000
     reopened = pylopdf.open(saved)
     assert reopened.pages[0].get_text().strip() == text
@@ -1174,7 +1174,7 @@ def test_insert_textbox_auto_embeds_optional_jp_font_and_survives_rotation() -> 
     assert "".join(span["text"] for line in lines for span in line["spans"]) == "日本語の文章を空白なしで折り返します。"
     assert all(rect[0] <= line["bbox"][0] < line["bbox"][2] <= rect[2] + 0.1 for line in lines)
     assert all(rect[1] <= line["bbox"][1] < line["bbox"][3] <= rect[3] for line in lines)
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     assert reopened.pages[0].get_text().replace("\n", "") == "日本語の文章を空白なしで折り返します。"
 
 
@@ -1235,7 +1235,7 @@ def test_insert_text_survives_save_roundtrip() -> None:
     doc = pylopdf.Document()
     doc.pages.new()
     doc.pages[0].insert_text((72, 72), "Persistent")
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     assert "Persistent" in reopened.pages[0].get_text()
 
 
@@ -1245,7 +1245,7 @@ def test_insert_text_standard14_escapes_binary_and_delimiters() -> None:
 
     doc.pages[0].insert_text((10, 20), "\x01(A)\\€")
 
-    assert b"(\\001\\(A\\)\\\\\\200) Tj" in doc.tobytes()
+    assert b"(\\001\\(A\\)\\\\\\200) Tj" in doc.to_bytes()
 
 
 def test_insert_text_page_numbering_recipe() -> None:
@@ -1494,10 +1494,10 @@ def test_replace_text_returns_zero_when_absent() -> None:
     doc = pylopdf.open(build_pdf(["Hello PDF"]))
     page = doc.pages[0]
     assert "Hello PDF" in page.get_text()
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     assert page.replace_text("XYZ", "abc") == 0
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
     assert "Hello PDF" in page.get_text()
 
 
@@ -1519,14 +1519,14 @@ def test_replace_text_detaches_shared_page_contents() -> None:
 def test_replace_text_validates_input_without_mutation() -> None:
     doc = pylopdf.open(build_pdf(["Hello PDF"]))
     page = doc.pages[0]
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     with pytest.raises(ValueError, match="exactly one character"):
         page.replace_text("PDF", "Cat", default_char="??")
     with pytest.raises(pylopdf.LimitError) as caught:
         page.replace_text("PDF", "x" * 4094)
     assert caught.value.code == "replacement_input_size"
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 def test_replace_text_rejects_without_encoding_complete_input() -> None:
@@ -1539,13 +1539,13 @@ def test_replace_text_rejects_without_encoding_complete_input() -> None:
             raise AssertionError(msg)
 
     doc = pylopdf.open(build_pdf(["Hello PDF"]))
-    before = doc.tobytes()
+    before = doc.to_bytes()
     replacement = EncodeMustNotRun("x" * 4097)
 
     with pytest.raises(pylopdf.LimitError) as caught:
         doc.pages[0].replace_text("PDF", replacement)
     assert caught.value.code == "replacement_input_size"
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 @pytest.mark.parametrize(
@@ -1582,41 +1582,41 @@ def test_replace_text_validates_output_budget(max_size: object) -> None:
 def test_replace_text_bounds_content_and_preserves_document() -> None:
     doc = pylopdf.open(build_pdf(["Hello PDF"]))
     page = doc.pages[0]
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     with pytest.raises(pylopdf.LimitError) as caught:
         page.replace_text("PDF", "Cat", max_size=16)
     assert caught.value.code == "replacement_output_size"
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 def test_replace_text_bounds_replacement_growth_before_mutation() -> None:
     doc = pylopdf.open(build_pdf(["A" * 100]))
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     with pytest.raises(pylopdf.LimitError) as caught:
         doc.pages[0].replace_text("A", "BBBBBBBB", max_size=256)
     assert caught.value.code == "replacement_output_size"
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 def test_replace_text_rejects_oversized_contents_shape_before_mutation() -> None:
     doc = _many_contents_doc(4097)
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     with pytest.raises(pylopdf.PdfError, match="4096-entry"):
         doc.pages[0].replace_text("x", "y")
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 def test_replace_text_rejects_excessive_filter_chain_before_mutation() -> None:
     doc = _filter_chain_content_doc(17)
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     with pytest.raises(pylopdf.LimitError) as caught:
         doc.pages[0].replace_text("x", "y")
     assert caught.value.code == "stream_filter_count"
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 def test_replace_text_error_is_atomic() -> None:
@@ -1631,8 +1631,8 @@ def test_replace_text_error_is_atomic() -> None:
             }
         )
     )
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     with pytest.raises(pylopdf.PdfError, match="text replacement failed"):
         doc.pages[0].replace_text("Hello", "Goodbye")
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before

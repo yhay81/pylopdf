@@ -137,7 +137,7 @@ EDITS: dict[str, tuple[Callable[[pylopdf.Document], object], list[int | str]]] =
         UNCHANGED,
     ),
     "add_highlight_annot": (lambda doc: doc.pages[1].add_highlight_annot((10, 10, 50, 20)), UNCHANGED),
-    "garbage_tobytes": (lambda doc: doc.tobytes(garbage=True), UNCHANGED),
+    "pruning_to_bytes": (lambda doc: doc.to_bytes(), UNCHANGED),
     "attachments.add": (lambda doc: doc.attachments.add("notes.txt", b"notes"), UNCHANGED),
 }
 
@@ -153,7 +153,7 @@ def test_page_reads_after_an_edit_match_a_fresh_document(edit: str) -> None:
 
     # Read the edited document first: saving drops the index itself.
     cached = _snapshot(doc)
-    assert cached == _snapshot(pylopdf.open(doc.tobytes()))
+    assert cached == _snapshot(pylopdf.open(doc.to_bytes()))
     assert [width for width, *_ in cached[1]] == _widths(order)
 
 
@@ -232,7 +232,7 @@ def test_index_follows_a_prune_that_changes_the_walk_outcome() -> None:
     assert len(doc.pages) == 1
     assert doc.pages[0].mediabox.x1 == 100
 
-    saved = doc.tobytes(garbage=True)
+    saved = doc.to_bytes()
 
     for current in (doc, pylopdf.open(saved)):
         with pytest.raises(pylopdf.PdfError, match="3-edge object-count safety limit"):
@@ -291,7 +291,7 @@ def test_rotating_and_cropping_every_page_keeps_the_page_index() -> None:
     rotations = [90 * (page % 4 + 1) % 360 for page in range(pages)]
     assert [page.rotation for page in doc.pages] == rotations
     assert [page.cropbox.y1 for page in doc.pages] == [150 + page % 2 for page in range(pages)]
-    fresh = pylopdf.open(doc.tobytes())
+    fresh = pylopdf.open(doc.to_bytes())
     assert [page.rotation for page in fresh.pages] == rotations
 
 
@@ -433,7 +433,9 @@ def test_edits_on_every_page_of_an_aliased_tree_match_a_fresh_document(name: str
     for number in range(pages):
         _aliased_snapshot(doc)
         PAGE_EDITS[edit](doc.pages[number])
-        assert _aliased_snapshot(doc) == _aliased_snapshot(pylopdf.open(doc.tobytes()))
+        # Serialize without the options that change the document.
+        saved = doc.to_bytes(compress=False, prune=False)
+        assert _aliased_snapshot(doc) == _aliased_snapshot(pylopdf.open(saved))
 
     # No edit replaced an existing object or changed the page tree.
     assert len(doc.pages) == pages
@@ -449,7 +451,7 @@ def test_edits_on_every_page_of_a_nested_tree_match_a_fresh_document(edit: str) 
         PAGE_EDITS[edit](page)
 
     cached = _snapshot(doc)
-    assert cached == _snapshot(pylopdf.open(doc.tobytes()))
+    assert cached == _snapshot(pylopdf.open(doc.to_bytes()))
     assert [width for width, *_ in cached[1]] == _widths(UNCHANGED)
 
 
@@ -489,7 +491,7 @@ def test_an_import_into_a_missing_kid_number_matches_a_fresh_walk() -> None:
 
     target.pages[0].show_pdf_page((0, 0, 50, 50), source)
 
-    fresh = pylopdf.open(target.tobytes())
+    fresh = pylopdf.open(target.to_bytes())
     assert _snapshot(target) == _snapshot(fresh)
     assert len(fresh.pages) == 1
     assert sorted(fresh.pages[0].get_text().split()) == ["Source", "Target"]
@@ -522,7 +524,7 @@ def test_annotating_pages_that_share_an_indirect_array_keeps_them_separate() -> 
     uris = [[link["uri"] for link in page.get_links()] for page in doc.pages]
     expected = [["https://example.com/first", f"https://example.com/{number}"] for number in range(4)]
     assert uris == expected
-    assert _snapshot(doc) == _snapshot(pylopdf.open(doc.tobytes()))
+    assert _snapshot(doc) == _snapshot(pylopdf.open(doc.to_bytes()))
 
 
 TIMED_PAGES = 5_000
@@ -560,7 +562,7 @@ def test_editing_every_page_keeps_the_page_index(edit: str) -> None:
 
     assert elapsed < 2.0, f"{edit} on {TIMED_PAGES} pages took {elapsed:.2f}s"
     assert len(doc.pages) == TIMED_PAGES
-    fresh = pylopdf.open(doc.tobytes())
+    fresh = pylopdf.open(doc.to_bytes())
     assert len(fresh.pages) == TIMED_PAGES
     for number in (0, TIMED_PAGES // 2, TIMED_PAGES - 1):
         assert fresh.pages[number].get_text() == doc.pages[number].get_text()

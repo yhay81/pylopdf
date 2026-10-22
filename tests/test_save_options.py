@@ -1,9 +1,10 @@
-"""pymupdf's cumulative ``garbage`` levels for ``save`` and ``tobytes``."""
+"""The options of ``save`` and ``to_bytes`` that change objects: compress, prune, dedupe, and renumber."""
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 from conftest import build_pdf, build_raw_pdf
@@ -25,9 +26,7 @@ def _object_body(data: bytes, number: int) -> bytes:
 
 
 def _signature(doc: pylopdf.Document) -> list[tuple[str, bytes]]:
-    return [
-        (doc.pages[i].get_text(), doc.pages[i].get_pixmap(dpi=24, alpha=True).samples) for i in range(len(doc.pages))
-    ]
+    return [(page.get_text(), page.get_pixmap(dpi=24, alpha=True).samples) for page in doc.pages]
 
 
 def _twice_imported() -> pylopdf.Document:
@@ -39,65 +38,122 @@ def _twice_imported() -> pylopdf.Document:
     return doc
 
 
-@pytest.mark.parametrize("garbage", [0, 1, 2, 3, 4, False, True])
-def test_every_level_keeps_text_and_rendering(garbage: int) -> None:
+OPTIONS: list[dict[str, Any]] = [
+    {"compress": False, "prune": False},
+    {},
+    {"renumber": True},
+    {"dedupe": True},
+    {"dedupe": True, "renumber": True, "object_streams": True},
+]
+
+
+@pytest.mark.parametrize("options", OPTIONS)
+def test_every_option_keeps_text_and_rendering(options: dict[str, Any]) -> None:
     path = REAL_WORLD / "bill-hr815.pdf"
     expected = _signature(pylopdf.open(path))
     doc = pylopdf.open(path)
 
-    saved = doc.tobytes(garbage=garbage)
+    saved = doc.to_bytes(**options)
 
     assert _signature(doc) == expected
     assert _signature(pylopdf.open(saved)) == expected
 
 
-@pytest.mark.parametrize("garbage", [-1, 5, 100])
-def test_levels_outside_zero_to_four_raise_pdf_error(garbage: int) -> None:
+@pytest.mark.parametrize("option", ["compress", "prune", "dedupe", "renumber", "object_streams"])
+def test_options_must_be_booleans(option: str, tmp_path: Path) -> None:
     doc = pylopdf.open(build_pdf(["A"]))
-    with pytest.raises(pylopdf.PdfError, match="garbage must be an integer from 0 to 4"):
-        doc.tobytes(garbage=garbage)
-
-
-def test_a_non_integer_level_raises_type_error(tmp_path: Path) -> None:
-    doc = pylopdf.open(build_pdf(["A"]))
-    with pytest.raises(TypeError, match="garbage must be an integer"):
-        doc.tobytes(garbage="4")  # ty: ignore[invalid-argument-type]
-    with pytest.raises(TypeError, match="garbage must be an integer"):
-        doc.save(tmp_path / "out.pdf", garbage=1.0)  # ty: ignore[invalid-argument-type]
+    with pytest.raises(TypeError, match=f"{option} must be True or False"):
+        doc.to_bytes(**{option: 1})  # ty: ignore[invalid-argument-type]
+    with pytest.raises(TypeError, match=f"{option} must be True or False"):
+        doc.save(tmp_path / "out.pdf", **{option: None})  # ty: ignore[invalid-argument-type]
     assert not (tmp_path / "out.pdf").exists()
 
 
-def test_levels_merge_progressively_more_duplicates() -> None:
+def test_dedupe_needs_prune() -> None:
+    doc = pylopdf.open(build_pdf(["A"]))
+    with pytest.raises(ValueError, match="dedupe=True needs prune=True"):
+        doc.to_bytes(dedupe=True, prune=False)
+
+
+def test_saving_compresses_and_prunes_by_default() -> None:
+    # lopdf compresses a stream only when Flate makes it smaller.
+    content = "0 0 m 100 100 l S\n" * 40 + "% PLAIN"
+    objects: dict[int, str | bytes] = {
+        1: "<< /Type /Catalog /Pages 2 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 200] >>",
+        3: "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+        4: f"<< /Length {len(content)} >>\nstream\n{content}\nendstream",
+        5: "(UNREACHABLE)",
+    }
+    raw = build_raw_pdf(objects)
+
+    plain = pylopdf.open(raw).to_bytes(compress=False, prune=False)
+    default = pylopdf.open(raw).to_bytes()
+
+    assert b"% PLAIN" in plain
+    assert b"(UNREACHABLE)" in plain
+    assert b"% PLAIN" not in default
+    assert b"/FlateDecode" in default
+    assert b"(UNREACHABLE)" not in default
+    assert pylopdf.open(default).pages[0].get_drawings() == pylopdf.open(plain).pages[0].get_drawings()
+
+
+def test_a_save_that_changes_nothing_keeps_the_original_bytes() -> None:
+    # This file has no unreachable object and no stream that Flate makes smaller.
+    doc = pylopdf.open(REAL_WORLD / "senate-expenditures.pdf")
+    doc.pages[0].get_text()
+    assert doc._doc.snapshot_source() == "original"  # noqa: SLF001
+
+    doc.to_bytes()
+
+    assert doc._doc.snapshot_source() == "original"  # noqa: SLF001
+    doc.to_bytes(renumber=True)
+    assert doc._doc.snapshot_source() == "none"  # noqa: SLF001
+
+
+def test_saving_again_keeps_the_snapshot() -> None:
+    doc = pylopdf.open(REAL_WORLD / "usrguide.pdf")
+    doc.to_bytes()
+    doc.pages[0].get_text()
+    source = doc._doc.snapshot_source()  # noqa: SLF001
+    assert source != "none"
+
+    doc.to_bytes()
+
+    assert doc._doc.snapshot_source() == source  # noqa: SLF001
+
+
+def test_dedupe_merges_duplicates_and_renumber_keeps_the_count() -> None:
     single = pylopdf.open(REAL_WORLD / "f1040.pdf")
     expected = _signature(single) * 2
     sizes = {}
     counts = {}
-    for level in (1, 2, 3, 4):
+    variants: dict[str, dict[str, Any]] = {"prune": {}, "renumber": {"renumber": True}, "dedupe": {"dedupe": True}}
+    for name, options in variants.items():
         doc = _twice_imported()
-        saved = doc.tobytes(garbage=level)
-        sizes[level] = len(saved)
-        counts[level] = len(_object_ids(saved))
+        saved = doc.to_bytes(**options)
+        sizes[name] = len(saved)
+        counts[name] = len(_object_ids(saved))
         reopened = pylopdf.open(saved)
         assert _signature(reopened) == expected
         assert len(reopened.get_form_fields()) == 2 * len(single.get_form_fields())
-    assert counts[2] == counts[1]
-    assert counts[3] < counts[2]
-    assert counts[4] < counts[3]
-    # Level 4 removes the second copy of every font program, so the output
+    assert counts["renumber"] == counts["prune"]
+    assert counts["dedupe"] < counts["prune"]
+    # Merging removes the second copy of every font program, so the output
     # falls well below twice the size of one copy.
-    assert sizes[4] < sizes[1] * 0.6
+    assert sizes["dedupe"] < sizes["prune"] * 0.6
 
 
 def test_merging_follows_chains_of_equal_objects() -> None:
     """A font, its descriptor, and its font file merge as one chain."""
-    one = pylopdf.open(REAL_WORLD / "f1040.pdf").tobytes(garbage=4)
-    two = _twice_imported().tobytes(garbage=4)
+    one = pylopdf.open(REAL_WORLD / "f1040.pdf").to_bytes(dedupe=True, renumber=True)
+    two = _twice_imported().to_bytes(dedupe=True, renumber=True)
     one_font_files = len(re.findall(rb"/FontFile[23]? ", one))
     assert one_font_files > 0
     assert len(re.findall(rb"/FontFile[23]? ", two)) == one_font_files
 
 
-def test_level_two_numbers_objects_consecutively_with_generation_zero() -> None:
+def test_renumber_numbers_objects_consecutively_with_generation_zero() -> None:
     objects: dict[int, str | bytes] = {
         1: "<< /Type /Catalog /Pages 2 0 R >>",
         2: "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 200 200] >>",
@@ -108,8 +164,8 @@ def test_level_two_numbers_objects_consecutively_with_generation_zero() -> None:
         7: "(KEPT)",
     }
 
-    one = pylopdf.open(build_raw_pdf(objects)).tobytes(garbage=1)
-    two = pylopdf.open(build_raw_pdf(objects)).tobytes(garbage=2)
+    one = pylopdf.open(build_raw_pdf(objects)).to_bytes()
+    two = pylopdf.open(build_raw_pdf(objects)).to_bytes(renumber=True)
 
     assert [number for number, _ in _object_ids(one)] == [1, 2, 4, 6, 7]
     assert _object_ids(two) == [(number, 0) for number in range(1, 6)]
@@ -133,9 +189,9 @@ def test_compaction_nulls_references_to_missing_objects() -> None:
     third = entries + 2 * 20
     raw = raw[:third] + b"0000000000 00001 f \n" + raw[third + 20 :]
     doc = pylopdf.open(raw)
-    assert b"/Dangling 3 0 R" in doc.tobytes()
+    assert b"/Dangling 3 0 R" in doc.to_bytes()
 
-    saved = doc.tobytes(garbage=2)
+    saved = doc.to_bytes(renumber=True)
 
     assert _object_ids(saved) == [(number, 0) for number in range(1, 5)]
     catalog = _object_body(saved, 1)
@@ -163,7 +219,7 @@ def test_identical_pages_annotations_and_layers_are_never_merged() -> None:
     )
     raw = _fix_offsets(raw)
 
-    saved = pylopdf.open(raw).tobytes(garbage=4)
+    saved = pylopdf.open(raw).to_bytes(dedupe=True, renumber=True)
 
     reopened = pylopdf.open(saved)
     assert len(reopened.pages) == 2
@@ -186,7 +242,7 @@ def test_reference_cycles_are_kept_and_saved() -> None:
         7: "<< /Other 6 0 R /Tag (RING) >>",
     }
 
-    saved = pylopdf.open(build_raw_pdf(objects)).tobytes(garbage=4)
+    saved = pylopdf.open(build_raw_pdf(objects)).to_bytes(dedupe=True, renumber=True)
 
     assert saved.count(b"(RING)") == 4
     assert len(pylopdf.open(saved).pages) == 1
@@ -194,7 +250,7 @@ def test_reference_cycles_are_kept_and_saved() -> None:
 
 def test_drawing_after_compaction_isolates_page_content_once() -> None:
     def contents_entries(doc: pylopdf.Document) -> int:
-        saved = doc.tobytes()
+        saved = doc.to_bytes()
         match = re.search(rb"/Contents\s*\[([^\]]*)\]", saved)
         assert match is not None
         return len(re.findall(rb"\d+ \d+ R", match.group(1)))
@@ -205,7 +261,7 @@ def test_drawing_after_compaction_isolates_page_content_once() -> None:
 
     compacted = pylopdf.open(build_pdf(["Base"]))
     compacted.pages[0].insert_text((50, 50), "One")
-    compacted.tobytes(garbage=4)
+    compacted.to_bytes(dedupe=True, renumber=True)
     compacted.pages[0].insert_text((50, 80), "Two")
 
     assert contents_entries(compacted) == contents_entries(plain)
@@ -216,14 +272,14 @@ def test_images_placed_after_merging_save_and_merge_again() -> None:
     pixmap = pylopdf.open(REAL_WORLD / "pdf20-simple.pdf").pages[0].get_pixmap(dpi=24, alpha=True)
     doc = pylopdf.open(build_pdf(["A", "B"]))
     doc.pages[0].insert_image((10, 10, 60, 60), pixmap=pixmap)
-    doc.tobytes(garbage=4)
+    doc.to_bytes(dedupe=True, renumber=True)
     doc.pages[1].insert_image((10, 10, 60, 60), pixmap=pixmap)
 
-    saved = doc.tobytes(garbage=4)
+    saved = doc.to_bytes(dedupe=True, renumber=True)
 
     once = pylopdf.open(build_pdf(["A", "B"]))
     once.pages[0].insert_image((10, 10, 60, 60), pixmap=pixmap)
-    expected = len(re.findall(rb"/Subtype\s*/Image", once.tobytes(garbage=4)))
+    expected = len(re.findall(rb"/Subtype\s*/Image", once.to_bytes(dedupe=True, renumber=True)))
     assert len(re.findall(rb"/Subtype\s*/Image", saved)) == expected
     reopened = pylopdf.open(saved)
     assert (
@@ -234,13 +290,30 @@ def test_images_placed_after_merging_save_and_merge_again() -> None:
     )
 
 
-def test_saving_to_a_file_accepts_levels(tmp_path: Path) -> None:
+def test_saving_to_a_file_accepts_every_option(tmp_path: Path) -> None:
     doc = _twice_imported()
     target = tmp_path / "out.pdf"
 
-    doc.save(target, garbage=4, deflate=True, use_objstms=True)
+    doc.save(target, dedupe=True, renumber=True, object_streams=True)
 
     assert len(pylopdf.open(target).pages) == 2 * len(pylopdf.open(REAL_WORLD / "f1040.pdf").pages)
+
+
+@pytest.mark.parametrize("method", ["save", "to_bytes"])
+def test_object_streams_pack_objects_into_object_streams(tmp_path: Path, method: str) -> None:
+    doc = pylopdf.open(build_pdf(["Compact"] * 3))
+
+    if method == "save":
+        target = tmp_path / "out.pdf"
+        doc.save(target, object_streams=True)
+        data = target.read_bytes()
+    else:
+        data = doc.to_bytes(object_streams=True)
+
+    assert b"/ObjStm" in data
+    assert b"/ObjStm" not in doc.to_bytes()
+    reopened = pylopdf.open(data)
+    assert [page.get_text().strip() for page in reopened.pages] == ["Compact"] * 3
 
 
 def _fix_offsets(raw: bytes) -> bytes:

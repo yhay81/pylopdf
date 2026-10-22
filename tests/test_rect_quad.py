@@ -591,7 +591,7 @@ def test_rectangles_drive_drawing_and_search_on_rotated_pages(rotation: int) -> 
             "Geometry",
             fontsize=14,
         )
-        data = document.tobytes()
+        data = document.to_bytes()
     with pylopdf.open(data) as reopened:
         page = reopened.pages[0]
         (hit,) = page.search_for("Geometry")

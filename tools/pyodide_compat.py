@@ -70,6 +70,14 @@ def _exception_name(callback: Callable[[], object]) -> str:
     raise RuntimeError(msg)
 
 
+def _unlock_result(document: Any, password: str) -> str:  # noqa: ANN401 - pylopdf imports lazily.
+    """Return the name of the access that ``password`` grants, or of the exception it raises."""
+    try:
+        return document.unlock(password).name
+    except Exception as error:  # noqa: BLE001 - the public exception type is the result.
+        return type(error).__name__
+
+
 def _png_size(data: bytes) -> list[int]:
     _require(data.startswith(_PNG_SIGNATURE), "rendering did not return PNG data")
     return list(struct.unpack(">II", data[16:24]))
@@ -325,7 +333,7 @@ def _recovery_results(pdf20_bytes: bytes, form_bytes: bytes) -> dict[str, Any]:
             document = pylopdf.open(data)
             probe = pylopdf.probe(data)
         _require(document.is_repaired == probe.is_repaired, "metadata probe disagreed about recovery")
-        resaved = pylopdf.open(document.tobytes())
+        resaved = pylopdf.open(document.to_bytes())
         _require(not resaved.is_repaired, "saving did not normalize recovered cross-reference data")
         return {
             "repaired": document.is_repaired,
@@ -480,7 +488,7 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
     encrypted_bytes = (root / "tests/assets/encrypted/user-aes-256.pdf").read_bytes()
     encrypted = pylopdf.open(encrypted_bytes)
     encrypted_error = _exception_name(lambda: len(encrypted.pages))
-    _require(encrypted.is_encrypted and encrypted.needs_password, "encrypted fixture did not require authentication")
+    _require(encrypted.needs_password, "encrypted fixture did not require a password")
     _require(encrypted_error == "EncryptedDocumentError", "encrypted access returned the wrong exception")
     decrypted = pylopdf.open(encrypted_bytes, password="userpw")  # noqa: S106
     _require(len(decrypted.pages) == _EXPECTED_TWO_PAGES, "AES-256 fixture did not decrypt")
@@ -490,18 +498,19 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
     )
     _require(authentication_error == "PasswordError", "wrong password returned the wrong exception")
     _require(pylopdf.Document().path is None, "an empty document reported a path")
-    reauthentication = [decrypted.authenticate(password) for password in ("wrong", "userpw", "ownerpw")]
-    _require(reauthentication == [0, 2, 4], "a decrypted document returned the wrong authentication codes")
+    unlocked = [_unlock_result(decrypted, password) for password in ("wrong", "userpw", "ownerpw")]
+    _require(unlocked == ["PasswordError", "USER", "OWNER"], "a decrypted document unlocked with the wrong access")
     encryption_description = decrypted.metadata["encryption"]
     _require(encryption_description == "Standard V5 R6 256-bit AES", "metadata described the wrong encryption")
-    reencrypted = decrypted.tobytes(
-        encryption=pylopdf.PDF_ENCRYPT_AES_256,
-        user_pw="user",
-        permissions=pylopdf.PDF_PERM_PRINT | pylopdf.PDF_PERM_COPY,
+    granted = pylopdf.Permissions.PRINT | pylopdf.Permissions.COPY
+    reencrypted = decrypted.to_bytes(encryption=pylopdf.Encryption(user_password="user", permissions=granted))  # noqa: S106
+    _require(pylopdf.open(reencrypted).needs_password, "Encryption did not encrypt")
+    reopened_permissions = pylopdf.open(reencrypted, password="user").permissions  # noqa: S106
+    _require(reopened_permissions == pylopdf.Permissions.ALL, "the owner password did not default to the user password")
+    object_streams_error = _exception_name(
+        lambda: decrypted.to_bytes(object_streams=True, encryption=pylopdf.Encryption())
     )
-    _require(pylopdf.open(reencrypted).needs_password, "PDF_ENCRYPT_AES_256 did not encrypt")
-    implicit_error = _exception_name(lambda: decrypted.tobytes(user_pw="user"))
-    _require(implicit_error == "PdfError", "a password without an encrypting method was not refused")
+    _require(object_streams_error == "ValueError", "encryption with object streams was not refused")
 
     return {
         "pdf20": {
@@ -545,9 +554,9 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
             "locked_exception": encrypted_error,
             "wrong_password_exception": authentication_error,
             "decrypted_pages": len(decrypted.pages),
-            "reauthentication": reauthentication,
+            "unlock": unlocked,
             "metadata_encryption": encryption_description,
-            "implicit_password_exception": implicit_error,
+            "object_streams_exception": object_streams_error,
             "link_kind": repr(pylopdf.LINK_URI),
         },
         "limits": _limit_results(
@@ -708,7 +717,7 @@ def _shape_results(font: bytes) -> dict[str, Any]:
         spare = shape.insert_textbox((30, 180, 170, 260), _JAPANESE * 6, font=face, fontsize=10)
     drawings = page.get_drawings()
     _require(len(drawings) == 1, "a finished shape did not draw one path")
-    data = document.tobytes()
+    data = document.to_bytes()
     _require(data.count(b"/FontFile") == 1, "a shape commit embedded a font more than once")
     words = [[word.word, round(word.x0, 2), round(word.y0, 2)] for word in page.get_text("words")]
     return {
@@ -818,7 +827,7 @@ def _variable_font_form_results(bold: Any) -> dict[str, Any]:  # noqa: ANN401 - 
         len(origins) == len(expected) and all(abs(a - b) < 0.01 for a, b in zip(origins, expected, strict=True)),  # noqa: PLR2004 - PDF real precision.
         "comb positions differ from the measured advances",
     )
-    reopened = pylopdf.open(document.tobytes())
+    reopened = pylopdf.open(document.to_bytes())
     return {
         "values": sorted([field["name"], field["value"]] for field in reopened.get_form_fields()),
         "fonts": fonts,
@@ -855,7 +864,7 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
     )
     _require(spare_height >= 0, "generated textbox unexpectedly overflowed")
 
-    serialized = document.tobytes()
+    serialized = document.to_bytes()
     reopened = pylopdf.open(serialized)
     texts = [reopened.pages[index].get_text().strip() for index in range(len(reopened.pages))]
     _require(len(reopened.pages) == _EXPECTED_TWO_PAGES, "generated document has the wrong page count")
@@ -952,7 +961,7 @@ def _form_page_deletion_results() -> dict[str, Any]:
     for label, edit in edits:
         document = pylopdf.open(data)
         edit(document)
-        saved = document.tobytes(garbage=True)
+        saved = document.to_bytes()
         reopened = pylopdf.open(saved)
         _require(names(reopened) == names(document), f"{label} fields changed after a save")
         results[label] = {"fields": names(document), "widgets": saved.count(b"/Subtype/Widget")}
@@ -985,7 +994,7 @@ def _structure_page_deletion_results() -> dict[str, Any]:
     for label, edit in edits:
         document = pylopdf.open(data)
         edit(document)
-        saved = document.tobytes(garbage=True)
+        saved = document.to_bytes()
         results[label] = {
             "pages": saved.count(b"/Type/Page") - saved.count(b"/Type/Pages"),
             "elements": saved.count(b"/S/"),
@@ -1019,8 +1028,8 @@ def _structure_page_deletion_results() -> dict[str, Any]:
     return results
 
 
-def _garbage_results() -> dict[str, Any]:
-    """Merge identical objects and compact numbering at pymupdf's garbage levels."""
+def _save_option_results() -> dict[str, Any]:
+    """Compress, prune, merge identical objects, and compact numbering with the save options."""
     import pylopdf  # noqa: PLC0415
 
     data = _build_raw_pdf(
@@ -1036,21 +1045,28 @@ def _garbage_results() -> dict[str, Any]:
             9: "(UNREACHABLE)",
         }
     )
+    options: dict[str, dict[str, bool]] = {
+        "plain": {"compress": False, "prune": False},
+        "default": {},
+        "renumber": {"renumber": True},
+        "dedupe": {"dedupe": True, "renumber": True},
+    }
     results: dict[str, Any] = {}
-    for level in range(5):
+    for name, option in options.items():
         document = pylopdf.open(data)
-        saved = document.tobytes(garbage=level)
+        saved = document.to_bytes(**option)
         reopened = pylopdf.open(saved)
         _require(
-            [reopened.pages[pno].get_text().strip() for pno in range(2)] == ["A", "A"],
-            f"garbage={level} changed the text",
+            [page.get_text().strip() for page in reopened.pages] == ["A", "A"],
+            f"saving with {option} changed the text",
         )
-        results[str(level)] = {
+        results[name] = {
             "objects": saved.count(b" 0 obj"),
             "fonts": saved.count(b"/BaseFont/Helvetica"),
             "pages": saved.count(b"/Type/Page") - saved.count(b"/Type/Pages"),
         }
-    _require(results["4"] == {"objects": 6, "fonts": 1, "pages": 2}, "garbage=4 did not merge duplicates")
+    _require(results["plain"]["objects"] == 9, "prune=False removed objects")  # noqa: PLR2004 - the input's objects.
+    _require(results["dedupe"] == {"objects": 6, "fonts": 1, "pages": 2}, "dedupe did not merge duplicates")
     return results
 
 
@@ -1079,7 +1095,7 @@ def _geometry_results() -> dict[str, Any]:
         page = document.pages.new((page_size, page_size))
         page.draw_line(mapped, mapped + Point(40, 0), width=2)
         page.insert_text(mapped + Point(0, 30), "Affine")
-        saved = document.tobytes()
+        saved = document.to_bytes()
     with open(saved) as reopened:
         text = reopened.pages[0].get_text().strip()
         _require(text == "Affine", "transformed text failed to survive save/reopen")
@@ -1135,7 +1151,7 @@ def _rectangle_results() -> dict[str, Any]:
         annotations = [(annot.type[1], annot.info["content"]) for annot in boxed.annots()]
         _require(highlight.xref > 0 and highlight in boxed.annots(), "the highlight returned no handle")
         boxed.insert_text((20, 250), "Full name", fontname="Times-Bold")
-        full_name = "/BaseFont/Times-Bold" in document.tobytes().decode("latin-1")
+        full_name = "/BaseFont/Times-Bold" in document.to_bytes().decode("latin-1")
     _require(isinstance(hit, Rect) and hit in box and hit.intersects(box), "search hit left its box")
     _require(cropbox == [100, 50, 500, 350] and crop_rect == [0, 0, 400, 300], "the CropBox convention changed")
     _require(reset_cropbox == [0, 0, 200, 300], "set_mediabox kept the CropBox")
@@ -1211,7 +1227,7 @@ def _object_model_results() -> dict[str, Any]:
     _require(document.metadata["title"] == "Grüße ∑", "object model Info text changed")
     stream = document.objects[content]
     _require(stream.read() == b"BT /F9 12 Tf 20 100 Td (Raw) Tj ET", "stream data did not round-trip")
-    saved = pylopdf.open(document.tobytes(garbage=2))
+    saved = pylopdf.open(document.to_bytes(renumber=True))
     catalog = saved.catalog
     return {
         "objects": list(saved.objects),
@@ -1220,7 +1236,7 @@ def _object_model_results() -> dict[str, Any]:
         "text": saved.pages[0].get_text().strip(),
         "filter": str(saved.pages[0].obj["Contents"]["Filter"]),
         "title": saved.trailer["Info"]["Title"].text,
-        "stale": _exception_name(lambda: stream["Length"] if document.tobytes(garbage=2) else None),
+        "stale": _exception_name(lambda: stream["Length"] if document.to_bytes(renumber=True) else None),
     }
 
 
@@ -1246,8 +1262,8 @@ def _document_property_results(root: Path) -> dict[str, Any]:
     _require(document.set_pagelayout("TwoColumnRight"), "set_pagelayout did not return True")
     _require(document.set_markinfo({"Marked": True}), "set_markinfo did not return True")
     document.set_language_tag("zh-TW")
-    data = document.tobytes(deflate=True)
-    _require(packet.encode() in data, "deflate compressed the XMP packet")
+    data = document.to_bytes()
+    _require(packet.encode() in data, "saving compressed the XMP packet")
     saved = pylopdf.open(data)
     return {
         "form_xmp": [len(xmp), _digest(xmp)],
@@ -1373,7 +1389,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "geometry": _geometry_results(),
         "form_page_deletion": _form_page_deletion_results(),
         "structure_page_deletion": _structure_page_deletion_results(),
-        "garbage": _garbage_results(),
+        "save_options": _save_option_results(),
         "content_isolation": _content_isolation_results(),
         "object_model": _object_model_results(),
         "document_properties": _document_property_results(root),

@@ -136,7 +136,7 @@ def _pylopdf_merge(docs: list[bytes]) -> bytes:
     for data in docs:
         with pylopdf.open(data) as src:
             merged.pages.extend(src.pages)
-    return merged.tobytes()
+    return merged.to_bytes()
 
 
 def _pylopdf_render(data: bytes) -> bytes:

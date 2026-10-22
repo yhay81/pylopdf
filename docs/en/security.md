@@ -97,7 +97,7 @@ a default that is safe for most uses. Raise it with the keyword shown, or pass
 
 | Method | Default limit | Keyword |
 |---|---|---|
-| `Document.tobytes()` | 512 MiB of output | `max_size` |
+| `Document.to_bytes()` | 512 MiB of output | `max_size` |
 | `Document.render_pages()` | 512 MiB of PNG output in total | `max_size` |
 | `to_markdown()`, `Table.to_markdown()` | 64 MiB of output | `max_size` |
 | `Pixmap.tobytes()`, `Page.get_svg_image()` | 64 MiB of output | `max_size` |

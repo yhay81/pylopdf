@@ -81,7 +81,7 @@ limits = pylopdf.DocumentLimits(
 
 | 메서드 | 기본 제한 | 키워드 |
 |---|---|---|
-| `Document.tobytes()` | 출력 512 MiB | `max_size` |
+| `Document.to_bytes()` | 출력 512 MiB | `max_size` |
 | `Document.render_pages()` | PNG 출력 합계 512 MiB | `max_size` |
 | `to_markdown()`, `Table.to_markdown()` | 출력 64 MiB | `max_size` |
 | `Pixmap.tobytes()`, `Page.get_svg_image()` | 출력 64 MiB | `max_size` |

@@ -15,7 +15,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Literal, cast, overload
+from typing import TYPE_CHECKING, Literal, TypeGuard, cast, overload
 
 from pylopdf import _fonts, _markdown
 from pylopdf._attachments import Attachments
@@ -52,15 +52,13 @@ from pylopdf._tables import (
     _MarkdownBudget,
 )
 from pylopdf._types import (
-    PDF_ENCRYPT_AES_256,
-    PDF_ENCRYPT_NONE,
+    Access,
     Block,
-    EncryptionMethod,
     OutlineEntry,
     Permissions,
     Word,
 )
-from pylopdf.pylopdf_core import LimitError, PdfError, _Document
+from pylopdf.pylopdf_core import LimitError, PasswordError, PdfError, _Document
 
 if sys.platform == "win32":
     from pylopdf.pylopdf_core import _copy_windows_dacl
@@ -93,8 +91,6 @@ if TYPE_CHECKING:
 _DEFAULT_MAX_XMP_METADATA_SIZE = 1024 * 1024
 _DEFAULT_MAX_RENDER_BATCH_SIZE = 512 * 1024 * 1024
 _DEFAULT_MAX_PDF_OUTPUT_SIZE = 512 * 1024 * 1024
-#: The first garbage level that renumbers objects.
-_GARBAGE_RENUMBERS = 2
 _MAX_FORM_FIELD_INPUT_SIZE = 1024 * 1024
 _MAX_METADATA_INPUT_TEXT_SIZE = 1024 * 1024
 _MAX_TOC_INPUT_TEXT_SIZE = 16 * 1024 * 1024
@@ -112,20 +108,6 @@ _IMAGE_COMPRESSION_MIN_DPI = 36.0
 _IMAGE_COMPRESSION_MAX_DPI = 2400.0
 _IMAGE_COMPRESSION_MAX_QUALITY = 100
 _MAX_RENDER_WORKERS = 64
-
-
-_MAX_GARBAGE_LEVEL = 4
-
-
-def _garbage_level(garbage: int) -> int:
-    """Validate a ``garbage`` save option; ``True`` and ``False`` mean 1 and 0."""
-    if not isinstance(garbage, int):
-        msg = f"garbage must be an integer from 0 to 4: {garbage!r}"
-        raise TypeError(msg)
-    if not 0 <= garbage <= _MAX_GARBAGE_LEVEL:
-        msg = f"garbage must be an integer from 0 to 4: {garbage!r}"
-        raise PdfError(msg)
-    return int(garbage)
 
 
 def _resolve_page_index(pno: int, count: int) -> int:
@@ -279,21 +261,28 @@ _PAGE_LAYOUTS = ("SinglePage", "OneColumn", "TwoColumnLeft", "TwoColumnRight", "
 _MARK_INFO_KEYS = ("Marked", "UserProperties", "Suspects")
 _MAX_LANGUAGE_TAG_BYTES = 256
 _LANGUAGE_TAG = re.compile(r"[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*", re.ASCII)
-#: pymupdf's authentication-code bit for a matching owner password.
-_OWNER_PASSWORD_CODE = 4
-#: MuPDF's permissions with every flag granted: 0xFFFFFFFC as a signed 32-bit integer.
-_ALL_PERMISSIONS = -4
 
 
-def _authentication_code(password: str, *, user: bool, owner: bool) -> int:
-    """Combine password matches into pymupdf's code, as MuPDF does.
+def _is_int(value: object) -> TypeGuard[int]:
+    """Return whether ``value`` is an integer other than a bool."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _matched_access(password: str, *, user: bool, owner: bool) -> Access | None:
+    """Return what a password opens, as MuPDF decides it, or ``None``.
 
     An empty owner password counts only when the user password is empty too.
     """
-    code = (2 if user else 0) | (_OWNER_PASSWORD_CODE if owner else 0)
-    if not password and code == _OWNER_PASSWORD_CODE:
-        return 0
-    return code
+    if owner and (password or user):
+        return Access.OWNER
+    if user:
+        return Access.USER
+    return None
+
+
+def _owner_password(encryption: Encryption) -> str:
+    """Return the owner password of ``encryption``, which defaults to the user password."""
+    return encryption.user_password if encryption.owner_password is None else encryption.owner_password
 
 
 def _catalog_name(value: str, valid: tuple[str, ...], key: str) -> str:
@@ -362,13 +351,11 @@ class Document:
         self._limits = resolved_limits
         if data is not None:
             doc = _Document.load_bytes(data, None, *limit_args)
-            needs_password = doc.is_encrypted()
-            if needs_password and password is not None:
+            if doc.is_encrypted() and password is not None:
                 doc = _Document.load_bytes(data, password, *limit_args)
         elif path is not None:
             doc = _Document.load(path, None, *limit_args)
-            needs_password = doc.is_encrypted()
-            if needs_password and password is not None:
+            if doc.is_encrypted() and password is not None:
                 doc = _Document.load(path, password, *limit_args)
         else:
             doc = _Document(
@@ -376,7 +363,6 @@ class Document:
                 resolved_limits.max_interpretation_size,
                 resolved_limits.max_text_glyphs,
             )
-            needs_password = False
         self._doc = doc
         self._closed = False
         self._path = None if path is None else Path(path)
@@ -386,14 +372,15 @@ class Document:
         # Object-numbering epoch; renumbering or reloading the objects
         # invalidates existing low-level object handles.
         self._object_epoch = 0
-        # Whether opening initially required a password; remains true after auth.
-        self._needs_password = needs_password
         # The edit revision without unsaved changes; a new document starts
         # with changes, as in pymupdf.
         self._clean_revision = None if data is None and path is None else doc.edit_revision()
-        # The authentication code of the password that opened the document,
-        # which decides its permissions.
-        self._access_code = self._original_password_code(password if needs_password and password is not None else "")
+        # The access that the password which unlocked the document grants,
+        # which decides its permissions; None while it is locked or
+        # unencrypted. A password that a document with an empty user password
+        # did not need still counts when it matches.
+        access = None if password is None else self._original_access(password)
+        self._access = access or self._original_access("")
         # Retain input only while an undecrypted document may need reopening.
         self._source_path = path if self._doc.is_encrypted() else None
         self._source_bytes = data if self._doc.is_encrypted() else None
@@ -401,9 +388,9 @@ class Document:
 
     @property
     def needs_password(self) -> bool:
-        """Return whether opening required a password; it stays true after authentication."""
+        """Return whether the document is locked until :meth:`unlock` receives its password."""
         self._ensure_not_closed()
-        return self._needs_password
+        return self._doc.is_encrypted()
 
     @property
     def path(self) -> Path | None:
@@ -421,12 +408,6 @@ class Document:
         return Pages(self)
 
     @property
-    def is_encrypted(self) -> bool:
-        """Return whether the document still requires authentication."""
-        self._ensure_not_closed()
-        return self._doc.is_encrypted()
-
-    @property
     def is_repaired(self) -> bool:
         """Return whether opening recovered damaged cross-reference data."""
         self._ensure_not_closed()
@@ -437,12 +418,12 @@ class Document:
         """Return whether :meth:`close` was called."""
         return self._closed
 
-    def _original_password_code(self, password: str) -> int:
-        """Return pymupdf's code for a password of a decrypted document, else 0."""
+    def _original_access(self, password: str) -> Access | None:
+        """Return the access that a password grants to an unlocked encrypted document, else ``None``."""
         if self._doc.is_encrypted() or not self._doc.was_encrypted():
-            return 0
+            return None
         user, owner = self._doc.check_original_password(password)
-        return _authentication_code(password, user=user, owner=owner)
+        return _matched_access(password, user=user, owner=owner)
 
     @property
     def is_dirty(self) -> bool:
@@ -451,58 +432,64 @@ class Document:
         As in pymupdf, every edit counts, even one that leaves the content as
         it was; a document created empty starts edited; and saving never
         resets it. Save options that change the in-memory document, such as
-        ``garbage`` and ``deflate``, do not count as edits.
+        ``compress`` and ``prune``, do not count as edits.
         """
         self._ensure_not_closed()
         return self._clean_revision != self._doc.edit_revision()
 
     @property
-    def permissions(self) -> int:
-        """Return the document's permission flags as pymupdf does.
+    def permissions(self) -> Permissions:
+        """Return what the document permits, as :class:`Permissions` flags.
 
-        A document that still needs a password has none, ``0``. An
-        unencrypted document, or one opened or authenticated with its owner
-        password, has all, ``-4`` (0xFFFFFFFC as a signed 32-bit integer).
-        Otherwise the value is the encryption's ``/P`` entry, likewise a
-        signed 32-bit integer. Test a flag with :class:`Permissions`, as in
-        ``doc.permissions & Permissions.PRINT``.
+        A locked document permits nothing. An unencrypted document, or one
+        unlocked with its owner password, permits everything,
+        :attr:`Permissions.ALL`. Otherwise the flags are those that the
+        encryption grants the user password. Test one with ``in``, as in
+        ``Permissions.PRINT in doc.permissions``.
         """
         self._ensure_not_closed()
         if self._doc.is_encrypted():
-            return 0
-        if self._access_code & _OWNER_PASSWORD_CODE:
-            return _ALL_PERMISSIONS
+            return Permissions(0)
+        if self._access is Access.OWNER:
+            return Permissions.ALL
         value = self._doc.encryption_permissions()
-        return _ALL_PERMISSIONS if value is None else value
+        return Permissions.ALL if value is None else Permissions(value & Permissions.ALL)
 
-    def authenticate(self, password: str) -> int:
-        """Authenticate and decrypt with a password.
+    def unlock(self, password: str) -> Access:
+        """Unlock the document with a password and return the access that it grants.
 
-        Return pymupdf's codes: 0 for failure, 1 for an unencrypted document,
-        2 for a matching user password, 4 for a matching owner password, and 6
-        when both match. A document that opened with an empty user password
-        is still checked against its encryption, as in pymupdf, and an empty
-        owner password counts only when the user password is empty too.
-        Password input is capped at 127 UTF-8 bytes before the encryption KDF.
+        The owner password grants :attr:`Access.OWNER`, every right whatever
+        the document's permissions, and the user password :attr:`Access.USER`,
+        the rights of :attr:`permissions`. A password that matches neither
+        raises :class:`PasswordError`. A document that opened without a
+        password because its user password is empty can still be unlocked
+        with its owner password; as in MuPDF, an empty owner password counts
+        only when the user password is empty too. An unencrypted document
+        grants :attr:`Access.OWNER` to any password. Passwords are capped at
+        127 UTF-8 bytes. Unlocking a locked document reads it again, so
+        handles to its objects go stale.
         """
         self._ensure_not_closed()
+        _validate_password_input(password)
         if not self._doc.is_encrypted():
             if not self._doc.was_encrypted():
-                return 1
-            _validate_password_input(password)
-            code = self._original_password_code(password)
-            if code:
-                self._access_code = code
-            return code
-        _validate_password_input(password)
-        code = _authentication_code(
+                return Access.OWNER
+            access = self._original_access(password)
+            if access is None:
+                msg = "the password matches neither the user nor the owner password"
+                raise PasswordError(msg)
+            self._access = access
+            return access
+        access = _matched_access(
             password,
             user=self._doc.authenticate_user_password(password),
             owner=self._doc.authenticate_owner_password(password),
         )
-        if code == 0:
-            return 0
-        # Reopen with the password so objects inside object streams are readable.
+        if access is None:
+            msg = "the password matches neither the user nor the owner password"
+            raise PasswordError(msg)
+        # Read the document again with the password so that objects inside
+        # object streams are readable.
         limit_args = _document_limit_args(self._limits)
         if self._source_path is not None:
             self._doc = _Document.load(self._source_path, password, *limit_args)
@@ -511,10 +498,10 @@ class Document:
         self._source_path = None
         self._source_bytes = None
         self._clean_revision = self._doc.edit_revision()
-        self._access_code = code
+        self._access = access
         self._object_epoch += 1
         self._emit_warnings()
-        return code
+        return access
 
     @property
     def limits(self) -> DocumentLimits:
@@ -666,7 +653,7 @@ class Document:
 
         As in pymupdf, an existing ``/Metadata`` stream is rewritten in place
         and otherwise a new one is added. The stream stays unfiltered, also
-        when saving with ``deflate=True``, so that tools scanning the file for
+        when saving compresses streams, so that tools scanning the file for
         XMP packets find it. :meth:`set_metadata` does not change XMP.
         ``max_size`` bounds the encoded input and defaults to 1 MiB, the
         default that :meth:`get_xml_metadata` reads back. Refusals use
@@ -687,7 +674,7 @@ class Document:
     def del_xml_metadata(self) -> None:
         """Remove the catalog's ``/Metadata`` entry, as pymupdf does.
 
-        The stream itself stays until a ``garbage`` save removes it.
+        The stream itself stays until a pruning save removes it.
         """
         self._ensure_open()
         self._doc.remove_xml_metadata()
@@ -1607,174 +1594,156 @@ class Document:
             "bytes_saved": bytes_before - bytes_after,
         }
 
-    def save(  # noqa: PLR0913  # Save options are keyword-only, like pymupdf.
+    def save(  # noqa: PLR0913 - one keyword per save option.
         self,
-        filename: str | os.PathLike[str],
+        path: str | os.PathLike[str],
+        /,
         *,
-        garbage: int = 0,
-        deflate: bool = False,
-        use_objstms: bool = False,
-        encryption: int = PDF_ENCRYPT_NONE,
-        user_pw: str | None = None,
-        owner_pw: str | None = None,
-        permissions: int = Permissions.ALL,
+        compress: bool = True,
+        prune: bool = True,
+        dedupe: bool = False,
+        renumber: bool = False,
+        object_streams: bool = False,
+        encryption: Encryption | None = None,
     ) -> None:
-        """Save to a file.
+        """Write the document to a file.
 
-        ``garbage`` takes pymupdf's cumulative levels: 1 removes objects that
-        nothing references, 2 also numbers the remaining objects
-        consecutively, 3 also merges identical objects other than streams, and
-        4 also merges identical streams. ``True`` and ``False`` mean 1 and 0.
-        Pages, annotations, form fields, structure elements, outline items,
-        and optional-content groups are never merged. ``deflate=True`` applies
-        Flate compression before saving. Both mutate the document.
-        ``use_objstms=True`` writes PDF 1.5+ object and xref streams, often
-        reducing size and raising the version to 1.5 when necessary.
+        ``compress`` applies Flate compression to the streams that have no
+        filter, and ``prune`` removes the objects that nothing reaches from
+        the trailer; both make the file smaller without changing what a viewer
+        shows. ``dedupe`` merges identical objects and streams, and needs
+        ``prune`` to remove the duplicates; pages, annotations, form fields,
+        structure elements, outline items, and optional-content groups are
+        never merged. ``renumber`` numbers the remaining objects
+        consecutively. These four options change the document itself, and
+        handles to removed or renumbered objects go stale. ``object_streams``
+        packs objects into object streams with a cross-reference stream,
+        which raises the PDF version to 1.5 when it is lower.
 
-        ``encryption`` takes pymupdf's :class:`EncryptionMethod` values and
-        defaults to :data:`PDF_ENCRYPT_NONE`, which writes plaintext;
-        :data:`PDF_ENCRYPT_AES_256` writes AES-256 PDF 2.0 encryption while the
-        in-memory document stays plaintext. The other methods raise
-        :class:`PdfError`, and so does ``user_pw`` or ``owner_pw`` without
-        :data:`PDF_ENCRYPT_AES_256`, instead of being ignored. ``user_pw``
-        defaults to empty and ``owner_pw`` to ``user_pw``. An empty user
-        password plus an owner password permits unrestricted opening with
-        permission controls. Each password is capped at 127 UTF-8 bytes.
-        ``permissions`` combines :class:`Permissions` and defaults to all.
-        Encryption cannot be combined with object streams.
-        Every mode streams to a same-directory temporary file and replaces
-        ``filename`` only after a complete successful write.
+        ``encryption`` takes an :class:`Encryption` and writes AES-256
+        encryption while the document in memory stays unencrypted; ``None``
+        writes no encryption, even for a document that was encrypted.
+        Encryption cannot be combined with ``object_streams``. The file is
+        written to a temporary file next to ``path``, which replaces ``path``
+        only after the write succeeded.
         """
         self._ensure_open()
-        level = _garbage_level(garbage)
-        encrypt_args = self._encryption_args(encryption, user_pw, owner_pw, permissions, use_objstms=use_objstms)
+        self._check_save_options(
+            compress=compress,
+            prune=prune,
+            dedupe=dedupe,
+            renumber=renumber,
+            object_streams=object_streams,
+            encryption=encryption,
+        )
         clean = not self.is_dirty
         try:
-            self._save_file(filename, encrypt_args, level=level, deflate=deflate, use_objstms=use_objstms)
+            self._apply_save_options(compress=compress, prune=prune, dedupe=dedupe, renumber=renumber)
+            writer: Callable[[str], None]
+            if encryption is not None:
+                writer = functools.partial(
+                    self._doc.save_encrypted,
+                    user_password=encryption.user_password,
+                    owner_password=_owner_password(encryption),
+                    permissions=int(encryption.permissions),
+                    file_encryption_key=os.urandom(32),
+                )
+            elif object_streams:
+                writer = self._doc.save_with_object_streams
+            else:
+                writer = self._doc.save
+            _atomic_save_file(path, writer)
         finally:
             if clean:
                 self._clean_revision = self._doc.edit_revision()
 
-    def _save_file(
-        self,
-        filename: str | os.PathLike[str],
-        encrypt_args: tuple[str, str, int] | None,
-        *,
-        level: int,
-        deflate: bool,
-        use_objstms: bool,
-    ) -> None:
-        """Apply the save options and write the file for :meth:`save`."""
-        self._apply_save_options(garbage=level, deflate=deflate)
-        writer: Callable[[str], None]
-        if encrypt_args is not None:
-            user, owner, perms = encrypt_args
-            writer = functools.partial(
-                self._doc.save_encrypted,
-                user_password=user,
-                owner_password=owner,
-                permissions=perms,
-                file_encryption_key=os.urandom(32),
-            )
-        elif use_objstms:
-            writer = self._doc.save_with_object_streams
-        else:
-            writer = self._doc.save
-        _atomic_save_file(filename, writer)
-
-    def tobytes(  # noqa: PLR0913  # Save options are keyword-only, like pymupdf.
+    def to_bytes(  # noqa: PLR0913 - one keyword per save option.
         self,
         *,
-        garbage: int = 0,
-        deflate: bool = False,
-        use_objstms: bool = False,
-        encryption: int = PDF_ENCRYPT_NONE,
-        user_pw: str | None = None,
-        owner_pw: str | None = None,
-        permissions: int = Permissions.ALL,
+        compress: bool = True,
+        prune: bool = True,
+        dedupe: bool = False,
+        renumber: bool = False,
+        object_streams: bool = False,
+        encryption: Encryption | None = None,
         max_size: int | None = _DEFAULT_MAX_PDF_OUTPUT_SIZE,
     ) -> bytes:
-        """Return bounded PDF bytes; save options have the same meaning as :meth:`save`.
+        """Return the document as PDF bytes, with the options of :meth:`save`.
 
-        ``max_size`` limits serialization before converting the Rust buffer to
-        Python ``bytes``. ``None`` explicitly opts out for trusted workloads.
-        Refusal raises :class:`LimitError` with code ``pdf_output_size``.
-        Encryption passwords are capped at 127 UTF-8 bytes.
+        ``max_size`` bounds the output, 512 MiB by default, and refuses the
+        write that would pass it with :class:`LimitError` code
+        ``pdf_output_size``; ``None`` leaves it unbounded for trusted input.
         """
         self._ensure_open()
+        self._check_save_options(
+            compress=compress,
+            prune=prune,
+            dedupe=dedupe,
+            renumber=renumber,
+            object_streams=object_streams,
+            encryption=encryption,
+        )
         _validate_optional_positive_int("max_size", max_size)
-        level = _garbage_level(garbage)
-        encrypt_args = self._encryption_args(encryption, user_pw, owner_pw, permissions, use_objstms=use_objstms)
         clean = not self.is_dirty
         try:
-            return self._serialize(
-                encrypt_args, level=level, deflate=deflate, use_objstms=use_objstms, max_size=max_size
-            )
+            self._apply_save_options(compress=compress, prune=prune, dedupe=dedupe, renumber=renumber)
+            if encryption is not None:
+                return self._doc.save_bytes_encrypted(
+                    encryption.user_password,
+                    _owner_password(encryption),
+                    int(encryption.permissions),
+                    os.urandom(32),
+                    max_size,
+                )
+            if object_streams:
+                return self._doc.save_bytes_with_object_streams(max_size)
+            return self._doc.save_bytes(max_size)
         finally:
             if clean:
                 self._clean_revision = self._doc.edit_revision()
 
-    def _serialize(
-        self,
-        encrypt_args: tuple[str, str, int] | None,
-        *,
-        level: int,
-        deflate: bool,
-        use_objstms: bool,
-        max_size: int | None,
-    ) -> bytes:
-        """Apply the save options and serialize for :meth:`tobytes`."""
-        self._apply_save_options(garbage=level, deflate=deflate)
-        if encrypt_args is not None:
-            user, owner, perms = encrypt_args
-            return self._doc.save_bytes_encrypted(user, owner, perms, os.urandom(32), max_size)
-        if use_objstms:
-            return self._doc.save_bytes_with_object_streams(max_size)
-        return self._doc.save_bytes(max_size)
-
-    def _apply_save_options(self, *, garbage: int, deflate: bool) -> None:
-        """Apply garbage collection and stream compression before saving."""
-        if garbage:
-            self._doc.collect_garbage(garbage)
-            if garbage >= _GARBAGE_RENUMBERS:
-                # Levels 2-4 renumber objects, so object handles go stale.
-                self._object_epoch += 1
-        if deflate:
-            self._doc.compress()
-
     @staticmethod
-    def _encryption_args(
-        encryption: int,
-        user_pw: str | None,
-        owner_pw: str | None,
-        permissions: int,
+    def _check_save_options(  # noqa: PLR0913 - one keyword per save option.
         *,
-        use_objstms: bool,
-    ) -> tuple[str, str, int] | None:
-        """Validate encryption arguments, returning ``None`` when disabled."""
-        if isinstance(encryption, bool) or not isinstance(encryption, int):
-            msg = f"encryption must be a PDF_ENCRYPT_* value: {encryption!r}"
-            raise TypeError(msg)
-        if encryption == PDF_ENCRYPT_NONE:
-            if user_pw is not None or owner_pw is not None:
-                msg = "user_pw and owner_pw need encryption=PDF_ENCRYPT_AES_256"
-                raise PdfError(msg)
-            return None
-        if encryption != PDF_ENCRYPT_AES_256:
-            try:
-                name = f"PDF_ENCRYPT_{EncryptionMethod(encryption).name}"
-            except ValueError:
-                name = repr(encryption)
-            msg = f"encryption={name} is not supported; use PDF_ENCRYPT_NONE or PDF_ENCRYPT_AES_256"
-            raise PdfError(msg)
-        if use_objstms:
-            msg = "encryption (user_pw / owner_pw) and use_objstms cannot both be specified"
+        compress: bool,
+        prune: bool,
+        dedupe: bool,
+        renumber: bool,
+        object_streams: bool,
+        encryption: Encryption | None,
+    ) -> None:
+        """Validate the options of :meth:`save` and :meth:`to_bytes` before anything changes."""
+        options = {
+            "compress": compress,
+            "prune": prune,
+            "dedupe": dedupe,
+            "renumber": renumber,
+            "object_streams": object_streams,
+        }
+        for name, value in options.items():
+            if not isinstance(value, bool):
+                msg = f"{name} must be True or False: {value!r}"
+                raise TypeError(msg)
+        if dedupe and not prune:
+            msg = "dedupe=True needs prune=True, which removes the merged duplicates"
             raise ValueError(msg)
-        _validate_password_input(user_pw, "user password")
-        _validate_password_input(owner_pw, "owner password")
-        user = user_pw if user_pw is not None else ""
-        owner = owner_pw if owner_pw is not None else user
-        return (user, owner, int(permissions))
+        if encryption is not None:
+            if not isinstance(encryption, Encryption):
+                msg = f"encryption must be an Encryption or None: {encryption!r}"
+                raise TypeError(msg)
+            if object_streams:
+                msg = "encryption cannot be combined with object_streams=True"
+                raise ValueError(msg)
+
+    def _apply_save_options(self, *, compress: bool, prune: bool, dedupe: bool, renumber: bool) -> None:
+        """Apply the save options that change the document before it is written."""
+        if prune or renumber:
+            self._doc.collect_garbage(dedupe, prune, renumber)
+            if renumber:
+                # Renumbering moves objects, so object handles go stale.
+                self._object_epoch += 1
+        if compress:
+            self._doc.compress()
 
     def close(self) -> None:
         """Close the document; subsequent operations raise an error."""
@@ -1914,8 +1883,8 @@ class Probe:
     page_count: int
     #: The PDF version of the header, such as ``"1.7"``.
     version: str
-    #: Whether the document is encrypted and the password given, if any, did not open it.
-    is_encrypted: bool
+    #: Whether the document is encrypted and the password given, if any, did not unlock it.
+    needs_password: bool
     #: Whether reading it needed cross-reference recovery.
     is_repaired: bool
     #: The Info dictionary's text entries that are present: ``title``,
@@ -1952,12 +1921,49 @@ def probe(
     return Probe(
         page_count=page_count,
         version=version,
-        is_encrypted=encrypted,
+        needs_password=encrypted,
         is_repaired=recovery is not None,
         metadata=MappingProxyType({name: raw[key] for name, key in _PROBE_METADATA_KEYS if key in raw}),
     )
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Encryption:
+    """How :meth:`Document.save` and :meth:`Document.to_bytes` encrypt the file.
+
+    The user password opens the document with the rights in ``permissions``,
+    and the owner password opens it with every right. ``owner_password``
+    defaults to ``user_password``. An empty user password lets anyone open
+    the document while ``permissions`` still restricts it; that restriction
+    holds only as long as the owner password is not empty too. Each password
+    is capped at 127 UTF-8 bytes. ``method`` is ``"aes-256"``, the AES-256
+    encryption of PDF 2.0, the one method that pylopdf writes.
+    """
+
+    user_password: str = ""
+    owner_password: str | None = None
+    permissions: Permissions = Permissions.ALL
+    method: Literal["aes-256"] = "aes-256"
+
+    def __post_init__(self) -> None:
+        """Validate the passwords, permissions, and method."""
+        if not isinstance(self.user_password, str):
+            msg = f"user_password must be a str: {self.user_password!r}"
+            raise TypeError(msg)
+        if self.owner_password is not None and not isinstance(self.owner_password, str):
+            msg = f"owner_password must be a str or None: {self.owner_password!r}"
+            raise TypeError(msg)
+        _validate_password_input(self.user_password, "user password")
+        _validate_password_input(self.owner_password, "owner password")
+        if not _is_int(self.permissions):
+            msg = f"permissions must be Permissions flags: {self.permissions!r}"
+            raise TypeError(msg)
+        object.__setattr__(self, "permissions", Permissions(int(self.permissions) & Permissions.ALL))
+        if self.method != "aes-256":
+            msg = f"method must be 'aes-256': {self.method!r}"
+            raise ValueError(msg)
+
+
 # The package re-exports these names; reprs, pickles, and documentation name it.
-for _public in (Document, Probe, open, probe):
+for _public in (Document, Encryption, Probe, open, probe):
     _public.__module__ = "pylopdf"

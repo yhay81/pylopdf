@@ -77,7 +77,7 @@ import pylopdf
 
 with pylopdf.open(pdf_bytes, limits=pylopdf.DocumentLimits.web()) as doc:
     text = doc.pages[0].get_text() if doc.pages else ""
-    output = doc.tobytes()
+    output = doc.to_bytes()
 ```
 
 WebAssembly 런타임인지 확인하려면 `sys.platform == "emscripten"`을 검사하세요.

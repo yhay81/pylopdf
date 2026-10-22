@@ -52,7 +52,7 @@ def test_insert_pdf_start_at(three_page_pdf: bytes, one_page_pdf: bytes) -> None
     assert "Hello PDF" in doc.pages[1].get_text()
     assert "Page two" in doc.pages[2].get_text()
     # Preserve page order after save and reload.
-    reloaded = pylopdf.open(doc.tobytes())
+    reloaded = pylopdf.open(doc.to_bytes())
     assert "Hello PDF" in reloaded.pages[1].get_text()
 
 
@@ -87,7 +87,7 @@ def test_insert_pdf_does_not_keep_unreachable_source_data() -> None:
     target.pages.extend(source.pages)
 
     assert list(target.attachments) == []
-    assert secret not in target.tobytes()
+    assert secret not in target.to_bytes()
 
 
 def test_new_page_appends_blank(one_page_pdf: bytes) -> None:
@@ -117,13 +117,13 @@ def test_new_page_preserves_indirect_root_kids() -> None:
     assert len(doc.pages) == 2
     assert doc.pages[0].rect.width == pytest.approx(100)
     assert doc.pages[1].rect == pylopdf.Rect(0, 0, 200, 300)
-    assert len(pylopdf.open(doc.tobytes()).pages) == 2
+    assert len(pylopdf.open(doc.to_bytes()).pages) == 2
 
     del doc.pages[1]
 
     assert len(doc.pages) == 1
     assert doc.pages[0].rect.width == pytest.approx(100)
-    assert len(pylopdf.open(doc.tobytes()).pages) == 1
+    assert len(pylopdf.open(doc.to_bytes()).pages) == 1
 
 
 def test_new_page_insert_position_and_size(three_page_pdf: bytes) -> None:
@@ -133,7 +133,7 @@ def test_new_page_insert_position_and_size(three_page_pdf: bytes) -> None:
     assert len(doc.pages) == 4
     assert doc.pages[1].get_text() == ""
     assert "Page two" in doc.pages[2].get_text()
-    reloaded = pylopdf.open(doc.tobytes())
+    reloaded = pylopdf.open(doc.to_bytes())
     assert len(reloaded.pages) == 4
     assert png_size(reloaded.pages[1].get_pixmap(alpha=True).tobytes()) == (300, 400)
 
@@ -154,7 +154,7 @@ def test_copy_page_append_and_position(three_page_pdf: bytes) -> None:
     doc.pages.insert(0, doc.pages[2])  # Copy the current Page three to the front.
     assert len(doc.pages) == 5
     assert "Page three" in doc.pages[0].get_text()
-    reloaded = pylopdf.open(doc.tobytes())
+    reloaded = pylopdf.open(doc.to_bytes())
     assert len(reloaded.pages) == 5
     assert "Page three" in reloaded.pages[0].get_text()
     assert reloaded.pages[0].get_pixmap(alpha=True).tobytes() == reloaded.pages[3].get_pixmap(alpha=True).tobytes()
@@ -190,12 +190,12 @@ def test_native_argument_refusal_keeps_existing_pages(
 ) -> None:
     doc = pylopdf.open(three_page_pdf)
     page = doc.pages[0]
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     with pytest.raises(TypeError):
         operation(doc.pages)
 
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
     assert "Page one" in page.get_text()
 
 
@@ -206,24 +206,24 @@ def test_insert_pdf_native_argument_refusal_keeps_existing_pages(
     doc = pylopdf.open(three_page_pdf)
     source = pylopdf.open(one_page_pdf)
     page = doc.pages[0]
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     with pytest.raises(TypeError):
         doc.pages.insert(0.5, source.pages)  # ty: ignore[invalid-argument-type]
 
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
     assert "Page one" in page.get_text()
 
 
 def test_new_page_native_size_refusal_keeps_existing_pages(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
     page = doc.pages[0]
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     with pytest.raises(pylopdf.PdfError, match="positive finite"):
         doc.pages.new((1e-50, 842))
 
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
     assert "Hello PDF" in page.get_text()
 
 
@@ -251,7 +251,7 @@ def test_insert_pdf_preserves_geometry_under_cropped_rotated_parent(source_attri
     expected_crop = source.pages[0].cropbox
     expected_rotation = source.pages[0].rotation
     expected_png = source.pages[0].get_pixmap(alpha=True).tobytes()
-    source_bytes = source.tobytes()
+    source_bytes = source.to_bytes()
     target = pylopdf.open(_build_cropped_parent_pdf())
     original_png = target.pages[0].get_pixmap(alpha=True).tobytes()
 
@@ -261,8 +261,8 @@ def test_insert_pdf_preserves_geometry_under_cropped_rotated_parent(source_attri
     assert target.pages[1].rotation == expected_rotation
     assert target.pages[1].get_pixmap(alpha=True).tobytes() == expected_png
     assert target.pages[0].get_pixmap(alpha=True).tobytes() == original_png
-    assert source.tobytes() == source_bytes
-    reopened = pylopdf.open(target.tobytes())
+    assert source.to_bytes() == source_bytes
+    reopened = pylopdf.open(target.to_bytes())
     assert reopened.pages[1].cropbox == expected_crop
     assert reopened.pages[1].rotation == expected_rotation
     assert reopened.pages[1].get_pixmap(alpha=True).tobytes() == expected_png
@@ -278,7 +278,7 @@ def test_new_page_uses_requested_geometry_under_cropped_rotated_parent() -> None
     assert page.mediabox == page.cropbox == pylopdf.Rect(0, 0, 612, 792)
     assert png_size(page.get_pixmap(alpha=True).tobytes()) == (612, 792)
     assert target.pages[0].get_pixmap(alpha=True).tobytes() == original_png
-    reopened = pylopdf.open(target.tobytes())
+    reopened = pylopdf.open(target.to_bytes())
     assert reopened.pages[1].rotation == 0
     assert png_size(reopened.pages[1].get_pixmap(alpha=True).tobytes()) == (612, 792)
 
@@ -314,17 +314,17 @@ def test_insert_pdf_treats_null_page_and_parent_attributes_as_absent(
     assert source.pages[0].cropbox == expected_crop
     assert source.pages[0].rotation == expected_rotation
     expected_png = source.pages[0].get_pixmap(alpha=True).tobytes()
-    source_bytes = source.tobytes()
+    source_bytes = source.to_bytes()
     target = pylopdf.open(_build_cropped_parent_pdf())
 
     target.pages.extend(source.pages)
 
-    for current in (target, pylopdf.open(target.tobytes())):
+    for current in (target, pylopdf.open(target.to_bytes())):
         assert current.pages[1].mediabox == pylopdf.Rect(0, 0, 612, 792)
         assert current.pages[1].cropbox == expected_crop
         assert current.pages[1].rotation == expected_rotation
         assert current.pages[1].get_pixmap(alpha=True).tobytes() == expected_png
-    assert source.tobytes() == source_bytes
+    assert source.to_bytes() == source_bytes
 
 
 @pytest.mark.parametrize("operation", ["select", "delete_pages", "copy_page", "insert_text"])
@@ -367,7 +367,7 @@ def test_page_edits_inherit_past_attributes_that_name_missing_objects(operation:
     else:
         doc.pages[0].insert_text((20, 30), "Drawn")
 
-    for current in (doc, pylopdf.open(doc.tobytes())):
+    for current in (doc, pylopdf.open(doc.to_bytes())):
         page = current.pages[index]
         assert (page.mediabox, page.cropbox, page.rotation) == geometry
         if operation == "insert_text":
@@ -390,7 +390,7 @@ def test_add_page_refuses_existing_parent_cycle_before_mutation(operation: str) 
         )
     )
     existing = target.pages[0]
-    before = target.tobytes()
+    before = target.to_bytes()
     source = pylopdf.Document()
     source.pages.new()
     source.pages[0].insert_text((10, 30), "IMPORTED-DATA-MUST-NOT-REMAIN")
@@ -403,8 +403,8 @@ def test_add_page_refuses_existing_parent_cycle_before_mutation(operation: str) 
     with pytest.raises(pylopdf.PdfError, match="inheritance tree contains a reference cycle"):
         actions[operation]()
 
-    assert target.tobytes() == before
-    assert b"IMPORTED-DATA-MUST-NOT-REMAIN" not in target.tobytes()
+    assert target.to_bytes() == before
+    assert b"IMPORTED-DATA-MUST-NOT-REMAIN" not in target.to_bytes()
     assert existing.index == 0
     assert existing.mediabox == pylopdf.Rect(0, 0, 100, 100)
     assert len(target.pages) == 2

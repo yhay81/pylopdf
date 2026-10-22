@@ -63,7 +63,7 @@ def _pixel(page: pylopdf.Page, x: float, y: float) -> tuple[int, int, int]:
 
 
 def _font_files(doc: pylopdf.Document) -> int:
-    return len(re.findall(rb"/FontFile[23]? ", doc.tobytes()))
+    return len(re.findall(rb"/FontFile[23]? ", doc.to_bytes()))
 
 
 def _rounded(values: tuple[float, ...] | None) -> tuple[float, ...] | None:
@@ -213,13 +213,13 @@ def test_finish_without_drawing_is_a_no_op_and_refuses_styles_that_draw_nothing(
 
 def test_commit_refuses_drawing_that_finish_did_not_style() -> None:
     doc, page = _new_page()
-    before = doc.tobytes()
+    before = doc.to_bytes()
     shape = page.new_shape()
     shape.draw_rect((10, 10, 50, 50))
     shape.insert_text((10, 80), "text")
     with pytest.raises(pylopdf.PdfError, match=r"finish\(\)"):
         shape.commit()
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
     shape.finish(color=(1, 0, 0))
     shape.commit()
     assert page.get_text().strip() == "text"
@@ -317,13 +317,13 @@ def test_a_context_manager_commits_or_draws_nothing_after_an_exception() -> None
         shape.finish(fill=(0, 1, 0))
     assert len(page.get_drawings()) == 1
 
-    before = doc.tobytes()
+    before = doc.to_bytes()
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         with pytest.raises(RuntimeError, match="stop"):
             _draw_then_fail(page)
         gc.collect()
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
     assert not [warning for warning in caught if issubclass(warning.category, ResourceWarning)]
 
 
@@ -406,12 +406,12 @@ def test_insert_textbox_wraps_as_page_insert_textbox_does(regular: pylopdf.Font)
 
 def test_an_overflowing_textbox_adds_nothing() -> None:
     doc, page = _new_page()
-    before = doc.tobytes()
+    before = doc.to_bytes()
     shape = page.new_shape()
     assert shape.insert_textbox((20, 20, 60, 30), "Too much text " * 20) < 0
     assert shape.insert_textbox((20, 20, 60, 30), "") == 10
     shape.commit()
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 def test_text_colours_may_be_gray_rgb_or_cmyk(regular: pylopdf.Font) -> None:
@@ -707,6 +707,6 @@ def test_report_pages_with_measured_labels_and_photo_marks(regular: pylopdf.Font
     # Inside the stroked frame the photo still shows.
     red, green, blue = _pixel(page, 160, 505)
     assert red == green == blue < 250
-    saved = pylopdf.open(doc.tobytes())
+    saved = pylopdf.open(doc.to_bytes())
     assert len(saved.pages) == 3
     assert "現地調査報告書" in saved.pages[0].get_text()

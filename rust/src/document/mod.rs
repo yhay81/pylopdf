@@ -1099,9 +1099,12 @@ impl _Document {
     }
 
     /// Compress streams.
+    ///
+    /// Only a stream that Flate makes smaller changes, and the caches are
+    /// dropped only when one does, so saving a compressed document again
+    /// keeps the rendering snapshot and the remembered placements.
     fn compress(&mut self, py: Python<'_>) {
-        self.invalidate_hayro_pdf();
-        py.detach(|| self.doc.compress());
+        saving::compress(self, py);
     }
 
     /// Decompress streams.
@@ -1110,15 +1113,21 @@ impl _Document {
         py.detach(|| self.doc.decompress());
     }
 
-    /// Collect garbage at one of pymupdf's cumulative `garbage` levels.
+    /// Merge identical objects and streams (`dedupe`), remove the objects
+    /// that the trailer cannot reach (`prune`), and number the remaining
+    /// objects consecutively (`renumber`), in that order.
     ///
-    /// 1 removes objects that the trailer cannot reach, 2 also numbers the
-    /// remaining objects consecutively, 3 also merges identical objects that
-    /// are not streams, and 4 also merges identical streams. Merging and
-    /// renumbering change the IDs of placed objects, so they forget
-    /// placements; removing unreachable objects keeps them.
-    fn collect_garbage(&mut self, py: Python<'_>, level: u8) -> PyResult<()> {
-        saving::collect_garbage(self, py, level)
+    /// Merging leaves the duplicates unreachable, so it needs `prune`.
+    /// Merging and renumbering change the IDs of placed objects, so they
+    /// forget placements; removing unreachable objects keeps them.
+    fn collect_garbage(
+        &mut self,
+        py: Python<'_>,
+        dedupe: bool,
+        prune: bool,
+        renumber: bool,
+    ) -> PyResult<()> {
+        saving::collect_garbage(self, py, dedupe, prune, renumber)
     }
 
     /// Draw JPEG/PNG bytes into display `rect` on a one-based page.

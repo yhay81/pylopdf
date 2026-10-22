@@ -380,7 +380,7 @@ def _one_page_pdf(text: str = "Source page") -> bytes:
     with page.draw() as canvas:
         canvas.text(text, (20, 50), size=14)
         canvas.rect((0, 0, 200, 100), stroke=RED)
-    return doc.tobytes()
+    return doc.to_bytes()
 
 
 def test_pages_of_other_documents_are_stored_once() -> None:
@@ -443,7 +443,7 @@ def test_rotated_pages_use_display_space() -> None:
 
 def test_an_exception_discards_the_drawing() -> None:
     doc, page = _new_page()
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     def draw_then_fail() -> None:
         with page.draw() as canvas:
@@ -453,16 +453,16 @@ def test_an_exception_discards_the_drawing() -> None:
 
     with pytest.raises(RuntimeError, match="stop"):
         draw_then_fail()
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
     assert _items(page) == []
 
 
 def test_an_empty_canvas_changes_nothing() -> None:
     doc, page = _new_page()
-    before = doc.tobytes()
+    before = doc.to_bytes()
     with page.draw():
         pass
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 def test_a_canvas_is_written_once() -> None:

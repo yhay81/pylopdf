@@ -49,7 +49,7 @@ engine = pylopdf.OcrEngine()
 with pylopdf.open("scan.pdf") as doc:
     for page in doc.pages:
         page.apply_ocr(engine=engine)
-    doc.save("searchable.pdf", garbage=3, deflate=True, use_objstms=True)
+    doc.save("searchable.pdf", dedupe=True, object_streams=True)
 ```
 
 `apply_ocr()` does not change how the page looks. It skips a page that already

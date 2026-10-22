@@ -41,9 +41,13 @@ python -m pylopdf.migrate src/
 | `doc.language`、`set_language(tag)` | `doc.language_tag`、`set_language_tag(tag)` | 使用完整的标签：pymupdf最多只保留三个字母，因此`zh-TW`和`zh-HK`都会变成`zh-Hant`；迁移工具会改写`set_language` |
 | `doc.pagemode`、`pagelayout`、`markinfo`及其`set_*`方法、`has_links()`、`has_annots()`、`is_closed` | 相同 | |
 | `doc.name` | `doc.path` | 一个`pathlib.Path`；从bytes打开或新建的空文档为`None`。由于所有文档都是PDF，`is_pdf`已被移除 |
-| `doc.needs_pass`、`authenticate()`、`permissions`、`is_dirty` | `doc.needs_password`；其余相同 | 返回代码和值相同 |
-| `doc.save(garbage=4, deflate=True)` | 相同 | `garbage`从不合并页面、批注、表单字段和图层 |
-| `doc.save(encryption=…, user_pw=…)` | 相同 | 仅支持`PDF_ENCRYPT_NONE`和`PDF_ENCRYPT_AES_256`；未加密却传入密码时会抛出异常，而不是被忽略 |
+| `doc.needs_pass`、`doc.is_encrypted` | `doc.needs_password` | 在文档解锁之前为True |
+| `doc.authenticate(password)` | `doc.unlock(password)` | 返回`Access.USER`或`Access.OWNER`；密码错误时抛出`PasswordError`，而不是返回0 |
+| `doc.permissions`、`is_dirty` | 相同 | `permissions`是`Permissions`标志值：以`Permissions.ALL`代替`-4` |
+| `doc.save(garbage=4, deflate=True)` | `doc.save(dedupe=True, renumber=True)` | 保存时默认压缩流并删除未使用的对象；`garbage=0`变为`prune=False`，`deflate=False`变为`compress=False`。页面、批注、表单字段和图层从不合并 |
+| `doc.save(encryption=PDF_ENCRYPT_AES_256, user_pw=…, owner_pw=…, permissions=…)` | `doc.save(encryption=Encryption(user_password=…, owner_password=…, permissions=…))` | 仅支持AES-256 |
+| `doc.tobytes(...)`、`doc.write(...)` | `doc.to_bytes(...)` | 选项与`save()`相同 |
+| `doc.save(use_objstms=True)` | `doc.save(object_streams=True)` | |
 | `doc.select(indexes)` | `doc.pages.select(indexes)` | 还会删除未保留页面的表单字段和标签PDF结构 |
 | `doc.delete_page(i)`、`delete_pages(a, b)` | `del doc.pages[i]`、`del doc.pages[a:b + 1]` | 若要删除一组列出的页面，请用`doc.pages.select(...)`保留其余页面 |
 | `doc.new_page(pno, width=, height=)` | `doc.pages.new((width, height), index=pno)` | 未指定`index`时追加到末尾 |
@@ -137,5 +141,5 @@ doc = pylopdf.open("in.pdf")
 page = doc.pages[0]
 page.add_highlight_annot(page.search_for("total"))   # 可直接传入整个列表
 page.get_pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
-doc.save("out.pdf", garbage=4, deflate=True)
+doc.save("out.pdf", dedupe=True, renumber=True)
 ```

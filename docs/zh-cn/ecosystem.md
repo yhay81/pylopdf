@@ -60,7 +60,7 @@ from pyhanko.sign import signers
 
 signer = signers.SimpleSigner.load("key.pem", "cert.pem")
 out = signers.sign_pdf(
-    IncrementalPdfFileWriter(io.BytesIO(doc.tobytes())),
+    IncrementalPdfFileWriter(io.BytesIO(doc.to_bytes())),
     signers.PdfSignatureMetadata(field_name="Signature1"),
     signer=signer,
 )

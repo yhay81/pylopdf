@@ -105,7 +105,7 @@ def test_set_xml_metadata_adds_an_unfiltered_metadata_stream(tmp_path: Path) -> 
 
     # Deflating streams leaves the XMP packet readable in the file.
     path = tmp_path / "xmp.pdf"
-    doc.save(path, deflate=True)
+    doc.save(path)
     assert xmp.encode() in path.read_bytes()
     reopened = pylopdf.open(path)
     assert reopened.get_xml_metadata() == xmp
@@ -122,7 +122,7 @@ def test_set_xml_metadata_rewrites_an_existing_stream_in_place() -> None:
     assert "Filter" not in stream
     assert stream["Type"] == "Metadata"
     assert stream.read(decode=False) == b"<new/>"
-    assert pylopdf.open(doc.tobytes(deflate=True)).get_xml_metadata() == "<new/>"
+    assert pylopdf.open(doc.to_bytes()).get_xml_metadata() == "<new/>"
 
 
 def test_set_xml_metadata_input_is_bounded_before_any_change() -> None:
@@ -161,7 +161,7 @@ def test_del_xml_metadata_removes_the_catalog_entry() -> None:
     assert "Metadata" not in doc.catalog
     assert doc.get_xml_metadata() == ""
     doc.del_xml_metadata()  # Removing absent metadata changes nothing.
-    saved = pylopdf.open(doc.tobytes(garbage=1))
+    saved = pylopdf.open(doc.to_bytes())
     assert saved.get_xml_metadata() == ""
     assert all(
         not (isinstance(value, pylopdf.Stream) and value.get("Type") == "Metadata") for value in saved.objects.values()
@@ -203,7 +203,7 @@ def test_set_pagemode_matches_names_case_insensitively(value: str, stored: str) 
     assert doc.set_pagemode(value) is True
     assert doc.catalog["PageMode"] == stored
     assert isinstance(doc.catalog["PageMode"], pylopdf.Name)
-    assert pylopdf.open(doc.tobytes()).pagemode == stored
+    assert pylopdf.open(doc.to_bytes()).pagemode == stored
 
 
 @pytest.mark.parametrize(
@@ -213,7 +213,7 @@ def test_set_pagemode_matches_names_case_insensitively(value: str, stored: str) 
 def test_set_pagelayout_matches_names_case_insensitively(value: str, stored: str) -> None:
     doc = pylopdf.open(build_pdf(["plain"]))
     assert doc.set_pagelayout(value) is True
-    assert pylopdf.open(doc.tobytes()).pagelayout == stored
+    assert pylopdf.open(doc.to_bytes()).pagelayout == stored
 
 
 @pytest.mark.parametrize("value", ["", "/", "Custom", "SinglePage", None, 1])
@@ -257,7 +257,7 @@ def test_set_markinfo_writes_all_three_flags() -> None:
     expected = {"Marked": True, "UserProperties": False, "Suspects": True}
     assert doc.markinfo == expected
     assert sorted(doc.catalog["MarkInfo"]) == ["Marked", "Suspects", "UserProperties"]
-    assert pylopdf.open(doc.tobytes()).markinfo == expected
+    assert pylopdf.open(doc.to_bytes()).markinfo == expected
 
 
 def test_set_markinfo_ignores_empty_input_and_rejects_bad_entries() -> None:
@@ -383,7 +383,7 @@ def test_set_language_tag_keeps_the_complete_tag(tag: str) -> None:
     lang = doc.catalog["Lang"]
     assert isinstance(lang, pylopdf.String)
     assert bytes(lang) == tag.encode()
-    assert pylopdf.open(doc.tobytes()).language_tag == tag
+    assert pylopdf.open(doc.to_bytes()).language_tag == tag
 
 
 def test_set_language_tag_none_removes_lang() -> None:
@@ -392,7 +392,7 @@ def test_set_language_tag_none_removes_lang() -> None:
     assert "Lang" not in doc.catalog
     assert doc.language_tag is None
     doc.set_language_tag(None)  # Removing an absent tag changes nothing.
-    assert pylopdf.open(doc.tobytes()).language_tag is None
+    assert pylopdf.open(doc.to_bytes()).language_tag is None
 
 
 @pytest.mark.parametrize(
@@ -518,67 +518,73 @@ def test_every_edit_sets_is_dirty_until_the_document_closes(edit: Callable[[pylo
     edit(doc)
     assert doc.is_dirty
     # pymupdf never resets it, not even after an incremental save.
-    doc.tobytes()
+    doc.to_bytes()
     assert doc.is_dirty
 
 
 def test_save_options_do_not_set_is_dirty(tmp_path: Path) -> None:
     doc = pylopdf.open(REAL_WORLD / "usrguide.pdf")
-    doc.tobytes(garbage=4, deflate=True)
-    doc.save(tmp_path / "out.pdf", garbage=3, use_objstms=True)
+    doc.to_bytes(dedupe=True, renumber=True)
+    doc.save(tmp_path / "out.pdf", dedupe=True, renumber=True, object_streams=True)
     assert not doc.is_dirty
 
 
-def test_is_dirty_is_false_after_authentication() -> None:
+def test_is_dirty_is_false_after_unlocking() -> None:
     doc = pylopdf.open(ENCRYPTED / "user-aes-256.pdf")
-    assert doc.authenticate("userpw") == 2
+    assert doc.unlock("userpw") is pylopdf.Access.USER
     assert not doc.is_dirty
 
 
 def test_unencrypted_documents_have_every_permission() -> None:
-    assert pylopdf.open(build_pdf(["a"])).permissions == -4
-    assert pylopdf.Document().permissions == -4
+    assert pylopdf.open(build_pdf(["a"])).permissions == pylopdf.Permissions.ALL
+    assert pylopdf.Document().permissions == pylopdf.Permissions.ALL
 
 
-def _restricted(user_pw: str, permissions: int) -> bytes:
-    doc = pylopdf.open(build_pdf(["a"]))
-    return doc.tobytes(
-        encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw=user_pw, owner_pw="boss", permissions=permissions
-    )
+def _restricted(user_password: str, permissions: pylopdf.Permissions) -> bytes:
+    encryption = pylopdf.Encryption(user_password=user_password, owner_password="boss", permissions=permissions)
+    return pylopdf.open(build_pdf(["a"])).to_bytes(encryption=encryption)
 
 
-def test_permissions_follow_the_password_that_granted_access() -> None:
-    # pymupdf 1.28.2 reads these values for the same documents.
-    data = _restricted("user", pylopdf.Permissions.PRINT | pylopdf.Permissions.COPY)
+def test_permissions_follow_the_password_that_unlocked_the_document() -> None:
+    granted = pylopdf.Permissions.PRINT | pylopdf.Permissions.COPY
+    data = _restricted("user", granted)
     doc = pylopdf.open(data)
-    assert doc.permissions == 0
-    assert doc.authenticate("user") == 2
-    assert doc.permissions == -3884
-    assert doc.permissions & pylopdf.Permissions.PRINT
-    assert not doc.permissions & pylopdf.Permissions.MODIFY
-    assert doc.authenticate("boss") == 4
-    assert doc.permissions == -4
-    assert pylopdf.open(data, password="user").permissions == -3884
-    assert pylopdf.open(data, password="boss").permissions == -4
+    assert doc.permissions == pylopdf.Permissions(0)
+    assert doc.unlock("user") is pylopdf.Access.USER
+    assert doc.permissions == granted
+    assert type(doc.permissions) is pylopdf.Permissions
+    assert pylopdf.Permissions.PRINT in doc.permissions
+    assert pylopdf.Permissions.MODIFY not in doc.permissions
+    assert doc.unlock("boss") is pylopdf.Access.OWNER
+    assert doc.permissions == pylopdf.Permissions.ALL
+    assert pylopdf.open(data, password="user").permissions == granted
+    assert pylopdf.open(data, password="boss").permissions == pylopdf.Permissions.ALL
 
 
 def test_permissions_of_a_document_with_an_empty_user_password() -> None:
     doc = pylopdf.open(_restricted("", pylopdf.Permissions.PRINT))
-    assert doc.permissions == -3900
-    assert doc.authenticate("wrong") == 0
-    assert doc.permissions == -3900
-    assert doc.authenticate("boss") == 4
-    assert doc.permissions == -4
-    assert doc.authenticate("") == 2
-    assert doc.permissions == -3900
+    assert doc.permissions == pylopdf.Permissions.PRINT
+    with pytest.raises(pylopdf.PasswordError):
+        doc.unlock("wrong")
+    assert doc.permissions == pylopdf.Permissions.PRINT
+    assert doc.unlock("boss") is pylopdf.Access.OWNER
+    assert doc.permissions == pylopdf.Permissions.ALL
+    assert doc.unlock("") is pylopdf.Access.USER
+    assert doc.permissions == pylopdf.Permissions.PRINT
+
+
+def test_a_matching_owner_password_counts_when_the_document_needs_none() -> None:
+    data = _restricted("", pylopdf.Permissions.PRINT)
+    assert pylopdf.open(data, password="boss").permissions == pylopdf.Permissions.ALL
+    assert pylopdf.open(data, password="wrong").permissions == pylopdf.Permissions.PRINT
 
 
 @pytest.mark.parametrize("name", ["user-rc4-40.pdf", "user-rc4-128.pdf", "user-aes-128.pdf", "user-aes-256.pdf"])
-def test_permissions_of_the_encrypted_assets_match_pymupdf(name: str) -> None:
+def test_permissions_of_the_encrypted_assets(name: str) -> None:
     doc = pylopdf.open(ENCRYPTED / name)
-    assert doc.permissions == 0
-    doc.authenticate("userpw")
-    assert doc.permissions == -4
+    assert doc.permissions == pylopdf.Permissions(0)
+    doc.unlock("userpw")
+    assert doc.permissions == pylopdf.Permissions.ALL
 
 
 def test_document_state_properties_raise_after_close() -> None:

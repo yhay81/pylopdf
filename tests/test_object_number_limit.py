@@ -110,7 +110,7 @@ def _renumber_raw(data: bytes, renumbered: dict[int, int]) -> bytes:
 
 
 def _with_reloaded(doc: pylopdf.Document) -> tuple[pylopdf.Document, pylopdf.Document]:
-    return doc, pylopdf.open(doc.tobytes())
+    return doc, pylopdf.open(doc.to_bytes())
 
 
 def _probe_document() -> pylopdf.Document:
@@ -154,7 +154,7 @@ def test_new_objects_cannot_wrap_onto_the_catalog(operation: str) -> None:
     for _ in range(2):
         _ALLOCATIONS[operation](doc)
 
-    saved = doc.tobytes()
+    saved = doc.to_bytes()
     assert re.search(rb"/PylopdfProbe 6 0 R", saved)
     assert re.search(rb"\n6 0 obj\n<</PylopdfMarker\(BIG\)>>", saved)
     for current in _with_reloaded(doc):
@@ -172,7 +172,7 @@ def test_references_above_the_highest_kept_object_follow_it_or_become_null() -> 
     objects[10_000_000] = _stream("TEN MILLION", 150)
     objects[NEAR_U32_MAX] = _stream("TOP", 250)
 
-    saved = pylopdf.open(_numbered_pdf(objects)).tobytes()
+    saved = pylopdf.open(_numbered_pdf(objects)).to_bytes()
 
     assert re.search(rb"/Contents\[5 0 R 6 0 R 7 0 R null null 8 0 R 9 0 R null\]", saved)
     assert re.search(rb"\n8 0 obj\n<</Length \d+>>stream\nBT /F1 20 Tf 20 150 Td \(TEN MILLION\)", saved)
@@ -190,7 +190,7 @@ def test_moved_objects_keep_their_generation() -> None:
     objects[10_000_000] = _stream("GEN ZERO", 150)
     doc = pylopdf.open(_numbered_pdf(objects, headers={6: "10000000 1"}))
 
-    saved = doc.tobytes()
+    saved = doc.to_bytes()
 
     assert re.search(rb"/Contents\[5 0 R 6 0 R 7 1 R null\]", saved)
     assert re.search(rb"\n7 1 obj\n", saved)
@@ -212,7 +212,7 @@ def test_cross_reference_entry_above_the_limit_without_its_object_lowers_max_id(
     for index, stamp in enumerate(stamps):
         doc.pages[0].insert_text((20, 220 + 40 * index), stamp)
 
-    saved = doc.tobytes()
+    saved = doc.to_bytes()
     assert re.search(rb"/PylopdfProbe null", saved)
     size = re.search(rb"/Size (\d+)", saved)
     assert size is not None
@@ -232,17 +232,17 @@ def test_document_numbered_past_i32_reads_and_saves() -> None:
     doc = pylopdf.open(_numbered_pdf(objects, root=numbers[0]))
 
     assert doc.pages[0].get_text().split() == ["TARGET", "PAGE"]
-    saved = doc.tobytes()
+    saved = doc.to_bytes()
     assert re.search(rb"/Root 1 0 R", saved)
     assert not re.search(rb"\d{10} \d+ (?:obj|R)", saved)
 
 
 _SAVES: dict[str, tuple[Callable[[pylopdf.Document], bytes], str | None]] = {
-    "default": (lambda doc: doc.tobytes(), None),
-    "garbage": (lambda doc: doc.tobytes(garbage=True), None),
-    "object-streams": (lambda doc: doc.tobytes(use_objstms=True), None),
+    "default": (lambda doc: doc.to_bytes(), None),
+    "garbage": (lambda doc: doc.to_bytes(), None),
+    "object-streams": (lambda doc: doc.to_bytes(object_streams=True), None),
     "encrypted": (
-        lambda doc: doc.tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="user", owner_pw="owner"),
+        lambda doc: doc.to_bytes(encryption=pylopdf.Encryption(user_password="user", owner_password="owner")),
         "user",
     ),
 }
@@ -261,7 +261,7 @@ def test_document_above_the_limit_saves_in_every_mode(mode: str) -> None:
 
     reopened = pylopdf.open(saved, password=password)
     assert reopened.pages[0].get_text().split() == ["TARGET", "PAGE"]
-    plain = reopened.tobytes()
+    plain = reopened.to_bytes()
     assert re.search(rb"/PylopdfProbe 6 0 R", plain)
     assert re.search(rb"\n6 0 obj\n<</PylopdfMarker\(BIG\)>>", plain)
 
@@ -315,7 +315,7 @@ def test_objects_up_to_the_limit_keep_their_numbers() -> None:
     objects[LIMIT + 1] = _stream("PAST LIMIT", 150)
     doc = pylopdf.open(_numbered_pdf(objects))
 
-    saved = doc.tobytes()
+    saved = doc.to_bytes()
 
     assert re.search(rb"/Contents\[5 0 R 8388607 0 R 8388608 0 R null\]", saved)
     assert re.search(rb"\n8388608 0 obj\n", saved)
@@ -333,8 +333,8 @@ def test_encrypted_document_above_the_limit_opens_and_edits(unlock: str) -> None
     """
     objects = _objects("[5 0 R 6 0 R]")
     objects[6] = _stream("SECRET", 200)
-    encrypted = pylopdf.open(_numbered_pdf(objects)).tobytes(
-        encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="user", owner_pw="owner"
+    encrypted = pylopdf.open(_numbered_pdf(objects)).to_bytes(
+        encryption=pylopdf.Encryption(user_password="user", owner_password="owner")
     )
     encrypt_id = re.search(rb"/Encrypt (\d+) 0 R", encrypted)
     assert encrypt_id is not None
@@ -345,7 +345,7 @@ def test_encrypted_document_above_the_limit_opens_and_edits(unlock: str) -> None
     else:
         doc = pylopdf.open(patched)
         assert doc.needs_password
-        assert doc.authenticate("user") == 2
+        assert doc.unlock("user") is pylopdf.Access.USER
 
     doc.pages[0].insert_text((20, 250), "STAMP")
 

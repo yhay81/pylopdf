@@ -344,10 +344,15 @@ the canvas.
   `api/pylopdf-0.15.json` lists the 0.15 names each step removes.
 - Done: documents and pages. `pylopdf.open(source)`, `Document()`,
   `pylopdf.probe()`, `doc.pages` with `new`, `insert`, `extend`, `select`,
-  `move`, `labeled`, and `del`, `page.index` and `page.document`,
-  `doc.needs_password` and `doc.path`, and `MalformedPdfError`. Still to come,
-  each with its codemod rules: saving and encryption, reading, rendering,
-  document properties, interaction, writing, and the constants and records.
+  `move`, `labeled`, and `del`, `page.index` and `page.document`, `doc.path`,
+  and `MalformedPdfError`.
+- Done: saving and encryption. `save(path, /, *, compress, prune, dedupe,
+  renumber, object_streams, encryption)` and `to_bytes(...)` with
+  `Encryption(...)`, `unlock(password)` returning `Access`,
+  `doc.needs_password` until unlocking, and `doc.permissions` as
+  `Permissions` flags.
+- Still to come, each with its codemod rules: reading, rendering, document
+  properties, interaction, writing, and the constants and records.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs
@@ -641,6 +646,10 @@ Three capabilities stay with ecosystem tools, through tested recipes:
   designs one.
 - **D5** (2026-10-22): the pymupdf-aligned renames on main since 0.15.0 ship
   only together with the API reset.
+- **D6** (2026-10-22): `save()` and `to_bytes()` compress streams and prune
+  unreachable objects by default, as qpdf and pikepdf write files. Both make
+  smaller files without changing what a viewer shows; `compress=False` and
+  `prune=False` keep the document's streams and objects as they are.
 
 ## Evidence log
 

@@ -131,4 +131,4 @@ def test_a_contained_panic_leaves_edits_in_place() -> None:
         doc.pages[0].get_pixmap(alpha=True)
 
     assert "ADDED" in doc.pages[1].get_text()
-    assert "ADDED" in pylopdf.open(doc.tobytes()).pages[1].get_text()
+    assert "ADDED" in pylopdf.open(doc.to_bytes()).pages[1].get_text()

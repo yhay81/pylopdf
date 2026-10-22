@@ -68,7 +68,7 @@ def test_edits_after_retained_renders_are_visible() -> None:
     after = doc.pages[0].get_pixmap(alpha=True).samples
 
     assert after != before
-    assert after == _fresh_samples(doc.tobytes(), 0)
+    assert after == _fresh_samples(doc.to_bytes(), 0)
     assert doc.render_pages([0], alpha=True, workers=1) == [doc.pages[0].get_pixmap(alpha=True).tobytes()]
 
 
@@ -132,7 +132,7 @@ def test_other_threads_render_and_edit_consistently() -> None:
     assert rendered == retained
     edited = doc.pages[0].get_pixmap(alpha=True).samples
     assert edited != retained
-    assert edited == edited_elsewhere == _fresh_samples(doc.tobytes(), 0)
+    assert edited == edited_elsewhere == _fresh_samples(doc.to_bytes(), 0)
 
 
 def test_documents_created_on_other_threads_render_correctly() -> None:

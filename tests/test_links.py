@@ -276,13 +276,13 @@ def _build_import_link_fixture(*, legacy: bool = False, action: bool = True) -> 
 @pytest.mark.parametrize("action", [False, True])
 def test_insert_pdf_resolves_source_named_destinations(*, legacy: bool, action: bool) -> None:
     source = pylopdf.open(_build_import_link_fixture(legacy=legacy, action=action))
-    source_bytes = source.tobytes()
+    source_bytes = source.to_bytes()
     target = pylopdf.Document()
     target.pages.new((200, 200))
 
     target.pages.extend(source.pages)
 
-    for merged in [target, pylopdf.open(target.tobytes())]:
+    for merged in [target, pylopdf.open(target.to_bytes())]:
         links = merged.pages[1].get_links()
         assert [link["kind"] for link in links] == [pylopdf.LINK_GOTO, pylopdf.LINK_URI, pylopdf.LINK_GOTOR]
         assert links[0]["page"] == 2
@@ -292,7 +292,7 @@ def test_insert_pdf_resolves_source_named_destinations(*, legacy: bool, action: 
         assert links[1]["uri"] == "https://example.com/"
         assert links[2]["file"] == "remote.pdf"
         assert links[2]["nameddest"] == "section"
-    assert source.tobytes() == source_bytes
+    assert source.to_bytes() == source_bytes
     assert source.pages[0].get_links()[0]["nameddest"] == "section"
 
 
@@ -304,7 +304,7 @@ def test_insert_pdf_named_destination_collision_stays_source_local() -> None:
 
     assert target.pages[0].get_links()[0]["page"] == 1
     assert target.pages[2].get_links()[0]["page"] == 3
-    assert pylopdf.open(target.tobytes()).pages[2].get_links()[0]["page"] == 3
+    assert pylopdf.open(target.to_bytes()).pages[2].get_links()[0]["page"] == 3
 
 
 def test_insert_pdf_reversed_range_remaps_internal_link() -> None:
@@ -342,15 +342,15 @@ def test_insert_pdf_reversed_range_remaps_integer_destination() -> None:
 @pytest.mark.parametrize("named", [False, True])
 def test_insert_pdf_omits_links_outside_imported_range(*, named: bool) -> None:
     source = pylopdf.open(_build_import_link_fixture() if named else _build_direct_dest_fixture())
-    source_bytes = source.tobytes()
+    source_bytes = source.to_bytes()
     target = pylopdf.Document()
 
     target.pages.extend(source.pages[0:1])
 
     expected = [pylopdf.LINK_URI, pylopdf.LINK_GOTOR] if named else []
     assert [link["kind"] for link in target.pages[0].get_links()] == expected
-    assert [link["kind"] for link in pylopdf.open(target.tobytes()).pages[0].get_links()] == expected
-    assert source.tobytes() == source_bytes
+    assert [link["kind"] for link in pylopdf.open(target.to_bytes()).pages[0].get_links()] == expected
+    assert source.to_bytes() == source_bytes
 
 
 def test_insert_pdf_unresolved_name_does_not_bind_to_destination_catalog() -> None:
@@ -380,15 +380,15 @@ def test_insert_pdf_named_destination_limit_is_atomic(target_shape: str) -> None
     source = pylopdf.open(_build_named_dest_tree_fixture(objects))
     target = _build_import_target(target_shape, build_pdf(["Unchanged"]))
     page = target.pages[0] if target_shape == "populated" else None
-    before = target.tobytes()
-    source_before = source.tobytes()
+    before = target.to_bytes()
+    source_before = source.to_bytes()
     expected_error = "Catalog Pages must be" if target_shape == "missing_pages" else "32-level safety limit"
 
     with pytest.raises(pylopdf.PdfError, match=expected_error):
         target.pages.extend(source.pages)
 
-    assert target.tobytes() == before
-    assert source.tobytes() == source_before
+    assert target.to_bytes() == before
+    assert source.to_bytes() == source_before
     if page is not None:
         assert "Unchanged" in page.get_text()
 
@@ -411,17 +411,17 @@ def test_insert_pdf_refuses_annotation_aliasing_a_page_before_mutation(target_sh
     )
     target = _build_import_target(target_shape, _build_import_link_fixture())
     existing = target.pages[0] if target_shape == "populated" else None
-    before = target.tobytes()
-    source_before = source.tobytes()
+    before = target.to_bytes()
+    source_before = source.to_bytes()
     expected_error = "Catalog Pages must be" if target_shape == "missing_pages" else "annotation cannot alias a page"
 
     with pytest.raises(pylopdf.PdfError, match=expected_error):
         target.pages.extend(source.pages)
 
-    assert target.tobytes() == before
+    assert target.to_bytes() == before
     if existing is not None:
         assert existing.get_links()[0]["page"] == 1
-    assert source.tobytes() == source_before
+    assert source.to_bytes() == source_before
 
 
 def test_usrguide_named_destinations_survive_merge() -> None:
@@ -432,7 +432,7 @@ def test_usrguide_named_destinations_survive_merge() -> None:
 
     target.pages.extend(source.pages)
 
-    merged = pylopdf.open(target.tobytes())
+    merged = pylopdf.open(target.to_bytes())
     for page_number, expected in enumerate(original_links, start=1):
         actual = merged.pages[page_number].get_links()
         assert len(actual) == len(expected)
@@ -448,14 +448,15 @@ def test_usrguide_named_destinations_survive_merge() -> None:
 
 def test_insert_pdf_refusal_preserves_original_interpretation_fast_path() -> None:
     """Keep a bounded original snapshot usable after source-navigation refusal."""
-    compressed = pylopdf.open(build_pdf(["Unchanged"] * 8)).tobytes(use_objstms=True, deflate=True)
+    compressed = pylopdf.open(build_pdf(["Unchanged"] * 8)).to_bytes(object_streams=True)
     limit = len(compressed) + 10
-    assert len(pylopdf.open(compressed).tobytes()) > limit
+    assert len(pylopdf.open(compressed).to_bytes()) > limit
     target = pylopdf.open(compressed, limits=pylopdf.DocumentLimits(max_interpretation_size=limit))
     page = target.pages[0]
     original_text = page.get_text()
     original_png = page.get_pixmap(alpha=True).tobytes()
-    original_bytes = target.tobytes()
+    # Serialize without the options that change the document and its snapshot.
+    original_bytes = target.to_bytes(compress=False, prune=False)
 
     objects: dict[int, str | bytes] = {}
     for object_id in range(6, 38):
@@ -466,6 +467,6 @@ def test_insert_pdf_refusal_preserves_original_interpretation_fast_path() -> Non
     with pytest.raises(pylopdf.PdfError, match="32-level safety limit"):
         target.pages.extend(source.pages)
 
-    assert target.tobytes() == original_bytes
+    assert target.to_bytes(compress=False, prune=False) == original_bytes
     assert page.get_text() == original_text
     assert page.get_pixmap(alpha=True).tobytes() == original_png
