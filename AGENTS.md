@@ -1566,11 +1566,21 @@ the concept and API overview.
   the checks, builds the complete tree with each `/Count` as ISO 32000-2
   Table 151 defines it (the visible descendants of an open item, their
   negation for a closed one, and every visible item for the root), then
-  replaces `/Outlines` and prunes the old items. An item edit changes only
+  replaces `/Outlines` and prunes the old items. Title and target edits
+  preflight the complete outline's resulting source and decoded text budgets
+  through a bounded walk with a borrowed field override; refused edits keep
+  the document and its resolution cache unchanged. An item edit changes only
   that item's dictionary, except `is_open`, which plans every `/Count` with
-  `outline_counts` under the read limits before writing any; all of them keep
-  placements. `/F` holds italic (1) and bold (2), and `/C` an RGB color from
-  0 to 1. lopdf's bookmark builder is never used, and writes clear its tables.
+  `outline_counts` under the read limits before writing any and preflights
+  direct or aliased outline-root writes; null or missing children have no
+  open state. All of them keep
+  placements. File targets use PDF text strings, while URI and destination
+  name bytes retain their own encoding. Target coordinates and zoom must fit
+  finite PDF real numbers after display-coordinate conversion. `/F` holds
+  italic (1) and bold (2), and `/C` an RGB color from 0 to 1; invalid source
+  colors read as the viewer's default. Item object handles retain both the
+  object number and generation. lopdf's bookmark builder is never used, and
+  writes clear its tables.
 - lopdf automatically decrypts PDFs with an empty user password. Other encrypted
   PDFs require the `password` argument or `unlock()`, which reopens the
   document with a password and returns `Access`; a wrong password raises
@@ -2421,7 +2431,8 @@ the concept and API overview.
   entries grow fallibly, and returned ordering uses an in-place sort with
   explicit value tie-breaks. `Document.page_labels` returns
   `PageLabelRange` records (`src/pylopdf/_page_labels.py`), which validate
-  their fields on construction, and `Page.label` and `Pages.labeled` compute
+  their fields on construction; unknown stored styles read as prefix-only
+  ranges so existing PDFs retain their labels. `Page.label` and `Pages.labeled` compute
   labels in Python from one read. Assigning ranges must enforce the same
   entry/text boundary before PyO3 copying with `page_label_input_size`; the
   core's `set_page_labels` repeats it and invalidates caches only after

@@ -489,6 +489,22 @@ def test_codemod_marks_pymupdf_page_boxes_for_their_coordinates(migrate_source: 
     assert "set_rotation" in messages[2]
 
 
+@pytest.mark.parametrize("legacy", ["fitz", "pymupdf"])
+def test_codemod_preserves_pylopdf_outline_class_in_mixed_modules(migrate_source: Migrate, legacy: str) -> None:
+    source = (
+        f"import {legacy} as legacy\nimport pylopdf as current\n"
+        "item_type = legacy.Outline\nsequence_type = current.Outline\n"
+    )
+
+    result = migrate_source(source)
+    namespace: dict[str, object] = {}
+    exec(result.code, namespace)  # noqa: S102 - execute the trusted migration fixture.
+
+    assert result.todos == ()
+    assert namespace["item_type"] is pylopdf.OutlineItem
+    assert namespace["sequence_type"] is pylopdf.Outline
+
+
 def test_codemod_migrates_a_document_named_pages(migrate_source: Migrate) -> None:
     source = (
         "import fitz\npages = fitz.open()\npages.new_page(width=100, height=200)\n"

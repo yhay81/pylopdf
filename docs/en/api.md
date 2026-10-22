@@ -171,6 +171,13 @@ stop at 65,536 items, 64 levels, and 16 MiB of titles and target text
 (`LimitError` codes `toc_entry_count`, `toc_text_size`, and
 `toc_input_size`).
 
+Editing a title or destination checks the resulting outline's total text
+before changing it. A refused edit leaves the outline unchanged. File
+targets support Unicode names, and coordinates and zoom must fit finite PDF
+real numbers.
+For many title or destination edits, change the list from `entries()` and
+assign it once, so the total text is checked once.
+
 `doc.page_labels` is a list of `PageLabelRange(start, style=DECIMAL,
 prefix="", first=1)` records. A range labels the pages from its zero-based
 `start` up to the next range with `prefix` followed by a number, counting from
@@ -180,6 +187,8 @@ a list replaces the ranges in page order, and the first range must start at
 page 0; assigning `[]` or `del doc.page_labels` removes them. `page.label` is
 one page's label, `""` when the document has none, and
 `doc.pages.labeled(label)` finds the pages with a label.
+An unsupported numbering style in an existing PDF reads as a prefix-only
+range.
 
 ```python
 from pylopdf import PageLabelRange, PageLabelStyle

@@ -32,6 +32,9 @@ class PageLabelStyle(enum.StrEnum):
     """a to z, then aa to zz"""
 
 
+_PAGE_LABEL_STYLES = frozenset(style.value for style in PageLabelStyle)
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class PageLabelRange:
     """The labels of the pages from ``start`` up to the next range.
@@ -142,8 +145,9 @@ def _label(ranges: Sequence[PageLabelRange], page: int) -> str:
 def _read_page_labels(document: Document) -> list[PageLabelRange]:
     """Return the document's page-label ranges in page order."""
     document._ensure_open()
+    # An unsupported stored style keeps its prefix without adding a number.
     return [
-        PageLabelRange(int(start), style or None, prefix or "", int(first))
+        PageLabelRange(int(start), style if style in _PAGE_LABEL_STYLES else None, prefix or "", int(first))
         for start, style, prefix, first in document._doc.get_page_labels()
     ]
 

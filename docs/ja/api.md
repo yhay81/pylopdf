@@ -123,6 +123,8 @@ for item in doc.outline.walk():
 
 名前付き行き先は、それが指す`Destination`として読み取り、ページがもう存在しない行き先は`None`として読み取ります。読み書きは、65,536項目、64レベル、タイトルと行き先の文字列で16 MiBまでです（`LimitError`のコードは`toc_entry_count`、`toc_text_size`、`toc_input_size`）。
 
+タイトルや行き先の編集では、変更後のしおり全体の文字列サイズを確認してから書き込みます。拒否された編集では、しおりは変わりません。リンク先のファイル名にはUnicodeを使えます。座標と拡大率は、PDFの有限な実数で表せる範囲に限られます。多数のタイトルや行き先を編集するときは、`entries()`のリストを変更して一度だけ代入すると、全体の文字列サイズの確認も一度で済みます。
+
 `doc.page_labels`は`PageLabelRange(start, style=DECIMAL, prefix="", first=1)`レコードのリストです。各範囲は、0始まりの`start`から次の範囲の手前までのページに、`prefix`と、`first`から数えた番号を`PageLabelStyle`（`DECIMAL`、`UPPER_ROMAN`、`LOWER_ROMAN`、`UPPER_LETTERS`、`LOWER_LETTERS`、または接頭辞だけの`None`）の形式で付けます。リストを代入するとページ順に範囲を置き換えます。最初の範囲はページ0から始まる必要があり、`[]`の代入か`del doc.page_labels`で削除します。`page.label`は1ページのラベルで、文書にラベルがなければ`""`です。`doc.pages.labeled(label)`はラベルからページを探します。
 
 ```python
