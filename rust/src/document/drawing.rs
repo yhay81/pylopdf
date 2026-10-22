@@ -1100,7 +1100,10 @@ impl _Document {
                 PdfError::new_err(format!("failed to allocate canvas images: {error}"))
             })?;
         for image in &mut recording.images {
-            match self.placements.image(&self.doc, &image.digest) {
+            let digest = *image
+                .digest()
+                .ok_or_else(|| PdfError::new_err("a new document's image reached an open one"))?;
+            match self.placements.image(&self.doc, &digest) {
                 Some(placed) => {
                     image_sizes.push((placed.width(), placed.height()));
                     images.push(CanvasImageObject::Placed(placed));
@@ -1181,10 +1184,17 @@ impl _Document {
             }
         }
 
-        let (content, group_contents) = recording.compose(&canvas::Placements {
-            images: image_sizes,
-            pages: page_geometry,
-        })?;
+        let canvas::Composed {
+            root: content,
+            groups,
+            states: graphics_states,
+        } = recording.compose(
+            &plan,
+            &canvas::Placements {
+                images: image_sizes,
+                pages: page_geometry,
+            },
+        )?;
 
         // Every fallible step on the input is done; change the document.
         let target_revision = self.revision;
@@ -1250,7 +1260,8 @@ impl _Document {
                 fonts.set(format!("PyloS{slot}"), Object::Reference(font_id));
             }
             let mut states = Dictionary::new();
-            for (slot, state) in recording.state_dictionaries().enumerate() {
+            for (slot, state) in graphics_states.iter().enumerate() {
+                let state = state.dictionary();
                 let state_id = self.doc.add_object(state);
                 states.set(format!("PyloG{slot}"), Object::Reference(state_id));
             }
@@ -1265,13 +1276,12 @@ impl _Document {
             );
             let mut shared = Vec::new();
             shared
-                .try_reserve_exact(recording.groups.len() + 1)
+                .try_reserve_exact(groups.len() + 1)
                 .map_err(|error| {
                     PdfError::new_err(format!("failed to allocate canvas groups: {error}"))
                 })?;
             let mut next_id = resources_id.0;
-            for ((index, group), content) in recording.groups.iter().enumerate().zip(group_contents)
-            {
+            for (index, (bbox, content)) in groups.into_iter().enumerate() {
                 next_id = next_id
                     .checked_add(1)
                     .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
@@ -1281,7 +1291,7 @@ impl _Document {
                         "Subtype" => "Form",
                         "FormType" => 1,
                         "BBox" => Object::Array(
-                            group.bbox.iter().map(|&value| Object::Real(value as f32)).collect(),
+                            bbox.iter().map(|&value| Object::Real(value as f32)).collect(),
                         ),
                         "Group" => dictionary! {
                             "Type" => "Group",
@@ -1341,10 +1351,10 @@ impl _Document {
         // revision of this edit.
         for (index, id) in new_images {
             if let Some(placed) = PlacedImage::read(&self.doc, id)
+                && let Some(digest) = recording.images[index].digest().copied()
                 && self.placements.reserve_image()
             {
-                self.placements
-                    .remember_image(recording.images[index].digest, placed);
+                self.placements.remember_image(digest, placed);
             }
         }
         let target_page = page_number;

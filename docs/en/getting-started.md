@@ -184,6 +184,9 @@ with pylopdf.open("input.pdf") as doc:
     doc.save("canvas.pdf")
 ```
 
+To write a new document, such as a tagged PDF/UA file, use
+[`pylopdf.create()`](api.md#create): its pages draw with the same canvas.
+
 ## Scans, forms, Markdown { #scans-forms-markdown }
 
 ```python

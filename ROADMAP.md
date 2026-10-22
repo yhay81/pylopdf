@@ -305,10 +305,14 @@ Workstream Writing.
 - `draw(item)` for text runs and images needs the font and image identity
   listed under [Content model](#content-model): a run must name the font
   program to embed again, and an image the document it comes from.
-- New documents: `pylopdf.create()` returns a builder whose pages draw
-  through the same canvas and which krilla writes as a whole: tagged PDF with
-  a structure tree, outline, links, and metadata, validated as PDF/A-1 to
-  PDF/A-4 or PDF/UA-1 by krilla's validators.
+- New documents (done): `pylopdf.create()` returns a builder whose pages
+  draw through the same canvas and which krilla writes as a whole, with
+  metadata, an outline from `bookmark`, a structure tree from `tag` scopes,
+  and the validators of PDF/A-1 to PDF/A-4 and PDF/UA-1. A recording is a
+  list of structured operations, which `Page.draw()` composes into lopdf
+  content and `create()` replays onto a krilla surface. Still to come: links
+  and other annotations, placed pages, and the remaining tag attributes
+  (table header scopes, list numbering).
 - Upstream in krilla: the Standard 14 fonts without embedding, which krilla
   cannot draw today, so pylopdf drops its own operator writer for them;
   optional content; annotation and widget types beyond links for new

@@ -11,6 +11,7 @@
     "Base14_fontnames",
     "BlendMode",
     "Block",
+    "Builder",
     "CS_CMYK",
     "CS_GRAY",
     "CS_RGB",
@@ -166,6 +167,7 @@
     "SoftMaskType",
     "StaleObjectError",
     "StalePageError",
+    "Standard",
     "Stream",
     "String",
     "Stroke",
@@ -176,6 +178,7 @@
     "Table",
     "TableDiagnostics",
     "TableFinder",
+    "TagRole",
     "TextAlign",
     "TextBlock",
     "TextChar",
@@ -188,6 +191,7 @@
     "TilingPattern",
     "TransparencyGroup",
     "Word",
+    "create",
     "csCMYK",
     "csGRAY",
     "csRGB",
@@ -715,6 +719,74 @@
         ]
       }
     },
+    "Builder": {
+      "kind": "class",
+      "members": {
+        "finish": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Document"
+          }
+        },
+        "page": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "default": [
+                  595.28,
+                  841.89
+                ],
+                "kind": "positional_or_keyword",
+                "name": "size"
+              }
+            ],
+            "returns": "Canvas"
+          }
+        },
+        "page_count": {
+          "kind": "property",
+          "returns": "int"
+        },
+        "tagged": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "to_bytes": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "bytes"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "_Builder",
+            "kind": "positional_or_keyword",
+            "name": "core"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "CS_CMYK": {
       "kind": "constant",
       "value": 3
@@ -822,6 +894,38 @@
               }
             ],
             "returns": "AbstractContextManager[None]"
+          }
+        },
+        "bookmark": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "title"
+              },
+              {
+                "annotation": "int",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "level"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "default": [
+                  0,
+                  0
+                ],
+                "kind": "keyword_only",
+                "name": "at"
+              }
+            ],
+            "returns": "None"
           }
         },
         "circle": {
@@ -1155,6 +1259,47 @@
               }
             ],
             "returns": "None"
+          }
+        },
+        "tag": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "TagRole | str",
+                "kind": "positional_or_keyword",
+                "name": "role"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "alt"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "lang"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "title"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "actual_text"
+              }
+            ],
+            "returns": "AbstractContextManager[None]"
           }
         },
         "text": {
@@ -9594,6 +9739,12 @@
       "kind": "exception",
       "members": {}
     },
+    "Standard": {
+      "kind": "constant",
+      "value": {
+        "repr": "typing.Literal['pdf/a-1a', 'pdf/a-1b', 'pdf/a-2a', 'pdf/a-2b', 'pdf/a-2u', 'pdf/a-3a', 'pdf/a-3b', 'pdf/a-3u', 'pdf/a-4', 'pdf/a-4e', 'pdf/a-4f', 'pdf/ua-1']"
+      }
+    },
     "Stream": {
       "kind": "class",
       "members": {
@@ -10027,6 +10178,48 @@
         "returns": "None"
       }
     },
+    "TagRole": {
+      "kind": "enum",
+      "members": {
+        "ARTICLE": "Art",
+        "ARTIFACT": "Artifact",
+        "BIB_ENTRY": "BibEntry",
+        "BLOCK_QUOTE": "BlockQuote",
+        "CAPTION": "Caption",
+        "CODE": "Code",
+        "DIV": "Div",
+        "FIGURE": "Figure",
+        "FORMULA": "Formula",
+        "HEADING_1": "H1",
+        "HEADING_2": "H2",
+        "HEADING_3": "H3",
+        "HEADING_4": "H4",
+        "HEADING_5": "H5",
+        "HEADING_6": "H6",
+        "INDEX": "Index",
+        "LABEL": "Lbl",
+        "LIST": "L",
+        "LIST_BODY": "LBody",
+        "LIST_ITEM": "LI",
+        "NON_STRUCT": "NonStruct",
+        "NOTE": "Note",
+        "PARAGRAPH": "P",
+        "PART": "Part",
+        "QUOTE": "Quote",
+        "REFERENCE": "Reference",
+        "SECTION": "Sect",
+        "SPAN": "Span",
+        "TABLE": "Table",
+        "TABLE_BODY": "TBody",
+        "TABLE_DATA": "TD",
+        "TABLE_FOOT": "TFoot",
+        "TABLE_HEAD": "THead",
+        "TABLE_HEADER": "TH",
+        "TABLE_ROW": "TR",
+        "TOC": "TOC",
+        "TOC_ITEM": "TOCI"
+      }
+    },
     "TextAlign": {
       "kind": "enum",
       "members": {
@@ -10454,6 +10647,62 @@
             "name": "word_no"
           }
         ]
+      }
+    },
+    "create": {
+      "kind": "function",
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Standard | Sequence[Standard] | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "standard"
+          },
+          {
+            "annotation": "bool",
+            "default": false,
+            "kind": "keyword_only",
+            "name": "tagged"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "language"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "title"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "author"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "subject"
+          },
+          {
+            "annotation": "Iterable[str]",
+            "default": [],
+            "kind": "keyword_only",
+            "name": "keywords"
+          },
+          {
+            "annotation": "dt.datetime | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "created"
+          }
+        ],
+        "returns": "Builder"
       }
     },
     "csCMYK": {

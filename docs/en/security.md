@@ -141,6 +141,7 @@ change.
 | `search_input_size`, `search_hit_count` | The search text is over 4,096 bytes, or there are more results than `max_hits` |
 | `text_input_size`, `text_line_count`, `font_input_size`, `path_point_count` | Text, fonts, or shape paths passed for drawing are too large |
 | `canvas_scope_depth` | A canvas nests more than 16 scopes |
+| `tag_text_size` | A tag's texts or a bookmark title in a new document exceed 64 KiB |
 | `image_input_size`, `image_pixel_count`, `image_inventory_count` | An image is too large, or a page uses more than 4,096 images |
 | `embedded_file_size`, `embedded_file_input_size` | An attachment, or its name or description, is too large |
 | `stream_data_size`, `object_value_depth` | A low-level stream is too large to read, or a value written is nested too deeply |

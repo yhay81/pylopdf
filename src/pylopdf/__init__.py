@@ -62,7 +62,7 @@ from pylopdf._annots import (
     AnnotType,
 )
 from pylopdf._attachments import Attachment, Attachments
-from pylopdf._canvas import Canvas, PathBuilder, TextFit
+from pylopdf._canvas import Canvas, PathBuilder, TagRole, TextFit
 from pylopdf._content import (
     BlendMode,
     Clip,
@@ -92,6 +92,7 @@ from pylopdf._content import (
     TilingPattern,
     TransparencyGroup,
 )
+from pylopdf._create import Builder, Standard, create
 from pylopdf._document import Document, open, peek_metadata  # noqa: A004 - pymupdf's open().
 from pylopdf._errors import (
     DocumentClosedError,
@@ -276,6 +277,7 @@ __all__ = [
     "Base14_fontnames",
     "BlendMode",
     "Block",
+    "Builder",
     "Canvas",
     "CjkFontLanguage",
     "Clip",
@@ -358,12 +360,14 @@ __all__ = [
     "SoftMaskType",
     "StaleObjectError",
     "StalePageError",
+    "Standard",
     "Stream",
     "String",
     "Stroke",
     "Table",
     "TableDiagnostics",
     "TableFinder",
+    "TagRole",
     "TextAlign",
     "TextBlock",
     "TextChar",
@@ -376,6 +380,7 @@ __all__ = [
     "TilingPattern",
     "TransparencyGroup",
     "Word",
+    "create",
     "csCMYK",
     "csGRAY",
     "csRGB",

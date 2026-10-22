@@ -166,6 +166,8 @@ with pylopdf.open("input.pdf") as doc:
     doc.save("canvas.pdf")
 ```
 
+태그 PDF/UA 파일 같은 새 문서를 쓰려면 [`pylopdf.create()`](api.md#create)를 사용하세요. 새 문서의 페이지도 같은 캔버스로 그립니다.
+
 ## 스캔 PDF, 폼, Markdown { #scans-forms-markdown }
 
 ```python

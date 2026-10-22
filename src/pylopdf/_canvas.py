@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import enum
 import math
 import os
 import warnings as _warnings
@@ -43,7 +44,9 @@ if TYPE_CHECKING:
     from types import TracebackType
     from typing import Self, TypeAlias
 
+    from pylopdf._create import Builder
     from pylopdf._page import Page
+    from pylopdf.pylopdf_core import _Document
 
     PathLike: TypeAlias = "PathBuilder | Path | Iterable[Segment]"
     _Rgba: TypeAlias = tuple[float, float, float, float]
@@ -56,6 +59,8 @@ _WAVE_HEIGHT = 2.4142135623765633
 #: The control-point factor of a curve pulled toward a corner, as pymupdf's ``draw_curve``.
 _KAPPA_CURVE = 0.55228474983
 _ALIGNMENTS = ("left", "center", "right", "justify")
+#: The deepest bookmark level, which the core keeps in 16 bits.
+_MAX_BOOKMARK_LEVEL = 0xFFFF
 _BLACK = Color(0.0, 0.0, 0.0)
 
 
@@ -252,6 +257,52 @@ def _text_paint(
         msg = "text needs a fill or a stroke"
         raise ValueError(msg)
     return _fill(fill), _stroke(stroke)
+
+
+class TagRole(enum.StrEnum):
+    """A structure type of a tagged new document (ISO 32000-1 §14.8.4), by its PDF name.
+
+    :attr:`ARTIFACT` marks content that is not part of the document's
+    logical structure, such as page headers, footers, and decoration.
+    """
+
+    PART = "Part"
+    ARTICLE = "Art"
+    SECTION = "Sect"
+    DIV = "Div"
+    BLOCK_QUOTE = "BlockQuote"
+    CAPTION = "Caption"
+    TOC = "TOC"
+    TOC_ITEM = "TOCI"
+    INDEX = "Index"
+    NON_STRUCT = "NonStruct"
+    PARAGRAPH = "P"
+    HEADING_1 = "H1"
+    HEADING_2 = "H2"
+    HEADING_3 = "H3"
+    HEADING_4 = "H4"
+    HEADING_5 = "H5"
+    HEADING_6 = "H6"
+    LIST = "L"
+    LIST_ITEM = "LI"
+    LABEL = "Lbl"
+    LIST_BODY = "LBody"
+    TABLE = "Table"
+    TABLE_ROW = "TR"
+    TABLE_HEADER = "TH"
+    TABLE_DATA = "TD"
+    TABLE_HEAD = "THead"
+    TABLE_BODY = "TBody"
+    TABLE_FOOT = "TFoot"
+    SPAN = "Span"
+    QUOTE = "Quote"
+    NOTE = "Note"
+    REFERENCE = "Reference"
+    BIB_ENTRY = "BibEntry"
+    CODE = "Code"
+    FIGURE = "Figure"
+    FORMULA = "Formula"
+    ARTIFACT = "Artifact"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -530,10 +581,12 @@ class _CanvasScope(AbstractContextManager[None]):
 class Canvas:
     """Drawing on one page in paint order, written as one Form XObject.
 
-    Get one with :meth:`Page.draw` and use it in a ``with`` block: the
-    drawing is written when the block ends normally and discarded after an
-    exception. Everything is in display coordinates, the top-left-origin
-    space of :attr:`Page.rect`, and drawn in the order of the calls.
+    Get one with :meth:`Page.draw`, or with :meth:`Builder.page` for a page
+    of a new document, and use it in a ``with`` block: the drawing is
+    written when the block ends normally and discarded after an exception.
+    Everything is in display coordinates, the top-left-origin space of
+    :attr:`Page.rect`, and drawn in the order of the calls. :meth:`tag` and
+    :meth:`bookmark` belong to new documents.
 
     Paths take a ``fill`` :class:`Color` and a ``stroke``, a :class:`Stroke`
     or a :class:`Color` for a 1-point line; a path with neither is stroked
@@ -561,10 +614,26 @@ class Canvas:
             msg = f"page must be a pylopdf.Page, not {type(page).__name__}"
             raise TypeError(msg)
         width, height = page.parent._doc.page_display_size(page._page_number())
-        self._page = page
+        self._page: Page | None = page
+        self._builder: Builder | None = None
         self._overlay = not underlay
         self._record = _Canvas(width, height)
         self._closed = False
+
+    @classmethod
+    def _new_page(cls, builder: Builder, width: float, height: float) -> Canvas:
+        """Start an empty canvas for a page of a new document."""
+        canvas = cls.__new__(cls)
+        canvas._page = None
+        canvas._builder = builder
+        canvas._overlay = True
+        canvas._record = _Canvas(width, height, new_document=True)
+        canvas._closed = False
+        return canvas
+
+    def _target(self) -> _Document | None:
+        """Return the core document of a page canvas, or ``None`` for a new document's page."""
+        return None if self._page is None else self._page.parent._doc
 
     def __enter__(self) -> Self:
         """Return the canvas; leaving the block writes it."""
@@ -584,9 +653,16 @@ class Canvas:
         if exc_type is not None:
             self._record.clear()
             return
-        document = self._page.parent
+        if self._builder is not None:
+            try:
+                self._builder._core.add_page(self._record)
+            finally:
+                self._record.clear()
+            return
+        page = cast("Page", self._page)
+        document = page.parent
         try:
-            document._doc.commit_canvas(self._page._page_number(), self._record, self._overlay)
+            document._doc.commit_canvas(page._page_number(), self._record, self._overlay)
         finally:
             self._record.clear()
         document._emit_warnings()
@@ -608,7 +684,7 @@ class Canvas:
 
     def _check_open(self) -> None:
         if self._closed:
-            msg = "the canvas was already written; call page.draw() again"
+            msg = "the canvas was already written; start another one"
             raise ValueError(msg)
 
     def path(
@@ -821,7 +897,7 @@ class Canvas:
         rotation = rotate % 360
         _validate_optional_positive_int("max_size", max_size)
         _validate_optional_positive_int("max_pixels", max_pixels)
-        target = self._page.parent._doc
+        target = self._target()
         keep = bool(keep_aspect)
         if isinstance(source, Pixmap):
             self._record.add_pixmap(target, source, box, keep, rotation)
@@ -848,6 +924,9 @@ class Canvas:
         if not isinstance(source, Page):
             msg = f"source must be a pylopdf.Page, not {type(source).__name__}"
             raise TypeError(msg)
+        if self._page is None:
+            msg = "a new document cannot place other pages yet; draw them on the finished document's pages"
+            raise ValueError(msg)
         box = tuple(_rect(rect, "rect"))
         self._record.add_page(
             self._page.parent._doc,
@@ -893,6 +972,76 @@ class Canvas:
         code = list(BlendMode).index(blend_mode)
         return _CanvasScope(self._record, lambda: self._record.push_blend(code))
 
+    def bookmark(self, title: str, *, level: int = 1, at: Sequence[float] = (0, 0)) -> None:
+        """Add an outline entry of a new document that shows ``at`` on this page.
+
+        Entries keep the order of the calls, page by page, and an entry at
+        ``level`` 2 or more nests under the closest earlier entry one level
+        up; a level can grow by one at a time. PDF/UA documents need an
+        outline.
+        """
+        self._check_open()
+        if self._builder is None:
+            msg = "bookmarks belong to a new document; set an open document's outline instead"
+            raise ValueError(msg)
+        if not isinstance(title, str):
+            msg = f"title must be a string: {title!r}"
+            raise TypeError(msg)
+        if isinstance(level, bool) or not isinstance(level, int) or not 1 <= level <= _MAX_BOOKMARK_LEVEL:
+            msg = f"level must be a positive integer: {level!r}"
+            raise ValueError(msg)
+        point = _point(at, "at")
+        self._record.add_bookmark(title, level, tuple(point))
+
+    def tag(
+        self,
+        role: TagRole | str,
+        *,
+        alt: str | None = None,
+        lang: str | None = None,
+        title: str | None = None,
+        actual_text: str | None = None,
+    ) -> AbstractContextManager[None]:
+        """Make what the block draws a structure element of a tagged new document.
+
+        Scopes nest into the structure tree, in the order of the calls, and
+        each line of text inside one is a span of it. :attr:`TagRole.ARTIFACT`
+        marks content outside the logical structure, as is everything drawn
+        outside any tag scope. ``alt`` is the alternate description that
+        figures and formulas need, ``title`` a heading's title, ``lang`` the
+        element's BCP 47 language, and ``actual_text`` the text that replaces
+        the element's content for extraction and assistive technology.
+        Elements cannot span pages.
+        """
+        self._check_open()
+        if self._builder is None:
+            msg = "tag() builds the structure tree of a new document; tagging an open document is not supported yet"
+            raise ValueError(msg)
+        if not self._builder.tagged:
+            msg = "tag() needs a tagged document: pass tagged=True, or a standard that requires tagging, to create()"
+            raise ValueError(msg)
+        try:
+            tag_role = TagRole(role)
+        except ValueError as exc:
+            msg = f"role must be a TagRole: {role!r}"
+            raise ValueError(msg) from exc
+        texts = {"alt": alt, "lang": lang, "title": title, "actual_text": actual_text}
+        for name, value in texts.items():
+            if value is not None and not isinstance(value, str):
+                msg = f"{name} must be a string or None: {value!r}"
+                raise TypeError(msg)
+        if lang is not None:
+            from pylopdf._document import _is_language_tag  # noqa: PLC0415 - pylopdf._document imports this module.
+
+            if not _is_language_tag(lang):
+                msg = f"lang must be a BCP 47 language tag: {lang!r}"
+                raise ValueError(msg)
+        value = tag_role.value
+        return _CanvasScope(
+            self._record,
+            lambda: self._record.push_tag(value, alt, lang, title, actual_text),
+        )
+
     def draw(self, item: Path) -> None:
         """Paint a :class:`Path` item that :meth:`Page.content` returned.
 
@@ -935,6 +1084,6 @@ class Canvas:
 
 
 # The package re-exports these classes; reprs, pickles, and documentation name them.
-for _type in (Canvas, PathBuilder, TextFit):
+for _type in (Canvas, PathBuilder, TagRole, TextFit):
     _type.__module__ = "pylopdf"
 del _type

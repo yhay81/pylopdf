@@ -158,6 +158,8 @@ with pylopdf.open("input.pdf") as doc:
     doc.save("canvas.pdf")
 ```
 
+要写出新文档（例如带标签的PDF/UA文件），请使用[`pylopdf.create()`](api.md#create)：其页面使用同一个画布绘制。
+
 ## 扫描件、表单与Markdown { #scans-forms-markdown }
 
 ```python
