@@ -15,6 +15,7 @@
     "Document.render_page": {"pylopdf": "Page.pixmap", "hint": "Use doc.pages[i].pixmap(dpi=72 * scale, alpha=True).to_bytes() for the PNG."},
     "Document.render_page_svg": {"pylopdf": "Page.svg", "hint": "Use doc.pages[i].svg()."},
     "Document.render_pages": {"pylopdf": "Document.render", "hint": "Use doc.render(pages, ...), which takes dpi or matrix, not both."},
+    "Document.set_fallback_font": {"pylopdf": "Document.fallback_fonts", "hint": "Assign doc.fallback_fonts[language] = FallbackFont(Font(fontfile=path)), with fontbuffer= for bytes and serif= for the serif slot; doc.fallback_fonts = {} turns fallback off."},
     "Document.to_markdown": {"pylopdf": "Document.markdown", "hint": "Call doc.markdown(...)."},
     "DocumentMetadata": {"pylopdf": "Metadata", "hint": "doc.metadata returns a Metadata mapping of the entries present; doc.version and doc.encryption_method replace format and encryption."},
     "DocumentMetadata.author": {"pylopdf": "Metadata", "hint": "Read doc.metadata.get(\"author\", \"\")."},

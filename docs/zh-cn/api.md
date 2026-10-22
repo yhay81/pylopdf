@@ -150,9 +150,19 @@ print([page.label for page in doc.pages])  # ['i', 'ii', 'iii', 'iv', 'A-1', 'A-
 | `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, colorspace="rgb", format="png", quality=95, workers=None, max_size=512 MiB)` | 并行渲染所有页面或列出的页面，按顺序返回PNG或JPEG bytes |
 | `images` | 按对象编号排列的图像对象；参见[图像](#images) |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | 对图像降采样并重新压缩，以减小文件 |
-| `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | 用于显示未嵌入字体的中文、日语或韩语文本的字体；CJK extra会自动完成设置 |
+| `fallback_fonts` | 按语言列出用于显示未嵌入字体的中文、日语或韩语文本的字体；CJK extra会自动完成设置 |
 
 `rewrite_images`沿用pymupdf的关键字参数：在绘制位置上每英寸点数超过`dpi_threshold`的图像会重新采样到`dpi_target`，`quality`（1–100）将其重新编码为JPEG。它只修改不带蒙版的普通8位灰度或RGB图像，新编码不会更小时保留原图，并返回统计信息。
+
+`fallback_fonts`将Adobe-Japan1、Korea1、GB1和CNS1字符集合的语言`"ja"`、`"ko"`、`"zh-CN"`和`"zh-TW"`映射到由OpenType `Font`组成的`FallbackFont(sans=None, serif=None)`记录。名称表明其为衬线字体的未嵌入字体（例如明朝体、宋体、明体或Batang）用`serif`渲染，其余用`sans`渲染；其中一个为`None`时，另一个同时负责两者。在编辑之前，该映射列出已安装的字体extra（`pylopdf[jp]`、`[ko]`、`[zh-cn]`和`[zh-tw]`）。为某个语言赋值或删除它只改变该语言，赋值一个映射会替换所有语言，`del doc.fallback_fonts`则恢复为已安装的extra。字体是共享而非复制的，因此一个`Font`可以用于多个文档。
+
+```python
+from pylopdf import FallbackFont, Font
+
+doc.fallback_fonts["ja"] = FallbackFont(Font(fontfile="NotoSansJP-Regular.otf"), Font(fontfile="NotoSerifJP-Regular.otf"))
+doc.fallback_fonts = {}           # no fallback: such text is not drawn
+del doc.fallback_fonts            # back to the installed font extras
+```
 
 ### 表单、附件与其他数据 { #document-data }
 
@@ -648,6 +658,7 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 | `Colorspace` | [`Pixmap`](#pixmap)的颜色空间：`GRAY`和`RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [书签与页码标签](#outline) |
 | `PageBoxes` | [页面几何](#page-geometry) |
+| `FallbackFont`, `FallbackFonts` | [渲染与图像](#document-rendering) |
 
 常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）和`AnnotFlags`（`PDF_ANNOT_IS_*`）。`Access`的成员是`USER`和`OWNER`，`Encryption`描述如何加密保存的文件。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
 

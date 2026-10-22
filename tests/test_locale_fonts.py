@@ -49,7 +49,7 @@ def locale_font_files(directory: Path) -> list[tuple[str, str, str]]:
 def render_with_explicit_serif(font: Path) -> bytes:
     """Render the MS-Mincho fixture with one explicitly configured serif slot."""
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
-    doc.set_fallback_font(font, kind="serif")
+    doc.fallback_fonts = {"ja": pylopdf.FallbackFont(serif=pylopdf.Font(fontfile=font))}
     return doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes()
 
 
@@ -88,7 +88,7 @@ def page_fonts(page: pylopdf.Page) -> list[str]:
 def render_blank_baseline() -> bytes:
     """Render the blank baseline with fallback and auto-discovery disabled."""
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
-    doc.set_fallback_font(None)
+    doc.fallback_fonts = {}
     return doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes()
 
 
@@ -100,7 +100,7 @@ def test_without_fallback_renders_blank() -> None:
 
 def test_fallback_font_from_path_renders_text() -> None:
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
-    doc.set_fallback_font(SANS)
+    doc.fallback_fonts = {"ja": pylopdf.FallbackFont(pylopdf.Font(fontfile=SANS))}
     png = doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes()
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
     # Rendered glyphs add pixels, so the PNG differs from the blank baseline.
@@ -110,42 +110,55 @@ def test_fallback_font_from_path_renders_text() -> None:
 
 def test_fallback_font_from_bytes_renders_text() -> None:
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
-    doc.set_fallback_font(SANS.read_bytes())
+    doc.fallback_fonts = {"ja": pylopdf.FallbackFont(pylopdf.Font(fontbuffer=SANS.read_bytes()))}
     assert doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes() != render_blank_baseline()
 
 
 def test_serif_slot_used_for_mincho() -> None:
     """Use the serif slot for PDFs whose BaseFont is MS-Mincho."""
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
-    doc.set_fallback_font(SERIF, kind="serif")
+    doc.fallback_fonts = {"ja": pylopdf.FallbackFont(serif=pylopdf.Font(fontfile=SERIF))}
     assert doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes() != render_blank_baseline()
 
 
 def test_svg_rendering_includes_glyphs() -> None:
     blank_doc = pylopdf.open(build_nonembedded_cjk_pdf())
-    blank_doc.set_fallback_font(None)
+    blank_doc.fallback_fonts = {}
     blank_svg = blank_doc.pages[0].svg()
 
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
-    doc.set_fallback_font(SANS)
+    doc.fallback_fonts = {"ja": pylopdf.FallbackFont(pylopdf.Font(fontfile=SANS))}
     svg = doc.pages[0].svg()
     assert svg.startswith("<svg")
     assert len(svg) > len(blank_svg)
 
 
-def test_invalid_kind_raises() -> None:
+def test_fallback_fonts_validate_before_any_change() -> None:
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
-    with pytest.raises(ValueError, match="kind"):
-        doc.set_fallback_font(SANS, kind="bold")
+    sans = pylopdf.Font(fontfile=SANS)
+    doc.fallback_fonts = {"ja": pylopdf.FallbackFont(sans)}
+    with pytest.raises(ValueError, match="sans face, a serif face, or both"):
+        pylopdf.FallbackFont()
+    with pytest.raises(ValueError, match="Standard 14"):
+        pylopdf.FallbackFont(pylopdf.Font("helv"))
+    with pytest.raises(TypeError, match="Font or None"):
+        pylopdf.FallbackFont(SANS)  # ty: ignore[invalid-argument-type]
+    with pytest.raises(ValueError, match="'ja', 'ko', 'zh-CN', or 'zh-TW'"):
+        doc.fallback_fonts = {"ja": pylopdf.FallbackFont(sans), "th": pylopdf.FallbackFont(sans)}
+    with pytest.raises(TypeError, match="FallbackFont record"):
+        doc.fallback_fonts["ko"] = sans  # ty: ignore[invalid-assignment]
+    assert dict(doc.fallback_fonts) == {"ja": pylopdf.FallbackFont(sans)}
 
 
 def test_fallback_font_boundary_preserves_previous_font_and_cache() -> None:
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
-    doc.set_fallback_font(SANS)
+    doc.fallback_fonts = {"ja": pylopdf.FallbackFont(pylopdf.Font(fontfile=SANS))}
     baseline = doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes()
 
     with pytest.raises(pylopdf.LimitError) as caught:
-        doc.set_fallback_font(SERIF, max_font_size=SERIF.stat().st_size - 1)
+        doc.fallback_fonts["ja"] = pylopdf.FallbackFont(
+            serif=pylopdf.Font(fontfile=SERIF, max_font_size=SERIF.stat().st_size - 1)
+        )
 
     assert caught.value.code == "font_input_size"
     assert doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes() == baseline
@@ -154,11 +167,11 @@ def test_fallback_font_boundary_preserves_previous_font_and_cache() -> None:
 def test_latin_rendering_unaffected_by_fallback(one_page_pdf: bytes) -> None:
     """Keep Latin rendering unchanged when a fallback font is configured."""
     plain = pylopdf.open(one_page_pdf)
-    plain.set_fallback_font(None)
+    plain.fallback_fonts = {}
     baseline = plain.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes()
 
     with_font = pylopdf.open(one_page_pdf)
-    with_font.set_fallback_font(SANS)
+    with_font.fallback_fonts = {"ja": pylopdf.FallbackFont(pylopdf.Font(fontfile=SANS))}
     assert with_font.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes() == baseline
 
 
@@ -397,11 +410,11 @@ def test_locale_fallback_matches_adobe_character_collection(
     """Render each predefined Adobe collection through its matching locale slot."""
     pdf = build_nonembedded_locale_cjk_pdf(text, font_language)
     blank = pylopdf.open(pdf)
-    blank.set_fallback_font(None)
+    blank.fallback_fonts = {}
     blank_png = blank.pages[0].pixmap(alpha=True).to_bytes()
 
     doc = pylopdf.open(pdf)
-    doc.set_fallback_font(LOCALE_SANS[font_language], font_language=font_language)
+    doc.fallback_fonts = {font_language: pylopdf.FallbackFont(pylopdf.Font(fontfile=LOCALE_SANS[font_language]))}
 
     assert doc.pages[0].pixmap(alpha=True).to_bytes() != blank_png
     assert doc.pages[0].text().strip() == text
@@ -414,11 +427,11 @@ def test_wrong_locale_does_not_override_matching_collection(
     """Do not send any configured non-SC font into an Adobe-GB1 request."""
     pdf = build_nonembedded_locale_cjk_pdf("简体中文", "zh-CN")
     blank = pylopdf.open(pdf)
-    blank.set_fallback_font(None)
+    blank.fallback_fonts = {}
     blank_png = blank.pages[0].pixmap(alpha=True).to_bytes()
 
     doc = pylopdf.open(pdf)
-    doc.set_fallback_font(LOCALE_SANS[wrong_language], font_language=wrong_language)
+    doc.fallback_fonts = {wrong_language: pylopdf.FallbackFont(pylopdf.Font(fontfile=LOCALE_SANS[wrong_language]))}
 
     assert doc.pages[0].pixmap(alpha=True).to_bytes() == blank_png
 
@@ -430,5 +443,70 @@ def test_nonembedded_cjk_extract_text() -> None:
     extraction does not require a fallback font.
     """
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
-    doc.set_fallback_font(None)
+    doc.fallback_fonts = {}
     assert "こんにちは日本語" in doc.pages[0].text()
+
+
+def _render(doc: pylopdf.Document) -> bytes:
+    return doc.pages[0].pixmap(alpha=True).to_bytes()
+
+
+def test_fallback_fonts_list_the_installed_extras_until_edited() -> None:
+    pytest.importorskip("pylopdf_fonts_jp")
+    doc = pylopdf.open(build_nonembedded_cjk_pdf())
+    installed = list(doc.fallback_fonts)
+    assert "ja" in installed
+    assert repr(doc.fallback_fonts) == f"FallbackFonts({installed!r})"
+    japanese = doc.fallback_fonts["ja"]
+    assert japanese.sans is not None
+    assert japanese.serif is not None
+    assert japanese.serif.is_serif
+    assert not japanese.sans.is_serif
+    auto = _render(doc)
+
+    # Editing one language keeps the installed extras of the others.
+    doc.fallback_fonts["ja"] = pylopdf.FallbackFont(serif=pylopdf.Font(fontfile=SERIF))
+    assert list(doc.fallback_fonts) == installed
+    assert doc.fallback_fonts["ja"] == pylopdf.FallbackFont(serif=doc.fallback_fonts["ja"].serif)
+    assert _render(doc) == render_with_explicit_serif(SERIF)
+
+    del doc.fallback_fonts["ja"]
+    assert "ja" not in doc.fallback_fonts
+    assert _render(doc) == render_blank_baseline()
+    with pytest.raises(KeyError):
+        del doc.fallback_fonts["ja"]
+
+    del doc.fallback_fonts  # Back to the installed extras.
+    assert list(doc.fallback_fonts) == installed
+    assert _render(doc) == auto
+
+    doc.fallback_fonts = {}
+    assert len(doc.fallback_fonts) == 0
+    assert _render(doc) == render_blank_baseline()
+
+
+def test_fallback_fonts_survive_unlock() -> None:
+    """unlock() reads the document again; the configured fonts still render it."""
+    data = pylopdf.open(build_nonembedded_cjk_pdf()).to_bytes(
+        encryption=pylopdf.Encryption(user_password="user", owner_password="owner")
+    )
+    doc = pylopdf.open(data, password="user")
+    doc.fallback_fonts = {"ja": pylopdf.FallbackFont(serif=pylopdf.Font(fontfile=SERIF))}
+    before = _render(doc)
+    assert before == render_with_explicit_serif(SERIF)
+
+    assert doc.unlock("owner") == pylopdf.Access.OWNER
+
+    assert _render(doc) == before
+    assert list(doc.fallback_fonts) == ["ja"]
+
+
+def test_a_fallback_face_is_shared_not_copied() -> None:
+    font = pylopdf.Font(fontfile=SANS)
+    documents = [pylopdf.open(build_nonembedded_cjk_pdf()) for _ in range(3)]
+    for doc in documents:
+        doc.fallback_fonts = {"ja": pylopdf.FallbackFont(font)}
+
+    renders = {_render(doc) for doc in documents}
+    assert len(renders) == 1
+    assert renders != {render_blank_baseline()}

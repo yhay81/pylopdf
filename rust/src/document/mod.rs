@@ -599,6 +599,17 @@ impl _Document {
         rendering::snapshot_source(self)
     }
 
+    /// Put a loaded OpenType face in one CJK fallback slot, or empty the slot.
+    #[pyo3(signature = (language, kind, font=None))]
+    fn set_fallback_face(
+        &mut self,
+        language: &str,
+        kind: &str,
+        font: Option<PyRef<'_, _Font>>,
+    ) -> PyResult<()> {
+        fonts::set_fallback_face(self, language, kind, font.as_deref())
+    }
+
     /// Clear all CJK fallback-font configuration.
     fn clear_fallback_fonts(&mut self) {
         self.fallback_fonts = FallbackFonts::default();

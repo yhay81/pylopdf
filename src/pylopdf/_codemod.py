@@ -1018,6 +1018,14 @@ def _set_rotation(migrator: _Migrator, receiver: str, args: _Arguments) -> str |
     return f"{receiver}.rotation = {bound['rotation']}"
 
 
+def _set_fallback_font(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite pylopdf 0.15's ``set_fallback_font(None)``, which turned fallback rendering off."""
+    bound = args.bind(("font",))
+    if bound != {"font": "None"}:
+        return None
+    return f"{receiver}.fallback_fonts = {{}}"
+
+
 def _set_page_box(attribute: str) -> Callable[[_Migrator, str, _Arguments], str | None]:
     """Rewrite ``set_mediabox(rect)`` and its siblings to an assignment of a ``page.boxes`` attribute."""
 
@@ -1264,6 +1272,7 @@ STATEMENT_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] =
     "set_pagelayout": _set_catalog_name("page_layout", PAGE_LAYOUT_NAMES),
     "set_toc": _set_toc,
     "set_page_labels": _set_page_labels,
+    "set_fallback_font": _set_fallback_font,
     "set_rotation": _set_rotation,
     "set_mediabox": _set_page_box("media"),
     "set_cropbox": _set_page_box("crop"),

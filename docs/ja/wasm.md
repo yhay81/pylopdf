@@ -90,7 +90,7 @@ WebAssemblyのランタイムかどうかは`sys.platform == "emscripten"`で判
 |---|---|
 | `doc.render(workers=...)` | 受け付けますが、ページは1枚ずつ順にレンダリングします |
 | 組み込みOCR（`OcrEngine`、`ocr`、`apply_ocr`） | 使えません。`OcrError`を送出します。OCRはほかの場所で実行し、その単語を`Page.apply_ocr(words=...)`で追加してください |
-| フォントのextra（`pylopdf[jp]`など） | 未テスト。フォントのデータを`fontbuffer=`や`set_fallback_font()`で明示的に渡してください |
+| フォントのextra（`pylopdf[jp]`など） | 未テスト。フォントのデータを`fontbuffer=`や、`doc.fallback_fonts`の`Font(fontbuffer=...)`で明示的に渡してください |
 
 大きなページを高解像度でレンダリングするには、PDFファイル自体が小さくても画像全体をメモリに置く必要があります。また、資源の上限は長時間かかる呼び出しを止めません。ネイティブのPythonと同じく、時間制限はホスト側で強制してください。
 

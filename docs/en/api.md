@@ -210,13 +210,33 @@ attached to their base characters.
 | `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, colorspace="rgb", format="png", quality=95, workers=None, max_size=512 MiB)` | PNG or JPEG bytes for every page, or the listed pages, in order, rendered in parallel |
 | `images` | The image objects by object number; see [Images](#images) |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | Downsample and recompress images to make the file smaller |
-| `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | Font used to display Chinese, Japanese, or Korean text whose font is not embedded; the CJK extras set this up automatically |
+| `fallback_fonts` | The fonts that render Chinese, Japanese, or Korean text whose font is not embedded, by language; the CJK extras fill it automatically |
 
 `rewrite_images` follows pymupdf's keywords: images with more than
 `dpi_threshold` dots per inch where they are drawn are resampled to
 `dpi_target`, and `quality` (1–100) re-encodes them as JPEG. It changes only
 plain 8-bit gray or RGB images without masks, keeps an image whose new
 encoding would not be smaller, and returns statistics.
+
+`fallback_fonts` maps `"ja"`, `"ko"`, `"zh-CN"`, and `"zh-TW"`, the
+languages of the Adobe-Japan1, Korea1, GB1, and CNS1 character collections,
+to `FallbackFont(sans=None, serif=None)` records of OpenType `Font` values.
+A non-embedded font whose name marks it as serif, such as a Mincho, Song,
+Ming, or Batang face, renders with `serif`, and every other one with `sans`;
+when one of them is `None`, the other serves both. Until it is edited, the
+mapping lists the installed font extras (`pylopdf[jp]`, `[ko]`, `[zh-cn]`,
+and `[zh-tw]`). Assigning or deleting one language changes only that
+language, assigning a mapping replaces every language, and
+`del doc.fallback_fonts` returns to the installed extras. A face is shared
+rather than copied, so one `Font` can serve many documents.
+
+```python
+from pylopdf import FallbackFont, Font
+
+doc.fallback_fonts["ja"] = FallbackFont(Font(fontfile="NotoSansJP-Regular.otf"), Font(fontfile="NotoSerifJP-Regular.otf"))
+doc.fallback_fonts = {}           # no fallback: such text is not drawn
+del doc.fallback_fonts            # back to the installed font extras
+```
 
 ### Forms, attachments, and other data { #document-data }
 
@@ -894,6 +914,7 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `Colorspace` | The color spaces of a [`Pixmap`](#pixmap): `GRAY` and `RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [Outline and page labels](#outline) |
 | `PageBoxes` | [Page geometry](#page-geometry) |
+| `FallbackFont`, `FallbackFonts` | [Rendering and images](#document-rendering) |
 
 Constants keep pymupdf's names and are also grouped in enums:
 `Permissions` (`PDF_PERM_*`), `LinkKind` (`LINK_*`), `TextAlign`

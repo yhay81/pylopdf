@@ -112,7 +112,7 @@ the concept and API overview.
     `ocr_engine_emscripten.rs`; `document/extraction.rs`;
     `src/pylopdf/_tables.py`, `_markdown.py`, `_ocr.py`, and `_images.py`.
   - Rendering: `pixmap.rs`, `render_cache.rs`; `document/rendering.rs`;
-    `src/pylopdf/_pixmap.py`.
+    `src/pylopdf/_pixmap.py` and `_fallback_fonts.py`.
   - Writing: `builder.rs`, `canvas.rs`, `draw.rs`, `generate.rs`,
     `generated_pdf.rs`, `layout.rs`, `shape.rs`, `font.rs`,
     `bundled_font_cache.rs`, `placement_reuse.rs`;
@@ -1647,8 +1647,16 @@ the concept and API overview.
   updated, only after every selected pair succeeds. Failed path reads or size
   checks must preserve configured fonts and caches, including those slots.
   The private `set_fallback_font_locale_files` returns how many files it read,
-  which the tests use to pin reuse. Explicit `set_fallback_font` paths are
-  still read on every call. With all four CJK extras (54 MiB), interleaved A/B
+  which the tests use to pin reuse. `Document.fallback_fonts`
+  (`src/pylopdf/_fallback_fonts.py`) is a `FallbackFonts` mapping from
+  language to `FallbackFont(sans, serif)` records of OpenType `Font` values,
+  whose programs `set_fallback_face` puts in the slots shared rather than
+  copied. Python holds the configuration in `_fallback_state`: `None` for the
+  installed extras, else each configured language's record, or `None` for an
+  extra not yet loaded as a `Font`. `_ensure_fallback_fonts` fills the empty
+  slots from that state before rendering, loading only the extras that it
+  still names, so `unlock`, which reads the document into a new core object
+  with empty slots, keeps the configuration. With all four CJK extras (54 MiB), interleaved A/B
   on the five GitHub-hosted release targets measured fresh first-page renders
   of the 1 KB `pdfium-type3.pdf` 90–95% faster and 14 open rendered documents
   at 100–157 instead of 803–860 MiB; the retained slots add up to 54 MiB after
@@ -1886,7 +1894,7 @@ the concept and API overview.
   66–83%, and a Japanese `set_form_field` 55–79%, with byte-identical output;
   each used face then stays resident after the last document closes
   (11.0 MiB for the Simplified Chinese serif face on Windows). `insert_text`,
-  `insert_textbox`, `set_form_field`, and `set_fallback_font` share a 64 MiB
+  `insert_textbox`, `set_form_field`, and `Font` share a 64 MiB
   default OpenType boundary. Python rejects buffer input before PyO3 copying;
   file input uses a one-byte-overrun bounded Rust read with the GIL released and
   fallible 64 KiB retained-buffer growth. Direct byte/path core variants repeat

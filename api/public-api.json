@@ -37,6 +37,8 @@
     "Encryption",
     "FZ_MAX_INF_RECT",
     "FZ_MIN_INF_RECT",
+    "FallbackFont",
+    "FallbackFonts",
     "FillRule",
     "Font",
     "FontLanguage",
@@ -1964,6 +1966,10 @@
           "kind": "property",
           "returns": "str | None"
         },
+        "fallback_fonts": {
+          "kind": "property",
+          "returns": "FallbackFonts"
+        },
         "get_form_fields": {
           "kind": "method",
           "signature": {
@@ -2300,47 +2306,6 @@
                 "default": null,
                 "kind": "keyword_only",
                 "name": "encryption"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "set_fallback_font": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "bytes | str | os.PathLike[str] | None",
-                "kind": "positional_or_keyword",
-                "name": "font"
-              },
-              {
-                "annotation": "str",
-                "default": "sans",
-                "kind": "positional_or_keyword",
-                "name": "kind"
-              },
-              {
-                "annotation": "int",
-                "default": 0,
-                "kind": "positional_or_keyword",
-                "name": "index"
-              },
-              {
-                "annotation": "CjkFontLanguage",
-                "default": "ja",
-                "kind": "keyword_only",
-                "name": "font_language"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_font_size"
               }
             ],
             "returns": "None"
@@ -2811,6 +2776,115 @@
     "FZ_MIN_INF_RECT": {
       "kind": "constant",
       "value": -2147483648
+    },
+    "FallbackFont": {
+      "annotations": {
+        "sans": "Font | None",
+        "serif": "Font | None"
+      },
+      "dataclass_fields": [
+        "sans",
+        "serif"
+      ],
+      "kind": "class",
+      "members": {
+        "sans": {
+          "kind": "property"
+        },
+        "serif": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Font | None",
+            "default": null,
+            "kind": "positional_or_keyword",
+            "name": "sans"
+          },
+          {
+            "annotation": "Font | None",
+            "default": null,
+            "kind": "positional_or_keyword",
+            "name": "serif"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "FallbackFonts": {
+      "kind": "class",
+      "members": {
+        "__delitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "language"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "language"
+              }
+            ],
+            "returns": "FallbackFont"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[str]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "FillRule": {
       "kind": "enum",

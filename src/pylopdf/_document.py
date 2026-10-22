@@ -21,10 +21,16 @@ from typing import TYPE_CHECKING, Literal, TypeGuard, cast
 from pylopdf import _fonts, _markdown, _text
 from pylopdf._attachments import Attachments
 from pylopdf._errors import DocumentClosedError, EncryptedDocumentError, PylopdfWarning
+from pylopdf._fallback_fonts import (
+    FallbackFont,
+    FallbackFonts,
+    _apply_fallback_font,
+    _replace_fallback_fonts,
+    _reset_fallback_fonts,
+)
 from pylopdf._fonts import (
     _font_input_limit_error,
     _form_generation_font,
-    _normalize_cjk_font_language,
     _normalize_font_language,
     _package_face_weight,
     _resolve_font_source,
@@ -334,7 +340,11 @@ class Document:
         self._doc = doc
         self._closed = False
         self._path = None if path is None else Path(path)
+        # Whether the core's CJK fallback slots hold the configured fonts, and
+        # that configuration: None for the installed font extras, else each
+        # configured language's FallbackFont, or None for its installed extra.
         self._fallback_configured = False
+        self._fallback_state: dict[CjkFontLanguage, FallbackFont | None] | None = None
         # Structural generation; changes invalidate existing Page views.
         self._generation = 0
         # Object-numbering epoch; renumbering or reloading the objects
@@ -465,6 +475,8 @@ class Document:
             self._doc = _Document.load_bytes(self._source_bytes, password, *limit_args)
         self._source_path = None
         self._source_bytes = None
+        # The new core document's fallback slots are empty; rendering fills them again.
+        self._fallback_configured = False
         self._clean_revision = self._doc.edit_revision()
         self._access = access
         self._object_epoch += 1
@@ -1039,57 +1051,52 @@ class Document:
     def outline(self) -> None:
         _write_outline(self, ())
 
-    def set_fallback_font(
-        self,
-        font: bytes | str | os.PathLike[str] | None,
-        kind: str = "sans",
-        index: int = 0,
-        *,
-        font_language: CjkFontLanguage = "ja",
-        max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
-    ) -> None:
-        """Set a fallback font for rendering non-embedded CJK fonts.
+    @property
+    def fallback_fonts(self) -> FallbackFonts:
+        """Return the fonts that render non-embedded CJK fonts, by language.
 
-        ``font`` is a TTF/OTF/TTC path or bytes. ``None`` clears the setting and
-        disables automatic locale-font discovery. ``kind`` is ``"sans"``
-        (default) or ``"serif"``; ``index`` selects a TTC face.
-        ``font_language`` selects the Adobe-Japan1, Korea1, GB1, or CNS1 slot.
-        Font input defaults to a 64 MiB boundary; ``max_font_size=None`` opts
-        trusted workloads out. Refusal raises :class:`LimitError` with code
-        ``font_input_size``.
+        Assigning a mapping from ``"ja"``, ``"ko"``, ``"zh-CN"``, or
+        ``"zh-TW"`` to :class:`FallbackFont` records replaces every language,
+        so ``{}`` turns fallback rendering off; ``del`` returns to the
+        installed font extras, which the mapping lists until it is edited.
         """
         self._ensure_open()
-        _validate_optional_positive_int("max_font_size", max_font_size)
-        normalized_language = _normalize_cjk_font_language(font_language)
-        if font is None:
-            self._doc.clear_fallback_fonts()
-            self._fallback_configured = True
-            return
-        if isinstance(font, bytes):
-            if max_font_size is not None and len(font) > max_font_size:
-                raise _font_input_limit_error(len(font), max_font_size)
-            self._doc.set_fallback_font(kind, font, index, max_font_size, normalized_language)
-        else:
-            self._doc.set_fallback_font_file(kind, str(Path(font)), index, max_font_size, normalized_language)
-        self._fallback_configured = True
+        return FallbackFonts(self)
+
+    @fallback_fonts.setter
+    def fallback_fonts(self, fonts: Mapping[str, FallbackFont]) -> None:
+        _replace_fallback_fonts(self, fonts)
+
+    @fallback_fonts.deleter
+    def fallback_fonts(self) -> None:
+        _reset_fallback_fonts(self)
 
     def _ensure_fallback_fonts(self) -> None:
-        """Auto-configure installed locale fonts unless explicitly configured."""
+        """Fill the core's fallback slots with the installed extras and the configured fonts."""
         if self._fallback_configured:
             return
+        state = self._fallback_state
         # Look the providers up through their module, where tests replace them.
         providers = tuple(
             provider
             for provider in _fonts._bundled_font_providers()
             if provider.language in {"ja", "ko", "zh-CN", "zh-TW"}
+            and (state is None or (provider.language in state and state[provider.language] is None))
         )
         if all(isinstance(provider.sans, Path) and isinstance(provider.serif, Path) for provider in providers):
             self._doc.set_fallback_font_locale_files(
                 [(provider.language, str(provider.sans), str(provider.serif)) for provider in providers],
                 _DEFAULT_MAX_FONT_INPUT_SIZE,
             )
-            self._fallback_configured = True
-            return
+        else:
+            self._load_fallback_providers(providers)
+        for language, value in (state or {}).items():
+            if value is not None:
+                _apply_fallback_font(self, language, value)
+        self._fallback_configured = True
+
+    def _load_fallback_providers(self, providers: tuple[_fonts._BundledFontProvider, ...]) -> None:
+        """Load installed extras whose faces are not all files, checking every size first."""
         for provider in providers:
             for data in (provider.sans, provider.serif):
                 if isinstance(data, bytes) and len(data) > _DEFAULT_MAX_FONT_INPUT_SIZE:
@@ -1112,7 +1119,6 @@ class Document:
                         _DEFAULT_MAX_FONT_INPUT_SIZE,
                         provider.language,
                     )
-        self._fallback_configured = True
 
     def render(  # noqa: PLR0913 - batch resource controls are keyword-only.
         self,

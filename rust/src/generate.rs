@@ -221,6 +221,11 @@ impl GenerationFace {
     /// A face without a weight axis, or one opened without a weight, is drawn
     /// as given. A weight outside the axis fails, because krilla and HarfRust
     /// would silently clamp it to the nearest end and draw another weight.
+    /// The font program and face index, shared rather than copied.
+    pub(crate) fn program(&self) -> (Arc<Vec<u8>>, u32) {
+        (Arc::clone(&self.data), self.index)
+    }
+
     pub(crate) fn new(data: Arc<Vec<u8>>, index: u32, weight: Option<u16>) -> Result<Self, String> {
         let source: Arc<dyn AsRef<[u8]> + Send + Sync> = data.clone();
         let font = ShapingFont::new(source, index)

@@ -80,7 +80,7 @@ def _raw_line_texts(layout: dict[str, Any]) -> list[str]:
 
 def test_rawdict_schema_and_horizontal_japanese_geometry() -> None:
     doc = pylopdf.open(build_nonembedded_cjk_pdf("日本語"))
-    doc.set_fallback_font(None)
+    doc.fallback_fonts = {}
     page = doc.pages[0]
     layout: dict[str, Any] = page.layout(chars=True).to_dict()
     assert set(layout) == {"width", "height", "blocks"}
@@ -213,7 +213,7 @@ def test_rawdict_resolves_page_rotation_and_crop_offsets(
 def test_rawdict_vertical_cjk_preserves_per_glyph_vertical_positions() -> None:
     pdf = build_nonembedded_cjk_pdf("日本語").replace(b"/90ms-RKSJ-H", b"/90ms-RKSJ-V")
     doc = pylopdf.open(pdf)
-    doc.set_fallback_font(None)
+    doc.fallback_fonts = {}
     layout = doc.pages[0].layout(chars=True).to_dict()
     line = layout["blocks"][0]["lines"][0]
     assert line["dir"] == (0.0, 1.0)

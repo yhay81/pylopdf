@@ -150,9 +150,19 @@ print([page.label for page in doc.pages])  # ['i', 'ii', 'iii', 'iv', 'A-1', 'A-
 | `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, colorspace="rgb", format="png", quality=95, workers=None, max_size=512 MiB)` | 全ページ、または指定したページのPNGかJPEGのbytesを順番どおりに。並列にレンダリングします |
 | `images` | オブジェクト番号ごとの画像オブジェクト。[画像](#images)を参照 |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | 画像を縮小・再圧縮してファイルを小さくします |
-| `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | フォントが埋め込まれていない中国語・日本語・韓国語のテキストを表示するフォント。CJKのextraを入れると自動で設定されます |
+| `fallback_fonts` | フォントが埋め込まれていない中国語・日本語・韓国語のテキストを表示するフォントを言語ごとに。CJKのextraを入れると自動で設定されます |
 
 `rewrite_images`はpymupdfと同じキーワードに従います。描かれた位置での解像度が`dpi_threshold`を超える画像を`dpi_target`に再サンプリングし、`quality`（1–100）でJPEGに再エンコードします。対象はマスクのない単純な8ビットのグレーまたはRGB画像だけで、再エンコードしても小さくならない画像はそのまま残し、統計情報を返します。
+
+`fallback_fonts`は、Adobe-Japan1、Korea1、GB1、CNS1の文字コレクションの言語である`"ja"`、`"ko"`、`"zh-CN"`、`"zh-TW"`を、OpenTypeの`Font`を持つ`FallbackFont(sans=None, serif=None)`レコードに対応付けます。明朝体、宋体、明體、バタン体のように名前がセリフ体を示す埋め込まれていないフォントは`serif`で、それ以外は`sans`で描画し、どちらかが`None`ならもう一方が両方を受け持ちます。編集するまでは、インストールされているフォントのextra（`pylopdf[jp]`、`[ko]`、`[zh-cn]`、`[zh-tw]`）を列挙します。1つの言語を代入・削除するとその言語だけが変わり、マッピングを代入するとすべての言語を置き換え、`del doc.fallback_fonts`でインストールされたextraに戻ります。フォントの面はコピーせずに共有するので、1つの`Font`を多くの文書で使えます。
+
+```python
+from pylopdf import FallbackFont, Font
+
+doc.fallback_fonts["ja"] = FallbackFont(Font(fontfile="NotoSansJP-Regular.otf"), Font(fontfile="NotoSerifJP-Regular.otf"))
+doc.fallback_fonts = {}           # no fallback: such text is not drawn
+del doc.fallback_fonts            # back to the installed font extras
+```
 
 ### フォーム・添付ファイル・その他のデータ { #document-data }
 
@@ -648,6 +658,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | `Colorspace` | [`Pixmap`](#pixmap)の色空間。`GRAY`と`RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [しおりとページラベル](#outline) |
 | `PageBoxes` | [ページの幾何情報](#page-geometry) |
+| `FallbackFont`, `FallbackFonts` | [レンダリングと画像](#document-rendering) |
 
 定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）、`AnnotFlags`（`PDF_ANNOT_IS_*`）です。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
 

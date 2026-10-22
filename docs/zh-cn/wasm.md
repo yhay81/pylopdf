@@ -90,7 +90,7 @@ with pylopdf.open(pdf_bytes, limits=pylopdf.DocumentLimits.web()) as doc:
 |---|---|
 | `doc.render(workers=...)` | 接受该参数，但页面会逐一渲染 |
 | 内置OCR（`OcrEngine`、`ocr`、`apply_ocr`） | 不可用，会抛出`OcrError`。请在其他地方执行OCR，再用`Page.apply_ocr(words=...)`添加识别出的单词 |
-| 字体extra（`pylopdf[jp]`等） | 未测试。请用`fontbuffer=`或`set_fallback_font()`显式传入字体数据 |
+| 字体extra（`pylopdf[jp]`等） | 未测试。请用`fontbuffer=`或`doc.fallback_fonts`中的`Font(fontbuffer=...)`显式传入字体数据 |
 
 即使PDF文件本身很小，以高分辨率渲染大页面也需要把整张图像放在内存中；而且资源上限无法终止长时间运行的调用：请像在原生Python上一样，在宿主环境中强制执行时间限制。
 
