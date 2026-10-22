@@ -135,7 +135,7 @@ attached to their base characters.
 
 | Member | Purpose |
 |---|---|
-| `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | PNG bytes for every page, or the listed pages, in order, rendered in parallel |
+| `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, workers=None, max_size=512 MiB)` | PNG bytes for every page, or the listed pages, in order, rendered in parallel |
 | `images` | The image objects by object number; see [Images](#images) |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | Downsample and recompress images to make the file smaller |
 | `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | Font used to display Chinese, Japanese, or Korean text whose font is not embedded; the CJK extras set this up automatically |
@@ -199,13 +199,14 @@ are not interpreted.
 
 | Member | Purpose |
 |---|---|
-| `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` | Render to a [`Pixmap`](#pixmap) |
-| `get_svg_image(*, matrix=None, text_as_path=True)` | Render to an SVG string |
+| `pixmap(*, dpi=None, matrix=None, clip=None, alpha=False, background=None, annotations=True)` | Render to a [`Pixmap`](#pixmap) |
+| `svg(*, annotations=True, max_size=64 MiB)` | Render to an SVG string, with text drawn as paths |
 | `resources` | What the page's resources reach: `resources.images` lists its image objects; see [Images](#images) |
 
-As in pymupdf, a pixmap is RGB on white by default and RGBA with
-`alpha=True`. `dpi` takes precedence over `matrix`, which must be a scaling
-matrix such as `Matrix(2, 2)`. `clip` renders only part of the page.
+A pixmap is RGB on white at 72 dpi by default and RGBA with `alpha=True`.
+Pass `dpi` or `matrix`, not both; a matrix must only scale, such as
+`Matrix(2, 2)`. `clip` renders only part of the page, and
+`annotations=False` leaves out annotations and form widgets.
 
 ### Page geometry { #page-geometry }
 

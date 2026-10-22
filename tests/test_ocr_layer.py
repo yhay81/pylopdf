@@ -65,7 +65,7 @@ def test_ocr_layer_is_invisible() -> None:
     doc = _blank_page_doc()
     page = doc.pages[0]
     page.apply_ocr(words=ocr_words([(50, 50, 150, 70, "Invisible")]), skip_existing=False)
-    pix = page.get_pixmap(background=(255, 255, 255), alpha=True)
+    pix = page.pixmap(background=(255, 255, 255), alpha=True)
     samples = pix.samples
     assert all(samples[i] == 255 for i in range(0, len(samples), 4))  # Every pixel remains white.
 

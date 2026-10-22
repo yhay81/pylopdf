@@ -88,7 +88,7 @@ WebAssembly 런타임인지 확인하려면 `sys.platform == "emscripten"`을 �
 
 | 기능 | WebAssembly에서 |
 |---|---|
-| `render_pages(workers=...)` | 받아들이지만 페이지를 하나씩 차례로 렌더링 |
+| `doc.render(workers=...)` | 받아들이지만 페이지를 하나씩 차례로 렌더링 |
 | 내장 OCR(`OcrEngine`, `ocr`, `apply_ocr`) | 사용 불가. `OcrError`가 발생합니다. 다른 곳에서 OCR을 실행하고 그 단어를 `Page.apply_ocr(words=...)`로 추가하세요 |
 | 글꼴 extra(`pylopdf[jp]` 등) | 테스트하지 않음. 글꼴 데이터를 `fontbuffer=`나 `set_fallback_font()`로 직접 전달하세요 |
 

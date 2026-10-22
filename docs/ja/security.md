@@ -24,7 +24,7 @@ try:
     with pylopdf.open("upload.pdf", limits=pylopdf.DocumentLimits.web()) as doc:
         if doc.complexity["page_count"] > 50:
             reject_upload("too many pages")
-        preview = doc.pages[0].get_pixmap(dpi=144)
+        preview = doc.pages[0].pixmap(dpi=144)
 except pylopdf.LimitError as error:
     reject_upload(error.code)
 ```
@@ -82,9 +82,9 @@ limits = pylopdf.DocumentLimits(
 | メソッド | 既定の上限 | キーワード |
 |---|---|---|
 | `Document.to_bytes()` | 出力512 MiB | `max_size` |
-| `Document.render_pages()` | PNG出力の合計512 MiB | `max_size` |
+| `Document.render()` | PNG出力の合計512 MiB | `max_size` |
 | `markdown()`, `Table.markdown()` | 出力64 MiB | `max_size` |
-| `Pixmap.tobytes()`, `Page.get_svg_image()` | 出力64 MiB | `max_size` |
+| `Pixmap.tobytes()`, `Page.svg()` | 出力64 MiB | `max_size` |
 | `Page.search()` | 結果4,096件 | `max_hits` |
 | `Page.content()` | グリフ、パスとクリップのセグメント、線の破線の長さ、項目で合わせて262,144 | `max_elements` |
 | `Page.insert_text()`, `insert_textbox()` | テキスト1 MiBと4,096行 | `max_text_size` |
@@ -96,7 +96,7 @@ limits = pylopdf.DocumentLimits(
 | `Document.get_pdfa_claim()`, `get_xml_metadata()`, `set_xml_metadata()` | XMPメタデータ1 MiB | `max_size` |
 | `OcrEngine()` | モデルファイル64 MiB | `max_model_size` |
 
-いくつかの上限は固定です。レンダリングは1ページあたり6,400万画素までです。パスワードはPDF 2.0の上限であるUTF-8で127バイトまでです。`doc.pages.select()`、`insert()`、`extend()`、`doc.text()`、`doc.markdown()`、`render_pages()`に渡すページのリストは、ページ数と4,096のうち大きい方の項目数まで持てます。しおり、ページラベル、フォームフィールド、注釈、添付ファイルの一覧には、実際の大きな文書に合わせた余裕のある固定の上限があります。
+いくつかの上限は固定です。レンダリングは1ページあたり6,400万画素までです。パスワードはPDF 2.0の上限であるUTF-8で127バイトまでです。`doc.pages.select()`、`insert()`、`extend()`、`doc.text()`、`doc.markdown()`、`doc.render()`に渡すページのリストは、ページ数と4,096のうち大きい方の項目数まで持てます。しおり、ページラベル、フォームフィールド、注釈、添付ファイルの一覧には、実際の大きな文書に合わせた余裕のある固定の上限があります。
 
 拒否された呼び出しは文書を変更する前に例外を送出し、部分的な結果を返すことはありません。
 
@@ -142,7 +142,7 @@ limits = pylopdf.DocumentLimits(
 - **時間制限はホスト側で強制してください。** 上限はメモリと出力サイズを抑えますが、一見正常な文書でもレンダリングに長い時間がかかることがあります。信頼できない処理は、ワーカー、プロセス、コンテナでCPU時間または実時間の期限を設けて実行してください。
 - **バッチ処理を隔離してください。** 可能であれば、信頼できないファイルはサンドボックスやコンテナで処理してください。
 - **墨消しをページ削除に頼らないでください。** ページを削除すると、そのリンク、フォームフィールド、構造の項目は削除されますが、内容のコピーが添付ファイルやメタデータなど、ファイルのほかの場所に残ることがあります。
-- **並列レンダリングには`render_pages()`を使ってください。** それ自体がメモリ使用量を制限しているので、さらに上限のない並列処理で包まないでください。
+- **並列レンダリングには`doc.render()`を使ってください。** それ自体がメモリ使用量を制限しているので、さらに上限のない並列処理で包まないでください。
 
 pylopdfのCIは、ネイティブのPythonとWebAssemblyで同じ悪意ある入力のテストを実行し、定期的なファジングで不正な相互参照テーブル、参照の循環、深い入れ子のオブジェクト、壊れたストリーム、圧縮爆弾を与えています。
 

@@ -103,7 +103,7 @@ def test_typst_japanese_watermark_via_show_pdf_page() -> None:
     # Vector overlay leaves the CJK watermark directly extractable.
     assert "社外秘" in page.text()
     # fill:none keeps the page transparent; corners stay white on a white render.
-    pix = page.get_pixmap(background=(255, 255, 255), alpha=True)
+    pix = page.pixmap(background=(255, 255, 255), alpha=True)
     assert tuple(pix.samples[0:3]) == (255, 255, 255)
 
 

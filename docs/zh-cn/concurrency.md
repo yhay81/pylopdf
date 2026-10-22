@@ -13,7 +13,7 @@ pylopdf在打开、保存、渲染、提取、合并和压缩等重型操作期�
 |---|---|
 | 不同线程处理不同的`Document`对象 | 支持 |
 | 多个线程同时调用或编辑同一个`Document` | 不支持：请使用锁，或在每个线程中各自打开文件 |
-| 对一个文档使用`Document.render_pages(workers=...)` | 支持；这是并行渲染单个文档的受支持方式 |
+| 对一个文档使用`Document.render(workers=...)` | 支持；这是并行渲染单个文档的受支持方式 |
 | 多个线程读取同一个`Pixmap` | 支持；`Pixmap`不可修改 |
 | 自由线程CPython 3.14t和3.15t | 支持，并在禁用GIL的状态下测试 |
 
@@ -41,11 +41,11 @@ with ThreadPoolExecutor() as pool:
 
 ## 渲染一个文档的多个页面 { #render-pages }
 
-请使用`render_pages()`，而不要从多个线程调用同一个文档：
+请使用`doc.render()`，而不要从多个线程调用同一个文档：
 
 ```python
 with pylopdf.open("report.pdf") as document:
-    png_pages = document.render_pages(dpi=144, workers=4)
+    png_pages = document.render(dpi=144, workers=4)
 ```
 
 它按请求页面的顺序返回PNG bytes；页面较大时会减少worker数量，使估算的工作内存保持在约512 MB以内。
@@ -61,7 +61,7 @@ with pylopdf.open("report.pdf") as document:
 ```python
 import numpy as np
 
-pix = page.get_pixmap()
+pix = page.pixmap()
 pixels = np.frombuffer(pix, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
 ```
 

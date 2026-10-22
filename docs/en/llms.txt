@@ -91,7 +91,7 @@ replacement, and the migration hint):
 - Document.get_new_xref -> Objects.add: Call doc.objects.add(value), which creates the object and returns its object number.
 - Document.get_page_images -> Page.resources: Use doc.pages[i].resources.images.
 - Document.get_page_numbers -> Pages.labeled: Use doc.pages.labeled(label).
-- Document.get_page_pixmap -> Page.get_pixmap: Use doc.pages[i].get_pixmap(...).
+- Document.get_page_pixmap -> Page.pixmap: Use doc.pages[i].pixmap(...).
 - Document.get_page_text -> Page.text: Use doc.pages[i].text(), or words() and layout() for the other options.
 - Document.get_toc -> Document.get_outline: pylopdf's get_outline uses zero-based pages; get_toc used one-based pages.
 - Document.insert_pdf -> Pages.insert: Use doc.pages.insert(index, other.pages[a:b + 1]), or doc.pages.extend(other.pages) to append.
@@ -163,6 +163,8 @@ replacement, and the migration hint):
 - Page.get_image_info -> Page.content: Read page.content(text_runs=False, paths=False).images: Image records with xref, bbox, matrix (pymupdf's transform), width, height, bits, colorspace, components, mask, encoded_size, and resolution.
 - Page.get_image_rects -> Page.content: Keep the items of page.content().images whose xref is the image's object number, and read their bbox and matrix.
 - Page.get_images -> Page.resources: Read page.resources.images: ImageObject handles with xref, width, height, bits, colorspace, alternate_colorspace, filters, soft_mask, mask, and is_stencil, in place of tuples.
+- Page.get_pixmap -> Page.pixmap: Use page.pixmap(dpi=...) or page.pixmap(matrix=...), not both; annots= is annotations=.
+- Page.get_svg_image -> Page.svg: Use page.svg(), which draws text as paths at 72 dpi.
 - Page.get_text -> Page.text: Use page.text() for "text", page.words() for "words", page.layout().blocks for "blocks", and page.layout().to_dict() or page.layout(chars=True).to_dict() for "dict" and "rawdict".
 - Page.get_text_blocks -> Page.layout: Read page.layout().blocks, Block records with text, bbox, and lines.
 - Page.get_text_words -> Page.words: Call page.words(), which returns Word records with text, bbox, block, line, and index.
@@ -196,8 +198,9 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - Document.__iter__ -> Pages.__iter__: Iterate over doc.pages.
 - Document.compress_images -> Document.rewrite_images: Use doc.rewrite_images(dpi_threshold=..., dpi_target=..., quality=...).
 - Document.get_text -> Document.text: Call doc.text(pages).
-- Document.render_page -> Page.get_pixmap: Use doc.pages[i].get_pixmap(...); its tobytes() gives the PNG.
-- Document.render_page_svg -> Page.get_svg_image: Use doc.pages[i].get_svg_image().
+- Document.render_page -> Page.pixmap: Use doc.pages[i].pixmap(dpi=72 * scale, alpha=True).tobytes() for the PNG.
+- Document.render_page_svg -> Page.svg: Use doc.pages[i].svg().
+- Document.render_pages -> Document.render: Use doc.render(pages, ...), which takes dpi or matrix, not both.
 - Document.to_markdown -> Document.markdown: Call doc.markdown(...).
 - DrawingInfo -> Path: page.content(text_runs=False, images=False).paths returns Path records instead of DrawingInfo dictionaries.
 - DrawingInfo.closePath -> Path.segments: A path is closed where its segments hold a ClosePath.
@@ -236,8 +239,8 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - Page.add_link_annot -> Page.insert_link: Use page.insert_link({"kind": pylopdf.LinkKind.URI, "from": rect, "uri": uri}).
 - Page.get_text_ocr -> Page.ocr: Call page.ocr(...), which returns OcrWord records with text, bbox, and confidence.
 - Page.insert_ocr_text_layer -> Page.apply_ocr: Call page.apply_ocr(words=[OcrWord(text=..., bbox=..., confidence=...), ...], skip_existing=False).
-- Page.render -> Page.get_pixmap: Use page.get_pixmap(...).tobytes() for PNG.
-- Page.render_svg -> Page.get_svg_image: Use page.get_svg_image().
+- Page.render -> Page.pixmap: Use page.pixmap(dpi=72 * scale, alpha=True).tobytes() for the PNG.
+- Page.render_svg -> Page.svg: Use page.svg().
 - Page.to_markdown -> Page.markdown: Call page.markdown(...).
 - Permissions.COPY_FOR_ACCESSIBILITY -> Permissions.ACCESSIBILITY: Use Permissions.ACCESSIBILITY.
 - Permissions.FILL_FORMS -> Permissions.FORM: Use Permissions.FORM.

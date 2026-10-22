@@ -20,7 +20,7 @@ description: 추출, 병합, 래스터화, PNG 인코딩에서의 pylopdf 성능
 | 첫 페이지를 2× PNG로(전체 과정) | 14개 파일 모두 pylopdf가 앞섰으며 합계는 **212.9 ms** 대 573.9 ms |
 | 래스터화만 | 14개 파일 중 cold에서는 9개, warm에서는 12개에서 pymupdf가 앞섰고(warm 1개는 동률) warm 합계는 pylopdf 145.9 ms, pymupdf **78.8 ms** |
 | PNG 인코딩 | pylopdf가 약 9배 빨랐지만(**44.4 ms** 대 397.4 ms) 40% 더 많은 바이트를 기록(4,645 대 **3,318 KiB**) |
-| 12페이지를 2×로 렌더링 | `render_pages()`가 작업자 1개의 163.7 ms에서 8개의 34.6 ms로 줄어 **4.74배 가속**. pymupdf는 순차 처리에 425.3 ms |
+| 12페이지를 2×로 렌더링 | `doc.render()`가 작업자 1개의 163.7 ms에서 8개의 34.6 ms로 줄어 **4.74배 가속**. pymupdf는 순차 처리에 425.3 ms |
 | 전체 텍스트 추출 | 14개 중 12개에서 pylopdf가 앞섰고, pymupdf와 pypdf가 각각 하나씩 앞섬 |
 | 추출 충실도의 대용 지표 | 두 라이브러리가 모두 텍스트를 추출한 파일에서 유사도 0.443~1.000. Type 3 fixture에서는 pylopdf가 텍스트를 추출하지 않음 |
 | Linux와 Windows CI 러너 | pylopdf의 추출 우위가 더 작았고, MuPDF가 cold 래스터화에서도 더 빨랐음. [다른 플랫폼](#other-platforms) 참고 |

@@ -18,7 +18,7 @@ description: 可复现的pylopdf文本提取、合并、光栅化与PNG编码基
 | 第一页输出为2× PNG（完整流程） | 14个文件均由pylopdf领先，合计**212.9 ms**对573.9 ms |
 | 仅光栅化 | 14个文件中，cold时有9个、warm时有12个由pymupdf领先（warm另有1个持平）；warm合计为pylopdf 145.9 ms、pymupdf **78.8 ms** |
 | PNG编码 | pylopdf编码快约9倍（**44.4 ms**对397.4 ms），但输出大40%（4,645 KiB对**3,318 KiB**） |
-| 以2×渲染12页 | `render_pages()`从1个worker的163.7 ms降至8个worker的34.6 ms，**加速4.74倍**；pymupdf串行处理需425.3 ms |
+| 以2×渲染12页 | `doc.render()`从1个worker的163.7 ms降至8个worker的34.6 ms，**加速4.74倍**；pymupdf串行处理需425.3 ms |
 | 提取全部文本 | 14个文件中12个由pylopdf领先，pymupdf和pypdf各领先1个 |
 | 提取一致性代理指标 | 在两个库都能提取出文本的文件上，相似度为0.443到1.000；pylopdf不会从Type 3 fixture中提取文本 |
 | Linux与Windows CI runner | pylopdf的提取优势更小，MuPDF在cold光栅化中也更快；参见[其他平台](#other-platforms) |

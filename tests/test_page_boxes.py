@@ -48,7 +48,7 @@ def test_set_cropbox_round_trips_and_stores_pdf_coordinates() -> None:
     assert page.cropbox == pylopdf.Rect(100, 50, 500, 350)
     assert list(page.obj["CropBox"]) == [100, 450, 500, 750]
     assert page.rect == pylopdf.Rect(0, 0, 400, 300)
-    pixmap = page.get_pixmap(dpi=72, alpha=True)
+    pixmap = page.pixmap(dpi=72, alpha=True)
     assert (pixmap.width, pixmap.height) == (400, 300)
 
 

@@ -488,7 +488,7 @@ def test_reads_leave_is_dirty_false() -> None:
     page = doc.pages[0]
     page.text()
     page.layout().to_dict()
-    page.get_pixmap()
+    page.pixmap()
     page.get_links()
     page.content()
     page.search("a")

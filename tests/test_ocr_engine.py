@@ -67,7 +67,7 @@ def test_ocr_engine_recognizes_any_pixmap_in_pixel_coordinates(
     doc = pylopdf.Document()
     doc.pages.new((360, 120))
     doc.pages[0].insert_text((20, 75), "Invoice 123", fontsize=36)
-    pixmap = doc.pages[0].get_pixmap(dpi=150, alpha=alpha, background=(255, 255, 255))
+    pixmap = doc.pages[0].pixmap(dpi=150, alpha=alpha, background=(255, 255, 255))
 
     words = ocr_engine.recognize(pixmap, tile_size=512, overlap=64)
 
@@ -242,34 +242,34 @@ def test_apply_ocr_adds_searchable_invisible_text(ocr_engine: pylopdf.OcrEngine)
     source = pylopdf.Document()
     source.pages.new((360, 120))
     source.pages[0].insert_text((20, 75), "Search 456", fontsize=36)
-    raster = source.pages[0].get_pixmap(dpi=150, background=(255, 255, 255), alpha=True)
+    raster = source.pages[0].pixmap(dpi=150, background=(255, 255, 255), alpha=True)
 
     target = pylopdf.Document()
     target.pages.new((360, 120))
     target.pages[0].insert_image(target.pages[0].rect, stream=raster.tobytes())
-    before = target.pages[0].get_pixmap(background=(255, 255, 255), alpha=True).samples
+    before = target.pages[0].pixmap(background=(255, 255, 255), alpha=True).samples
 
     words = target.pages[0].apply_ocr(dpi=150, engine=ocr_engine, tile_size=512, overlap=64)
 
     assert [word.text for word in words] == ["Search 456"]
     assert target.pages[0].search("Search 456")
-    assert target.pages[0].get_pixmap(background=(255, 255, 255), alpha=True).samples == before
+    assert target.pages[0].pixmap(background=(255, 255, 255), alpha=True).samples == before
     reopened = pylopdf.open(target.to_bytes())
     assert reopened.pages[0].search("Search 456")
-    assert reopened.pages[0].get_pixmap(background=(255, 255, 255), alpha=True).samples == before
+    assert reopened.pages[0].pixmap(background=(255, 255, 255), alpha=True).samples == before
 
 
 def test_apply_ocr_clip_handles_mixed_content(ocr_engine: pylopdf.OcrEngine) -> None:
     source = pylopdf.Document()
     source.pages.new((360, 120))
     source.pages[0].insert_text((20, 75), "Region 789", fontsize=36)
-    raster = source.pages[0].get_pixmap(dpi=150, background=(255, 255, 255), alpha=True)
+    raster = source.pages[0].pixmap(dpi=150, background=(255, 255, 255), alpha=True)
 
     target = pylopdf.Document()
     target.pages.new((360, 220))
     target.pages[0].insert_text((20, 30), "Digital header", fontsize=14)
     target.pages[0].insert_image((0, 80, 360, 200), stream=raster.tobytes())
-    before = target.pages[0].get_pixmap(background=(255, 255, 255), alpha=True).samples
+    before = target.pages[0].pixmap(background=(255, 255, 255), alpha=True).samples
 
     words = target.pages[0].apply_ocr(
         dpi=150,
@@ -282,7 +282,7 @@ def test_apply_ocr_clip_handles_mixed_content(ocr_engine: pylopdf.OcrEngine) -> 
     assert [word.text for word in words] == ["Region 789"]
     assert words[0].bbox.y0 > 70
     assert target.pages[0].search("Region 789")
-    assert target.pages[0].get_pixmap(background=(255, 255, 255), alpha=True).samples == before
+    assert target.pages[0].pixmap(background=(255, 255, 255), alpha=True).samples == before
 
 
 @pytest.mark.parametrize(
@@ -298,13 +298,13 @@ def test_apply_ocr_corrects_rotated_scan_without_rotating_page(
     source.pages.new((360, 200))
     source.pages[0].insert_text((20, 65), "First line 111", fontsize=28)
     source.pages[0].insert_text((20, 145), "Second line 222", fontsize=28)
-    raster = source.pages[0].get_pixmap(dpi=150, background=(255, 255, 255), alpha=True)
+    raster = source.pages[0].pixmap(dpi=150, background=(255, 255, 255), alpha=True)
 
     target = pylopdf.Document()
     target.pages.new((360, 200))
     target.pages[0].insert_image(target.pages[0].rect, stream=raster.tobytes())
     target.pages[0].set_rotation(page_rotation)
-    before = target.pages[0].get_pixmap(background=(255, 255, 255), alpha=True).samples
+    before = target.pages[0].pixmap(background=(255, 255, 255), alpha=True).samples
 
     words = target.pages[0].apply_ocr(
         dpi=150,
@@ -325,13 +325,13 @@ def test_apply_ocr_corrects_rotated_scan_without_rotating_page(
         assert len(hits) == 1
         assert tuple(hits[0]) == pytest.approx(tuple(word.bbox), abs=0.2)
     assert target.pages[0].rotation == page_rotation
-    assert target.pages[0].get_pixmap(background=(255, 255, 255), alpha=True).samples == before
+    assert target.pages[0].pixmap(background=(255, 255, 255), alpha=True).samples == before
     reopened = pylopdf.open(target.to_bytes())
     assert reopened.pages[0].text() == "First line 111\nSecond line 222\n"
     assert reopened.pages[0].search("First line 111")
     assert reopened.pages[0].search("Second line 222")
     assert reopened.pages[0].rotation == page_rotation
-    assert reopened.pages[0].get_pixmap(background=(255, 255, 255), alpha=True).samples == before
+    assert reopened.pages[0].pixmap(background=(255, 255, 255), alpha=True).samples == before
 
 
 def test_apply_ocr_skips_existing_text_by_default() -> None:

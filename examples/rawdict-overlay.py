@@ -114,7 +114,7 @@ def main() -> None:
     with document:
         page = document.pages[args.page]
         layout = page.layout(chars=True)
-        png = page.get_pixmap(
+        png = page.pixmap(
             matrix=pylopdf.Matrix(args.scale, args.scale), background=(255, 255, 255), alpha=True
         ).tobytes()
         source = f"{args.pdf.name if args.pdf is not None else 'Generated demo'} — page {page.index}"

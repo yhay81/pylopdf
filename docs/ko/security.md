@@ -24,7 +24,7 @@ try:
     with pylopdf.open("upload.pdf", limits=pylopdf.DocumentLimits.web()) as doc:
         if doc.complexity["page_count"] > 50:
             reject_upload("too many pages")
-        preview = doc.pages[0].get_pixmap(dpi=144)
+        preview = doc.pages[0].pixmap(dpi=144)
 except pylopdf.LimitError as error:
     reject_upload(error.code)
 ```
@@ -82,9 +82,9 @@ limits = pylopdf.DocumentLimits(
 | 메서드 | 기본 제한 | 키워드 |
 |---|---|---|
 | `Document.to_bytes()` | 출력 512 MiB | `max_size` |
-| `Document.render_pages()` | PNG 출력 합계 512 MiB | `max_size` |
+| `Document.render()` | PNG 출력 합계 512 MiB | `max_size` |
 | `markdown()`, `Table.markdown()` | 출력 64 MiB | `max_size` |
-| `Pixmap.tobytes()`, `Page.get_svg_image()` | 출력 64 MiB | `max_size` |
+| `Pixmap.tobytes()`, `Page.svg()` | 출력 64 MiB | `max_size` |
 | `Page.search()` | 결과 4,096개 | `max_hits` |
 | `Page.content()` | 글리프, 경로와 클립의 세그먼트, 선의 대시 길이, 항목을 합쳐 262,144개 | `max_elements` |
 | `Page.insert_text()`, `insert_textbox()` | 텍스트 1 MiB와 4,096줄 | `max_text_size` |
@@ -96,7 +96,7 @@ limits = pylopdf.DocumentLimits(
 | `Document.get_pdfa_claim()`, `get_xml_metadata()`, `set_xml_metadata()` | XMP 메타데이터 1 MiB | `max_size` |
 | `OcrEngine()` | 모델 파일 64 MiB | `max_model_size` |
 
-일부 제한은 고정되어 있습니다. 렌더링은 페이지당 6,400만 픽셀로 제한됩니다. 비밀번호는 PDF 2.0의 최대치인 UTF-8 127바이트까지입니다. `doc.pages.select()`, `insert()`, `extend()`, `doc.text()`, `doc.markdown()`, `render_pages()`에 전달하는 페이지 목록은 페이지 수와 4,096 중 큰 값까지의 항목을 담을 수 있습니다. 목차, 페이지 레이블, 폼 필드, 주석, 첨부 파일 목록에는 큰 실제 문서에 맞춘 넉넉한 고정 제한이 있습니다.
+일부 제한은 고정되어 있습니다. 렌더링은 페이지당 6,400만 픽셀로 제한됩니다. 비밀번호는 PDF 2.0의 최대치인 UTF-8 127바이트까지입니다. `doc.pages.select()`, `insert()`, `extend()`, `doc.text()`, `doc.markdown()`, `doc.render()`에 전달하는 페이지 목록은 페이지 수와 4,096 중 큰 값까지의 항목을 담을 수 있습니다. 목차, 페이지 레이블, 폼 필드, 주석, 첨부 파일 목록에는 큰 실제 문서에 맞춘 넉넉한 고정 제한이 있습니다.
 
 거부된 호출은 문서를 변경하기 전에 예외를 발생시키며, 부분 결과를 반환하지 않습니다.
 
@@ -142,7 +142,7 @@ limits = pylopdf.DocumentLimits(
 - **호스트에서 시간 제한을 강제하세요.** 제한은 메모리와 출력 크기를 제한하지만, 정상처럼 보이는 일부 문서는 렌더링에 오랜 시간이 걸립니다. 신뢰할 수 없는 작업은 작업자, 프로세스, 컨테이너에서 CPU 또는 실제 시간 기한을 두고 실행하세요.
 - **일괄 처리를 격리하세요.** 가능하면 신뢰할 수 없는 파일은 샌드박스나 컨테이너에서 처리하세요.
 - **민감 정보 삭제(redaction)를 페이지 삭제에 의존하지 마세요.** 페이지를 삭제하면 그 링크, 폼 필드, 구조 항목은 제거되지만, 내용의 사본이 첨부 파일이나 메타데이터처럼 파일의 다른 곳에 남을 수 있습니다.
-- **병렬 렌더링에는 `render_pages()`를 사용하세요.** 이미 자체 메모리 사용량을 제한하므로, 그 바깥을 제한 없는 병렬 처리로 감싸지 마세요.
+- **병렬 렌더링에는 `doc.render()`를 사용하세요.** 이미 자체 메모리 사용량을 제한하므로, 그 바깥을 제한 없는 병렬 처리로 감싸지 마세요.
 
 pylopdf의 지속적 통합(CI)은 네이티브 Python과 WebAssembly에서 같은 악의적 입력 테스트를 실행하며, 정기 퍼징으로 잘못된 cross-reference 테이블, 참조 순환, 깊게 중첩된 객체, 손상된 스트림, 압축 폭탄을 입력합니다.
 

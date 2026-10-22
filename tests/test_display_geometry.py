@@ -132,7 +132,7 @@ def test_page_rect_is_the_page_that_rendering_and_extraction_display(name: str, 
 
     assert tuple(page.rect) == pytest.approx((0, 0, width, height), abs=1e-9)
     # hayro truncates the page size to whole pixels.
-    pixmap = page.get_pixmap(dpi=72, alpha=True)
+    pixmap = page.pixmap(dpi=72, alpha=True)
     assert (pixmap.width, pixmap.height) == (int(width), int(height))
     layout = page.layout().to_dict()
     assert (layout["width"], layout["height"]) == pytest.approx((width, height), abs=1e-3)
@@ -188,7 +188,7 @@ def test_annotations_and_links_share_the_display_space(name: str, rotation: int)
     assert tuple(added_link.rect) == pytest.approx((300, 20, 360, 60), abs=1e-3)
     assert tuple(highlight.rect) == pytest.approx((10, 10, 60, 40), abs=1e-3)
     assert tuple(page.get_links()[2]["from"]) == pytest.approx((300, 20, 360, 60), abs=1e-3)
-    pixmap = page.get_pixmap(dpi=72, background=(255, 255, 255), alpha=True)
+    pixmap = page.pixmap(dpi=72, background=(255, 255, 255), alpha=True)
     if name == "cropbox-misses":
         # hayro clips the page to the empty intersection, so nothing shows.
         assert pixmap.samples == b"\xff" * len(pixmap.samples)
@@ -250,5 +250,5 @@ def test_setting_a_cropbox_past_the_mediabox_clips_the_page() -> None:
     assert page.rect == pylopdf.Rect(0, 0, 600, 800)
     page.insert_text((40, 50), "Probe", fontsize=12)
     assert _origins(page, "Probe") == [pytest.approx((40, 50), abs=1e-3)]
-    pixmap = page.get_pixmap(dpi=72, alpha=True)
+    pixmap = page.pixmap(dpi=72, alpha=True)
     assert (pixmap.width, pixmap.height) == (600, 800)

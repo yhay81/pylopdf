@@ -106,11 +106,11 @@ all use the same coordinates, also on rotated pages.
 
 ```python
 with pylopdf.open("input.pdf") as doc:
-    doc.pages[0].get_pixmap(dpi=144).save("page-1.png")
-    png = doc.pages[0].get_pixmap(dpi=300).tobytes()  # PNG bytes
-    pix = doc.pages[0].get_pixmap(dpi=144)            # RGB pixels for NumPy or Pillow
-    pngs = doc.render_pages(dpi=144, workers=4)       # every page, in parallel
-    svg = doc.pages[0].get_svg_image()
+    doc.pages[0].pixmap(dpi=144).save("page-1.png")
+    png = doc.pages[0].pixmap(dpi=300).tobytes()  # PNG bytes
+    pix = doc.pages[0].pixmap(dpi=144)            # RGB pixels for NumPy or Pillow
+    pngs = doc.render(dpi=144, workers=4)       # every page, in parallel
+    svg = doc.pages[0].svg()
 ```
 
 ## Edit pages { #editing }

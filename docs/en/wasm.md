@@ -109,7 +109,7 @@ forms, and encryption, works as on native Python.
 
 | Feature | In WebAssembly |
 |---|---|
-| `render_pages(workers=...)` | Accepted, but pages are rendered one after another |
+| `doc.render(workers=...)` | Accepted, but pages are rendered one after another |
 | Built-in OCR (`OcrEngine`, `ocr`, `apply_ocr`) | Not available; raises `OcrError`. Run OCR elsewhere and add its words with `Page.apply_ocr(words=...)` |
 | Font extras (`pylopdf[jp]` and the others) | Not tested. Pass font data explicitly with `fontbuffer=` or `set_fallback_font()` |
 

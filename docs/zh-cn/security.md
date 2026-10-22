@@ -24,7 +24,7 @@ try:
     with pylopdf.open("upload.pdf", limits=pylopdf.DocumentLimits.web()) as doc:
         if doc.complexity["page_count"] > 50:
             reject_upload("too many pages")
-        preview = doc.pages[0].get_pixmap(dpi=144)
+        preview = doc.pages[0].pixmap(dpi=144)
 except pylopdf.LimitError as error:
     reject_upload(error.code)
 ```
@@ -82,9 +82,9 @@ limits = pylopdf.DocumentLimits(
 | 方法 | 默认上限 | 关键字参数 |
 |---|---|---|
 | `Document.to_bytes()` | 输出512 MiB | `max_size` |
-| `Document.render_pages()` | PNG输出合计512 MiB | `max_size` |
+| `Document.render()` | PNG输出合计512 MiB | `max_size` |
 | `markdown()`、`Table.markdown()` | 输出64 MiB | `max_size` |
-| `Pixmap.tobytes()`、`Page.get_svg_image()` | 输出64 MiB | `max_size` |
+| `Pixmap.tobytes()`、`Page.svg()` | 输出64 MiB | `max_size` |
 | `Page.search()` | 4,096个结果 | `max_hits` |
 | `Page.content()` | 字形、路径与裁剪的线段、描边的虚线长度以及项合计262,144个 | `max_elements` |
 | `Page.insert_text()`、`insert_textbox()` | 文本1 MiB、4,096行 | `max_text_size` |
@@ -96,7 +96,7 @@ limits = pylopdf.DocumentLimits(
 | `Document.get_pdfa_claim()`、`get_xml_metadata()`、`set_xml_metadata()` | XMP元数据1 MiB | `max_size` |
 | `OcrEngine()` | 模型文件64 MiB | `max_model_size` |
 
-有几项上限是固定的。渲染时每页最多6,400万像素。密码最长127个UTF-8字节，这是PDF 2.0规定的最大值。传给`doc.pages.select()`、`insert()`和`extend()`，以及`doc.text()`、`doc.markdown()`和`render_pages()`的页面列表，条目数最多为页数与4,096中的较大者。书签、页码标签、表单字段、批注和附件列表都设有宽松的固定上限，足以应对大型的真实文档。
+有几项上限是固定的。渲染时每页最多6,400万像素。密码最长127个UTF-8字节，这是PDF 2.0规定的最大值。传给`doc.pages.select()`、`insert()`和`extend()`，以及`doc.text()`、`doc.markdown()`和`doc.render()`的页面列表，条目数最多为页数与4,096中的较大者。书签、页码标签、表单字段、批注和附件列表都设有宽松的固定上限，足以应对大型的真实文档。
 
 被拒绝的调用会在修改文档之前抛出异常，绝不会返回部分结果。
 
@@ -142,7 +142,7 @@ limits = pylopdf.DocumentLimits(
 - **在宿主环境中强制执行时间限制。**这些上限约束的是内存和输出大小，但有些看似正常的文档渲染起来需要很长时间。请在worker、进程或容器中为不受信任的任务设置CPU时间或实际时间的截止期限。
 - **隔离批处理。**条件允许时，请在沙箱或容器中处理不受信任的文件。
 - **不要依靠删除页面来实现涂黑。**删除页面会移除其链接、表单字段和结构条目，但其内容的副本可能仍残留在文件的其他位置，例如附件或元数据中。
-- **使用`render_pages()`进行并行渲染。**它已经自行限制内存用量，因此不要再在外层套上不受限制的并行处理。
+- **使用`doc.render()`进行并行渲染。**它已经自行限制内存用量，因此不要再在外层套上不受限制的并行处理。
 
 pylopdf的持续集成会在原生Python和WebAssembly上运行同一套恶意输入测试，定期运行的模糊测试还会向其输入格式错误的交叉引用表、引用循环、深层嵌套的对象、损坏的流和压缩炸弹。
 

@@ -51,7 +51,7 @@ def _png() -> bytes:
     page = doc.pages.new((4, 2))
     with page.draw() as canvas:
         canvas.rect((0, 0, 2, 2), fill=RED)
-    return page.get_pixmap().tobytes()
+    return page.pixmap().tobytes()
 
 
 def test_pages_join_in_order(font: pylopdf.Font) -> None:
@@ -105,7 +105,7 @@ def test_images(tmp_path: Path) -> None:
     png = _png()
     path = tmp_path / "photo.jpg"
     path.write_bytes(PHOTO_JPEG)
-    pixmap = pylopdf.Document().pages.new((3, 3)).get_pixmap()
+    pixmap = pylopdf.Document().pages.new((3, 3)).pixmap()
     builder = pylopdf.create()
     with builder.page((300, 200)) as canvas:
         canvas.image((10, 10, 50, 30), png)
@@ -123,7 +123,7 @@ def test_images(tmp_path: Path) -> None:
     assert images[0].xref == images[4].xref
     extracted = doc.images[images[1].xref].extract()
     assert (extracted.format, extracted.data) == ("jpeg", PHOTO_JPEG)
-    pixels = doc.pages[0].get_pixmap()
+    pixels = doc.pages[0].pixmap()
     offset = 20 * pixels.stride + 15 * 3
     assert pixels.samples[offset : offset + 3] == b"\xff\x00\x00"
 

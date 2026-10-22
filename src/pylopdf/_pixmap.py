@@ -102,15 +102,20 @@ def _normalize_background(
     return rgba
 
 
+def _validate_bool(name: str, value: object) -> None:
+    """Refuse a rendering flag that is not a bool."""
+    if not isinstance(value, bool):
+        msg = f"{name} must be a bool: {value!r}"
+        raise TypeError(msg)
+
+
 def _render_background(
     background: tuple[int, int, int] | tuple[int, int, int, int] | None,
     *,
     alpha: bool,
 ) -> tuple[int, int, int, int] | None:
-    """Resolve the raster background: white without alpha, as in pymupdf."""
-    if not isinstance(alpha, bool):
-        msg = f"alpha must be a bool: {alpha!r}"
-        raise TypeError(msg)
+    """Resolve the raster background: white without alpha."""
+    _validate_bool("alpha", alpha)
     rgba = _normalize_background(background)
     if alpha:
         return rgba
@@ -123,12 +128,15 @@ def _render_background(
 
 
 def _render_scale(matrix: Matrix | Sequence[float] | None, dpi: float | None) -> tuple[float, float]:
-    """Return the horizontal and vertical scale of ``matrix``, or of ``dpi``.
+    """Return the horizontal and vertical scale of ``dpi`` or of ``matrix``.
 
-    As in pymupdf, ``dpi`` takes precedence over ``matrix``. Only scaling
-    matrices are supported: rotation, shear, and flips raise ``PdfError``,
-    and a translation does not move the rendered pixels.
+    The two are exclusive. Only scaling matrices are supported: rotation,
+    shear, and flips raise ``PdfError``, and a translation does not move the
+    rendered pixels.
     """
+    if dpi is not None and matrix is not None:
+        msg = "pass dpi or matrix, not both"
+        raise ValueError(msg)
     if dpi is not None:
         if isinstance(dpi, bool) or not isinstance(dpi, (int, float)) or not math.isfinite(dpi) or dpi <= 0:
             msg = f"dpi must be a positive finite number: {dpi!r}"

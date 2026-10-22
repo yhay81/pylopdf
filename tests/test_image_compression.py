@@ -128,12 +128,12 @@ def test_rewrite_images_downsamples_and_reduces_jpeg() -> None:
     doc = pylopdf.open(build_jpeg_pdf([(72, 72, 0, 0)]))
     page = doc.pages[0]
     original = drawn_images(page)[0]
-    before = page.get_pixmap(alpha=True).samples
+    before = page.pixmap(alpha=True).samples
 
     result = doc.rewrite_images(dpi_threshold=150, dpi_target=100, quality=65)
 
     compressed = drawn_images(page)[0]
-    after = page.get_pixmap(alpha=True).samples
+    after = page.pixmap(alpha=True).samples
     assert result == {
         "considered": 1,
         "rewritten": 1,
@@ -215,12 +215,12 @@ def test_rewrite_images_converts_safe_flate_rasters(
     source, encoded = build_flate_pdf(color_space=color_space, predictor=predictor)
     doc = pylopdf.open(source)
     page = doc.pages[0]
-    before = page.get_pixmap(alpha=True).samples
+    before = page.pixmap(alpha=True).samples
 
     result = doc.rewrite_images(dpi_threshold=96, dpi_target=64, quality=65)
 
     compressed = drawn_images(page)[0]
-    after = page.get_pixmap(alpha=True).samples
+    after = page.pixmap(alpha=True).samples
     assert result == {
         "considered": 1,
         "rewritten": 1,

@@ -88,7 +88,7 @@ WebAssemblyのランタイムかどうかは`sys.platform == "emscripten"`で判
 
 | 機能 | WebAssemblyでは |
 |---|---|
-| `render_pages(workers=...)` | 受け付けますが、ページは1枚ずつ順にレンダリングします |
+| `doc.render(workers=...)` | 受け付けますが、ページは1枚ずつ順にレンダリングします |
 | 組み込みOCR（`OcrEngine`、`ocr`、`apply_ocr`） | 使えません。`OcrError`を送出します。OCRはほかの場所で実行し、その単語を`Page.apply_ocr(words=...)`で追加してください |
 | フォントのextra（`pylopdf[jp]`など） | 未テスト。フォントのデータを`fontbuffer=`や`set_fallback_font()`で明示的に渡してください |
 

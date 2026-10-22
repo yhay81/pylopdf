@@ -1226,7 +1226,7 @@ the concept and API overview.
   shares maps through `Rc`, so it never lives in the `Send + Sync` `_Document`
   and never crosses a thread: each thread keeps at most one slot that owns an
   `Arc` of the snapshot together with the cache through `self_cell`.
-  `Page.get_pixmap` and serial `render_pages` use the
+  `Page.pixmap` and serial `Document.render` use the
   slot only on the thread that created the document, and only while the
   document's generation token and the snapshot identity both match.
   `invalidate_interpreted_pages` (therefore `invalidate_hayro_pdf` and every
@@ -1243,7 +1243,7 @@ the concept and API overview.
   first-page re-renders 3–5% faster in corpus total, and 27-page
   `usrguide.pdf` `get_pixmap` loops 22–28% faster at 1x, with pixel-identical
   output and at most 3 MiB more memory on all five targets.
-- `Document.render_pages` is the supported same-document concurrency boundary:
+- `Document.render` is the supported same-document concurrency boundary:
   it renders an immutable hayro snapshot on a dedicated rayon pool, preserves
   input order, releases the GIL, accepts 1–64 requested workers, and caps actual
   concurrency to roughly 512 MB of estimated raster and conversion buffers.
@@ -1267,21 +1267,29 @@ the concept and API overview.
   shared PNG writer refuses the write crossing the limit before Python bytes
   conversion and grows its retained output fallibly. `max_size=None` is the
   explicit trusted-output opt-out. Failures use `pixmap_output_size`; the
-  `render_pages` batch budget uses `render_output_size`.
-- `Page.get_pixmap` follows pymupdf: opaque RGB (`n == 3`) on white by
-  default, straight-alpha RGBA with `alpha=True`, `dpi` taking precedence
-  over `matrix`, and only scaling matrices (rotation, shear, and flips raise
-  `PdfError`; a translation moves no pixels). The core takes separate x and y
-  scale factors, which hayro's transform applies, and `raster_samples` drops
-  the alpha bytes of an opaque raster in place rather than copying it.
-  `background=` must be opaque without `alpha`. `render_pages` takes the same
-  options and writes RGB or RGBA PNG accordingly.
-- `Page.get_svg_image` defaults to a 64 MiB UTF-8
+  `Document.render` batch budget uses `render_output_size`.
+- `Page.pixmap` renders opaque RGB (`n == 3`) on white by default and
+  straight-alpha RGBA with `alpha=True`. `dpi` and `matrix` are exclusive
+  (`_render_scale` refuses both), and only scaling matrices are accepted
+  (rotation, shear, and flips raise `PdfError`; a translation moves no
+  pixels). The core takes separate x and y scale factors, which hayro's
+  transform applies, and `raster_samples` drops the alpha bytes of an opaque
+  raster in place rather than copying it. `background=` must be opaque
+  without `alpha`. `annotations=False` sets hayro's
+  `InterpreterSettings::render_annotations` for the call; the retained render
+  cache holds fonts and images, which do not depend on it.
+  `Document.render` takes the same options and writes RGB or RGBA PNG
+  accordingly. The method is named `pixmap` rather than `render` because
+  0.15's `Page.render()` returned PNG bytes: a `Pixmap` supports the buffer
+  protocol, so `path.write_bytes(page.render())` in 0.15 code would have
+  written raw pixels without an error.
+- `Page.svg` defaults to a 64 MiB UTF-8
   output cap and raise `LimitError` with code `svg_output_size` before PyO3
   creates the Python string; `max_size=None` explicitly opts out. hayro-svg 0.8
-  returns only a completed `String`, so this boundary does not cap the
-  converter's one internal Rust allocation.
-- `Page.get_pixmap(clip=)` accepts rotation-resolved display coordinates,
+  takes no transform, always draws text as paths, and returns only a completed
+  `String`, so this boundary does not cap the converter's one internal Rust
+  allocation. `annotations=False` applies as for `pixmap`.
+- `Page.pixmap(clip=)` accepts rotation-resolved display coordinates,
   intersects them with the page, and rounds outward to pixel boundaries.
   hayro 0.8's `render_into` draws into a target of the clip's size through a
   transform shifted by the clip origin, so only the clipped region is
@@ -1314,7 +1322,7 @@ the concept and API overview.
 - Page batches validate entries against one page-count snapshot instead of
   re-walking the page tree per entry. `pages=None` and complete page-sequence
   imports cover every page whatever the page count. Explicit `Document.text`,
-  `Document.markdown`, `render_pages`, `Pages.select`, and `Pages.insert`/`extend`
+  `Document.markdown`, `Document.render`, `Pages.select`, and `Pages.insert`/`extend`
   entries may repeat pages up to the larger of the page count (of the source
   document, for an import) and 4,096; materialization stops at the first
   entry beyond that bound with `LimitError.code == "page_entry_count"`, so
@@ -2531,7 +2539,7 @@ the concept and API overview.
   enables a lopdf date backend because pylopdf keeps PDF dates opaque; the
   default `chrono-clock` feature would pull js-sys imports into Emscripten.
   Emscripten also excludes lopdf's `rayon` feature because the global rayon
-  pool cannot create workers there. `render_pages` keeps its public contract
+  pool cannot create workers there. `Document.render` keeps its public contract
   but runs serially; native targets retain bounded rayon execution. Emscripten
   also omits RTen inference while exposing an API-compatible `_OcrEngine` stub
   that raises `OcrError` and directs callers to external OCR plus
@@ -2554,7 +2562,7 @@ the concept and API overview.
   vector extraction, image-only input, AES-256 authentication, Standard 14 and
   subset-embedded OpenType generation, weight instances of a variable font
   passed as bytes, textbox layout, pixmaps,
-  `render_pages(workers=1/4)`, virtual-filesystem save, merge/select, typed
+  `Document.render(workers=1/4)`, virtual-filesystem save, merge/select, typed
   error recovery, lopdf cross-reference recovery reporting, unchanged
   extraction after an edit for a skipped bare-keyword form and a non-page
   page-tree kid, text drawn on content that leaves `q` and `Q` unbalanced, an
@@ -2646,7 +2654,7 @@ the concept and API overview.
   symlinks, clean up temporaries on failure, and map errors to `PdfError`.
 - Concurrent operations on distinct `Document` objects are supported.
   Concurrent external calls or edits on the same `Document` are not; `Page`
-  shares its parent's restriction. `Document.render_pages` is the supported
+  shares its parent's restriction. `Document.render` is the supported
   bounded same-document parallel read boundary.
 ## Known pitfalls
 

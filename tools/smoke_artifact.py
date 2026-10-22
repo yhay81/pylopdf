@@ -85,7 +85,7 @@ def _run_smoke() -> None:
             and math.isclose(chars[0]["origin"][1], 40, abs_tol=1e-3),
             message="raw glyph extraction changed the baseline origin",
         )
-        pixmap = reopened.pages[0].get_pixmap(alpha=True)
+        pixmap = reopened.pages[0].pixmap(alpha=True)
         samples = pixmap.samples
         _require(condition=pixmap.tobytes().startswith(_PNG_SIGNATURE), message="rendering did not return PNG data")
         _check_free_threaded_import()

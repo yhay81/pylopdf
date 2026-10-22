@@ -740,6 +740,10 @@ impl _Document {
     }
 
     /// Validate and render a page to hayro Pixmap; shared by PNG and Pixmap APIs.
+    ///
+    /// `annotations` false leaves every annotation's appearance out. The
+    /// retained render cache holds fonts and images, which do not depend on
+    /// that choice.
     pub(super) fn render_pixmap_impl(
         &mut self,
         py: Python<'_>,
@@ -747,8 +751,10 @@ impl _Document {
         scale: RenderScale,
         background: Option<(u8, u8, u8, u8)>,
         clip: Option<(f64, f64, f64, f64)>,
+        annotations: bool,
     ) -> PyResult<hayro::vello_cpu::Pixmap> {
-        let interpreter_settings = self.interpreter_settings();
+        let mut interpreter_settings = self.interpreter_settings();
+        interpreter_settings.render_annotations = annotations;
         self.contain_renderer_panics(|this| {
             py.detach(|| {
                 this.hayro_view_for(PageSelection::One(page_number))?;
@@ -798,7 +804,7 @@ pub(super) fn render_page_png(
             "max_output_size must be a positive integer or None",
         ));
     }
-    let pixmap = this.render_pixmap_impl(py, page_number, scale, background, None)?;
+    let pixmap = this.render_pixmap_impl(py, page_number, scale, background, None, true)?;
     // PNG encoding can cost more than rasterization, so release the GIL and
     // use Fast/fdeflate. Balanced is tens of times slower for about 10%
     // smaller output and made PNG the dominant render cost in benchmarks.
@@ -814,6 +820,7 @@ pub(super) fn render_pages_png(
     scale: RenderScale,
     alpha: bool,
     background: Option<(u8, u8, u8, u8)>,
+    annotations: bool,
     workers: usize,
     max_output_size: Option<usize>,
 ) -> PyResult<Vec<Vec<u8>>> {
@@ -824,7 +831,8 @@ pub(super) fn render_pages_png(
         return Ok(Vec::new());
     }
     this.check_page_entries(page_numbers.len(), "render")?;
-    let interpreter_settings = this.interpreter_settings();
+    let mut interpreter_settings = this.interpreter_settings();
+    interpreter_settings.render_annotations = annotations;
     this.contain_renderer_panics(|this| {
         py.detach(|| {
             this.hayro_view_for(PageSelection::Many(&page_numbers))?;
@@ -946,6 +954,7 @@ pub(super) fn render_pages_png(
 }
 
 /// Implements [`_Document::render_page_pixmap`].
+#[allow(clippy::too_many_arguments)] // Mirrors the Python-facing method.
 pub(super) fn render_page_pixmap(
     this: &mut _Document,
     py: Python<'_>,
@@ -954,8 +963,9 @@ pub(super) fn render_page_pixmap(
     alpha: bool,
     background: Option<(u8, u8, u8, u8)>,
     clip: Option<(f64, f64, f64, f64)>,
+    annotations: bool,
 ) -> PyResult<crate::pixmap::Pixmap> {
-    let pixmap = this.render_pixmap_impl(py, page_number, scale, background, clip)?;
+    let pixmap = this.render_pixmap_impl(py, page_number, scale, background, clip, annotations)?;
     let width = u32::from(pixmap.width());
     let height = u32::from(pixmap.height());
     // Release the GIL: unpremultiplication touches every rendered pixel.
@@ -973,9 +983,11 @@ pub(super) fn render_page_svg(
     this: &mut _Document,
     py: Python<'_>,
     page_number: u32,
+    annotations: bool,
     max_output_size: Option<usize>,
 ) -> PyResult<String> {
-    let interpreter_settings = this.interpreter_settings();
+    let mut interpreter_settings = this.interpreter_settings();
+    interpreter_settings.render_annotations = annotations;
     this.contain_renderer_panics(|this| {
         py.detach(|| {
             let pdf = this.hayro_view_for(PageSelection::One(page_number))?;

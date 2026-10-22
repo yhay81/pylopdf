@@ -30,7 +30,7 @@ try:
     with pylopdf.open("upload.pdf", limits=pylopdf.DocumentLimits.web()) as doc:
         if doc.complexity["page_count"] > 50:
             reject_upload("too many pages")
-        preview = doc.pages[0].get_pixmap(dpi=144)
+        preview = doc.pages[0].pixmap(dpi=144)
 except pylopdf.LimitError as error:
     reject_upload(error.code)
 ```
@@ -98,9 +98,9 @@ a default that is safe for most uses. Raise it with the keyword shown, or pass
 | Method | Default limit | Keyword |
 |---|---|---|
 | `Document.to_bytes()` | 512 MiB of output | `max_size` |
-| `Document.render_pages()` | 512 MiB of PNG output in total | `max_size` |
+| `Document.render()` | 512 MiB of PNG output in total | `max_size` |
 | `markdown()`, `Table.markdown()` | 64 MiB of output | `max_size` |
-| `Pixmap.tobytes()`, `Page.get_svg_image()` | 64 MiB of output | `max_size` |
+| `Pixmap.tobytes()`, `Page.svg()` | 64 MiB of output | `max_size` |
 | `Page.search()` | 4,096 results | `max_hits` |
 | `Page.content()` | 262,144 glyphs, path and clip segments, stroke dash lengths, and items | `max_elements` |
 | `Page.insert_text()`, `insert_textbox()` | 1 MiB of text and 4,096 lines | `max_text_size` |
@@ -115,7 +115,7 @@ a default that is safe for most uses. Raise it with the keyword shown, or pass
 A few limits are fixed. Rendering is capped at 64 million pixels per page.
 Passwords stop at 127 UTF-8 bytes, the PDF 2.0 maximum. Lists of pages passed to
 `doc.pages.select()`, `insert()`, and `extend()`, `doc.text()`,
-`doc.markdown()`, and `render_pages()` may hold up to the page count or 4,096
+`doc.markdown()`, and `doc.render()` may hold up to the page count or 4,096
 entries, whichever is larger. Outlines, page labels, form fields, annotations, and attachment lists
 have generous fixed limits sized for large real-world documents.
 
@@ -185,7 +185,7 @@ These apply to every document, with or without `DocumentLimits`:
 - **Do not rely on page deletion for redaction.** Deleting pages removes
   their links, form fields, and structure entries, but copies of their content
   can remain elsewhere in the file, such as in attachments or metadata.
-- **Use `render_pages()` for parallel rendering.** It already limits its own
+- **Use `doc.render()` for parallel rendering.** It already limits its own
   memory use, so do not wrap it in additional unbounded parallelism.
 
 pylopdf's continuous integration runs the same hostile-input tests on native

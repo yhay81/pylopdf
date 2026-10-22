@@ -97,7 +97,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 順序を逆にす�
 
 | メンバ | 用途 |
 |---|---|
-| `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | 全ページ、または指定したページのPNGのbytesを順番どおりに。並列にレンダリングします |
+| `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, workers=None, max_size=512 MiB)` | 全ページ、または指定したページのPNGのbytesを順番どおりに。並列にレンダリングします |
 | `images` | オブジェクト番号ごとの画像オブジェクト。[画像](#images)を参照 |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | 画像を縮小・再圧縮してファイルを小さくします |
 | `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | フォントが埋め込まれていない中国語・日本語・韓国語のテキストを表示するフォント。CJKのextraを入れると自動で設定されます |
@@ -148,11 +148,11 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 順序を逆にす�
 
 | メンバ | 用途 |
 |---|---|
-| `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` | [`Pixmap`](#pixmap)へレンダリング |
-| `get_svg_image(*, matrix=None, text_as_path=True)` | SVG文字列へレンダリング |
+| `pixmap(*, dpi=None, matrix=None, clip=None, alpha=False, background=None, annotations=True)` | [`Pixmap`](#pixmap)へレンダリング |
+| `svg(*, annotations=True, max_size=64 MiB)` | テキストをパスで描いたSVG文字列へレンダリング |
 | `resources` | ページのリソースが届くもの。`resources.images`が画像オブジェクトを並べます。[画像](#images)を参照 |
 
-pymupdfと同じく、ピクセルマップは既定で白地のRGB、`alpha=True`でRGBAです。`dpi`は`matrix`より優先され、`matrix`は`Matrix(2, 2)`のような拡大縮小の行列でなければなりません。`clip`はページの一部だけをレンダリングします。
+ピクセルマップは既定で72 dpi、白地のRGBで、`alpha=True`でRGBAです。`dpi`と`matrix`はどちらか一方を渡します。行列は`Matrix(2, 2)`のような拡大縮小だけのものでなければなりません。`clip`はページの一部だけをレンダリングし、`annotations=False`は注釈とフォームのウィジェットを描きません。
 
 ### ページの幾何情報 { #page-geometry }
 

@@ -72,9 +72,9 @@ python -m pylopdf.migrate src/
 | `page.find_tables()` | `page.tables()` | `Table`レコードのリスト。`table.rows`が`extract()`に、`len(table.rows)`が`row_count`に代わり、`table.cells`は各セルの矩形を行ごとに持ちます。調整用のキーワード、`header`、`to_pandas()`はまだありません |
 | `page.get_textpage_ocr()` | `page.ocr()`, `page.apply_ocr()` | 組み込みのオフラインOCR。[オフラインOCR](ocr.md)を参照 |
 | `pymupdf4llm.to_markdown(doc)` | `doc.markdown()` | 組み込み |
-| `page.get_pixmap(matrix=…, dpi=…)` | 同じ | 拡大縮小の行列のみ。`colorspace=`と`annots=`はまだありません。`doc.get_page_pixmap(i)`は`doc.pages[i].get_pixmap()`になります |
+| `page.get_pixmap(matrix=…, dpi=…, annots=…)` | `page.pixmap(dpi=…, annotations=…)` | `dpi`と`matrix`はどちらか一方。拡大縮小の行列のみ。`colorspace=`はまだありません。`doc.get_page_pixmap(i)`は`doc.pages[i].pixmap()`になります |
 | `pix.samples`, `width`, `height`, `n`, `alpha`, `stride`, `colorspace`, `save()` | 同じ | `save()`と`tobytes()`はPNGのみを書き出します |
-| `page.get_svg_image()` | 同じ | テキストは常にパスとして描きます |
+| `page.get_svg_image()` | `page.svg()` | テキストは常にパスとして、72 dpiで描きます |
 | `page.get_images()` | `page.resources.images` | タプルの代わりに`xref`、`width`、`height`、`bits`、`colorspace`、`filters`、マスクを持つ`ImageObject`ハンドル |
 | `doc.extract_image(xref)` | `doc.images[xref].extract()` | `format`、`data`、`resolution`を持つ`EncodedImage`。サイズ、色空間、マスクは`doc.images[xref]`のプロパティです |
 | `pymupdf.Pixmap(doc, xref)` | `doc.images[xref].to_pixmap()` | `alpha=True`で画像のマスクを適用します |
@@ -147,6 +147,6 @@ import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc.pages[0]
 page.add_highlight_annot(page.search("total"))       # リスト全体を受け取る
-page.get_pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
+page.pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
 doc.save("out.pdf", dedupe=True, renumber=True)
 ```

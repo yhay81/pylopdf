@@ -44,7 +44,7 @@ from pylopdf._limits import (
 from pylopdf._objects import Dictionary, Name, Objects, String
 from pylopdf._page import _PAGE_LABEL_STYLES, Page
 from pylopdf._pages import Pages
-from pylopdf._pixmap import _render_background, _render_scale
+from pylopdf._pixmap import _render_background, _render_scale, _validate_bool
 from pylopdf._tables import (
     _bounded_markdown_page_output,
     _markdown_output_limit_error,
@@ -1316,22 +1316,24 @@ class Document:
                     )
         self._fallback_configured = True
 
-    def render_pages(  # noqa: PLR0913 - batch resource controls are keyword-only.
+    def render(  # noqa: PLR0913 - batch resource controls are keyword-only.
         self,
         pages: Iterable[int] | None = None,
         *,
-        matrix: Matrix | Sequence[float] | None = None,
         dpi: float | None = None,
+        matrix: Matrix | Sequence[float] | None = None,
         alpha: bool = False,
         background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
+        annotations: bool = True,
         workers: int | None = None,
         max_size: int | None = _DEFAULT_MAX_RENDER_BATCH_SIZE,
     ) -> list[bytes]:
         """Render pages to PNG concurrently while preserving input order.
 
-        ``matrix``, ``dpi``, ``alpha``, and ``background`` have the meaning of
-        :meth:`Page.get_pixmap`, so the default is opaque RGB at 72 dpi.
-        ``pages`` contains zero-based page numbers and defaults to every page.
+        ``dpi``, ``matrix``, ``alpha``, ``background``, and ``annotations``
+        have the meaning of :meth:`Page.pixmap`, so the default is opaque RGB
+        at 72 dpi. ``pages`` contains zero-based page numbers and defaults to
+        every page.
         Duplicates are allowed. ``workers=None`` uses up to four CPUs; explicit
         values must be between 1 and 64. Actual concurrency is also capped to
         roughly 512 MB of estimated live raster and conversion buffers. A
@@ -1351,6 +1353,7 @@ class Document:
         self._ensure_open()
         scale = _render_scale(matrix, dpi)
         rgba = _render_background(background, alpha=alpha)
+        _validate_bool("annotations", annotations)
         if workers is None:
             workers = min(4, os.cpu_count() or 1)
         elif isinstance(workers, bool) or not isinstance(workers, int):
@@ -1365,7 +1368,7 @@ class Document:
         if not page_numbers:
             return []
         self._ensure_fallback_fonts()
-        result = self._doc.render_pages_png(page_numbers, scale, alpha, rgba, workers, max_size)
+        result = self._doc.render_pages_png(page_numbers, scale, alpha, rgba, annotations, workers, max_size)
         self._emit_warnings()
         return result
 
