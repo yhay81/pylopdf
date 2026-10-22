@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import zlib
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -437,3 +438,155 @@ def test_pymupdf_language_names_raise_migration_hints() -> None:
         _ = doc.language  # ty: ignore[unresolved-attribute]
     with pytest.raises(AttributeError, match="set_language_tag"):
         doc.set_language("en-US")  # ty: ignore[unresolved-attribute]
+
+
+# --- page numbers, unsaved changes, and permissions ----------------------------
+
+
+def _labeled_doc() -> pylopdf.Document:
+    doc = pylopdf.open(stream=build_pdf([f"Page {i}" for i in range(8)]))
+    doc.set_page_labels(
+        [
+            {"startpage": 0, "style": "r"},
+            {"startpage": 3, "style": "D"},
+            {"startpage": 5, "style": "A", "prefix": "App-"},
+            {"startpage": 7, "prefix": "X"},
+        ]
+    )
+    return doc
+
+
+# Each expected list is pymupdf 1.28.2's result for the same labels.
+@pytest.mark.parametrize(
+    ("label", "numbers"),
+    [("i", [0]), ("iii", [2]), ("1", [3]), ("2", [4]), ("App-A", [5]), ("App-B", [6]), ("X", [7]), ("3", [])],
+)
+def test_get_page_numbers_matches_page_labels(label: str, numbers: list[int]) -> None:
+    doc = _labeled_doc()
+    assert doc.get_page_numbers(label) == numbers
+    assert all(doc[pno].get_label() == label for pno in numbers)
+
+
+def test_get_page_numbers_finds_every_page_or_only_the_first() -> None:
+    doc = pylopdf.open(stream=build_pdf(["a", "b", "c"]))
+    doc.set_page_labels([{"startpage": 0, "prefix": "cover"}])
+    assert doc.get_page_numbers("cover") == [0, 1, 2]
+    assert doc.get_page_numbers("cover", True) == [0]
+    assert doc.get_page_numbers("cover", only_one=True) == [0]
+
+
+def test_get_page_numbers_without_labels_or_label_is_empty() -> None:
+    assert pylopdf.open(stream=build_pdf(["a"])).get_page_numbers("1") == []
+    assert _labeled_doc().get_page_numbers("") == []
+
+
+def test_is_dirty_starts_false_for_opened_documents_and_true_for_new_ones() -> None:
+    assert not pylopdf.open(stream=build_pdf(["a"])).is_dirty
+    assert not pylopdf.open(REAL_WORLD / "usrguide.pdf").is_dirty
+    assert pylopdf.open().is_dirty
+
+
+def test_reads_leave_is_dirty_false() -> None:
+    doc = pylopdf.open(REAL_WORLD / "pdfium-links-highlights-annots.pdf")
+    page = doc[0]
+    page.get_text()
+    page.get_text("dict")
+    page.get_pixmap()
+    page.get_links()
+    page.get_drawings()
+    page.search_for("a")
+    doc.to_markdown()
+    doc.get_outline()
+    doc.get_xml_metadata()
+    _ = (doc.metadata, doc.pagemode, doc.markinfo, doc.has_annots(), doc.permissions)
+    _ = list(doc.objects)
+    assert not doc.is_dirty
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        lambda doc: doc.set_metadata({"title": "t"}),
+        lambda doc: doc.set_metadata(doc.metadata),
+        lambda doc: doc[0].set_rotation(90),
+        lambda doc: doc[0].insert_text((72, 72), "x"),
+        lambda doc: doc.select([0]),
+        lambda doc: doc.set_pagemode("UseOutlines"),
+        lambda doc: doc.set_xml_metadata("<x/>"),
+        lambda doc: doc.new_page(),
+    ],
+)
+def test_every_edit_sets_is_dirty_until_the_document_closes(edit: Callable[[pylopdf.Document], object]) -> None:
+    doc = pylopdf.open(stream=build_pdf(["a"]))
+    edit(doc)
+    assert doc.is_dirty
+    # pymupdf never resets it, not even after an incremental save.
+    doc.tobytes()
+    assert doc.is_dirty
+
+
+def test_save_options_do_not_set_is_dirty(tmp_path: Path) -> None:
+    doc = pylopdf.open(REAL_WORLD / "usrguide.pdf")
+    doc.tobytes(garbage=4, deflate=True)
+    doc.save(tmp_path / "out.pdf", garbage=3, use_objstms=True)
+    assert not doc.is_dirty
+
+
+def test_is_dirty_is_false_after_authentication() -> None:
+    doc = pylopdf.open(ENCRYPTED / "user-aes-256.pdf")
+    assert doc.authenticate("userpw") == 2
+    assert not doc.is_dirty
+
+
+def test_unencrypted_documents_have_every_permission() -> None:
+    assert pylopdf.open(stream=build_pdf(["a"])).permissions == -4
+    assert pylopdf.open().permissions == -4
+
+
+def _restricted(user_pw: str, permissions: int) -> bytes:
+    doc = pylopdf.open(stream=build_pdf(["a"]))
+    return doc.tobytes(
+        encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw=user_pw, owner_pw="boss", permissions=permissions
+    )
+
+
+def test_permissions_follow_the_password_that_granted_access() -> None:
+    # pymupdf 1.28.2 reads these values for the same documents.
+    data = _restricted("user", pylopdf.Permissions.PRINT | pylopdf.Permissions.COPY)
+    doc = pylopdf.open(stream=data)
+    assert doc.permissions == 0
+    assert doc.authenticate("user") == 2
+    assert doc.permissions == -3884
+    assert doc.permissions & pylopdf.Permissions.PRINT
+    assert not doc.permissions & pylopdf.Permissions.MODIFY
+    assert doc.authenticate("boss") == 4
+    assert doc.permissions == -4
+    assert pylopdf.open(stream=data, password="user").permissions == -3884
+    assert pylopdf.open(stream=data, password="boss").permissions == -4
+
+
+def test_permissions_of_a_document_with_an_empty_user_password() -> None:
+    doc = pylopdf.open(stream=_restricted("", pylopdf.Permissions.PRINT))
+    assert doc.permissions == -3900
+    assert doc.authenticate("wrong") == 0
+    assert doc.permissions == -3900
+    assert doc.authenticate("boss") == 4
+    assert doc.permissions == -4
+    assert doc.authenticate("") == 2
+    assert doc.permissions == -3900
+
+
+@pytest.mark.parametrize("name", ["user-rc4-40.pdf", "user-rc4-128.pdf", "user-aes-128.pdf", "user-aes-256.pdf"])
+def test_permissions_of_the_encrypted_assets_match_pymupdf(name: str) -> None:
+    doc = pylopdf.open(ENCRYPTED / name)
+    assert doc.permissions == 0
+    doc.authenticate("userpw")
+    assert doc.permissions == -4
+
+
+def test_document_state_properties_raise_after_close() -> None:
+    doc = pylopdf.open(stream=build_pdf(["a"]))
+    doc.close()
+    for read in (lambda: doc.is_dirty, lambda: doc.permissions):
+        with pytest.raises(pylopdf.DocumentClosedError):
+            read()

@@ -41,7 +41,7 @@ from pylopdf._limits import (
     _validate_utf8_text_input,
 )
 from pylopdf._objects import Dictionary, Name, Objects, String
-from pylopdf._page import _PAGE_LABEL_STYLES, Page
+from pylopdf._page import _PAGE_LABEL_STYLES, Page, _page_label
 from pylopdf._pixmap import _render_background, _render_scale
 from pylopdf._tables import (
     _bounded_markdown_page_output,
@@ -395,13 +395,19 @@ def _is_int(value: object) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+#: pymupdf's authentication-code bit for a matching owner password.
+_OWNER_PASSWORD_CODE = 4
+#: MuPDF's permissions with every flag granted: 0xFFFFFFFC as a signed 32-bit integer.
+_ALL_PERMISSIONS = -4
+
+
 def _authentication_code(password: str, *, user: bool, owner: bool) -> int:
     """Combine password matches into pymupdf's code, as MuPDF does.
 
     An empty owner password counts only when the user password is empty too.
     """
-    code = (2 if user else 0) | (4 if owner else 0)
-    if not password and code == 4:  # noqa: PLR2004 - MuPDF's owner-only code.
+    code = (2 if user else 0) | (_OWNER_PASSWORD_CODE if owner else 0)
+    if not password and code == _OWNER_PASSWORD_CODE:
         return 0
     return code
 
@@ -516,6 +522,12 @@ class Document:
         self._object_epoch = 0
         # Whether opening initially required a password; remains true after auth.
         self._needs_pass = needs_pass
+        # The edit revision without unsaved changes; a new document starts
+        # with changes, as in pymupdf.
+        self._clean_revision = None if stream is None and path is None else doc.edit_revision()
+        # The authentication code of the password that opened the document,
+        # which decides its permissions.
+        self._access_code = self._original_password_code(password if needs_pass and password is not None else "")
         # Retain input only while an undecrypted document may need reopening.
         self._source_path = path if self._doc.is_encrypted() else None
         self._source_bytes = stream if self._doc.is_encrypted() else None
@@ -560,6 +572,44 @@ class Document:
         """
         return self._name
 
+    def _original_password_code(self, password: str) -> int:
+        """Return pymupdf's code for a password of a decrypted document, else 0."""
+        if self._doc.is_encrypted() or not self._doc.was_encrypted():
+            return 0
+        user, owner = self._doc.check_original_password(password)
+        return _authentication_code(password, user=user, owner=owner)
+
+    @property
+    def is_dirty(self) -> bool:
+        """Return whether the document was edited since it was opened.
+
+        As in pymupdf, every edit counts, even one that leaves the content as
+        it was; a document created empty starts edited; and saving never
+        resets it. Save options that change the in-memory document, such as
+        ``garbage`` and ``deflate``, do not count as edits.
+        """
+        self._ensure_not_closed()
+        return self._clean_revision != self._doc.edit_revision()
+
+    @property
+    def permissions(self) -> int:
+        """Return the document's permission flags as pymupdf does.
+
+        A document that still needs a password has none, ``0``. An
+        unencrypted document, or one opened or authenticated with its owner
+        password, has all, ``-4`` (0xFFFFFFFC as a signed 32-bit integer).
+        Otherwise the value is the encryption's ``/P`` entry, likewise a
+        signed 32-bit integer. Test a flag with :class:`Permissions`, as in
+        ``doc.permissions & Permissions.PRINT``.
+        """
+        self._ensure_not_closed()
+        if self._doc.is_encrypted():
+            return 0
+        if self._access_code & _OWNER_PASSWORD_CODE:
+            return _ALL_PERMISSIONS
+        value = self._doc.encryption_permissions()
+        return _ALL_PERMISSIONS if value is None else value
+
     def authenticate(self, password: str) -> int:
         """Authenticate and decrypt with a password.
 
@@ -575,8 +625,10 @@ class Document:
             if not self._doc.was_encrypted():
                 return 1
             _validate_password_input(password)
-            user, owner = self._doc.check_original_password(password)
-            return _authentication_code(password, user=user, owner=owner)
+            code = self._original_password_code(password)
+            if code:
+                self._access_code = code
+            return code
         _validate_password_input(password)
         code = _authentication_code(
             password,
@@ -593,6 +645,8 @@ class Document:
             self._doc = _Document.load_bytes(self._source_bytes, password, *limit_args)
         self._source_path = None
         self._source_bytes = None
+        self._clean_revision = self._doc.edit_revision()
+        self._access_code = code
         self._object_epoch += 1
         self._emit_warnings()
         return code
@@ -1153,6 +1207,26 @@ class Document:
             }
             for start, style, prefix, first in self._doc.get_page_labels()
         ]
+
+    def get_page_numbers(self, label: str, only_one: bool = False) -> list[int]:  # noqa: FBT001, FBT002 - pymupdf's positional parameter.
+        """Return the zero-based numbers of the pages whose label is ``label``.
+
+        As in pymupdf, an empty ``label`` or a document without page labels
+        gives an empty list, and ``only_one=True`` stops at the first match.
+        """
+        self._ensure_open()
+        numbers: list[int] = []
+        if not label:
+            return numbers
+        labels = self.get_page_labels()
+        if not labels:
+            return numbers
+        for pno in range(self.page_count):
+            if _page_label(labels, pno) == label:
+                numbers.append(pno)
+                if only_one:
+                    break
+        return numbers
 
     def set_page_labels(self, labels: Sequence[PageLabelSpec]) -> None:
         """Set page labels in :meth:`get_page_labels` format; empty removes all.
@@ -1988,6 +2062,23 @@ class Document:
         self._ensure_open()
         level = _garbage_level(garbage)
         encrypt_args = self._encryption_args(encryption, user_pw, owner_pw, permissions, use_objstms=use_objstms)
+        clean = not self.is_dirty
+        try:
+            self._save_file(filename, encrypt_args, level=level, deflate=deflate, use_objstms=use_objstms)
+        finally:
+            if clean:
+                self._clean_revision = self._doc.edit_revision()
+
+    def _save_file(
+        self,
+        filename: str | os.PathLike[str],
+        encrypt_args: tuple[str, str, int] | None,
+        *,
+        level: int,
+        deflate: bool,
+        use_objstms: bool,
+    ) -> None:
+        """Apply the save options and write the file for :meth:`save`."""
         self._apply_save_options(garbage=level, deflate=deflate)
         writer: Callable[[str], None]
         if encrypt_args is not None:
@@ -2028,6 +2119,25 @@ class Document:
         _validate_optional_positive_int("max_size", max_size)
         level = _garbage_level(garbage)
         encrypt_args = self._encryption_args(encryption, user_pw, owner_pw, permissions, use_objstms=use_objstms)
+        clean = not self.is_dirty
+        try:
+            return self._serialize(
+                encrypt_args, level=level, deflate=deflate, use_objstms=use_objstms, max_size=max_size
+            )
+        finally:
+            if clean:
+                self._clean_revision = self._doc.edit_revision()
+
+    def _serialize(
+        self,
+        encrypt_args: tuple[str, str, int] | None,
+        *,
+        level: int,
+        deflate: bool,
+        use_objstms: bool,
+        max_size: int | None,
+    ) -> bytes:
+        """Apply the save options and serialize for :meth:`tobytes`."""
         self._apply_save_options(garbage=level, deflate=deflate)
         if encrypt_args is not None:
             user, owner, perms = encrypt_args

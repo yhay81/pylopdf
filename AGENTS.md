@@ -2232,6 +2232,14 @@ overview.
   cannot tell `zh-TW` from `zh-HK`. They read and write the complete BCP 47
   tag, which Python and `is_language_tag` in Rust both check for shape
   (subtags of one to eight ASCII letters or digits, at most 256 bytes).
+  `permissions` follows MuPDF: 0 while a password is needed, -4 for an
+  unencrypted document or after the owner password (the Python
+  `_access_code` of the last successful authentication), else the loaded
+  `/P` truncated to 32 bits as MuPDF does. `is_dirty` compares
+  `_Document.edit_revision()`, the placement-reuse revision that every
+  edit replaces, with the revision at opening; `save` and `tobytes`
+  restore a clean revision after their save options edit the document,
+  and nothing else resets it, as in pymupdf.
 - The low-level object model (`rust/src/document/lowlevel.rs`,
   `src/pylopdf/_objects.py`, workstream E) exposes the lopdf graph through
   `Document.objects`, `trailer`, `catalog`, and `Page.obj`. A handle is a

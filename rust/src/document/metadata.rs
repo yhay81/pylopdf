@@ -423,6 +423,16 @@ impl _Document {
         self.doc.encryption_state.as_ref()?.encode().ok()
     }
 
+    /// The `/P` value of the encryption the document was loaded with. Like
+    /// MuPDF, keep its low 32 bits, so a value written as unsigned reads as
+    /// the signed integer with the same bits.
+    pub(super) fn encryption_permission_value(&self) -> Option<i32> {
+        let encryption = self.original_encryption()?;
+        let value = encryption.get(b"P").and_then(Object::as_i64).ok()?;
+        #[allow(clippy::cast_possible_truncation)]
+        Some(value as i32)
+    }
+
     /// Describe the loaded document's encryption as MuPDF's metadata does,
     /// for example `Standard V5 R6 256-bit AES`.
     pub(super) fn encryption_description(&self) -> Option<String> {
