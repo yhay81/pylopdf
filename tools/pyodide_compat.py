@@ -45,6 +45,7 @@ _RIGHT_COLUMN = "\u53f3\u5074\u5217"
 _LEFT_COLUMN = "\u5de6\u5074\u5217"
 _CASE_LAW = "\u88c1\u5224\u4f8b"
 _JAPANESE = "\u65e5\u672c\u8a9e"
+_INVOICE = "\u8acb\u6c42\u66f8"
 _HEBREW = "\u05e9\u05dc\u05d5\u05dd"
 
 
@@ -1213,12 +1214,12 @@ def _ocr_layer_results() -> dict[str, Any]:
     page = document.pages[0]
     words = [
         pylopdf.OcrWord(text="Invoice", bbox=pylopdf.Rect(40, 40, 120, 56), confidence=0.98),
-        pylopdf.OcrWord(text="請求書", bbox=pylopdf.Rect(40, 70, 110, 90), confidence=0.95),
+        pylopdf.OcrWord(text=_INVOICE, bbox=pylopdf.Rect(40, 70, 110, 90), confidence=0.95),
     ]
     added = page.apply_ocr(words=words)
     _require(added == words, "the OCR layer did not take every word")
     _require(page.apply_ocr(words=words) == [], "a page with text did not skip a second layer")
-    hits = page.search("請求書")
+    hits = page.search(_INVOICE)
     _require(len(hits) == 1, "the OCR layer is not searchable")
     reopened = pylopdf.open(document.to_bytes())
     return {
