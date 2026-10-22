@@ -108,7 +108,7 @@ with pylopdf.open("input.pdf") as doc:
     doc.pages.new()                        # 끝에 빈 A4 페이지 추가
     doc.pages.insert(1, doc.pages[0])      # 페이지 0의 복사본을 인덱스 1에
     doc.pages.move(0, -1)                  # 첫 페이지를 끝으로 이동
-    doc.pages[0].set_rotation(90)
+    doc.pages[0].rotation = 90
     doc.outline = [
         pylopdf.OutlineEntry(1, "Chapter 1", pylopdf.Destination(0)),
         pylopdf.OutlineEntry(2, "Section 1.1", pylopdf.Destination(1)),

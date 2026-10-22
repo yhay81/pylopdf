@@ -83,6 +83,10 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `doc.set_toc_item(i, ...)`, `del_toc_item(i)` | Assign `title`, `destination`, `color`, `bold`, `italic`, or `is_open` on an `OutlineItem` | `del_toc_item` grayed the item out and removed its target |
 | `doc.get_page_labels()`, `set_page_labels(rules)`, `page.get_label()` | `doc.page_labels`, `page.label` | `PageLabelRange(start, style, prefix, first)` records instead of dictionaries |
 | `doc.get_page_numbers(label)` | `doc.pages.labeled(label)` | |
+| `page.set_rotation(deg)` | `page.rotation = deg` | |
+| `page.mediabox`, `set_mediabox(r)` | `page.boxes.media`, `page.boxes.media = r` | |
+| `page.cropbox`, `artbox`, `bleedbox`, `trimbox`, `set_cropbox(r)`, `set_artbox(r)`, ... | `page.boxes.crop`, `.art`, `.bleed`, `.trim`, each assignable | PDF user space as stored, where pymupdf flips y against the top of the MediaBox |
+| `page.transformation_matrix`, `rotation_matrix`, `derotation_matrix` | `page.user_to_display` | Maps PDF user space to display space, the rotation included |
 | `doc.embfile_add/names/get/del/upd/info/count` | `doc.attachments` | A mapping: `add(name, data, description=…)`, `list(…)`, `[name].read()`, `del …[name]`, `[name].write(data)`, `len(…)`; `desc=` is `description=` |
 | `doc.xref_*`, `pdf_catalog()`, `pdf_trailer()` | `doc.objects`, `doc.catalog`, `doc.trailer` | Typed Python values instead of PDF syntax; see [Low-level objects](api.md#low-level-objects) |
 

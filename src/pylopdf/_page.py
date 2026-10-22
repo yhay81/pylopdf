@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal, cast
 
 from pylopdf import _text
 from pylopdf._annots import _SUBTYPE_TYPES, Annot, AnnotType
+from pylopdf._boxes import PageBoxes
 from pylopdf._canvas import Canvas
 from pylopdf._content import Content, _content_from_core
 from pylopdf._errors import StalePageError
@@ -82,9 +83,6 @@ _MAX_OCR_LAYER_TEXT_BYTES = 1024 * 1024
 #: The defaults of the recognition options of :meth:`Page.apply_ocr`, which ``words`` excludes.
 _DEFAULT_OCR_RECOGNITION = (300, 1408, 192, 0.5)
 _MAX_TEXT_REPLACEMENT_INPUT_BYTES = 4096
-
-#: Portrait A4 in PDF units, used for damaged PDFs without a MediaBox.
-_DEFAULT_MEDIABOX = (0.0, 0.0, 210.0 * 72.0 / 25.4, 297.0 * 72.0 / 25.4)
 
 
 def _validate_unit_rgb(color: Sequence[float]) -> tuple[float, float, float]:
@@ -163,12 +161,6 @@ def _validate_image_rotation(rotate: int) -> int:
         msg = f"rotate must be a multiple of 90: {rotate!r}"
         raise ValueError(msg)
     return rotate % 360
-
-
-def _normalized_box(box: Sequence[float]) -> Rect:
-    """Return a stored page box with ``x0 <= x1`` and ``y0 <= y1``, as MuPDF reads it."""
-    x0, y0, x1, y1 = box
-    return Rect(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
 
 
 def _highlight_rects(
@@ -259,38 +251,29 @@ class Page:
 
     @property
     def rotation(self) -> int:
-        """Return the resolved display rotation: 0, 90, 180, or 270."""
+        """Return the page's ``/Rotate``, inherited and normalized to 0, 90, 180, or 270.
+
+        Assigning a multiple of 90 rotates the page clockwise for display;
+        another value raises ``ValueError``. Display space, ``rect``, and every
+        position that pages read and take follow the rotation.
+        """
         return self._document._doc.get_page_rotation(self._page_number())
 
-    def set_rotation(self, rotation: int) -> None:
-        """Set rotation in multiples of 90, normalized to the range 0–359."""
+    @rotation.setter
+    def rotation(self, rotation: int) -> None:
+        if isinstance(rotation, bool) or not isinstance(rotation, int):
+            msg = f"rotation must be an int: {rotation!r}"
+            raise TypeError(msg)
         if rotation % 90 != 0:
             msg = f"rotation must be a multiple of 90: {rotation!r}"
             raise ValueError(msg)
         self._document._doc.set_page_rotation(self._page_number(), rotation % 360)
 
     @property
-    def mediabox(self) -> Rect:
-        """Return the MediaBox in PDF coordinates, as stored, or A4 when absent.
-
-        As in pymupdf, the corners are normalized so that ``x0 <= x1`` and
-        ``y0 <= y1``.
-        """
-        box = self._document._doc.get_page_box(self._page_number(), "MediaBox")
-        return _normalized_box(box if box is not None else _DEFAULT_MEDIABOX)
-
-    @property
-    def cropbox(self) -> Rect:
-        """Return the CropBox in pymupdf's box convention, or the MediaBox.
-
-        The x coordinates are the stored ones, and the y axis is flipped
-        against the top of the MediaBox, so the CropBox of an uncropped page
-        that starts at the origin equals its MediaBox.
-        """
-        mediabox = self.mediabox
-        box = self._document._doc.get_page_box(self._page_number(), "CropBox")
-        crop = mediabox if box is None else _normalized_box(box)
-        return Rect(crop.x0, mediabox.y1 - crop.y1, crop.x1, mediabox.y1 - crop.y0)
+    def boxes(self) -> PageBoxes:
+        """Return the page's MediaBox, CropBox, BleedBox, TrimBox, and ArtBox in PDF user space."""
+        self._page_number()
+        return PageBoxes(self)
 
     @property
     def rect(self) -> Rect:
@@ -304,36 +287,16 @@ class Page:
         width, height = self._document._doc.page_display_size(self._page_number())
         return Rect(0.0, 0.0, width, height)
 
-    def set_mediabox(self, rect: Sequence[float]) -> None:
-        """Set the MediaBox in PDF coordinates and remove the other page boxes.
+    @property
+    def user_to_display(self) -> Matrix:
+        """Return the matrix that maps PDF user space, such as a page box, to display space.
 
-        As in pymupdf, the CropBox, BleedBox, TrimBox, and ArtBox are removed,
-        so the whole new MediaBox becomes visible; a CropBox that the page
-        would inherit from the page tree is replaced by the MediaBox. An empty
-        rectangle raises ``ValueError``.
+        It moves the visible area's top-left corner to the origin, turns y
+        downward, and applies the rotation, so ``point * page.user_to_display``
+        is where a user-space point shows, and ``~page.user_to_display`` maps
+        back.
         """
-        x0, y0, x1, y1 = _validate_rect(rect, name="MediaBox")
-        self._document._doc.set_mediabox(self._page_number(), x0, y0, x1, y1)
-
-    def set_cropbox(self, rect: Sequence[float]) -> None:
-        """Set the CropBox in pymupdf's box convention.
-
-        ``rect`` uses the coordinates that :attr:`cropbox` returns: stored x,
-        and y flipped against the top of the MediaBox. As in pymupdf, the box
-        must have area and lie inside the MediaBox; otherwise ``ValueError``
-        is raised and the page is unchanged.
-        """
-        x0, y0, x1, y1 = _validate_rect(rect, name="CropBox")
-        mediabox = self.mediabox
-        stored = Rect(x0, mediabox.y1 - y1, x1, mediabox.y1 - y0)
-        if not (
-            mediabox.x0 <= stored.x0 < stored.x1 <= mediabox.x1 and mediabox.y0 <= stored.y0 < stored.y1 <= mediabox.y1
-        ):
-            msg = (
-                f"CropBox not in MediaBox: {rect!r} lies outside {Rect(mediabox.x0, 0, mediabox.x1, mediabox.height)!r}"
-            )
-            raise ValueError(msg)
-        self._document._doc.set_page_box(self._page_number(), "CropBox", *stored)
+        return Matrix(*self._document._doc.page_display_matrix(self._page_number()))
 
     def text(self) -> str:
         """Return the page's text in reading order.

@@ -210,9 +210,18 @@ pixmap默认为72 dpi的白底RGB，`alpha=True`时为RGBA。`dpi`和`matrix`只
 |---|---|
 | `index`、`document` | 该页在文档中的索引，以及所属文档 |
 | `rect` | 已应用旋转的可见页面区域 |
-| `rotation` / `set_rotation(deg)` | 显示旋转，为90的倍数 |
-| `mediabox`、`cropbox` / `set_mediabox(r)`、`set_cropbox(r)` | 遵循pymupdf约定的页面框 |
+| `rotation` | 0、90、180或270；赋值90的倍数可将页面顺时针旋转 |
+| `boxes` | 以PDF用户空间中的`Rect`表示的MediaBox、CropBox、BleedBox、TrimBox和ArtBox，均可赋值 |
+| `user_to_display` | 将PDF用户空间映射到显示坐标的`Matrix` |
 | `xref`、`obj` | 页面对象的编号和[底层句柄](#low-level-objects) |
+
+页面框定义了显示坐标，因此是唯一使用PDF用户空间（y从MediaBox底边向上）的地方。`page.boxes`按存储的值读取它们，并整理角点顺序：没有`media`时为原点处的A4，没有`crop`时为MediaBox，没有`bleed`、`trim`和`art`时为CropBox。为`media`赋值会像pymupdf的`set_mediabox`一样删除其他页面框；为其他页面框赋值需要一个位于MediaBox内且有面积的矩形，`del page.boxes.crop`（`bleed`、`trim`、`art`同理）会恢复其默认值。`page.user_to_display`将用户空间映射到显示坐标，`~page.user_to_display`则反向映射。
+
+```python
+page.boxes.crop = (36, 36, 576, 756)                # show a Letter page without its half-inch margin
+trim_on_screen = page.boxes.trim * page.user_to_display
+page.rotation = 90
+```
 
 ### 添加内容 { #page-content }
 
@@ -638,6 +647,7 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 | `Content`、`TextRun`、`Path`、`Image`、`Glyph`、`FontRef`、`Color`、`Stroke`、`GraphicsContext`及其他内容类型 | [页面内容](#content) |
 | `Colorspace` | [`Pixmap`](#pixmap)的颜色空间：`GRAY`和`RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [书签与页码标签](#outline) |
+| `PageBoxes` | [页面几何](#page-geometry) |
 
 常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）和`AnnotFlags`（`PDF_ANNOT_IS_*`）。`Access`的成员是`USER`和`OWNER`，`Encryption`描述如何加密保存的文件。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
 

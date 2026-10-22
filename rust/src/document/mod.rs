@@ -1151,9 +1151,21 @@ impl _Document {
         Ok(draw::display_size(crop, rotation))
     }
 
-    /// Return a resolved page box such as MediaBox/CropBox, or None when absent.
-    fn get_page_box(&self, page_number: u32, key: &str) -> PyResult<Option<(f64, f64, f64, f64)>> {
-        self.resolve_page_box(self.page_id(page_number)?, key)
+    /// Return a one-based page's MediaBox and CropBox as it inherits them,
+    /// and its own BleedBox, TrimBox, and ArtBox; an absent box is None.
+    fn page_boxes(&self, page_number: u32) -> PyResult<geometry::PageBoxes> {
+        geometry::page_boxes(self, page_number)
+    }
+
+    /// Remove a CropBox, BleedBox, TrimBox, or ArtBox from a one-based page.
+    fn remove_page_box(&mut self, page_number: u32, key: &str) -> PyResult<()> {
+        geometry::remove_page_box(self, page_number, key)
+    }
+
+    /// Return the matrix that maps a one-based page's PDF user space to its
+    /// display space.
+    fn page_display_matrix(&self, page_number: u32) -> PyResult<(f64, f64, f64, f64, f64, f64)> {
+        geometry::page_display_matrix(self, page_number)
     }
 
     /// Set a box on a one-based page; Python validates the rectangle.

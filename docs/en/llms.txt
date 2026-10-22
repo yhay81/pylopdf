@@ -50,7 +50,10 @@ Key facts:
   the outline. doc.page_labels is a list of PageLabelRange(start, style,
   prefix, first) records, and page.label reads one page's label.
 - Coordinates are points with a top-left origin in the displayed page,
-  shared by extraction, search, drawing, and rendering.
+  shared by extraction, search, drawing, and rendering. page.boxes (media,
+  crop, bleed, trim, art) is the one exception, in PDF user space as stored;
+  page.user_to_display maps user space to display space, and page.rotation
+  is assigned in multiples of 90.
 - Point, Matrix, Rect, IRect, and Quad are immutable NamedTuples with
   pymupdf's operators: p * m, left * right (left transform first), ~m,
   r | p (include), r & o (intersect), r * m (transform), p in r. Replace
@@ -186,6 +189,12 @@ replacement, and the migration hint):
 - Outline.x -> OutlineItem.destination: Read item.destination.point.x of a Destination with a point.
 - Outline.y -> OutlineItem.destination: Read item.destination.point.y of a Destination with a point.
 - PDF_ENCRYPT_* -> Encryption: Pass encryption=Encryption(user_password=..., owner_password=..., permissions=...) to save() or to_bytes(), which writes AES-256 encryption; encryption=None writes none.
+- Page.artbox -> Page.boxes: Read page.boxes.art, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
+- Page.bleedbox -> Page.boxes: Read page.boxes.bleed, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
+- Page.bound -> Page.rect: Read page.rect.
+- Page.cropbox -> Page.boxes: Read page.boxes.crop, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
+- Page.cropbox_position -> Page.boxes: Read page.boxes.crop: its top-left corner is (crop.x0, crop.y1) in PDF user space.
+- Page.derotation_matrix -> Page.user_to_display: pylopdf reads and writes in display space with the rotation resolved; drop the step, and map display space to PDF user space with ~page.user_to_display.
 - Page.find_tables -> Page.tables: Use page.tables(strategy=..., clip=...), which returns a list of Table records; table.rows replaces extract().
 - Page.get_bboxlog -> Page.content: Call page.content(); every item has a bbox and a kind, and its context lists the clips around it.
 - Page.get_cdrawings -> Page.content: Read page.content().paths, whose segments, paints, and strokes are immutable values.
@@ -203,10 +212,21 @@ replacement, and the migration hint):
 - Page.get_text_words -> Page.words: Call page.words(), which returns Word records with text, bbox, block, line, and index.
 - Page.get_texttrace -> Page.content: Call page.content() and read the glyphs of its text_runs, each run with its font, size, paints, and graphics context.
 - Page.last_point -> PathBuilder.current_point: Build the path with a PathBuilder and read its current_point, the end of its last segment.
+- Page.mediabox -> Page.boxes: Read page.boxes.media.
+- Page.mediabox_size -> Page.boxes: Read page.boxes.media.width and page.boxes.media.height.
 - Page.number -> Page.index: Read page.index.
 - Page.parent -> Page.document: Read page.document.
+- Page.rotation_matrix -> Page.user_to_display: pylopdf reads and writes in display space with the rotation resolved; drop the step, and map PDF user space with page.user_to_display.
 - Page.run -> Page.content: Call page.content() for the items that the page paints; pylopdf has no device protocol.
 - Page.search_for -> Page.search: Use page.search(text), which returns one Rect per match.
+- Page.set_artbox -> Page.boxes: Assign page.boxes.art = rect, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
+- Page.set_bleedbox -> Page.boxes: Assign page.boxes.bleed = rect, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
+- Page.set_cropbox -> Page.boxes: Assign page.boxes.crop = rect, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
+- Page.set_mediabox -> Page.boxes: Assign page.boxes.media = rect; as in pymupdf, the other boxes are removed.
+- Page.set_rotation -> Page.rotation: Assign page.rotation = angle, a multiple of 90; another angle raises ValueError, where pymupdf sets 0.
+- Page.set_trimbox -> Page.boxes: Assign page.boxes.trim = rect, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
+- Page.transformation_matrix -> Page.user_to_display: Use page.user_to_display, which maps PDF user space to display space with the rotation included; pymupdf's matrix stops before the rotation.
+- Page.trimbox -> Page.boxes: Read page.boxes.trim, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Pixmap.n -> Pixmap.channels: Read pix.channels.
 - Pixmap.samples -> Pixmap: bytes(pix) copies the pixels; memoryview(pix) and numpy.asarray(pix) read them without a copy, shaped (height, width, channels).
 - Pixmap.samples_mv -> Pixmap: Use memoryview(pix), shaped (height, width, channels).

@@ -470,7 +470,7 @@ def test_text_strategy_prefers_overlapping_bordered_table() -> None:
 @pytest.mark.parametrize("rotation", [0, 90, 180, 270])
 def test_table_markdown_preserves_page_reading_order(rotation: int) -> None:
     doc = pylopdf.open(_table_pdf())
-    doc.pages[0].set_rotation(rotation)
+    doc.pages[0].rotation = rotation
 
     markdown = doc.pages[0].markdown()
 
@@ -489,7 +489,7 @@ def test_table_text_does_not_influence_heading_size_inference() -> None:
 @pytest.mark.parametrize("rotation", [0, 90, 180, 270])
 def test_empty_bordered_table_uses_geometric_reading_order(rotation: int) -> None:
     doc = pylopdf.open(_table_pdf(include_cells=False))
-    doc.pages[0].set_rotation(rotation)
+    doc.pages[0].rotation = rotation
 
     markdown = doc.markdown()
 

@@ -109,7 +109,7 @@ def test_ocr_layer_on_rotated_page_uses_display_coordinates() -> None:
     doc = pylopdf.Document()
     doc.pages.new((100, 200))
     page = doc.pages[0]
-    page.set_rotation(90)  # Display is 200 x 100.
+    page.rotation = 90  # Display is 200 x 100.
     page.apply_ocr(words=ocr_words([(120, 30, 180, 50, "回転ページ")]), skip_existing=False)
     hits = page.search("回転ページ")
     assert hits

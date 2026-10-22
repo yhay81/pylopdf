@@ -300,7 +300,7 @@ def test_matrix_has_no_mutating_alias(name: str) -> None:
 def test_transformed_points_work_with_drawing_and_save_reopen(rotation: int) -> None:
     with pylopdf.Document() as document:
         page = document.pages.new((200, 200))
-        page.set_rotation(rotation)
+        page.rotation = rotation
         transform = Matrix(2, 2) * Matrix(1, 0, 0, 1, 20, 30)
         start, end = Point(10, 10) * transform, Point(40, 10) * transform
         assert page.draw_line(start, end, color=(1, 0, 0), width=2) == end

@@ -103,7 +103,7 @@ def test_highlight_on_rotated_page_uses_display_coordinates() -> None:
     doc = pylopdf.Document()
     doc.pages.new((100, 200))
     page = doc.pages[0]
-    page.set_rotation(90)  # Display coordinates are 200 x 100.
+    page.rotation = 90  # Display coordinates are 200 x 100.
     target = pylopdf.Rect(120, 30, 180, 70)
     page.add_highlight_annot(target)
     assert _has_yellowish(_region_pixels(page, target))

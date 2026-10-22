@@ -429,7 +429,7 @@ def test_underlay_draws_below_existing_content() -> None:
 def test_rotated_pages_use_display_space() -> None:
     doc = pylopdf.Document()
     page = doc.pages.new((200, 300))
-    page.set_rotation(90)
+    page.rotation = 90
     assert tuple(page.rect) == (0, 0, 300, 200)
     with page.draw() as canvas:
         canvas.rect((10, 20, 110, 70), fill=RED)
@@ -564,7 +564,7 @@ def test_the_page_must_keep_its_size_while_the_canvas_is_open() -> None:
     _doc, page = _new_page()
     canvas = page.draw()
     canvas.rect((0, 0, 10, 10), fill=RED)
-    page.set_mediabox((0, 0, 100, 100))
+    page.boxes.media = (0, 0, 100, 100)
     with pytest.raises(pylopdf.PdfError, match="changed size"), canvas:
         pass
 

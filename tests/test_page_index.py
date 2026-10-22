@@ -89,7 +89,7 @@ def _snapshot(doc: pylopdf.Document) -> tuple[int, list[tuple[object, ...]], lis
     views = list(doc.pages)
     facts = [
         (
-            page.mediabox.x1,
+            page.boxes.media.x1,
             page.rotation,
             page.rect,
             [(annot.type, annot.rect, annot.xref) for annot in page.annots()],
@@ -121,8 +121,8 @@ EDITS: dict[str, tuple[Callable[[pylopdf.Document], object], list[int | str]]] =
     "new_page": (lambda doc: doc.pages.new((50, 60), index=1), [0, "new", 1, 2, 3, 4]),
     "copy_page": (lambda doc: doc.pages.insert(0, doc.pages[3]), [3, *UNCHANGED]),
     "outline": (lambda doc: setattr(doc, "outline", outline_entries([(1, "Last", 4), (1, "First", 0)])), UNCHANGED),
-    "set_rotation": (lambda doc: doc.pages[2].set_rotation(270), UNCHANGED),
-    "set_mediabox": (lambda doc: doc.pages[1].set_mediabox((0, 0, 300, 400)), [0, "resized", 2, 3, 4]),
+    "set_rotation": (lambda doc: setattr(doc.pages[2], "rotation", 270), UNCHANGED),
+    "set_mediabox": (lambda doc: setattr(doc.pages[1].boxes, "media", (0, 0, 300, 400)), [0, "resized", 2, 3, 4]),
     "insert_text": (lambda doc: doc.pages[0].insert_text((10, 20), "Stamp"), UNCHANGED),
     "insert_embedded_text": (lambda doc: doc.pages[4].insert_text((10, 20), "日本", fontfile=NOTO_SANS_JP), UNCHANGED),
     "insert_textbox": (lambda doc: doc.pages[1].insert_textbox((5, 5, 95, 60), "Box text"), UNCHANGED),
@@ -162,14 +162,14 @@ def test_structural_edits_still_invalidate_page_views() -> None:
     views = list(doc.pages)
 
     # A non-structural edit keeps views valid, and they see its result.
-    doc.pages[3].set_rotation(180)
+    doc.pages[3].rotation = 180
     assert [view.rotation for view in views] == [0, 90, 90, 180, 0]
 
     doc.pages.select([4, 3, 2, 1, 0])
     for view in views:
         with pytest.raises(pylopdf.StalePageError):
             _ = view.rotation
-    assert [page.mediabox.x1 for page in doc.pages] == _widths([4, 3, 2, 1, 0])
+    assert [page.boxes.media.x1 for page in doc.pages] == _widths([4, 3, 2, 1, 0])
     assert [page.rotation for page in doc.pages] == [0, 180, 90, 90, 0]
 
 
@@ -230,7 +230,7 @@ def test_index_follows_a_prune_that_changes_the_walk_outcome() -> None:
     )
     # Four Kids edges fit the bound of four objects.
     assert len(doc.pages) == 1
-    assert doc.pages[0].mediabox.x1 == 100
+    assert doc.pages[0].boxes.media.x1 == 100
 
     saved = doc.to_bytes()
 
@@ -283,14 +283,14 @@ def test_rotating_and_cropping_every_page_keeps_the_page_index() -> None:
 
     start = time.perf_counter()
     for page in doc.pages:
-        page.set_rotation(page.rotation + 90)
-        page.set_cropbox((0, 0, 100, 150 + page.index % 2))
+        page.rotation = page.rotation + 90
+        page.boxes.crop = (0, 0, 100, 150 + page.index % 2)
     elapsed = time.perf_counter() - start
 
     assert elapsed < 2.0, f"editing {pages} pages took {elapsed:.2f}s"
     rotations = [90 * (page % 4 + 1) % 360 for page in range(pages)]
     assert [page.rotation for page in doc.pages] == rotations
-    assert [page.cropbox.y1 for page in doc.pages] == [150 + page % 2 for page in range(pages)]
+    assert [page.boxes.crop.y1 for page in doc.pages] == [150 + page % 2 for page in range(pages)]
     fresh = pylopdf.open(doc.to_bytes())
     assert [page.rotation for page in fresh.pages] == rotations
 
@@ -397,7 +397,7 @@ def _aliased_snapshot(doc: pylopdf.Document) -> tuple[object, ...]:
     views = list(doc.pages)
     facts = [
         (
-            page.mediabox.x1,
+            page.boxes.media.x1,
             page.rotation,
             page.rect,
             [(annot.type, annot.rect, annot.xref) for annot in page.annots()],

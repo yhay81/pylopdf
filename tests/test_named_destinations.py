@@ -197,7 +197,7 @@ EDITS: dict[str, Callable[[pylopdf.Document], object]] = {
         {"kind": pylopdf.LINK_URI, "from": (1, 20, 10, 30), "uri": "https://example.com/"}
     ),
     "attachments.add": lambda doc: doc.attachments.add("notes.txt", b"notes"),
-    "set_rotation": lambda doc: doc.pages[2].set_rotation(90),
+    "set_rotation": lambda doc: setattr(doc.pages[2], "rotation", 90),
 }
 
 

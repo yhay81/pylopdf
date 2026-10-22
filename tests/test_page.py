@@ -62,27 +62,27 @@ def test_page_on_closed_document(one_page_pdf: bytes) -> None:
 def test_mediabox_inherited_from_parent(one_page_pdf: bytes) -> None:
     # build_pdf places MediaBox on the Pages parent to exercise inheritance.
     doc = pylopdf.open(one_page_pdf)
-    assert doc.pages[0].mediabox == pylopdf.Rect(0.0, 0.0, 612.0, 792.0)
-    assert doc.pages[0].cropbox == doc.pages[0].mediabox  # Missing CropBox falls back to MediaBox.
+    assert doc.pages[0].boxes.media == pylopdf.Rect(0.0, 0.0, 612.0, 792.0)
+    assert doc.pages[0].boxes.crop == doc.pages[0].boxes.media  # Missing CropBox falls back to MediaBox.
     assert doc.pages[0].rect.width == 612.0
     assert doc.pages[0].rect.height == 792.0
 
 
 def test_set_mediabox_roundtrip(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
-    doc.pages[0].set_mediabox((0, 0, 300, 400))
-    assert doc.pages[0].mediabox == pylopdf.Rect(0.0, 0.0, 300.0, 400.0)
+    doc.pages[0].boxes.media = (0, 0, 300, 400)
+    assert doc.pages[0].boxes.media == pylopdf.Rect(0.0, 0.0, 300.0, 400.0)
     # Persist the box through save and apply it to rendering dimensions.
     reopened = pylopdf.open(doc.to_bytes())
-    assert reopened.pages[0].mediabox == pylopdf.Rect(0.0, 0.0, 300.0, 400.0)
+    assert reopened.pages[0].boxes.media == pylopdf.Rect(0.0, 0.0, 300.0, 400.0)
     assert png_size(reopened.pages[0].pixmap(alpha=True).to_bytes()) == (300, 400)
 
 
 def test_set_cropbox(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
-    doc.pages[0].set_cropbox((10, 10, 310, 410))
-    assert doc.pages[0].cropbox == pylopdf.Rect(10.0, 10.0, 310.0, 410.0)
-    assert doc.pages[0].mediabox == pylopdf.Rect(0.0, 0.0, 612.0, 792.0)  # MediaBox stays unchanged.
+    doc.pages[0].boxes.crop = (10, 10, 310, 410)
+    assert doc.pages[0].boxes.crop == pylopdf.Rect(10.0, 10.0, 310.0, 410.0)
+    assert doc.pages[0].boxes.media == pylopdf.Rect(0.0, 0.0, 612.0, 792.0)  # MediaBox stays unchanged.
     # Rendering uses the CropBox dimensions.
     assert png_size(doc.pages[0].pixmap(alpha=True).to_bytes()) == (300, 400)
 
@@ -101,18 +101,18 @@ def test_set_cropbox(one_page_pdf: bytes) -> None:
 def test_set_box_invalid(one_page_pdf: bytes, rect: object) -> None:
     doc = pylopdf.open(one_page_pdf)
     with pytest.raises(ValueError, match="MediaBox"):
-        doc.pages[0].set_mediabox(rect)  # ty: ignore[invalid-argument-type]
+        doc.pages[0].boxes.media = rect  # ty: ignore[invalid-assignment]
 
 
 def test_rotation_roundtrip_and_render(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
     page = doc.pages[0]
     assert page.rotation == 0
-    page.set_rotation(90)
+    page.rotation = 90
     assert page.rotation == 90
     # Rotation swaps rendered dimensions from 612 x 792 to 792 x 612.
     assert png_size(doc.pages[0].pixmap(alpha=True).to_bytes()) == (792, 612)
-    page.set_rotation(-90)
+    page.rotation = -90
     assert page.rotation == 270
     reopened = pylopdf.open(doc.to_bytes())
     assert reopened.pages[0].rotation == 270
@@ -121,15 +121,15 @@ def test_rotation_roundtrip_and_render(one_page_pdf: bytes) -> None:
 def test_rotation_invalid(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
     with pytest.raises(ValueError, match="multiple of 90"):
-        doc.pages[0].set_rotation(45)
+        doc.pages[0].rotation = 45
 
 
 def test_rect_swaps_for_rotation(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
-    doc.pages[0].set_rotation(90)
+    doc.pages[0].rotation = 90
     r = doc.pages[0].rect
     assert (r.width, r.height) == (792.0, 612.0)
-    assert doc.pages[0].mediabox.width == 612.0  # Rotation does not alter MediaBox itself.
+    assert doc.pages[0].boxes.media.width == 612.0  # Rotation does not alter MediaBox itself.
 
 
 def test_rect_helpers() -> None:

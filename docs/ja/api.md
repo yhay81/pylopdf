@@ -210,9 +210,18 @@ print([page.label for page in doc.pages])  # ['i', 'ii', 'iii', 'iv', 'A-1', 'A-
 |---|---|
 | `index`, `document` | 文書内でのページのインデックスと、その文書 |
 | `rect` | 回転を適用した、ページの見える領域 |
-| `rotation` / `set_rotation(deg)` | 90の倍数で表す表示の回転 |
-| `mediabox`, `cropbox` / `set_mediabox(r)`, `set_cropbox(r)` | pymupdfの規約に従ったページボックス |
+| `rotation` | 0、90、180、270のいずれか。90の倍数を代入するとページを時計回りに回転します |
+| `boxes` | MediaBox、CropBox、BleedBox、TrimBox、ArtBoxをPDFのユーザー空間の`Rect`として。それぞれ代入できます |
+| `user_to_display` | PDFのユーザー空間を表示座標に写す`Matrix` |
 | `xref`, `obj` | ページオブジェクトの番号と[低レベルハンドル](#low-level-objects) |
+
+ページボックスは表示座標を定めるものなので、PDFのユーザー空間（MediaBoxの下端から上向きのy）を使う唯一の場所です。`page.boxes`は保存されているとおりに角を並べ替えて読み取ります。`media`がなければ原点にあるA4、`crop`がなければMediaBox、`bleed`、`trim`、`art`がなければCropBoxになります。`media`に代入すると、pymupdfの`set_mediabox`と同じくほかのボックスを削除します。ほかのボックスへの代入には、MediaBoxの内側にある面積のある矩形が必要で、`del page.boxes.crop`（`bleed`、`trim`、`art`も同様）で既定値に戻ります。`page.user_to_display`はユーザー空間を表示座標に写し、`~page.user_to_display`はその逆を写します。
+
+```python
+page.boxes.crop = (36, 36, 576, 756)                # show a Letter page without its half-inch margin
+trim_on_screen = page.boxes.trim * page.user_to_display
+page.rotation = 90
+```
 
 ### 内容の追加 { #page-content }
 
@@ -638,6 +647,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`ほかの内容の型 | [ページの内容](#content) |
 | `Colorspace` | [`Pixmap`](#pixmap)の色空間。`GRAY`と`RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [しおりとページラベル](#outline) |
+| `PageBoxes` | [ページの幾何情報](#page-geometry) |
 
 定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）、`AnnotFlags`（`PDF_ANNOT_IS_*`）です。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
 

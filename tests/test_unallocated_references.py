@@ -227,7 +227,7 @@ def test_page_with_an_unallocated_parent_reads_and_edits_as_a_tree_root() -> Non
     objects[3] = "<< /Type /Page /Parent 90 0 R /Contents 5 0 R /MediaBox [0 0 300 400] >>"
     doc = pylopdf.open(build_raw_pdf(objects))
 
-    assert doc.pages[0].mediabox == pylopdf.Rect(0, 0, 300, 400)
+    assert doc.pages[0].boxes.media == pylopdf.Rect(0, 0, 300, 400)
     doc.pages[0].insert_text((20, 40), "STAMP")
 
     for current in _with_reloaded(doc):

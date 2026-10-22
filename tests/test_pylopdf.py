@@ -823,4 +823,4 @@ def test_inherited_page_parent_cycle_does_not_hang(one_page_pdf: bytes) -> None:
     assert len(doc.pages) == 1
     assert isinstance(doc.pages[0].text(), str)
     with pytest.raises(ValueError, match="reference cycle"):
-        _ = doc.pages[0].mediabox
+        _ = doc.pages[0].boxes.media

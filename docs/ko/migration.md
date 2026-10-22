@@ -60,6 +60,10 @@ python -m pylopdf.migrate src/
 | `doc.set_toc_item(i, ...)`, `del_toc_item(i)` | `OutlineItem`의 `title`, `destination`, `color`, `bold`, `italic`, `is_open`에 대입 | `del_toc_item`은 항목을 회색으로 바꾸고 대상을 없앴습니다 |
 | `doc.get_page_labels()`, `set_page_labels(rules)`, `page.get_label()` | `doc.page_labels`, `page.label` | 딕셔너리 대신 `PageLabelRange(start, style, prefix, first)` 레코드 |
 | `doc.get_page_numbers(label)` | `doc.pages.labeled(label)` | |
+| `page.set_rotation(deg)` | `page.rotation = deg` | |
+| `page.mediabox`, `set_mediabox(r)` | `page.boxes.media`, `page.boxes.media = r` | |
+| `page.cropbox`, `artbox`, `bleedbox`, `trimbox`, `set_cropbox(r)`, `set_artbox(r)` 등 | `page.boxes.crop`, `.art`, `.bleed`, `.trim`, 각각 대입 가능 | 저장된 그대로의 PDF 사용자 공간. pymupdf는 MediaBox 위쪽을 기준으로 y를 뒤집었습니다 |
+| `page.transformation_matrix`, `rotation_matrix`, `derotation_matrix` | `page.user_to_display` | 회전을 포함해 PDF 사용자 공간을 표시 좌표로 옮깁니다 |
 | `doc.embfile_add/names/get/del/upd/info/count` | `doc.attachments` | 매핑: `add(name, data, description=…)`, `list(…)`, `[name].read()`, `del …[name]`, `[name].write(data)`, `len(…)`. `desc=`는 `description=` |
 | `doc.xref_*`, `pdf_catalog()`, `pdf_trailer()` | `doc.objects`, `doc.catalog`, `doc.trailer` | PDF 구문 대신 타입이 있는 Python 값. [저수준 객체](api.md#low-level-objects) 참고 |
 

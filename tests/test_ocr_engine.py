@@ -303,7 +303,7 @@ def test_apply_ocr_corrects_rotated_scan_without_rotating_page(
     target = pylopdf.Document()
     target.pages.new((360, 200))
     target.pages[0].insert_image(target.pages[0].rect, stream=raster.to_bytes())
-    target.pages[0].set_rotation(page_rotation)
+    target.pages[0].rotation = page_rotation
     before = bytes(target.pages[0].pixmap(background=(255, 255, 255), alpha=True))
 
     words = target.pages[0].apply_ocr(

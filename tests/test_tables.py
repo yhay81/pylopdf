@@ -287,7 +287,7 @@ def test_tables_clip_is_conservative_and_uses_display_coordinates() -> None:
     """Return complete tables inside a region without synthesizing partial grids."""
     document = pylopdf.open(_bordered_table_pdf())
     page = document.pages[0]
-    page.set_rotation(90)
+    page.rotation = 90
 
     table_bbox = pylopdf.Rect(180, 40, 260, 300)
     tables = page.tables(clip=table_bbox)
@@ -371,7 +371,7 @@ def test_table_with_filled_rectangle_rules() -> None:
 def test_sparse_row_grid_infers_repeated_records(rotation: int) -> None:
     """Refine coarse row spans while preserving logical Markdown orientation."""
     document = pylopdf.open(_sparse_row_grid_pdf())
-    document.pages[0].set_rotation(rotation)
+    document.pages[0].rotation = rotation
 
     table = document.pages[0].tables()[0]
     physical_shape = (6, 3) if rotation in (0, 180) else (3, 6)

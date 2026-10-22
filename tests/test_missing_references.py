@@ -118,14 +118,14 @@ def test_page_with_a_null_parent_reads_and_edits_its_own_attributes(value: str) 
         )
     )
 
-    assert doc.pages[0].mediabox == pylopdf.Rect(0, 0, 300, 400)
+    assert doc.pages[0].boxes.media == pylopdf.Rect(0, 0, 300, 400)
     assert doc.pages[0].rotation == 90
     doc.pages[0].insert_text((20, 40), "STAMP")
     doc.pages.extend(doc.pages[0])
 
     for current in _with_reloaded(doc):
         assert len(current.pages) == 2
-        assert [page.mediabox for page in current.pages] == [pylopdf.Rect(0, 0, 300, 400)] * 2
+        assert [page.boxes.media for page in current.pages] == [pylopdf.Rect(0, 0, 300, 400)] * 2
         assert [page.rotation for page in current.pages] == [90, 90]
         assert "STAMP" in current.pages[1].text().splitlines()
 
@@ -135,7 +135,7 @@ def test_inheritance_keeps_attributes_below_a_null_parent(value: str) -> None:
     """The page tree root names the null parent; its own attributes still apply."""
     doc = pylopdf.open(_pdf(pages=f"/Parent {value} /Rotate 90"))
 
-    assert doc.pages[0].mediabox == pylopdf.Rect(0, 0, 612, 792)
+    assert doc.pages[0].boxes.media == pylopdf.Rect(0, 0, 612, 792)
     assert doc.pages[0].rotation == 90
     doc.pages[0].insert_text((20, 300), "STAMP")
     doc.pages.select([0, 0])

@@ -286,10 +286,27 @@ Pass `dpi` or `matrix`, not both; a matrix must only scale, such as
 | Member | Purpose |
 |---|---|
 | `index`, `document` | The page's index in its document, and the document |
-| `rect` | The visible page area, with rotation applied |
-| `rotation` / `set_rotation(deg)` | Display rotation in multiples of 90 |
-| `mediabox`, `cropbox` / `set_mediabox(r)`, `set_cropbox(r)` | Page boxes in pymupdf's convention |
+| `rect` | The visible page area in display space, with rotation applied |
+| `rotation` | 0, 90, 180, or 270; assign a multiple of 90 to rotate the page clockwise |
+| `boxes` | The MediaBox, CropBox, BleedBox, TrimBox, and ArtBox as `Rect` values in PDF user space, each assignable |
+| `user_to_display` | The `Matrix` that maps PDF user space to display space |
 | `xref`, `obj` | The page object's number and a [low-level handle](#low-level-objects) |
+
+Page boxes are the one place that uses PDF user space, with y upward from the
+bottom of the MediaBox, because they define display space. `page.boxes` reads
+them as stored, with their corners ordered: `media` defaults to A4 at the
+origin, `crop` to the MediaBox, and `bleed`, `trim`, and `art` to the CropBox.
+Assigning `media` removes the other boxes, as pymupdf's `set_mediabox` does;
+assigning another box needs a rectangle with area inside the MediaBox, and
+`del page.boxes.crop` (or `bleed`, `trim`, `art`) restores its default.
+`page.user_to_display` maps user space to display space, and
+`~page.user_to_display` maps back.
+
+```python
+page.boxes.crop = (36, 36, 576, 756)                # show a Letter page without its half-inch margin
+trim_on_screen = page.boxes.trim * page.user_to_display
+page.rotation = 90
+```
 
 ### Adding content { #page-content }
 
@@ -876,6 +893,7 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |
 | `Colorspace` | The color spaces of a [`Pixmap`](#pixmap): `GRAY` and `RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [Outline and page labels](#outline) |
+| `PageBoxes` | [Page geometry](#page-geometry) |
 
 Constants keep pymupdf's names and are also grouped in enums:
 `Permissions` (`PDF_PERM_*`), `LinkKind` (`LINK_*`), `TextAlign`

@@ -568,7 +568,7 @@ def test_insert_pixmap_on_rotated_page_uses_display_coordinates() -> None:
 
     target = pylopdf.Document()
     target.pages.new((100, 200))
-    target.pages[0].set_rotation(90)
+    target.pages[0].rotation = 90
     target.pages[0].insert_image((150, 25, 190, 75), pixmap=pixmap)
     assert _pixel(target.pages[0], 170, 50) == RED
     assert _pixel(target.pages[0], 50, 50) == WHITE
@@ -622,7 +622,7 @@ def test_insert_image_rotation_preserves_rotated_aspect() -> None:
 def test_insert_image_rotation_composes_with_page_rotation() -> None:
     target = pylopdf.Document()
     target.pages.new((100, 200))
-    target.pages[0].set_rotation(90)
+    target.pages[0].rotation = 90
     target.pages[0].insert_image(
         (110, 10, 190, 90),
         pixmap=_split_pixmap(),
@@ -656,7 +656,7 @@ def test_insert_image_on_rotated_page_uses_display_coordinates() -> None:
     doc = pylopdf.Document()
     doc.pages.new((100, 200))  # Portrait page.
     page = doc.pages[0]
-    page.set_rotation(90)  # Display is 200×100 landscape.
+    page.rotation = 90  # Display is 200×100 landscape.
     assert page.rect.width == 200
     page.insert_image((150, 25, 190, 75), stream=_solid_png(2, 2, RED))
     # Rendering uses display space, so the image appears at the specified point.
@@ -914,7 +914,7 @@ def test_insert_text_on_rotated_page_reads_upright() -> None:
     doc = pylopdf.Document()
     doc.pages.new((100, 200))
     page = doc.pages[0]
-    page.set_rotation(90)
+    page.rotation = 90
     page.insert_text((20, 50), "Rotated")
     pix = page.pixmap(background=WHITE, alpha=True)
     assert (pix.width, pix.height) == (200, 100)  # Rendering uses display space.
@@ -1041,7 +1041,7 @@ def test_insert_text_embedded_fontbuffer_multiline_and_rotation() -> None:
     doc = pylopdf.Document()
     doc.pages.new((150, 300))
     page = doc.pages[0]
-    page.set_rotation(90)
+    page.rotation = 90
     page.insert_text(
         (30, 55),
         "一行目\n二行目",
@@ -1157,7 +1157,7 @@ def test_insert_textbox_auto_embeds_optional_jp_font_and_survives_rotation() -> 
     doc = pylopdf.Document()
     doc.pages.new((120, 200))
     page = doc.pages[0]
-    page.set_rotation(90)
+    page.rotation = 90
     rect = (10, 10, 100, 80)
 
     spare = page.insert_textbox(
@@ -1222,7 +1222,7 @@ def test_drawn_image_bbox_on_rotated_page_is_display_space() -> None:
     doc = pylopdf.Document()
     doc.pages.new((100, 200))
     page = doc.pages[0]
-    page.set_rotation(90)
+    page.rotation = 90
     page.insert_image((150, 25, 190, 75), stream=_solid_png(2, 2, RED), keep_proportion=False)
     bbox = drawn_images(page)[0]["bbox"]
     assert abs(bbox.x0 - 150) < 1

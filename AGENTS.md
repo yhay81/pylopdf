@@ -103,8 +103,8 @@ the concept and API overview.
     `src/pylopdf/_objects.py`.
   - Structure: `page_cleanup.rs`, `structure_prune.rs`;
     `document/{page_tree,navigation,outline,labels,metadata,attachments}.rs`;
-    `src/pylopdf/_attachments.py`, `_metadata.py`, `_outline.py`,
-    `_page_labels.py`, and `_targets.py`.
+    `src/pylopdf/_attachments.py`, `_boxes.py`, `_metadata.py`,
+    `_outline.py`, `_page_labels.py`, and `_targets.py`.
   - Content: `content_guard.rs`, `content_scan.rs`, `graph_guard.rs`,
     `postscript_scan.rs`, `read_depth.rs`, and the content model,
     `content_model.rs` and `src/pylopdf/_content.py`.
@@ -1746,7 +1746,8 @@ the concept and API overview.
   source page's box as their BBox, so `show_pdf_page` places what rendering
   shows of the source. pymupdf's `insert_text` measures from the unclipped
   CropBox corner instead and draws off the visible page; pylopdf keeps one
-  display space. `mediabox` and `cropbox` still report the stored boxes.
+  display space. `Page.boxes` reports the stored boxes, as the next
+  bullet describes.
   `insert_image(pixmap=)` Flate-compresses an RGB Pixmap's storage as it is
   and splits straight-alpha RGBA8 storage through fallibly allocated RGB and
   optional alpha planes, then Flate-compresses through a fallible writer; fully opaque
@@ -1791,6 +1792,23 @@ the concept and API overview.
   The final reference push must not grow a collection. Link annotations also
   build their complete input-derived dictionary before cache invalidation.
   `render_annotations` defaults to true.
+- `Page.boxes` (`src/pylopdf/_boxes.py`) is a `PageBoxes` view that reads
+  all five boxes with one core call, `page_boxes`, on every access. The
+  MediaBox and CropBox come from `resolve_page_box`, which inherits them; the
+  BleedBox, TrimBox, and ArtBox come from the page dictionary alone, because
+  ISO 32000-2 Table 31 lets only the first two inherit. Boxes read as stored
+  in PDF user space with their corners ordered and unclipped: `media` is A4 at
+  the origin without one, `crop` defaults to `media`, and the other three to
+  `crop` (§14.11.2). Assigning `media` calls `set_mediabox`, which removes the
+  other four, as pymupdf does, and gives the page its MediaBox as CropBox when
+  an ancestor would still supply one. Assigning another box requires a
+  rectangle with area inside the MediaBox; deleting one calls
+  `remove_page_box`, which applies the same CropBox rule. Every box edit keeps
+  placements and the page index. `Page.user_to_display` builds a `Matrix`
+  from `page_display_matrix`, the images of three points under
+  `draw::pdf_to_display`, so it maps exactly as drawing, extraction, and
+  rendering do. `Page.rotation` is assigned in multiples of 90 and stored
+  normalized to 0 through 270.
 - Simple-font text replacement is prepared in `rust/src/text_replace.rs`.
   Search/replacement/fallback input is capped at 4,096 UTF-8 bytes. Decoded
   page content, aggregate font encoding data, intermediate growth, and the

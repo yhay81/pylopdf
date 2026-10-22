@@ -923,7 +923,7 @@ def test_nics_sparse_grid_infers_individual_rows() -> None:
 def test_nics_markdown_preserves_sparse_grid_reading_order(rotation: int) -> None:
     """Expand merged headers without duplicating adjacent data after rotation."""
     document = pylopdf.open(ASSETS / "nics-background-checks-2015-11.pdf")
-    document.pages[0].set_rotation(rotation)
+    document.pages[0].rotation = rotation
     table = document.pages[0].tables()[0]
 
     expected_shape = (58, 25) if rotation in (0, 180) else (25, 58)
