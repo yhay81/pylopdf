@@ -58,7 +58,8 @@ python -m pylopdf.migrate src/
 | `pix.samples`, `width`, `height`, `n`, `alpha`, `stride`, `colorspace`, `save()` | 같음 | `save()`와 `tobytes()`는 PNG만 기록 |
 | `page.get_svg_image()` | 같음 | 텍스트는 항상 경로로 그림 |
 | `page.get_images()`, `get_image_info()`, `doc.extract_image()` | 같음 | `get_image_info(hashes=True)`는 아직 지원하지 않음 |
-| `page.get_drawings()` | 같음 | `extended=`의 클리핑과 그룹 정보는 없음 |
+| `page.get_drawings()` | 같음 | `extended=`는 없음. `page.content().paths`에 클립, 그룹, 마크된 콘텐츠가 있음 |
+| `page.get_texttrace()`, `get_bboxlog()`, `get_cdrawings()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | 글리프가 있는 텍스트 런, 경로, 이미지를 불변 값으로 반환. [페이지 내용](api.md#content) 참고 |
 | `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | 같음 | JPEG로만 다시 인코딩하므로 리샘플링에는 `quality`가 필요. `None` 대신 통계를 반환 |
 
 ### 그리기와 주석 { #mapping-drawing }

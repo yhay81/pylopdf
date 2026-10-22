@@ -789,6 +789,20 @@ impl _Document {
         extraction::extract_image(self, py, xref)
     }
 
+    /// Collect the content model of a one-based page: its painted items in
+    /// paint order and the fonts and graphics contexts they index.
+    #[pyo3(signature = (page_number, annotations, clip, max_elements))]
+    fn page_content(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        annotations: bool,
+        clip: Option<(f64, f64, f64, f64)>,
+        max_elements: Option<usize>,
+    ) -> PyResult<Py<PyAny>> {
+        extraction::page_content(self, py, page_number, annotations, clip, max_elements)
+    }
+
     /// Extract vector paint operations on a one-based page.
     fn extract_drawings(
         &mut self,

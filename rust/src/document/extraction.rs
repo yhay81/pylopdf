@@ -486,6 +486,63 @@ pub(super) fn extract_drawings(
     })
 }
 
+/// Implements [`_Document::page_content`].
+pub(super) fn page_content(
+    this: &mut _Document,
+    py: Python<'_>,
+    page_number: u32,
+    annotations: bool,
+    clip: Option<(f64, f64, f64, f64)>,
+    max_elements: Option<usize>,
+) -> PyResult<Py<PyAny>> {
+    use crate::content_model::{ContentError, ContentItem};
+    use pyo3::IntoPyObjectExt;
+
+    let mut settings = this.interpreter_settings();
+    settings.render_annotations = annotations;
+    let content = this.contain_renderer_panics(|this| {
+        let pdf = this.hayro_view_for(PageSelection::One(page_number))?;
+        py.detach(|| {
+            let pages = pdf.pages();
+            let page = page_number
+                .checked_sub(1)
+                .and_then(|index| pages.get(index as usize))
+                .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
+            crate::content_model::collect_page_content(pdf, page, settings, clip, max_elements)
+                .map_err(|error| match error {
+                    ContentError::ElementCount(limit) => limit_err(
+                        "content_element_count",
+                        format!(
+                            "page content exceeds the {limit}-element limit on glyphs, \
+                             segments, and items"
+                        ),
+                    ),
+                    ContentError::Allocation(message) => PdfError::new_err(message),
+                })
+        })
+    })?;
+    let mut items = Vec::new();
+    items
+        .try_reserve_exact(content.items.len())
+        .map_err(|error| PdfError::new_err(format!("failed to allocate content items: {error}")))?;
+    for item in content.items {
+        items.push(match item {
+            ContentItem::Text(run) => (0u8, run).into_py_any(py)?,
+            ContentItem::Path(path) => (1u8, path).into_py_any(py)?,
+            ContentItem::Image(image) => (2u8, image).into_py_any(py)?,
+        });
+    }
+    (
+        items,
+        content.fonts,
+        content.clips,
+        content.groups,
+        content.marks,
+        content.states,
+    )
+        .into_py_any(py)
+}
+
 /// Implements [`_Document::search_page`].
 pub(super) fn search_page(
     this: &mut _Document,

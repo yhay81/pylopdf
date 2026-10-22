@@ -100,6 +100,7 @@ pylopdf.Document(filename=None, stream=None, filetype=None, *,
 | `find_tables(*, clip=None, strategy=None)` | 以`TableFinder`返回表格；参见[表格](#tables) |
 | `to_markdown(*, table_strategy="lines")` | 本页的Markdown |
 | `get_text_ocr(...)`、`apply_ocr(...)`、`insert_ocr_text_layer(words)` | OCR；参见[离线OCR](ocr.md) |
+| `content(*, clip=None, annotations=True)` | 页面绘制的所有文本段、路径和图像；参见[页面内容](#content) |
 | `get_drawings()` | 矢量路径；参见[矢量绘图](#drawings) |
 | `get_links()` | 链接及其目标 |
 | `get_label()` | 页码标签，例如`"iv"` |
@@ -177,9 +178,46 @@ with pylopdf.open("report.pdf") as doc:
 
 该结构与[pymupdf的rawdict](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs)类似，但只返回文本块，不含图像块和矢量块，也不含颜色、不透明度或额外的字体度量。[叠加示例](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)将字形边界和起点绘制为HTML预览。
 
+## 页面内容 { #content }
+
+`page.content()`按绘制顺序返回页面所绘制的内容，与hayro的解释一致：一个由显示坐标中的`TextRun`、`Path`和`Image`组成的`Content`序列。所有值都不可变。
+
+```python
+with pylopdf.open("report.pdf") as doc:
+    content = doc[0].content()
+    for run in content.text_runs:
+        print(run.text, run.font.name, run.size, run.fill)
+        for glyph in run.glyphs:
+            print(glyph.text, glyph.origin, glyph.bbox)
+    for path in content.paths:
+        print(path.bbox, path.fill, path.stroke)
+    for image in content.images:
+        print(image.xref, image.bbox, image.width, image.height)
+```
+
+| 项 | 字段 |
+|---|---|
+| `TextRun` | `glyphs`、`font`、`render_mode`、`fill`、`stroke`和`bbox`；`text`和`size`由它们得出 |
+| `Glyph` | `glyph_id`、`text`、`matrix`、`advance`和`bbox`；`origin`和`size`由矩阵得出 |
+| `Path` | `segments`（`MoveTo`、`LineTo`、`CurveTo`和`ClosePath`）、`fill`、`fill_rule`、`stroke`和`bbox` |
+| `Image` | `xref`、`width`、`height`、`bits`、`colorspace`、`components`、`is_stencil`、`mask`、`encoded_size`、`resolution`、`matrix`和`bbox` |
+
+每一项还有`blend_mode`、`soft_mask`和`context`。`context`是一个`GraphicsContext`，从外到内列出包围该项的裁剪（`clips`）、透明组（`groups`）和标记内容（`marked_content`），其`opacity`和`clip_bbox`是它们合成的结果。在同一上下文中绘制的项共享同一个上下文对象。
+
+颜料（paint）是`Color`（sRGB加alpha）、`ShadingPattern`或`TilingPattern`之一。`Stroke`包含`paint`、`width`、`cap`、`join`、`miter_limit`、`dashes`和`dash_offset`，均换算到显示空间。文本段的`font`是一个`FontRef`，包含字体程序的`name`、`weight`和样式标志。
+
+- 字形框是字形轮廓的精确外接框，因此空格没有框；Type 3字形的框是其过程所绘制的范围。
+- 带裁剪的渲染模式下的文本按其填充或描边绘制，只做裁剪的文本不构成一项。同一路径的填充之后紧接描边时，与`B`一样算作一条路径。
+- 用`sh`绘制的着色是一条覆盖裁剪区域并以`ShadingPattern`填充的`Path`。
+- hayro把每幅图像都绘制在一个带有当时的不透明度、混合模式和软蒙版的透明组中，因此图像的上下文以该组结尾。覆盖整个可见区域的裁剪与hayro一样不包含在内。
+
+`clip=`只保留外接框与给定矩形相接的项，`annotations=False`不包含注释外观。一次调用读取的字形、路径与裁剪的线段以及项合计最多为`max_elements`，默认为262,144。
+
+hayro尚未报告的信息不在模型中：颜色的色彩空间和分量、图层名称等标记内容属性、`FontRef`背后的字体字典，以及图像蒙版的对象。它们列在[引擎工作](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#engine-work)中。
+
 ## 矢量绘图 { #drawings }
 
-`page.get_drawings()`为每条填充或描边的路径返回一个`DrawingInfo`字典，格式与pymupdf相同：`type`（`"f"`、`"s"`或`"fs"`）、`items`（直线和三次曲线）、`rect`、颜色、不透明度、线宽、线帽、连接方式、虚线和`seqno`。以图案（pattern）填充的路径，其颜色为`None`。不返回裁剪路径、分组和图层名称。
+`page.get_drawings()`为每条填充或描边的路径返回一个`DrawingInfo`字典，格式与pymupdf相同：`type`（`"f"`、`"s"`或`"fs"`）、`items`（直线和三次曲线）、`rect`、颜色、不透明度、线宽、线帽、连接方式、虚线和`seqno`。以图案（pattern）填充的路径，其颜色为`None`。[`page.content()`](#content)的路径还带有裁剪、分组和标记内容。
 
 ## 表格 { #tables }
 
@@ -392,9 +430,10 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 | `Font`、`Shape` | 参见[Font](#font)和[图形](#shapes) |
 | `Base14_fontnames`、`Base14_fontdict` | `fontname=`接受的Standard 14字体名称 |
 | `Name`、`String`、`Array`、`Dictionary`、`Stream`、`Objects` | [底层对象](#low-level-objects) |
+| `Content`、`TextRun`、`Path`、`Image`、`Glyph`、`FontRef`、`Color`、`Stroke`、`GraphicsContext`及其他内容类型 | [页面内容](#content) |
 | `Colorspace`、`csRGB`、`csGRAY`、`csCMYK` | pymupdf的设备颜色空间 |
 
-常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`EncryptionMethod`（`PDF_ENCRYPT_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）和`AnnotFlags`（`PDF_ANNOT_IS_*`）。
+常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`EncryptionMethod`（`PDF_ENCRYPT_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）和`AnnotFlags`（`PDF_ANNOT_IS_*`）。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
 
 API返回的字典都是普通的`dict`对象，并通过`TextPageDict`、`RawTextPageDict`、`DrawingInfo`、`ImageInfo`、`LinkInfo`、`FormFieldInfo`、`DocumentMetadata`和`OcrWord`等`TypedDict`类向类型检查器描述。`Word`、`Block`、`ImageItem`和`OutlineEntry`等元组都是具名元组。
 

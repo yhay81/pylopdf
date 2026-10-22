@@ -58,7 +58,8 @@ python -m pylopdf.migrate src/
 | `pix.samples`、`width`、`height`、`n`、`alpha`、`stride`、`colorspace`、`save()` | 相同 | `save()`和`tobytes()`只输出PNG |
 | `page.get_svg_image()` | 相同 | 文本始终以路径绘制 |
 | `page.get_images()`、`get_image_info()`、`doc.extract_image()` | 相同 | 尚不支持`get_image_info(hashes=True)` |
-| `page.get_drawings()` | 相同 | 没有`extended=`提供的裁剪和分组信息 |
+| `page.get_drawings()` | 相同 | 没有`extended=`；`page.content().paths`带有裁剪、分组和标记内容 |
+| `page.get_texttrace()`, `get_bboxlog()`, `get_cdrawings()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | 以不可变的值返回带字形的文本段、路径和图像；参见[页面内容](api.md#content) |
 | `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | 相同 | 只重新编码为JPEG，因此重新采样需要指定`quality`；返回统计信息而不是`None` |
 
 ### 绘制与批注 { #mapping-drawing }

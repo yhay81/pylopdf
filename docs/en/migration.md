@@ -77,7 +77,8 @@ is not supported yet.
 | `pix.samples`, `width`, `height`, `n`, `alpha`, `stride`, `colorspace`, `save()` | Same | `save()` and `tobytes()` write PNG only |
 | `page.get_svg_image()` | Same | Text is always drawn as paths |
 | `page.get_images()`, `get_image_info()`, `doc.extract_image()` | Same | `get_image_info(hashes=True)` is not supported yet |
-| `page.get_drawings()` | Same | No `extended=` clipping and group information |
+| `page.get_drawings()` | Same | No `extended=`; `page.content().paths` carries clips, groups, and marked content |
+| `page.get_texttrace()`, `get_bboxlog()`, `get_cdrawings()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | Text runs with their glyphs, paths, and images as immutable values; see [Page content](api.md#content) |
 | `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | Same | Re-encodes as JPEG only, so resampling needs `quality`; returns statistics instead of `None` |
 
 ### Drawing and annotations { #mapping-drawing }

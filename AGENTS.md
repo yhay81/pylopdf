@@ -105,7 +105,8 @@ the concept and API overview.
     `document/{page_tree,navigation,labels,metadata,attachments}.rs`;
     `src/pylopdf/_attachments.py`.
   - Content: `content_guard.rs`, `content_scan.rs`, `graph_guard.rs`,
-    `postscript_scan.rs`, `read_depth.rs`, and the content model's modules.
+    `postscript_scan.rs`, `read_depth.rs`, and the content model,
+    `content_model.rs` and `src/pylopdf/_content.py`.
   - Understanding: `extract.rs`, `ocr.rs`, `ocr_engine.rs`,
     `ocr_engine_emscripten.rs`; `document/extraction.rs`;
     `src/pylopdf/_tables.py`, `_markdown.py`, and `_ocr.py`.
@@ -316,6 +317,35 @@ the concept and API overview.
   avoiding one String and point-Vec allocation per command. Dash syntax and
   public command/path tuples materialize only after their aggregate admissions,
   grow fallibly, and return no partial result on allocation refusal.
+- `Page.content()` is the content model (`rust/src/content_model.rs`,
+  `src/pylopdf/_content.py`). `ContentCollector`, one more hayro Device,
+  records each paint callback as a `TextRun`, `Path`, or `Image` in display
+  coordinates, with the item's blend mode, soft mask, and an interned
+  graphics context of the clip, transparency-group, and marked-content
+  stacks; items painted in one context share one Python context object.
+  hayro paints `B` and the fill-and-stroke render mode as a fill followed by
+  a stroke of the same geometry, so a stroke that directly follows a fill of
+  equal segments in the same context completes it; any other callback in
+  between keeps them two items, where `get_drawings` merges any later stroke
+  of equal geometry. Glyph boxes are exact: an outline glyph's path is cached
+  in glyph space by `identifier().cache_key()` (at most 65,536 glyphs) and
+  mapped by corners under axis-aligned transforms and by segments otherwise;
+  a Type 3 procedure is interpreted once into the `InkBounds` device and its
+  glyph-space box mapped by corners. Items whose geometry or paint is not
+  finite are left out, because `Rect` and `Matrix` refuse them. One
+  `max_elements` budget (262,144 by default, `content_element_count`) counts
+  glyphs, path and clip segments, items, and context entries before `clip=`
+  filtering; every collection grows fallibly and a refusal returns nothing.
+  Python builds the records from flat tuples; `_matrix` uses
+  `Matrix._make` because the core already checked finiteness, which keeps
+  conversion near 3 µs per glyph. What hayro does not report (color spaces,
+  marked-content properties, font dictionaries, Type 3 font identity,
+  clipping render modes, item sources, `sh` as such, image-mask streams) is
+  absent rather than guessed, and is listed under Content model in
+  ROADMAP.md. `tests/test_content_model.py` requires the paths, image
+  placements, and glyph origins of every corpus page to equal `get_drawings`
+  (split into single fill and stroke operations), `get_image_info`, and
+  `rawdict`.
 - `Page.get_images(full=)` lists the image XObjects that the page's inherited
   resources and, depth first, its Form XObjects' resources reach, once each in
   resource order, from the lopdf graph (`page_image_inventory`, at most 4,096

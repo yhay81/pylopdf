@@ -139,6 +139,7 @@ A `Page` is a view of one page of its document. Fetch it with `doc[i]`.
 | `find_tables(*, clip=None, strategy=None)` | Tables as a `TableFinder`; see [Tables](#tables) |
 | `to_markdown(*, table_strategy="lines")` | Markdown for this page |
 | `get_text_ocr(...)`, `apply_ocr(...)`, `insert_ocr_text_layer(words)` | OCR; see [Offline OCR](ocr.md) |
+| `content(*, clip=None, annotations=True)` | Every text run, path, and image the page paints; see [Page content](#content) |
 | `get_drawings()` | Vector paths; see [Vector drawings](#drawings) |
 | `get_links()` | Links with their targets |
 | `get_label()` | The page label, such as `"iv"` |
@@ -234,13 +235,73 @@ color, opacity, or extra font metrics. The
 [overlay example](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)
 draws glyph bounds and origins as an HTML preview.
 
+## Page content { #content }
+
+`page.content()` returns what the page paints, in paint order, as hayro
+interprets it: a `Content` sequence of `TextRun`, `Path`, and `Image` items in
+display coordinates. Every value is immutable.
+
+```python
+with pylopdf.open("report.pdf") as doc:
+    content = doc[0].content()
+    for run in content.text_runs:
+        print(run.text, run.font.name, run.size, run.fill)
+        for glyph in run.glyphs:
+            print(glyph.text, glyph.origin, glyph.bbox)
+    for path in content.paths:
+        print(path.bbox, path.fill, path.stroke)
+    for image in content.images:
+        print(image.xref, image.bbox, image.width, image.height)
+```
+
+| Item | Fields |
+|---|---|
+| `TextRun` | `glyphs`, `font`, `render_mode`, `fill`, `stroke`, and `bbox`; `text` and `size` read them |
+| `Glyph` | `glyph_id`, `text`, `matrix`, `advance`, and `bbox`; `origin` and `size` read the matrix |
+| `Path` | `segments` (`MoveTo`, `LineTo`, `CurveTo`, and `ClosePath`), `fill`, `fill_rule`, `stroke`, and `bbox` |
+| `Image` | `xref`, `width`, `height`, `bits`, `colorspace`, `components`, `is_stencil`, `mask`, `encoded_size`, `resolution`, `matrix`, and `bbox` |
+
+Every item also has its `blend_mode`, its `soft_mask`, and a `context`: the
+`GraphicsContext` of `clips`, transparency `groups`, and `marked_content`
+around it, outermost first, whose `opacity` and `clip_bbox` combine them.
+Items painted in the same context share one context object.
+
+A paint is a `Color` (sRGB with alpha), a `ShadingPattern`, or a
+`TilingPattern`. A `Stroke` has its `paint`, `width`, `cap`, `join`,
+`miter_limit`, `dashes`, and `dash_offset`, scaled to display space. A text
+run's `font` is a `FontRef` with the font program's `name`, `weight`, and
+style flags.
+
+- Glyph boxes are the exact boxes of the glyph outlines, so a space has none;
+  a Type 3 glyph's box is where its procedure paints.
+- Text in a clipping render mode is painted as its fill or stroke, and text
+  that only clips is not an item. A fill directly followed by a stroke of the
+  same path, as `B` paints it, is one path.
+- A shading painted with `sh` is a `Path` that covers the clipped area and
+  fills with a `ShadingPattern`.
+- hayro paints every image inside a transparency group that holds the
+  opacity, blend mode, and soft mask in force, so an image's context ends
+  with that group. A clip that covers the whole visible area is left out, as
+  hayro leaves it out.
+
+`clip=` keeps the items whose box meets a rectangle, and `annotations=False`
+leaves out annotation appearances. One call reads at most `max_elements`
+glyphs, path and clip segments, and items, 262,144 by default.
+
+What hayro does not report yet is not in the model: the color space and
+components of a color, layer names and the other marked-content properties,
+the font dictionary behind a `FontRef`, and the object of an image mask. They
+are listed as
+[engine work](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#engine-work).
+
 ## Vector drawings { #drawings }
 
 `page.get_drawings()` returns one `DrawingInfo` dictionary per filled or
 stroked path, in pymupdf's format: `type` (`"f"`, `"s"`, or `"fs"`), `items`
 (lines and cubic curves), `rect`, colors, opacity, line width, cap, join,
-dashes, and `seqno`. Paths filled with a pattern have `None` colors. Clipping
-paths, groups, and layer names are not returned.
+dashes, and `seqno`. Paths filled with a pattern have `None` colors. The paths
+of [`page.content()`](#content) also carry their clips, groups, and marked
+content.
 
 ## Tables { #tables }
 
@@ -527,12 +588,15 @@ a rectangle lies inside a quad tests all four corners.
 | `Font`, `Shape` | See [Font](#font) and [Shapes](#shapes) |
 | `Base14_fontnames`, `Base14_fontdict` | The Standard 14 font names that `fontname=` accepts |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [Low-level objects](#low-level-objects) |
+| `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |
 | `Colorspace`, `csRGB`, `csGRAY`, `csCMYK` | pymupdf's device color spaces |
 
 Constants keep pymupdf's names and are also grouped in enums:
 `Permissions` (`PDF_PERM_*`), `EncryptionMethod` (`PDF_ENCRYPT_*`), `LinkKind`
 (`LINK_*`), `TextAlign` (`TEXT_ALIGN_*`), `AnnotType` (`PDF_ANNOT_*`), and
-`AnnotFlags` (`PDF_ANNOT_IS_*`).
+`AnnotFlags` (`PDF_ANNOT_IS_*`). The content model's enums are `BlendMode`,
+`FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`,
+`SoftMaskType`, and `ImageMask`.
 
 Dictionaries returned by the API are plain `dict` objects, described for type
 checkers by `TypedDict` classes such as `TextPageDict`, `RawTextPageDict`,

@@ -1,7 +1,7 @@
 # Type stubs for the Rust extension module pylopdf_core.
 import os
 import sys
-from typing import TypeAlias
+from typing import Any, TypeAlias
 
 from pylopdf._pixmap import Colorspace
 
@@ -14,6 +14,18 @@ _RawSpanTuple: TypeAlias = tuple[
 ]
 _RawLineTuple: TypeAlias = tuple[tuple[float, float, float, float], list[_RawSpanTuple], tuple[float, float], int]
 _RawBlockTuple: TypeAlias = tuple[tuple[float, float, float, float], list[_RawLineTuple]]
+
+# Page.content(): items as (kind, nested tuple) pairs, then the fonts, clips,
+# transparency groups, marked content, and graphics contexts they index.
+_Bbox: TypeAlias = tuple[float, float, float, float]
+_ContentTuple: TypeAlias = tuple[
+    list[tuple[int, Any]],
+    list[tuple[str, bool, int | None, bool, bool, bool]],
+    list[tuple[bytes, list[float], bool, _Bbox]],
+    list[tuple[float, int, tuple[int, bool] | None]],
+    list[tuple[str, int | None]],
+    list[tuple[list[int], list[int], list[int]]],
+]
 
 # A low-level object handle's root (None is the trailer) and path steps.
 _ObjectRoot: TypeAlias = tuple[int, int] | None
@@ -400,6 +412,13 @@ class _Document:
         ]
     ]: ...
     def extract_image(self, xref: int) -> tuple[str, int, int, int, str, int, int, tuple[int, int], bytes]: ...
+    def page_content(
+        self,
+        page_number: int,
+        annotations: bool,
+        clip: tuple[float, float, float, float] | None,
+        max_elements: int | None,
+    ) -> _ContentTuple: ...
     def extract_drawings(
         self, page_number: int
     ) -> list[

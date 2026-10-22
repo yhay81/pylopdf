@@ -234,33 +234,40 @@ pymupdf migrate once, with one codemod.
 
 Workstream Content, with Writing for the shared types.
 
-- `Page.content(*, clip=None, annotations=True)` returns the painted items of
-  a page in paint order and display space, as immutable values:
-  - `TextRun`: glyphs with Unicode, glyph ID, origin, advance, and bounding
-    box; a font reference; size; transform; render mode; and fill and stroke
-    paint.
-  - `Path`: segments, a fill with its rule, and a stroke with its line style.
+- `Page.content(*, clip=None, annotations=True, max_elements=262_144)`
+  returns the painted items of a page in paint order and display space, as
+  immutable values (available on main):
+  - `TextRun`: glyphs with glyph ID, Unicode, matrix, advance, and the exact
+    box of their outline or Type 3 procedure; a font reference; render mode;
+    and fill and stroke paint.
+  - `Path`: segments, a fill paint with its rule, and a stroke with its line
+    style. A shading painted with `sh` is a path filled with a
+    `ShadingPattern`.
   - `Image`: the image object or inline image, size, bits per component,
-    color space, transform, and mask kind.
-  - `Shading`: a shading painted with `sh`.
+    color space, stencil flag, mask kind, and matrix.
 
-  Every item carries its graphics context: the clip, opacity, blend mode,
-  soft mask, and the marked-content stack with tags, MCIDs, and properties,
-  among them optional-content layers and `/ActualText`.
+  Every item carries its blend mode, soft mask, and graphics context: the
+  clips, transparency groups, and marked content around it, shared by the
+  items painted in the same context.
 - Text, words, layout, search, drawings, and image placements derive from the
   same interpretation and one cache, so they agree by construction. The
-  separate text, drawing, and image devices merge into one.
+  separate text, drawing, and image devices merge into one. Until then they
+  agree with `Page.content()` on the bundled corpus, which a test pins.
 - pylopdf exposes what hayro computes instead of recomputing it: glyph
-  outlines for exact glyph boxes, font identity (object, name, type,
+  outlines for exact glyph boxes (done), font identity (object, name, type,
   embedding), and image object numbers, masks included.
 - Upstream in hayro: marked-content properties and `/ActualText` in a release
-  (`main` exposes `/ActualText` since LaurenzV/hayro#1513), font object
-  identity and writing mode on glyph runs, object numbers of image masks,
-  Unicode for Type 3 glyphs without a ToUnicode CMap (LaurenzV/hayro#1331),
-  and an error instead of silent truncation beyond its nesting bounds.
+  (`main` exposes `/ActualText` since LaurenzV/hayro#1513); font object
+  identity, Type 3 font identity, and writing mode on glyph runs; the color
+  space and components of a color paint; the clipping text render modes;
+  begin and end callbacks for Form XObjects and annotation appearances, so
+  that items name their source; a callback for `sh`; the stream, object
+  number, and paint of image masks; Unicode for Type 3 glyphs without a
+  ToUnicode CMap (LaurenzV/hayro#1331); and an error instead of silent
+  truncation beyond its nesting bounds.
 - It covers pymupdf's `DisplayList`, `Page.get_displaylist`, `Page.run`,
-  `get_texttrace`, `get_bboxlog`, `get_cdrawings`, and
-  `get_drawings(extended=True)`.
+  `get_texttrace`, `get_bboxlog`, `get_cdrawings`, `get_image_rects`,
+  `get_image_bbox`, and `get_drawings(extended=True)`.
 
 Acceptance: on the bundled corpus, text, words, drawings, and image
 placements derived from the content model equal today's extraction, except
@@ -328,6 +335,7 @@ engine's maintainer.
 
 | Engine | Change | What it unlocks or removes in pylopdf |
 | --- | --- | --- |
+| hayro | The items listed under [Content model](#content-model): marked-content properties, font and Type 3 font identity, color spaces and components, clipping render modes, source callbacks, a `sh` callback, and image-mask streams | the gaps that `Page.content()` documents today |
 | hayro | Bounded construction of functions, color spaces, and Type 4 programs, refusing deeper input with an error | `graph_guard.rs`, `postscript_scan.rs`, and their walks |
 | hayro | An error, instead of silent truncation, for content and objects nested beyond its bound | `content_scan.rs`, the nesting walk in `content_guard.rs`, and `read_depth.rs` |
 | hayro | Parse an object stream's member table once (LaurenzV/hayro#1545) | `object_stream_work.rs` and the serialized-snapshot choice |

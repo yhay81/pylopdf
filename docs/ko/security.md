@@ -86,6 +86,7 @@ limits = pylopdf.DocumentLimits(
 | `to_markdown()`, `Table.to_markdown()` | 출력 64 MiB | `max_size` |
 | `Pixmap.tobytes()`, `Page.get_svg_image()` | 출력 64 MiB | `max_size` |
 | `Page.search_for()` | 결과 4,096개 | `max_hits` |
+| `Page.content()` | 글리프, 경로와 클립의 세그먼트, 항목을 합쳐 262,144개 | `max_elements` |
 | `Page.insert_text()`, `insert_textbox()` | 텍스트 1 MiB와 4,096줄 | `max_text_size` |
 | 그리기, 폼, `Font`에 전달하는 글꼴 입력 | 글꼴당 64 MiB | `max_font_size` |
 | `Page.insert_image()` | 입력 64 MiB와 6,400만 픽셀 | `max_size`, `max_pixels` |
@@ -108,6 +109,7 @@ limits = pylopdf.DocumentLimits(
 | `file_size`, `page_count`, `object_count`, `object_depth` | 문서가 `DocumentLimits`의 구조 제한을 넘음 |
 | `decompressed_size`, `page_content_size`, `total_decompressed_size`, `decompression_unverifiable`, `stream_filter_count` | 스트림이 허용량보다 크게 디코딩되거나, 출력 크기를 제한할 수 없는 필터를 사용함(16개를 넘는 연쇄 필터 포함) |
 | `text_size`, `text_glyph_count`, `interpretation_size` | 추출이나 렌더링이 정책이 허용하는 것보다 많이 읽으려 함 |
+| `content_element_count` | 페이지가 그리는 글리프, 세그먼트, 항목이 `max_elements`보다 많음 |
 | `recovery_scan_size` | 손상된 파일을 복구하는 데 지나치게 많은 작업이 필요함 |
 | `content_nesting_depth`, `resource_nesting_depth` | 페이지가 너무 깊게 중첩되어 해석하기에 안전하지 않음. [아래](#built-in-protections) 참고 |
 | `pdf_output_size`, `render_output_size`, `markdown_output_size`, `svg_output_size`, `pixmap_output_size`, `replacement_output_size` | 출력이 `max_size`를 넘음 |

@@ -43,6 +43,9 @@ Key facts:
   r | p (include), r & o (intersect), r * m (transform), p in r. Replace
   in-place methods such as transform, normalize, or pretranslate with
   assignment of the operator result (r = r.normalized()).
+- page.content() returns every text run, path, and image a page paints, in
+  paint order, as immutable values with glyph outline boxes, paints, strokes,
+  and the clips, transparency groups, and marked content around each item.
 - get_pixmap(matrix=) takes scaling matrices only; dpi= takes precedence.
 - DocumentLimits.web() and LimitError.code bound untrusted input.
 
@@ -57,6 +60,8 @@ Migrating pymupdf code:
 
 pymupdf name map (generated from api/pymupdf-parity.json; each pymupdf name that pylopdf replaced, its
 replacement, and the migration hint):
+- DisplayList -> Content: Use the Content that page.content() returns; it records the page's items once and can be read any number of times.
+- DisplayList.rect -> Page.rect: Read page.rect, the display area in which the content items are positioned.
 - Document.copy_page -> Document.fullcopy_page: pylopdf never shares page objects; use fullcopy_page.
 - Document.embfile_add -> Document.attachments: Use doc.attachments.add(name, data, filename=..., description=...).
 - Document.embfile_count -> Document.attachments: Use len(doc.attachments).
@@ -103,6 +108,13 @@ replacement, and the migration hint):
 - Matrix.prescale -> Matrix.__mul__: Use pylopdf.Matrix(sx, sy) * m, which returns a new Matrix.
 - Matrix.preshear -> Matrix.__mul__: Use pylopdf.Matrix(h, v, 1) * m, which returns a new Matrix.
 - Matrix.pretranslate -> Matrix.__mul__: Use pylopdf.Matrix(1, 0, 0, 1, tx, ty) * m, which returns a new Matrix.
+- Page.get_bboxlog -> Page.content: Call page.content(); every item has a bbox and a kind, and its context lists the clips around it.
+- Page.get_cdrawings -> Page.content: Read page.content().paths, whose segments, paints, and strokes are immutable values.
+- Page.get_displaylist -> Page.content: Call page.content(), which returns the page's painted items as an immutable Content sequence.
+- Page.get_image_bbox -> Page.content: Keep the items of page.content().images whose xref is the image's object number, and read their bbox and matrix.
+- Page.get_image_rects -> Page.content: Keep the items of page.content().images whose xref is the image's object number, and read their bbox and matrix.
+- Page.get_texttrace -> Page.content: Call page.content() and read the glyphs of its text_runs, each run with its font, size, paints, and graphics context.
+- Page.run -> Page.content: Call page.content() for the items that the page paints; pylopdf has no device protocol.
 - Point.__setitem__ -> Point: Point values are immutable; build a new Point instead.
 - Point.transform -> Point.__mul__: Use p * m, which returns a new Point.
 - Quad.__setitem__ -> Quad: Quad values are immutable; build a new Quad instead.
