@@ -7,7 +7,7 @@ description: 安装pylopdf，并了解编辑、渲染、提取和绘制PDF的核
 
 !!! note "项目状态"
 
-    pylopdf尚处于1.0之前的阶段，目前覆盖pymupdf API的一部分，仍可能出现不兼容的变更；哪些内容可能变化，请参阅[稳定性政策](stability.md)。本站跟随`main`分支更新，因此可能介绍尚未发布到PyPI的变更。各版本包含的内容请查看[更新日志](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)。
+    pylopdf尚处于1.0之前的阶段，下一个版本将按照[路线图](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)重新设计API；哪些内容可能变化，请参阅[稳定性政策](stability.md)。本站跟随`main`分支更新，因此可能介绍尚未发布到PyPI的变更。各版本包含的内容请查看[更新日志](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)。
 
 ## 安装 { #installation }
 
@@ -175,9 +175,9 @@ OCR的详细说明（包括如何添加其他OCR引擎识别的文本）请参�
 
 ## 尚不支持的功能 { #not-supported }
 
-涂黑（redaction）、编辑或删除批注、创建表单字段以及增量保存都在计划中，具体时间见[路线图](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)。pylopdf只打开PDF文件。
+涂黑（redaction）、编辑或删除批注、创建表单字段、增量保存以及经过验证的PDF/A和PDF/UA输出都在计划中，详见[路线图](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)。pylopdf只打开PDF文件。
 
-排版、PDF/A输出和数字签名不在项目范围内。[生态系统方案](ecosystem.md)介绍了如何将pylopdf与typst和pyHanko配合使用来完成这些工作。
+基于HTML和CSS的排版以及数字签名交由生态系统中的工具完成。[生态系统方案](ecosystem.md)介绍了如何将pylopdf与typst和pyHanko配合使用。
 
 ## 下一步 { #next-steps }
 

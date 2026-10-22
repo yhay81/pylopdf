@@ -1,5 +1,5 @@
 Replace the `embfile_add`, `embfile_get`, `embfile_del`, and `embfile_names`
-methods with the `Document.attachments` mapping (roadmap M0): iterate it for
+methods with the `Document.attachments` mapping: iterate it for
 the sorted names, `add(name, data, /, *, filename=None, description=None,
 max_size=...)` returns an `Attachment`, `del doc.attachments[name]` deletes
 one, and a missing name raises `KeyError`. An `Attachment` handle reports

@@ -1,4 +1,4 @@
-"""The redaction engine's content interpreter places glyphs where hayro does (F8).
+"""The redaction engine's content interpreter places glyphs where hayro does.
 
 `_Document.content_glyphs` is a private hook: it interprets a page over
 lopdf's strict content parse and reports, per glyph, the display-space origin,
@@ -23,7 +23,7 @@ TOLERANCE = 0.01
 
 
 def _glyphs(doc: pylopdf.Document, pno: int = 0) -> list[tuple]:
-    return doc._doc.content_glyphs(pno + 1)  # noqa: SLF001 - private F8 hook.
+    return doc._doc.content_glyphs(pno + 1)  # noqa: SLF001 - private content-engine hook.
 
 
 def _origins(doc: pylopdf.Document, pno: int = 0) -> list[tuple[float, float]]:

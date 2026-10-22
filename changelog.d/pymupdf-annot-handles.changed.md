@@ -1,4 +1,4 @@
-Adopt pymupdf's annotation surface (roadmap M0): `Page.annots()` returns
+Adopt pymupdf's annotation surface: `Page.annots()` returns
 read-only `Annot` handles with `type` (a `(PDF_ANNOT_*, subtype)` tuple),
 `rect`, `info`, `colors`, `flags`, `xref`, and `parent`, and takes
 `types=` to filter, instead of dictionaries; the `AnnotationInfo`

@@ -1,4 +1,4 @@
-"""The typed low-level object model (roadmap F5): ``doc.objects``, the trailer, and the catalog."""
+"""The typed low-level object model: ``doc.objects``, the trailer, and the catalog."""
 
 from __future__ import annotations
 

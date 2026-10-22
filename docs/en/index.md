@@ -1,6 +1,6 @@
 ---
 title: pylopdf
-description: Edit, render, extract, and create PDFs in Python with a pymupdf-style API, a Rust core, and the MIT license.
+description: Edit, render, extract, and create PDFs in Python on the Rust PDF engines lopdf, hayro, and krilla, under the MIT license.
 hide:
   - navigation
   - toc
@@ -12,7 +12,7 @@ hide:
       <p class="living-eyebrow">Python-native PDF toolkit</p>
       <h1 id="living-hero-title">PDFs, with <span class="living-annotated">Python ergonomics</span> and a Rust core.</h1>
       <p class="living-lede">
-        Edit, render, extract, and create PDFs with an API that follows pymupdf's, under the MIT license and with nothing else to install.
+        Edit, render, extract, and create PDFs on the Rust engines lopdf, hayro, and krilla, under the MIT license and with nothing else to install.
       </p>
 
       <div class="living-actions">

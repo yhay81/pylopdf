@@ -1,4 +1,4 @@
-Raise pymupdf's error categories for unreadable input (roadmap M0): a missing
+Raise pymupdf's error categories for unreadable input: a missing
 file raises Python's built-in `FileNotFoundError`, input that is not a
 readable PDF raises the new `FileDataError`, which derives from both
 `PdfError` and `RuntimeError`, and an empty file or stream raises the new

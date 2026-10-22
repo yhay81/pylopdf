@@ -1,7 +1,8 @@
 # pylopdf
 
-> Edit, render, extract, and create PDFs in Python. pylopdf follows
-> pymupdf's API, is built on a Rust core, and is MIT licensed.
+> Edit, render, extract, and create PDFs in Python. pylopdf aims to do
+> everything pymupdf can do with PDF files through an API of its own, is
+> built on the Rust PDF engines lopdf, hayro, and krilla, and is MIT licensed.
 
 Documentation: https://pylopdf.haya.works/
 Japanese documentation: https://pylopdf.haya.works/ja/
@@ -28,8 +29,9 @@ Key facts:
 - Wheels for Linux, macOS, and Windows, including free-threaded CPython 3.14t
   and 3.15t, plus a WebAssembly wheel for Pyodide 0.28.3 and Cloudflare
   Python Workers.
-- Pre-1.0: breaking changes can still happen; the documentation follows the
-  main branch.
+- Pre-1.0: the next release redesigns the API (ROADMAP.md and
+  api/DESIGN.md in the repository); the documentation follows the main
+  branch.
 - PDF files only. Typesetting, digital signatures, and PDF/A validation are
   done with typst, pyHanko, and veraPDF.
 - Page numbers start at 0 everywhere; get_outline/set_outline replace

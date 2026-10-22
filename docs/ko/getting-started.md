@@ -7,9 +7,10 @@ description: pylopdf를 설치하고 편집, 렌더링, 추출, 그리기의 핵
 
 !!! note "프로젝트 상태"
 
-    pylopdf는 1.0 이전 단계이며 아직 pymupdf API의 일부만 지원합니다.
-    호환되지 않는 변경이 여전히 있을 수 있으며, 무엇이 바뀔 수 있는지는
-    [안정성 정책](stability.md)에서 설명합니다. 이 사이트는 `main` 브랜치를
+    pylopdf는 1.0 이전 단계이며, 다음 릴리스에서
+    [로드맵](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)에 따라 API를 다시
+    설계합니다. 무엇이 바뀔 수 있는지는 [안정성 정책](stability.md)에서
+    설명합니다. 이 사이트는 `main` 브랜치를
     따르므로 아직 PyPI에 배포되지 않은 변경을 설명할 수도 있습니다. 각 릴리스에
     포함된 내용은 [변경 이력](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)에서
     확인하세요.
@@ -182,9 +183,9 @@ OCR은 [오프라인 OCR](ocr.md)에서 자세히 다루며, 다른 OCR 엔진�
 
 ## 아직 지원하지 않는 기능 { #not-supported }
 
-민감 정보 가림 처리(redaction), 주석 편집이나 삭제, 폼 필드 생성, 증분 저장은 계획되어 있으며 시기는 [로드맵](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)에서 확인할 수 있습니다. pylopdf는 PDF 파일만 엽니다.
+민감 정보 가림 처리(redaction), 주석 편집이나 삭제, 폼 필드 생성, 증분 저장, 검증된 PDF/A와 PDF/UA 출력은 계획되어 있으며 [로드맵](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)에서 확인할 수 있습니다. pylopdf는 PDF 파일만 엽니다.
 
-조판, PDF/A 출력, 디지털 서명은 범위 밖입니다. 이런 작업에 pylopdf를 typst나 pyHanko와 함께 쓰는 방법은 [생태계 연동](ecosystem.md)에서 소개합니다.
+HTML과 CSS를 쓰는 조판과 디지털 서명은 생태계의 도구에 맡깁니다. pylopdf를 typst나 pyHanko와 함께 쓰는 방법은 [생태계 연동](ecosystem.md)에서 소개합니다.
 
 ## 다음 단계 { #next-steps }
 

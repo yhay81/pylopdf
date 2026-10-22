@@ -5,13 +5,14 @@ description: Port pymupdf code to pylopdf with the migration tool, a name-by-nam
 
 # Migrating from pymupdf
 
-pylopdf follows pymupdf's API: the same names mean the same things, and the
-data shapes that most code depends on, such as `"words"` tuples, the `"dict"`
-structure, and `search_for()` returning rectangles, match. It is not a drop-in
-replacement yet. It covers part of pymupdf's API, opens **PDF files only**
-(not XPS, EPUB, or images), and changes a few behaviors on purpose. This page
-lists what carries over, what differs, and what to use instead of the parts
-pylopdf does not implement.
+pylopdf aims to do everything pymupdf can do with PDF files, through an API
+of its own. Many names are the same as pymupdf's today, and so are the data
+shapes that most code depends on, such as `"words"` tuples, the `"dict"`
+structure, and `search_for()` returning rectangles. It is not a drop-in
+replacement: it opens **PDF files only** (not XPS, EPUB, or images), changes a
+few behaviors on purpose, and its next release redesigns the API, which the
+migration tool will follow. This page lists what carries over, what differs,
+and what to use instead of the parts pylopdf does not implement yet.
 
 ## Automated migration { #codemod }
 
@@ -140,7 +141,8 @@ is not supported yet.
 | Story API, `insert_htmlbox` (typesetting) | [typst](ecosystem.md#typesetting) |
 | Digital signatures | [pyHanko](ecosystem.md#signatures) |
 | Incremental save | Planned; until then pylopdf rewrites the whole file, and pyHanko handles signatures |
-| Opening XPS, EPUB, CBZ, or images | Not planned: pylopdf is PDF only |
+| Converting images or CBZ archives to PDF | Planned; until then, convert them with Pillow or img2pdf |
+| Opening XPS or EPUB | Not planned: pylopdf is a PDF library |
 
 ## Worked example { #worked-example }
 

@@ -76,8 +76,9 @@ It is built on [lopdf](https://github.com/J-F-Liu/lopdf) for reading and
 editing PDFs, [hayro](https://github.com/LaurenzV/hayro) for rendering and
 text extraction, [krilla](https://github.com/LaurenzV/krilla) and
 [HarfRust](https://github.com/harfbuzz/harfrust) for writing text, and
-[RTen](https://github.com/robertknight/rten) for OCR. Its API follows
-[pymupdf](https://pymupdf.readthedocs.io/).
+[RTen](https://github.com/robertknight/rten) for OCR. It aims to cover what
+[pymupdf](https://pymupdf.readthedocs.io/) can do with PDF files, through an
+API of its own.
 [NOTICE.md](https://github.com/yhay81/pylopdf/blob/main/NOTICE.md) lists the
 licenses of all bundled third-party code. The optional font packages contain
 Noto fonts under the SIL Open Font License, and the OCR model package contains

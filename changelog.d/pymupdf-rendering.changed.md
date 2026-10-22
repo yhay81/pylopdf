@@ -1,4 +1,4 @@
-Adopt pymupdf's rendering surface (roadmap M0): `Page.get_pixmap` now
+Adopt pymupdf's rendering surface: `Page.get_pixmap` now
 returns opaque RGB (`n == 3`) on white by default and straight-alpha RGBA
 with `alpha=True`, and takes `matrix=` (scaling matrices, with separate x
 and y factors) and `dpi=` instead of `scale=`, `dpi` taking precedence as in

@@ -1,4 +1,4 @@
-"""Independent affine examples and PDF round trips for roadmap F4."""
+"""Independent affine examples and PDF round trips for the geometry types."""
 
 from __future__ import annotations
 

@@ -1,43 +1,37 @@
-"""Validate the pymupdf parity manifest and report coverage per pymupdf class.
+"""Validate the pymupdf capability map and report coverage per pymupdf class.
 
-``api/pymupdf-parity.json`` holds one entry per pymupdf public API, keyed by
-its pymupdf name: ``open`` or ``TEXT_DEHYPHENATE`` for a module attribute,
-``PDF_ANNOT_*`` for module attributes grouped by a shared prefix, and
-``Document.save`` for a member of one of the tracked classes. Every entry has
-these fields:
+``api/pymupdf-parity.json`` records, for every public name of pymupdf, how
+pylopdf covers the capability behind it, keyed by the pymupdf name: ``open``
+or ``TEXT_DEHYPHENATE`` for a module attribute, ``PDF_ANNOT_*`` for module
+attributes grouped by a shared prefix, and ``Document.save`` for a member of
+one of the tracked classes. Every entry has these fields:
 
 - ``kind``: what the name is in pymupdf, as ``tools/pymupdf_inventory.py``
   reports it.
 - ``status``: ``available`` when pylopdf provides the capability today,
-  ``planned`` when a ROADMAP.md foundation or milestone adds it,
-  ``integration`` when an ecosystem tool covers it through a tested recipe,
-  and ``non-goal`` when the roadmap's non-goals exclude it.
-- ``relation``, for available and planned entries: ``same`` when pylopdf
-  provides the pymupdf name with pymupdf's meaning, possibly accepting only
-  part of its arguments, and ``replaced`` when a different pylopdf API
-  provides the capability and pylopdf does not provide the pymupdf name.
-  Integration and non-goal entries have ``null``.
-- ``pylopdf``: the pylopdf symbol, spelled as in ``api/public-api.json``. An
-  available entry names a symbol that exists; a planned ``same`` entry repeats
-  the pymupdf name; a planned ``replaced`` entry names the intended API.
-- ``milestone``: the ROADMAP.md foundation (``F0``-``F8``) or milestone
-  (``M0``-``M8``) that adds or completes the entry, or ``null``.
+  ``planned`` when a ROADMAP.md milestone adds it, ``integration`` when an
+  ecosystem tool covers it through a tested recipe, and ``non-goal`` when it
+  is outside the roadmap's scope or an internal of pymupdf without a
+  capability at the PDF level.
+- ``relation``, for available entries only: ``same`` when pylopdf provides
+  the capability under the pymupdf name, and ``replaced`` when a different
+  pylopdf API provides it. Other entries have ``null``.
+- ``pylopdf``: for an available entry, the pylopdf symbol, spelled as in
+  ``api/public-api.json``; otherwise ``null``, because a milestone designs
+  the API when it starts.
+- ``milestone``: the ROADMAP.md milestone that adds a planned capability or
+  completes an available one, as one of the slugs in ``MILESTONES``, or
+  ``null``.
 
 Optional fields, written only when set:
 
-- ``provisional``: ``true`` on a planned ``replaced`` entry whose pylopdf name
-  awaits the F0 API design review.
 - ``hint``: one English sentence for a migrating caller, reused verbatim by
   AttributeError hints and the migration guide. Required for ``replaced`` and
   ``integration`` entries.
-- ``reset``: one English sentence on what milestone M0 changes in an existing
-  pylopdf API so that it matches pymupdf; the entry's milestone is then
-  ``M0``. An available ``same`` entry whose pylopdf name differs from the
-  pymupdf name needs one.
 - ``note``: a maintainer note, such as unsupported arguments or the reason for
   a non-goal. A non-goal needs a hint or a note.
 
-The manifest records API names and statuses only. Never copy pymupdf code or
+The map records API names and statuses only. Never copy pymupdf code or
 documentation text, which is AGPL-licensed.
 """
 
@@ -56,14 +50,26 @@ ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_PATH = ROOT / "api" / "pymupdf-parity.json"
 PUBLIC_API_PATH = ROOT / "api" / "public-api.json"
 
-SCHEMA = 2
+SCHEMA = 3
 STATUSES = ("available", "planned", "integration", "non-goal")
 RELATIONS = ("same", "replaced")
-MILESTONES = tuple(f"F{number}" for number in range(9)) + tuple(f"M{number}" for number in range(9))
-RESET_MILESTONE = "M0"
+# ROADMAP.md milestone slugs and the headings they stand for.
+MILESTONES = {
+    "content": "Content model",
+    "canvas": "Canvas",
+    "reset": "API reset",
+    "reading": "Reading",
+    "rendering": "Rendering",
+    "writing": "Writing",
+    "interaction": "Interaction",
+    "rewriting": "Rewriting",
+    "structure": "Structure",
+    "persistence": "Persistence",
+    "understanding": "Understanding",
+}
 REQUIRED_FIELDS = ("kind", "status", "relation", "pylopdf", "milestone")
-OPTIONAL_FIELDS = ("provisional", "hint", "reset", "note")
-FIELDS = ("kind", "status", "relation", "pylopdf", "provisional", "milestone", "hint", "reset", "note")
+OPTIONAL_FIELDS = ("hint", "note")
+FIELDS = ("kind", "status", "relation", "pylopdf", "milestone", "hint", "note")
 MODULE_SCOPE = "module"
 MODULE_KINDS = frozenset({"alias", "class", "constant", "exception", "function", "group"})
 MEMBER_KINDS = frozenset({"alias", "attribute", "class", "method", "property", "protocol"})
@@ -92,8 +98,7 @@ TRACKED_CLASSES = (
 COLUMNS = (
     ("available", "same"),
     ("available", "replaced"),
-    ("planned", "same"),
-    ("planned", "replaced"),
+    ("planned", None),
     ("integration", None),
     ("non-goal", None),
 )
@@ -210,11 +215,9 @@ def _field_errors(key: str, entry: Entry) -> list[str]:
     milestone = entry.get("milestone")
     if milestone is not None and milestone not in MILESTONES:
         errors.append(f"{key}: unknown milestone {milestone!r}")
-    if "provisional" in entry and entry["provisional"] is not True:
-        errors.append(f"{key}: provisional is written only as true")
     errors.extend(
         f"{key}: {field} must be a non-empty string"
-        for field in ("hint", "reset", "note")
+        for field in OPTIONAL_FIELDS
         if field in entry and not (isinstance(entry[field], str) and str(entry[field]).strip())
     )
     return errors
@@ -239,26 +242,24 @@ def _status_errors(key: str, entry: Entry, symbols: set[str]) -> list[str]:  # n
     relation = entry.get("relation")
     symbol = entry.get("pylopdf")
     milestone = entry.get("milestone")
-    if status in {"available", "planned"} and relation is None:
-        errors.append(f"{key}: an {status} entry needs relation same or replaced")
-    if status in {"integration", "non-goal"} and relation is not None:
-        errors.append(f"{key}: a {status} entry has no relation")
-    if status in {"available", "planned"} and symbol is None:
-        errors.append(f"{key}: an {status} entry must name its pylopdf symbol")
-    if status == "available" and isinstance(symbol, str) and not _symbol_exists(symbol, symbols):
-        errors.append(f"{key}: pylopdf symbol {symbol!r} is not in api/public-api.json")
-    if status == "available" and relation == "same" and not same_name(key, entry) and "reset" not in entry:
-        errors.append(f"{key}: a same entry named {symbol!r} needs a reset that gives it the pymupdf name")
-    if status == "planned" and relation == "same" and symbol != key:
-        errors.append(f"{key}: a planned same entry repeats the pymupdf name as its pylopdf symbol")
+    if status == "available":
+        if relation is None:
+            errors.append(f"{key}: an available entry needs relation same or replaced")
+        if symbol is None:
+            errors.append(f"{key}: an available entry must name its pylopdf symbol")
+        elif isinstance(symbol, str) and not _symbol_exists(symbol, symbols):
+            errors.append(f"{key}: pylopdf symbol {symbol!r} is not in api/public-api.json")
+        if relation == "same" and symbol is not None and not same_name(key, entry):
+            errors.append(f"{key}: a same entry names {symbol!r} instead of the pymupdf name")
+    elif status is not None:
+        if relation is not None:
+            errors.append(f"{key}: only an available entry has a relation")
+        if symbol is not None:
+            errors.append(f"{key}: only an available entry names a pylopdf symbol")
     if status == "planned" and milestone is None:
         errors.append(f"{key}: a planned entry must name its milestone")
     if status in {"integration", "non-goal"} and milestone is not None:
         errors.append(f"{key}: a {status} entry has no milestone")
-    if "reset" in entry and milestone != RESET_MILESTONE:
-        errors.append(f"{key}: an entry with a reset belongs to milestone {RESET_MILESTONE}")
-    if "provisional" in entry and (status, relation) != ("planned", "replaced"):
-        errors.append(f"{key}: only a planned replaced entry can be provisional")
     if (relation == "replaced" or status == "integration") and "hint" not in entry:
         errors.append(f"{key}: a {relation or status} entry needs a hint for migrating callers")
     if status == "non-goal" and "hint" not in entry and "note" not in entry:
@@ -296,7 +297,7 @@ def _column(entry: Entry) -> tuple[str, str | None]:
 
 
 def coverage_report(manifest: JsonObject) -> str:
-    """Return status and relation counts per class, provisional names, and the M0 resets."""
+    """Return status and relation counts per class and the planned capabilities per milestone."""
     entries = cast("dict[str, Entry]", manifest["entries"])
     per_scope: dict[str, Counter[tuple[str, str | None]]] = {}
     milestones: Counter[str] = Counter()
@@ -304,8 +305,8 @@ def coverage_report(manifest: JsonObject) -> str:
         per_scope.setdefault(scope_of(key), Counter())[_column(entry)] += 1
         if entry["status"] == "planned":
             milestones[str(entry["milestone"])] += 1
-    labels = ("total", "avail same", "avail repl", "plan same", "plan repl", "integration", "non-goal", "coverage")
-    lines = [f"pymupdf {manifest['pymupdf']} parity, schema {manifest['schema']}: {len(entries)} entries", ""]
+    labels = ("total", "avail same", "avail repl", "planned", "integration", "non-goal", "coverage")
+    lines = [f"pymupdf {manifest['pymupdf']} capability map, schema {manifest['schema']}: {len(entries)} entries", ""]
     lines.append(f"{'':<16}" + "".join(f"{label:>12}" for label in labels))
     totals: Counter[tuple[str, str | None]] = Counter()
     for scope in (MODULE_SCOPE, *TRACKED_CLASSES):
@@ -315,23 +316,8 @@ def coverage_report(manifest: JsonObject) -> str:
     lines.append(_coverage_row("total", totals))
     lines.append("coverage = (available + integration) / (total - non-goal)")
     lines.append("")
-    planned = ", ".join(f"{milestone} {milestones[milestone]}" for milestone in MILESTONES if milestones[milestone])
+    planned = ", ".join(f"{title} {milestones[slug]}" for slug, title in MILESTONES.items() if milestones[slug])
     lines.append(f"planned by milestone: {planned or 'none'}")
-    provisional = sum(1 for entry in entries.values() if entry.get("provisional"))
-    lines.append(f"provisional pylopdf names awaiting the F0 review: {provisional}")
-    # Entries that one change touches share its sentence, so each change is listed once.
-    changes: dict[str, list[str]] = {}
-    for key in sorted((key for key, entry in entries.items() if "reset" in entry), key=sort_key):
-        changes.setdefault(str(entries[key]["reset"]), []).append(key)
-    lines.append("")
-    lines.append(f"M0 resets: {len(changes)} changes over {sum(len(keys) for keys in changes.values())} entries")
-    for reset, keys in changes.items():
-        lines.append(f"- {reset}")
-        for key in keys:
-            entry = entries[key]
-            tense = "now" if entry["status"] == "available" else "becomes"
-            symbol = "" if same_name(key, entry) else f" [{tense} {entry['pylopdf']}]"
-            lines.append(f"    {key}{symbol}")
     return "\n".join(lines) + "\n"
 
 
@@ -346,7 +332,7 @@ def _coverage_row(label: str, counts: Counter[tuple[str, str | None]]) -> str:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n", 1)[0])
-    parser.add_argument("--manifest", type=Path, default=MANIFEST_PATH, help="parity manifest to check")
+    parser.add_argument("--manifest", type=Path, default=MANIFEST_PATH, help="capability map to check")
     parser.add_argument("--api", type=Path, default=PUBLIC_API_PATH, help="public API snapshot to resolve against")
     parser.add_argument(
         "--format",
@@ -370,7 +356,7 @@ def main() -> int:
                 f"{args.manifest} is not canonically formatted; run `uv run python tools/check_parity.py --format`",
             )
     if errors:
-        sys.stderr.write(f"{len(errors)} parity manifest error(s):\n")
+        sys.stderr.write(f"{len(errors)} capability map error(s):\n")
         sys.stderr.writelines(f"  {error}\n" for error in errors)
         return 1
     sys.stdout.write(coverage_report(manifest))

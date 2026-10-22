@@ -7,20 +7,22 @@
 
 **Edit, render, extract, and create PDFs in Python.**
 
-pylopdf follows the API of [pymupdf](https://pymupdf.readthedocs.io/), so
-code and knowledge carry over, but it is built on a Rust core and released
-under the MIT license. It installs as a single wheel with no required Python
-dependencies.
+pylopdf aims to do everything that [pymupdf](https://pymupdf.readthedocs.io/)
+does with PDF files through a smaller API of its own. It is built on the Rust
+PDF engines [lopdf](https://github.com/J-F-Liu/lopdf),
+[hayro](https://github.com/LaurenzV/hayro), and
+[krilla](https://github.com/LaurenzV/krilla), released under the MIT license,
+and installs as a single wheel with no required Python dependencies.
 
 [Documentation](https://pylopdf.haya.works/) ·
 [Getting started](https://pylopdf.haya.works/getting-started/) ·
 [API reference](https://pylopdf.haya.works/api/) ·
 [Migrating from pymupdf](https://pylopdf.haya.works/migration/)
 
-> **Status:** pylopdf is pre-1.0 and covers part of pymupdf's API so far.
-> Breaking changes can still happen; the
-> [stability policy](https://pylopdf.haya.works/stability/) explains what may
-> change.
+> **Status:** pylopdf is pre-1.0, and the next release redesigns its API, as
+> the [roadmap](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)
+> describes. The [stability policy](https://pylopdf.haya.works/stability/)
+> explains what may change.
 
 ## Install
 
@@ -106,12 +108,13 @@ covers each area in more detail.
 
 ## Not supported yet
 
-Redaction, editing or deleting annotations, creating form fields, and
-incremental saving are planned; the [roadmap](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md) lists when.
+Redaction, editing or deleting annotations, creating form fields,
+incremental saving, and validated PDF/A and PDF/UA output are planned; the
+[roadmap](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md) lists them.
 
-Typesetting, PDF/A output, and digital signatures are out of scope. The
-[ecosystem guide](https://pylopdf.haya.works/ecosystem/) shows how to pair
-pylopdf with [typst](https://typst.app/) and
+Typesetting with HTML and CSS and digital signatures stay with ecosystem
+tools. The [ecosystem guide](https://pylopdf.haya.works/ecosystem/) shows how
+to pair pylopdf with [typst](https://typst.app/) and
 [pyHanko](https://pypi.org/project/pyHanko/) for those.
 
 ## Benchmarks

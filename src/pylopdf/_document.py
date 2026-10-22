@@ -1650,7 +1650,7 @@ class Document:
         As in pymupdf, ``pno`` lies in ``0..page_count - 1`` and ``to`` in
         ``-1..page_count - 1``; other values raise ``ValueError``. The copy is
         an independent page object that shares the original's content streams
-        and resources until either page is edited (DESIGN.md G8).
+        and resources until either page is edited.
         """
         self._ensure_open()
         if not (_is_int(pno) and _is_int(to)):

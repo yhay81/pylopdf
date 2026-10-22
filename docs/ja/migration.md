@@ -5,7 +5,7 @@ description: 移行ツール、名前ごとの対応表、注意すべき挙動�
 
 # pymupdfからの移行
 
-pylopdfはpymupdfのAPIに倣っています。同じ名前は同じ意味を持ち、`"words"`タプル、`"dict"`の構造、矩形を返す`search_for()`など、多くのコードが依存するデータの形も一致しています。ただし、まだそのまま置き換えられるわけではありません。pymupdfのAPIの一部しかカバーしておらず、開けるのは**PDFファイルだけ**で（XPS、EPUB、画像は不可）、いくつかの挙動は意図的に変えています。このページでは、そのまま使えるもの、異なるもの、pylopdfが実装していない部分の代わりに使うものをまとめます。
+pylopdfは、pymupdfがPDFファイルでできることをすべて、独自のAPIで実現することを目指しています。現在は多くの名前がpymupdfと同じで、`"words"`タプル、`"dict"`の構造、矩形を返す`search_for()`など、多くのコードが依存するデータの形も同じです。ただし、そのまま置き換えられるものではありません。開けるのは**PDFファイルだけ**で（XPS、EPUB、画像は不可）、いくつかの挙動は意図的に変えており、次のリリースではAPIを作り直します。移行ツールもそれに追従します。このページでは、そのまま使えるもの、異なるもの、pylopdfがまだ実装していない部分の代わりに使うものをまとめます。
 
 ## 自動移行 { #codemod }
 
@@ -102,7 +102,8 @@ python -m pylopdf.migrate src/
 | Story API、`insert_htmlbox`（組版） | [typst](ecosystem.md#typesetting) |
 | 電子署名 | [pyHanko](ecosystem.md#signatures) |
 | 増分保存 | 予定しています。それまではpylopdfはファイル全体を書き直し、署名はpyHankoが扱います |
-| XPS、EPUB、CBZ、画像を開く | 予定はありません。pylopdfはPDF専用です |
+| 画像やCBZアーカイブをPDFに変換する | 予定しています。それまではPillowやimg2pdfで変換してください |
+| XPSやEPUBを開く | 予定はありません。pylopdfはPDFのライブラリです |
 
 ## 移植例 { #worked-example }
 

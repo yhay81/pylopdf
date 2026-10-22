@@ -9,7 +9,7 @@ pylopdfは[セマンティックバージョニング](https://semver.org/)に�
 
 ## v1.0より前 { #current-status }
 
-pylopdfは1.0前です。APIをpymupdfに近づけていく間は、リリースに互換性のない変更が含まれることがあり、それにはまだ非推奨期間を設けていません。互換性のない変更はすべて、コードの更新方法とともに[変更履歴](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)に記載します。自分のペースでアップグレードしたい場合は、マイナーバージョンを固定してください（例: `pylopdf~=0.15.0`）。
+pylopdfは1.0前です。[ロードマップ](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)が次のリリースで予定しているAPIの作り直しのように、リリースに互換性のない変更が含まれることがあり、それにはまだ非推奨期間を設けていません。互換性のない変更はすべて、コードの更新方法とともに[変更履歴](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)に記載します。自分のペースでアップグレードしたい場合は、マイナーバージョンを固定してください（例: `pylopdf~=0.15.0`）。
 
 以下の規則はv1.0から適用します。
 

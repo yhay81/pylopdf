@@ -1,4 +1,4 @@
-"""pymupdf's Annot handles and annotation constants (M0)."""
+"""pymupdf's Annot handles and annotation constants."""
 
 from __future__ import annotations
 

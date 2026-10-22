@@ -1,4 +1,4 @@
-"""pymupdf's rendering surface: get_pixmap, get_page_pixmap, get_svg_image, and Pixmap (M0)."""
+"""pymupdf's rendering surface: get_pixmap, get_page_pixmap, get_svg_image, and Pixmap."""
 
 from __future__ import annotations
 

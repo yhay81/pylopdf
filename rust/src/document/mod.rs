@@ -1994,7 +1994,7 @@ impl _Document {
 
     /// Interpret a one-based page's content with the redaction engine and
     /// return each glyph's display-space origin, code, and approximation
-    /// flags. A private hook for the geometry agreement tests (roadmap F8).
+    /// flags. A private hook for the geometry agreement tests.
     fn content_glyphs(
         &self,
         py: Python<'_>,

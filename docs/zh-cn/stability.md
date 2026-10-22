@@ -9,7 +9,7 @@ pylopdf遵循[语义化版本](https://semver.org/)。
 
 ## v1.0之前 { #current-status }
 
-pylopdf尚处于1.0之前的阶段。在API向pymupdf靠拢的过程中，各版本仍可能包含不兼容的变更，目前也还没有为这些变更设置弃用期。每项不兼容的变更都会连同代码的更新方法一起列在[更新日志](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)中。如果你需要按自己的节奏升级，请固定次版本号（例如`pylopdf~=0.15.0`）。
+pylopdf尚处于1.0之前的阶段。各版本仍可能包含不兼容的变更，例如[路线图](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)为下一个版本计划的API重新设计，目前也还没有为这些变更设置弃用期。每项不兼容的变更都会连同代码的更新方法一起列在[更新日志](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)中。如果你需要按自己的节奏升级，请固定次版本号（例如`pylopdf~=0.15.0`）。
 
 以下规则从v1.0起生效。
 

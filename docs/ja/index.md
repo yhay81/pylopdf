@@ -1,6 +1,6 @@
 ---
 title: pylopdf
-description: pymupdf流のAPIとRustコアで、PythonからPDFを編集・描画・抽出・生成。MITライセンス。
+description: RustのPDFエンジンlopdf・hayro・krillaの上で、PythonからPDFを編集・描画・抽出・生成。MITライセンス。
 hide:
   - navigation
   - toc
@@ -12,7 +12,7 @@ hide:
       <p class="living-eyebrow">PythonネイティブのPDFツールキット</p>
       <h1 id="living-hero-title">PDFを、<span class="living-annotated">Pythonらしく</span>。中核はRust。</h1>
       <p class="living-lede">
-        PDFの編集・描画・抽出・生成を、pymupdfに倣ったAPIで。MITライセンスで、ほかに何もインストールする必要はありません。
+        PDFの編集・描画・抽出・生成を、Rustのエンジンlopdf・hayro・krillaの上で。MITライセンスで、ほかに何もインストールする必要はありません。
       </p>
 
       <div class="living-actions">

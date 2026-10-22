@@ -1,4 +1,4 @@
-Complete pymupdf's geometry types (roadmap F4): `Rect` gains pymupdf's
+Complete pymupdf's geometry types: `Rect` gains pymupdf's
 constructors, corners, `contains`, `intersects`, `round`, `torect`, `morph`,
 `get_area`, `normalized`, and the `+`, `-`, `*`, `/`, `|`, `&`, `in`,
 `abs()`, and truth-testing operators, and its `width` and `height` no longer
