@@ -103,6 +103,7 @@ from pylopdf._errors import (
     PylopdfWarning,
     StalePageError,
 )
+from pylopdf._fallback_fonts import FallbackFont, FallbackFonts
 from pylopdf._fonts import Base14_fontdict, Base14_fontnames, Font
 from pylopdf._geometry import (
     EMPTY_IRECT,
@@ -265,6 +266,8 @@ __all__ = [
     "EncodedImage",
     "EncryptedDocumentError",
     "Encryption",
+    "FallbackFont",
+    "FallbackFonts",
     "FillRule",
     "Font",
     "FontLanguage",

@@ -409,6 +409,7 @@ def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> N
         ),
         ("import pylopdf\ncreated = doc.metadata['creationDate']\n", 'created = doc.metadata.get("created", "")'),
         ("import pylopdf\nlabel = page.get_label()\n", "label = page.label"),
+        ("import pylopdf\ndoc = pylopdf.open(path)\ndoc.set_fallback_font(None)\n", "doc.fallback_fonts = {}"),
         ("import pylopdf\ndoc = pylopdf.open(path)\ndoc[0].set_rotation(90)\n", "doc.pages[0].rotation = 90"),
         (
             "import pylopdf\npage.set_cropbox((0, 0, 10, 10))\ncrop = page.cropbox\n",

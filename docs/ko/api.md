@@ -153,9 +153,19 @@ print([page.label for page in doc.pages])  # ['i', 'ii', 'iii', 'iv', 'A-1', 'A-
 | `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, colorspace="rgb", format="png", quality=95, workers=None, max_size=512 MiB)` | 모든 페이지 또는 나열한 페이지를 순서대로 병렬 렌더링한 PNG 또는 JPEG bytes |
 | `images` | 객체 번호별 이미지 객체. [이미지](#images) 참조 |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | 이미지를 다운샘플링하고 재압축해 파일 크기를 줄임 |
-| `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | 글꼴이 포함되지 않은 중국어, 일본어, 한국어 텍스트를 표시할 때 쓰는 글꼴. CJK extra가 자동으로 설정 |
+| `fallback_fonts` | 글꼴이 포함되지 않은 중국어, 일본어, 한국어 텍스트를 표시할 때 쓰는 언어별 글꼴. CJK extra가 자동으로 설정 |
 
 `rewrite_images`는 pymupdf의 키워드를 따릅니다. 그려지는 위치에서 `dpi_threshold`보다 높은 DPI를 가진 이미지는 `dpi_target`으로 리샘플링되고, `quality`(1–100)로 JPEG로 다시 인코딩됩니다. 마스크가 없는 단순한 8비트 회색조 또는 RGB 이미지만 변경하며, 새 인코딩이 더 작아지지 않는 이미지는 그대로 두고, 통계를 반환합니다.
+
+`fallback_fonts`는 Adobe-Japan1, Korea1, GB1, CNS1 문자 컬렉션의 언어인 `"ja"`, `"ko"`, `"zh-CN"`, `"zh-TW"`를 OpenType `Font`로 이루어진 `FallbackFont(sans=None, serif=None)` 레코드에 대응시킵니다. 명조, 송체, 명체, 바탕처럼 이름이 세리프체임을 나타내는 포함되지 않은 글꼴은 `serif`로, 나머지는 `sans`로 렌더링하며, 둘 중 하나가 `None`이면 다른 하나가 둘 다 맡습니다. 편집하기 전까지는 설치된 글꼴 extra(`pylopdf[jp]`, `[ko]`, `[zh-cn]`, `[zh-tw]`)를 나열합니다. 한 언어를 대입하거나 삭제하면 그 언어만 바뀌고, 매핑을 대입하면 모든 언어를 교체하며, `del doc.fallback_fonts`는 설치된 extra로 되돌립니다. 글꼴 면은 복사하지 않고 공유하므로 하나의 `Font`를 여러 문서에서 쓸 수 있습니다.
+
+```python
+from pylopdf import FallbackFont, Font
+
+doc.fallback_fonts["ja"] = FallbackFont(Font(fontfile="NotoSansJP-Regular.otf"), Font(fontfile="NotoSerifJP-Regular.otf"))
+doc.fallback_fonts = {}           # no fallback: such text is not drawn
+del doc.fallback_fonts            # back to the installed font extras
+```
 
 ### 폼, 첨부 파일, 기타 데이터 { #document-data }
 
@@ -651,6 +661,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 | `Colorspace` | [`Pixmap`](#pixmap)의 색 공간. `GRAY`와 `RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [목차와 페이지 레이블](#outline) |
 | `PageBoxes` | [페이지 기하](#page-geometry) |
+| `FallbackFont`, `FallbackFonts` | [렌더링과 이미지](#document-rendering) |
 
 상수는 pymupdf의 이름을 유지하며 열거형으로도 묶여 있습니다. `Permissions`(`PDF_PERM_*`), `LinkKind`(`LINK_*`), `TextAlign`(`TEXT_ALIGN_*`), `AnnotType`(`PDF_ANNOT_*`), `AnnotFlags`(`PDF_ANNOT_IS_*`)입니다. `Access`의 멤버는 `USER`와 `OWNER`이고, `Encryption`은 저장하는 파일을 암호화하는 방법을 나타냅니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
 

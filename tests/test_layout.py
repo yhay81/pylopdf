@@ -217,7 +217,7 @@ def test_search_for_cjk() -> None:
 def test_search_for_nonembedded_cjk() -> None:
     """Search non-embedded CJK text whose Unicode comes from the CMap."""
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
-    doc.set_fallback_font(None)
+    doc.fallback_fonts = {}
     assert len(doc.pages[0].search("日本語")) == 1
 
 

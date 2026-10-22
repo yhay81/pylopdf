@@ -222,7 +222,7 @@ interpret the page separately and agree with it on the bundled corpus.
 | `doc.needs_password`, `is_repaired`, `is_dirty`, `is_closed`, `permissions` | `needs_password` is true until `unlock` succeeds; `permissions` is a `Permissions` flag value. |
 | `doc.path` | The file the document came from, or `None`. |
 | `doc.limits`, `doc.complexity`, `doc.pdfa_claim` | |
-| `doc.fallback_fonts` | An assignable mapping from a CJK language to the `Font` that renders text set in non-embedded fonts of that language. |
+| `doc.fallback_fonts` | An assignable mapping from a CJK language to the `FallbackFont(sans, serif)` record of the `Font` values that render text set in non-embedded fonts of that language; `del` returns to the installed font extras. |
 | `doc.close()`, the context manager | |
 
 ## 5. Pages and structure
@@ -439,7 +439,7 @@ hint.
 | `get_form_fields()`, `set_form_field()` | `doc.form` |
 | `extract_image(xref)` | `doc.images[xref].extract()` |
 | `get_pdfa_claim()` | `doc.pdfa_claim` |
-| `set_fallback_font(...)` | `doc.fallback_fonts`, an assignable mapping from CJK language to `Font` |
+| `set_fallback_font(...)` | `doc.fallback_fonts`, an assignable mapping from CJK language to `FallbackFont` |
 | `Page.number`, `Page.parent` | `page.index`, `page.document` |
 | `set_rotation()` | assignment to `page.rotation` |
 | `mediabox`, `set_mediabox()`, `cropbox`, `set_cropbox()`, `artbox`, `bleedbox`, `trimbox` and their setters | `page.boxes` in PDF user space |

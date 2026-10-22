@@ -84,19 +84,19 @@ def test_fallback_font_changes_reset_retained_fonts() -> None:
     """Cached hayro fonts depend on fallback configuration, not only the snapshot."""
     data = build_nonembedded_cjk_pdf()
     doc = pylopdf.open(data)
-    doc.set_fallback_font(None)
+    doc.fallback_fonts = {}
     blank = doc.pages[0].pixmap(alpha=True).to_bytes()
     assert doc.pages[0].pixmap(alpha=True).to_bytes() == blank
 
-    doc.set_fallback_font(SANS)
+    doc.fallback_fonts = {"ja": pylopdf.FallbackFont(pylopdf.Font(fontfile=SANS))}
     with_font = doc.pages[0].pixmap(alpha=True).to_bytes()
     fresh = pylopdf.open(data)
-    fresh.set_fallback_font(SANS)
+    fresh.fallback_fonts = {"ja": pylopdf.FallbackFont(pylopdf.Font(fontfile=SANS))}
 
     assert with_font != blank
     assert with_font == fresh.pages[0].pixmap(alpha=True).to_bytes()
 
-    doc.set_fallback_font(None)
+    doc.fallback_fonts = {}
     assert doc.pages[0].pixmap(alpha=True).to_bytes() == blank
 
 

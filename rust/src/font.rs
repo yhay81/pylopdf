@@ -186,6 +186,15 @@ impl _Font {
         }
     }
 
+    /// The font program and face index of an OpenType face, shared rather
+    /// than copied, or `None` for a Standard 14 font.
+    pub(crate) fn program(&self) -> Option<(Arc<Vec<u8>>, u32)> {
+        match &self.face {
+            Face::OpenType(face) => Some(face.generation.program()),
+            Face::Standard(..) => None,
+        }
+    }
+
     /// The ascender and descender that `insert_text` and `insert_textbox`
     /// place lines with, as pymupdf's `Font` reports them.
     pub(crate) fn line_metrics(&self) -> LineMetrics {

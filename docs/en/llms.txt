@@ -261,6 +261,7 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - Document.render_page -> Page.pixmap: Use doc.pages[i].pixmap(dpi=72 * scale, alpha=True).to_bytes() for the PNG.
 - Document.render_page_svg -> Page.svg: Use doc.pages[i].svg().
 - Document.render_pages -> Document.render: Use doc.render(pages, ...), which takes dpi or matrix, not both.
+- Document.set_fallback_font -> Document.fallback_fonts: Assign doc.fallback_fonts[language] = FallbackFont(Font(fontfile=path)), with fontbuffer= for bytes and serif= for the serif slot; doc.fallback_fonts = {} turns fallback off.
 - Document.to_markdown -> Document.markdown: Call doc.markdown(...).
 - DocumentMetadata -> Metadata: doc.metadata returns a Metadata mapping of the entries present; doc.version and doc.encryption_method replace format and encryption.
 - DocumentMetadata.author -> Metadata: Read doc.metadata.get("author", "").

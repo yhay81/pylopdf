@@ -231,6 +231,38 @@ pub(super) fn set_fallback_font(
     Ok(())
 }
 
+/// Implements [`_Document::set_fallback_face`]: put the program of a loaded
+/// OpenType face, shared rather than copied, in one slot, or empty the slot.
+pub(super) fn set_fallback_face(
+    this: &mut _Document,
+    language: &str,
+    kind: &str,
+    font: Option<&_Font>,
+) -> PyResult<()> {
+    let program = match font {
+        Some(font) => Some(
+            font.program()
+                .ok_or_else(|| PdfError::new_err("a Standard 14 font cannot render CJK text"))?,
+        ),
+        None => None,
+    };
+    let pair = this
+        .fallback_fonts
+        .pair_mut(CjkFontLanguage::parse(language)?);
+    let slot = match kind {
+        "sans" => &mut pair.sans,
+        "serif" => &mut pair.serif,
+        _ => {
+            return Err(PdfError::new_err(format!(
+                "kind must be 'sans' or 'serif': {kind:?}"
+            )));
+        }
+    };
+    *slot = program;
+    this.invalidate_interpreted_pages();
+    Ok(())
+}
+
 /// Implements [`_Document::set_fallback_font_files`].
 pub(super) fn set_fallback_font_files(
     this: &mut _Document,

@@ -74,7 +74,7 @@ def test_ocr_layer_does_not_need_fallback_fonts() -> None:
     # A non-embedded reference font remains extractable when CJK fallbacks are
     # disabled, proving independence from optional locale font extras.
     doc = _blank_page_doc()
-    doc.set_fallback_font(None)
+    doc.fallback_fonts = {}
     page = doc.pages[0]
     page.apply_ocr(words=ocr_words([(50, 50, 200, 75, "帳票スキャン")]), skip_existing=False)
     assert "帳票スキャン" in page.text()
