@@ -16,7 +16,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeGuard, cast, overload
 
-from pylopdf import _fonts, _markdown
+from pylopdf import _fonts, _markdown, _optional_content
 from pylopdf._attachments import Attachments
 from pylopdf._errors import DocumentClosedError, EncryptedDocumentError, PylopdfWarning
 from pylopdf._fonts import (
@@ -85,10 +85,13 @@ if TYPE_CHECKING:
         MarkInfo,
         MetadataProbe,
         MetadataUpdate,
+        OcgInfo,
+        OcmdInfo,
         PageLabelInfo,
         PageLabelSpec,
         RawTextPageDict,
         TextPageDict,
+        VisibilityExpression,
     )
 
 
@@ -972,6 +975,91 @@ class Document:
         """Return whether any page lists an annotation other than a link or widget."""
         self._ensure_open()
         return self._doc.has_annotation_kind(links=False)
+
+    def get_ocgs(self) -> dict[int, OcgInfo]:
+        """Return the optional content groups that ``/OCProperties /OCGs`` lists, keyed by object number.
+
+        Each value holds the group's ``name``, its ``intent`` names (empty
+        when it has no ``/Intent``), the ``/Usage /CreatorInfo /Subtype``
+        name as ``usage``, and ``on``: whether the default configuration
+        ``/D`` shows the group, from its ``/BaseState``, ``/ON``, and
+        ``/OFF`` as rendering and extraction apply them. pymupdf reads ``on``
+        from MuPDF's state as of opening, so it misses later edits, and
+        reports a group without ``usage`` as on.
+        """
+        self._ensure_open()
+        return _optional_content.get_ocgs(self)
+
+    def add_ocg(
+        self,
+        name: str,
+        config: int = -1,
+        on: bool | int = 1,  # noqa: FBT001 - pymupdf's positional parameter.
+        intent: str | Sequence[str] | None = None,
+        usage: str | None = None,
+    ) -> int:
+        """Add an optional content group and return its object number.
+
+        The group is listed in ``/OCProperties /OCGs`` and in the ``/Order``
+        and either ``/ON`` or ``/OFF`` array of the default configuration,
+        or of ``/Configs[config]`` when ``config`` is not negative.
+        ``intent`` is one name or several (default ``"View"``), and ``usage``
+        becomes the ``/Usage /CreatorInfo /Subtype`` (default
+        ``"Artwork"``). A ``config`` that names no configuration raises
+        ``ValueError``.
+        """
+        self._ensure_open()
+        return _optional_content.add_ocg(self, name, config=config, on=on, intent=intent, usage=usage)
+
+    def get_oc(self, xref: int) -> int:
+        """Return the object number of the group or membership dictionary that an image or Form XObject's ``/OC`` refers to.
+
+        A direct ``/OC`` dictionary or none returns 0. ``xref`` must name an
+        image or Form XObject, or ``ValueError`` is raised.
+        """  # noqa: E501
+        self._ensure_open()
+        return _optional_content.get_oc(self, xref)
+
+    def set_oc(self, xref: int, oc: int) -> None:
+        """Make the image or Form XObject ``xref`` optional content of the group or membership dictionary ``oc``.
+
+        ``oc=0`` removes ``/OC``. Rendering and extraction then follow the
+        default configuration's state of the group. ``ValueError`` is raised
+        when ``xref`` is no image or Form XObject, or ``oc`` is neither an
+        ``/OCG`` nor an ``/OCMD`` dictionary.
+        """
+        self._ensure_open()
+        _optional_content.set_oc(self, xref, oc)
+
+    def get_ocmd(self, xref: int) -> OcmdInfo:
+        """Describe the optional content membership dictionary ``xref`` as :meth:`set_ocmd` takes it.
+
+        The result holds ``xref``, the ``ocgs`` object numbers, the ``/P``
+        ``policy`` name, and the ``/VE`` visibility expression ``ve`` in
+        pymupdf's list form, such as ``["and", 5, ["not", 6]]``; an absent
+        entry is ``None``. Any other object raises ``ValueError``.
+        """
+        self._ensure_open()
+        return _optional_content.get_ocmd(self, xref)
+
+    def set_ocmd(
+        self,
+        xref: int = 0,
+        ocgs: Sequence[int] | None = None,
+        policy: str | None = None,
+        ve: VisibilityExpression | None = None,
+    ) -> int:
+        """Create an optional content membership dictionary, or replace ``xref``, and return its object number.
+
+        ``ocgs`` lists group object numbers that ``policy`` (``"AnyOn"``,
+        ``"AllOn"``, ``"AnyOff"``, or ``"AllOff"``, in any case) combines;
+        ``ve`` is a visibility expression in :meth:`get_ocmd`'s form. Every
+        group must be one that :meth:`get_ocgs` lists. Rendering and
+        extraction follow ``ocgs`` and ``policy``; ``/VE`` is written for
+        other readers but, as in hayro, not evaluated.
+        """
+        self._ensure_open()
+        return _optional_content.set_ocmd(self, xref, ocgs, policy, ve)
 
     def to_markdown(
         self,

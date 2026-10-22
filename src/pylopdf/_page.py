@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast, overload
 
+from pylopdf import _optional_content
 from pylopdf._annots import _SUBTYPE_TYPES, Annot, AnnotType
 from pylopdf._errors import StalePageError
 from pylopdf._fonts import (
@@ -281,6 +282,15 @@ class Page:
         """
         number, generation = self._document._doc.page_object_id(self._page_number())
         return Dictionary(self._document, (number, generation))
+
+    def get_oc_items(self) -> list[tuple[str, int, str]]:
+        """Return ``(name, xref, kind)`` for the optional content in the page's ``/Resources /Properties``.
+
+        ``kind`` is ``"ocg"`` or ``"ocmd"``; other property lists are left
+        out. Resources that the page inherits from the page tree count, where
+        pymupdf reads only the page's own.
+        """
+        return _optional_content.page_oc_items(self.obj)
 
     def _page_number(self) -> int:
         """Validate the view and return lopdf's one-based page number."""

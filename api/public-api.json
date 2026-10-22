@@ -62,6 +62,8 @@
     "MetadataUpdate",
     "Name",
     "Objects",
+    "OcgInfo",
+    "OcmdInfo",
     "OcrEngine",
     "OcrError",
     "OcrRotation",
@@ -154,6 +156,7 @@
     "TextLine",
     "TextPageDict",
     "TextSpan",
+    "VisibilityExpression",
     "Word",
     "csCMYK",
     "csGRAY",
@@ -174,6 +177,18 @@
         "flags": {
           "kind": "property",
           "returns": "AnnotFlags"
+        },
+        "get_oc": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
         },
         "info": {
           "kind": "property",
@@ -882,6 +897,47 @@
             "returns": "int"
           }
         },
+        "add_ocg": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "name"
+              },
+              {
+                "annotation": "int",
+                "default": -1,
+                "kind": "positional_or_keyword",
+                "name": "config"
+              },
+              {
+                "annotation": "bool | int",
+                "default": 1,
+                "kind": "positional_or_keyword",
+                "name": "on"
+              },
+              {
+                "annotation": "str | Sequence[str] | None",
+                "default": null,
+                "kind": "positional_or_keyword",
+                "name": "intent"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "positional_or_keyword",
+                "name": "usage"
+              }
+            ],
+            "returns": "int"
+          }
+        },
         "attachments": {
           "kind": "property",
           "returns": "Attachments"
@@ -1032,6 +1088,52 @@
               }
             ],
             "returns": "list[FormFieldInfo]"
+          }
+        },
+        "get_oc": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "xref"
+              }
+            ],
+            "returns": "int"
+          }
+        },
+        "get_ocgs": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "dict[int, OcgInfo]"
+          }
+        },
+        "get_ocmd": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "xref"
+              }
+            ],
+            "returns": "OcmdInfo"
           }
         },
         "get_outline": {
@@ -1765,6 +1867,64 @@
               }
             ],
             "returns": "None"
+          }
+        },
+        "set_oc": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "xref"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "oc"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "set_ocmd": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "positional_or_keyword",
+                "name": "xref"
+              },
+              {
+                "annotation": "Sequence[int] | None",
+                "default": null,
+                "kind": "positional_or_keyword",
+                "name": "ocgs"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "positional_or_keyword",
+                "name": "policy"
+              },
+              {
+                "annotation": "VisibilityExpression | None",
+                "default": null,
+                "kind": "positional_or_keyword",
+                "name": "ve"
+              }
+            ],
+            "returns": "int"
           }
         },
         "set_outline": {
@@ -3759,6 +3919,38 @@
         "returns": "None"
       }
     },
+    "OcgInfo": {
+      "fields": {
+        "intent": "list[str]",
+        "name": "str",
+        "on": "bool",
+        "usage": "str | None"
+      },
+      "kind": "typed-dict",
+      "optional_keys": [],
+      "required_keys": [
+        "intent",
+        "name",
+        "on",
+        "usage"
+      ]
+    },
+    "OcmdInfo": {
+      "fields": {
+        "ocgs": "list[int] | None",
+        "policy": "str | None",
+        "ve": "VisibilityExpression | None",
+        "xref": "int"
+      },
+      "kind": "typed-dict",
+      "optional_keys": [],
+      "required_keys": [
+        "ocgs",
+        "policy",
+        "ve",
+        "xref"
+      ]
+    },
     "OcrEngine": {
       "kind": "class",
       "members": {
@@ -5243,6 +5435,18 @@
               }
             ],
             "returns": "list[LinkInfo]"
+          }
+        },
+        "get_oc_items": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "list[tuple[str, int, str]]"
           }
         },
         "get_pixmap": {
@@ -8132,6 +8336,10 @@
         "text"
       ]
     },
+    "VisibilityExpression": {
+      "kind": "type-alias",
+      "target": "list[str | int | VisibilityExpression]"
+    },
     "Word": {
       "annotations": {
         "block_no": "int",
@@ -8326,6 +8534,47 @@
             "returns": "int"
           }
         },
+        "add_ocg": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "name"
+              },
+              {
+                "annotation": "int",
+                "default": -1,
+                "kind": "positional_or_keyword",
+                "name": "config"
+              },
+              {
+                "annotation": "bool | int",
+                "default": 1,
+                "kind": "positional_or_keyword",
+                "name": "on"
+              },
+              {
+                "annotation": "str | Sequence[str] | None",
+                "default": null,
+                "kind": "positional_or_keyword",
+                "name": "intent"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "positional_or_keyword",
+                "name": "usage"
+              }
+            ],
+            "returns": "int"
+          }
+        },
         "attachments": {
           "kind": "property",
           "returns": "Attachments"
@@ -8476,6 +8725,52 @@
               }
             ],
             "returns": "list[FormFieldInfo]"
+          }
+        },
+        "get_oc": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "xref"
+              }
+            ],
+            "returns": "int"
+          }
+        },
+        "get_ocgs": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "dict[int, OcgInfo]"
+          }
+        },
+        "get_ocmd": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "xref"
+              }
+            ],
+            "returns": "OcmdInfo"
           }
         },
         "get_outline": {
@@ -9209,6 +9504,64 @@
               }
             ],
             "returns": "None"
+          }
+        },
+        "set_oc": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "xref"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "oc"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "set_ocmd": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "positional_or_keyword",
+                "name": "xref"
+              },
+              {
+                "annotation": "Sequence[int] | None",
+                "default": null,
+                "kind": "positional_or_keyword",
+                "name": "ocgs"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "positional_or_keyword",
+                "name": "policy"
+              },
+              {
+                "annotation": "VisibilityExpression | None",
+                "default": null,
+                "kind": "positional_or_keyword",
+                "name": "ve"
+              }
+            ],
+            "returns": "int"
           }
         },
         "set_outline": {

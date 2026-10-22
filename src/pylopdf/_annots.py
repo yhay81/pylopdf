@@ -5,8 +5,10 @@ from __future__ import annotations
 import enum
 from typing import TYPE_CHECKING, Any
 
+from pylopdf import _optional_content
 from pylopdf._geometry import Rect
 from pylopdf._hints import hinted_getattr
+from pylopdf._objects import Dictionary
 from pylopdf.pylopdf_core import StaleObjectError
 
 if TYPE_CHECKING:
@@ -210,6 +212,13 @@ class Annot:
         """Return pymupdf's ``{"stroke": ..., "fill": ...}`` from ``/C`` and ``/IC``; absent colours are ``()``."""
         entry = self._entry()
         return {"stroke": tuple(entry[6]), "fill": tuple(entry[7])}
+
+    def get_oc(self) -> int:
+        """Return the object number of the group or membership dictionary that ``/OC`` refers to, or 0."""
+        self._entry()
+        page = self._page
+        annotation = page._document.objects[self._xref] if self._xref else page.obj["Annots"][self._index]
+        return _optional_content.oc_reference(annotation) if isinstance(annotation, Dictionary) else 0
 
     def __eq__(self, other: object) -> bool:
         """Compare handles by document, page, and annotation."""

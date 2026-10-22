@@ -61,6 +61,7 @@ is not supported yet.
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | Same | Imported form fields whose names clash are renamed `name+N`; no `widgets=` or `join_duplicates=` |
 | `doc.get_toc()`, `set_toc(toc)` | `doc.get_outline()`, `set_outline(entries)` | Page numbers start at 0 instead of 1 |
 | `doc.get_page_labels()`, `set_page_labels()`, `get_page_numbers()`, `page.get_label()` | Same | |
+| `doc.get_ocgs()`, `add_ocg()`, `get_oc()`, `set_oc()`, `get_ocmd()`, `set_ocmd()`, `page.get_oc_items()`, `annot.get_oc()` | Same | `on` follows edits to the default configuration; `get_ocmd` also reads `/AllOn` and `/AnyOn` policies, which pymupdf cannot parse |
 | `doc.embfile_add/names/get/del/upd/info/count` | `doc.attachments` | A mapping: `add(name, data, description=…)`, `list(…)`, `[name].read()`, `del …[name]`, `[name].write(data)`, `len(…)`; `desc=` is `description=` |
 | `doc.xref_*`, `pdf_catalog()`, `pdf_trailer()` | `doc.objects`, `doc.catalog`, `doc.trailer` | Typed Python values instead of PDF syntax; see [Low-level objects](api.md#low-level-objects) |
 

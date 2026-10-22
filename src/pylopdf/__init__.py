@@ -138,6 +138,8 @@ from pylopdf._types import (
     MarkInfo,
     MetadataProbe,
     MetadataUpdate,
+    OcgInfo,
+    OcmdInfo,
     OcrWord,
     OutlineEntry,
     PageLabelInfo,
@@ -280,6 +282,8 @@ __all__ = [
     "MetadataUpdate",
     "Name",
     "Objects",
+    "OcgInfo",
+    "OcmdInfo",
     "OcrEngine",
     "OcrError",
     "OcrRotation",
@@ -312,6 +316,7 @@ __all__ = [
     "TextLine",
     "TextPageDict",
     "TextSpan",
+    "VisibilityExpression",
     "Word",
     "csCMYK",
     "csGRAY",
@@ -330,6 +335,7 @@ FontLanguage: TypeAlias = _types.FontLanguage
 CjkFontLanguage: TypeAlias = _types.CjkFontLanguage
 DrawingItem: TypeAlias = _types.DrawingItem
 FormFieldType: TypeAlias = _types.FormFieldType
+VisibilityExpression: TypeAlias = _types.VisibilityExpression
 
 
 if not TYPE_CHECKING:

@@ -470,6 +470,30 @@ class MarkInfo(TypedDict, total=False):
     Suspects: bool
 
 
+#: pymupdf's list form of a visibility expression (ISO 32000-2 §8.11.2.3):
+#: a lower-case operator, ``"and"``, ``"or"``, or ``"not"``, followed by
+#: group object numbers and nested expressions.
+VisibilityExpression: TypeAlias = list["str | int | VisibilityExpression"]
+
+
+class OcgInfo(TypedDict):
+    """One optional content group, as :meth:`Document.get_ocgs` describes it."""
+
+    name: str
+    intent: list[str]
+    on: bool
+    usage: str | None
+
+
+class OcmdInfo(TypedDict):
+    """An optional content membership dictionary, as :meth:`Document.get_ocmd` describes it."""
+
+    xref: int
+    ocgs: list[int] | None
+    policy: str | None
+    ve: VisibilityExpression | None
+
+
 class MetadataProbe(_InfoMetadata):
     """Metadata plus cheap structural facts returned by :func:`peek_metadata`."""
 
@@ -527,6 +551,8 @@ for _public in (
     DocumentMetadata,
     MetadataUpdate,
     MarkInfo,
+    OcgInfo,
+    OcmdInfo,
     MetadataProbe,
     DocumentComplexity,
     OcrWord,

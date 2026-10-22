@@ -119,6 +119,7 @@ encoding would not be smaller, and returns statistics.
 | `pagemode` / `set_pagemode(mode)`, `pagelayout` / `set_pagelayout(layout)` | How a viewer opens the document, such as `"UseOutlines"` or `"TwoColumnLeft"`; `"UseNone"` and `"SinglePage"` when unset |
 | `markinfo` / `set_markinfo(markinfo)` | The tagged-PDF flags as a `MarkInfo` dictionary (`{}` when absent). The setter writes all three flags, and a flag left out becomes `False` |
 | `has_links()`, `has_annots()` | Whether any page has a link, or an annotation other than a link or form widget |
+| `get_ocgs()`, `add_ocg(...)`, `get_oc(xref)` / `set_oc(xref, oc)`, `get_ocmd(xref)` / `set_ocmd(...)` | Layers; see [Optional content](#optional-content) |
 | `objects`, `trailer`, `catalog`, `page_xref(pno)` | Direct access to PDF objects; see [Low-level objects](#low-level-objects) |
 
 `language_tag` replaces pymupdf's `language`, which keeps at most three
@@ -194,7 +195,7 @@ The same image or page drawn again is stored once in the file.
 
 | Member | Purpose |
 |---|---|
-| `annots(*, types=None)` | Read-only `Annot` objects with `type`, `rect`, `info`, `colors`, `flags`, and `xref` |
+| `annots(*, types=None)` | Read-only `Annot` objects with `type`, `rect`, `info`, `colors`, `flags`, `xref`, and `get_oc()` |
 | `add_highlight_annot(quads, *, color=, opacity=0.4, content=None)` | Highlight one or more rectangles or quads, such as search results |
 | `insert_link(link)` | Add a web link (`kind=LINK_URI`) |
 
@@ -381,6 +382,31 @@ a loaded `font`, or install a font extra. Comb fields, alignment, and maximum
 lengths are respected; a value that is too long raises and leaves the document
 unchanged. Rich text, push button actions, and signatures are not supported;
 see [ecosystem recipes](ecosystem.md#signatures) for signing.
+
+## Optional content { #optional-content }
+
+Optional content groups, often called layers, let a viewer show or hide parts
+of a page. Rendering and text extraction show a group as the document's
+default configuration (`/OCProperties /D`) says.
+
+| Member | Purpose |
+|---|---|
+| `doc.get_ocgs()` | Every group as `{xref: {"name", "intent", "on", "usage"}}`; `on` is the default configuration's state |
+| `doc.add_ocg(name, config=-1, on=1, intent=None, usage=None)` | Add a group to the default configuration, or to `/Configs[config]`, and return its xref |
+| `doc.get_oc(xref)` / `doc.set_oc(xref, oc)` | The group or membership dictionary that an image or Form XObject belongs to; `oc=0` removes it |
+| `doc.get_ocmd(xref)` / `doc.set_ocmd(xref=0, ocgs=None, policy=None, ve=None)` | A membership dictionary, which combines groups by policy (`"AnyOn"`, `"AllOff"`, ...) or by a visibility expression such as `["and", 5, ["not", 6]]` |
+| `page.get_oc_items()` | The `(name, xref, "ocg" or "ocmd")` entries of the page's `/Properties` resources, which marked content in the page refers to |
+| `annot.get_oc()` | The xref of an annotation's group or membership dictionary, or 0 |
+
+```python
+hidden = doc.add_ocg("Draft marks", on=False)
+doc.set_oc(form_xref, hidden)   # the Form XObject is no longer drawn
+```
+
+Rendering and extraction combine a membership dictionary's `ocgs` by its
+`policy`; like hayro, they do not evaluate a visibility expression. pymupdf
+reports `on` from the state at opening, so it misses later edits, and it
+reports a group without `/Usage /CreatorInfo` as on whatever its state.
 
 ## Attachments { #attachments }
 

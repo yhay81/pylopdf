@@ -108,7 +108,7 @@ overview.
     `document/{forms,annotations}.rs`.
   - E, structure: `page_cleanup.rs`, `structure_prune.rs`;
     `document/{page_tree,navigation,labels,metadata,attachments,lowlevel}.rs`;
-    `src/pylopdf/_objects.py`.
+    `src/pylopdf/_objects.py` and `_optional_content.py`.
   - F, content engine: `content/`, `text_replace.rs`, `content_guard.rs`,
     `content_scan.rs`, `graph_guard.rs`, `postscript_scan.rs`,
     `read_depth.rs`; `document/replacement.rs`.
@@ -2240,6 +2240,13 @@ overview.
   edit replaces, with the revision at opening; `save` and `tobytes`
   restore a clean revision after their save options edit the document,
   and nothing else resets it, as in pymupdf.
+- Optional content (`src/pylopdf/_optional_content.py`, workstream E) reads
+  and writes through the low-level object model, so every edit invalidates
+  rendering like any object write. `get_ocgs` reports `on` from the default
+  configuration `/D` exactly as hayro's `OcgState::from_catalog` applies it
+  (`/BaseState /OFF`, then `/ON`, then `/OFF`; intents, usage, and `/VE` are
+  ignored), so the reported state matches rendering and extraction. Keep the
+  two in step after a hayro upgrade.
 - The low-level object model (`rust/src/document/lowlevel.rs`,
   `src/pylopdf/_objects.py`, workstream E) exposes the lopdf graph through
   `Document.objects`, `trailer`, `catalog`, and `Page.obj`. A handle is a

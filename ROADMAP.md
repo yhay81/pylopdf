@@ -758,6 +758,21 @@ three entries raise coverage from 47.4% to 47.8%. `is_fast_webaccess` and
 sections and linearization dictionary, which lopdf does not report, and
 MuPDF's counts change when it repairs a file.
 
+The third M5 slice landed on 2026-10-22: optional content groups and
+membership dictionaries through `get_ocgs`, `add_ocg`, `get_oc`, `set_oc`,
+`get_ocmd`, `set_ocmd`, `Page.get_oc_items`, and `Annot.get_oc`, each with
+pymupdf's meaning. `on` reads the default configuration as hayro applies it
+(`/BaseState`, `/ON`, `/OFF`), so a group hidden there is missing from
+rendering and extraction; pymupdf reports MuPDF's state as of opening and
+reports a group without `/Usage /CreatorInfo` as on. pymupdf's `get_ocmd`
+parses the object's syntax and raises for the `/AllOn` and `/AnyOn` policies
+that its own `set_ocmd` writes; pylopdf reads the dictionary. The eight
+entries raise coverage from 47.8% to 48.9%. The layer configurations
+(`get_layer`, `get_layers`, `set_layer`, `add_layer`, `switch_layer`,
+`layer_ui_configs`, `set_layer_ui_config`, `PDF_OC_*`, `PDF_LAYER_UI_*`),
+`Annot.set_oc`, which waits for annotation editing, and `oc=` on insertion
+APIs remain.
+
 ### M6 — Document intelligence
 
 Workstreams A and H. Depends on hayro 0.8 and M1.
