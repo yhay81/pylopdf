@@ -127,6 +127,10 @@ it is not secure redaction.
 `"text"` also converts borderless tables that are clearly aligned, and `None`
 turns table conversion off.
 
+Word gaps on one line follow `text()` even when the font or style
+changes. Spaces stay outside emphasis markers, and combining marks stay
+attached to their base characters.
+
 ### Rendering and images { #document-rendering }
 
 | Member | Purpose |

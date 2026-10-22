@@ -91,6 +91,8 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 순서를 뒤집음
 
 `table_strategy="lines"`는 괘선으로 그린 표를 변환하고, `"text"`는 정렬이 분명한 테두리 없는 표도 변환하며, `None`은 표 변환을 끕니다.
 
+한 줄의 단어 간 공백은 글꼴이나 스타일이 바뀌어도 `text()`의 규칙을 따릅니다. 공백은 강조 표시 바깥에 두고, 결합 문자는 기본 문자에 붙여 둡니다.
+
 ### 렌더링과 이미지 { #document-rendering }
 
 | 멤버 | 용도 |
