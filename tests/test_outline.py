@@ -237,6 +237,27 @@ def test_items_are_handles_on_the_tree(three_page_pdf: bytes) -> None:
     assert repr(outline).startswith("Outline([OutlineItem(")
 
 
+def test_item_objects_keep_the_handle_generation() -> None:
+    data = _build_outline_fixture(
+        {
+            4: "<< /First 5 0 R /Last 5 1 R >>",
+            5: "<< /Title (Original) /Parent 4 0 R /Next 5 1 R >>",
+            6: "<< /Title (Higher generation) /Parent 4 0 R >>",
+        }
+    )
+    # A mismatched xref entry can load two generations of one object number.
+    data = data.replace(b"6 0 obj", b"5 1 obj", 1)
+    doc = pylopdf.open(data)
+    first, second = doc.outline
+    assert first.xref == second.xref
+    assert first.obj.generation == 0
+    assert second.obj.generation == 1
+    assert first.obj["Title"].text == first.title == "Original"
+    first.obj["Title"] = "Renamed"
+    assert first.title == "Renamed"
+    assert second.title == "Higher generation"
+
+
 def test_editing_an_item_in_place(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
     doc.outline = BOOK
@@ -279,6 +300,36 @@ def test_item_edits_validate_before_any_change(three_page_pdf: bytes) -> None:
     with pytest.raises(pylopdf.PdfError, match="no open state"):
         item.children[0].is_open = True
     assert doc.outline.entries() == BOOK
+
+
+@pytest.mark.parametrize("property_name", ["title", "destination"])
+def test_item_text_edits_preserve_the_aggregate_read_limit(three_page_pdf: bytes, property_name: str) -> None:
+    doc = pylopdf.open(three_page_pdf)
+    original = [OutlineEntry(1, "A" * (MAX_TOC_TEXT_BYTES // 2)), OutlineEntry(1, "B")]
+    doc.outline = original
+    item = doc.outline[1]
+    with pytest.raises(LimitError) as caught:
+        setattr(item, property_name, "C" * (MAX_TOC_TEXT_BYTES // 2 + 1))
+    assert caught.value.code == "toc_input_size"
+    assert doc.outline.entries() == original
+
+
+@pytest.mark.parametrize("color", ["[2 0 0]", "[-1 0 0]"])
+def test_invalid_source_colors_read_as_the_viewer_default(color: str) -> None:
+    doc = pylopdf.open(
+        _build_outline_fixture(
+            {
+                4: "<< /First 5 0 R >>",
+                5: f"<< /Title (A) /Dest [3 0 R /Fit] /C {color} >>",
+            }
+        )
+    )
+    expected = OutlineEntry(1, "A", Destination(0))
+    assert doc.outline[0].color is None
+    assert doc.outline[0].to_entry() == expected
+    assert doc.outline.entries() == [expected]
+    doc.outline = doc.outline.entries()
+    assert pylopdf.open(doc.to_bytes()).outline.entries() == [expected]
 
 
 def test_open_states_keep_counts_consistent(three_page_pdf: bytes) -> None:

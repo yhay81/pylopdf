@@ -121,6 +121,39 @@ def test_page_label_tree_reference_cycle_is_visited_once() -> None:
     assert doc.pages[0].label == "A-1"
 
 
+@pytest.mark.parametrize("source", ["raw_pdf", "catalog"])
+def test_unsupported_stored_style_reads_as_prefix_only(source: str) -> None:
+    if source == "raw_pdf":
+        doc = pylopdf.open(
+            build_raw_pdf(
+                {
+                    1: "<< /Type /Catalog /Pages 2 0 R /PageLabels 4 0 R >>",
+                    2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                    3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+                    4: "<< /Nums [0 << /S /Unknown /P (Appendix-) >>] >>",
+                }
+            )
+        )
+    else:
+        doc = _six_page_doc()
+        doc.catalog["PageLabels"] = {"Nums": [0, {"S": pylopdf.Name("Unknown"), "P": "Appendix-"}]}
+
+    expected = [PageLabelRange(0, None, "Appendix-")]
+    assert doc.page_labels == expected
+    assert _labels(doc) == ["Appendix-"] * len(doc.pages)
+    assert doc.pages.labeled("Appendix-") == list(range(len(doc.pages)))
+    assert doc.catalog["PageLabels"]["Nums"][1]["S"] == pylopdf.Name("Unknown")
+
+    reopened = pylopdf.open(doc.to_bytes())
+    assert reopened.page_labels == expected
+    assert reopened.pages[0].label == "Appendix-"
+    reopened.page_labels = reopened.page_labels
+    assert "S" not in reopened.catalog["PageLabels"]["Nums"][1]
+    normalized = pylopdf.open(reopened.to_bytes())
+    assert normalized.page_labels == expected
+    assert normalized.pages[0].label == "Appendix-"
+
+
 def test_page_label_tree_rejects_excessive_depth() -> None:
     objects: dict[int, str | bytes] = {
         1: "<< /Type /Catalog /Pages 2 0 R /PageLabels 4 0 R >>",

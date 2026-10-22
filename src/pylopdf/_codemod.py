@@ -1522,6 +1522,8 @@ class _Scanner(cst.CSTVisitor):
         self.pymupdf = False
         #: Local names of the fitz, pymupdf, and pylopdf modules, before the rewrite.
         self.modules: set[str] = set()
+        #: Local names imported from fitz or pymupdf, whose class names may differ from pylopdf's.
+        self.pymupdf_modules: set[str] = set()
         #: Local names imported from those modules, mapped to their names there.
         self.imported: dict[str, str] = {}
         #: The kinds of value that each name is bound to.
@@ -1626,6 +1628,8 @@ class _Scanner(cst.CSTVisitor):
             if dotted in PYMUPDF_MODULES or dotted == PACKAGE:
                 local = _code(alias.asname.name) if alias.asname is not None else dotted
                 self.modules.add(local)
+                if dotted in PYMUPDF_MODULES:
+                    self.pymupdf_modules.add(local)
                 self.bind(cst.Name(local), "module")
 
     def visit_ImportFrom(self, node: cst.ImportFrom) -> None:
@@ -2083,7 +2087,11 @@ class _Migrator(cst.CSTTransformer):
         if name in MODULE_RENAMES and not (called and name in MODULE_CALL_RULES):
             self.rewrites += 1
             return updated_node.with_changes(attr=cst.Name(MODULE_RENAMES[name]))
-        if name in PYMUPDF_MODULE_RENAMES and self._scan.pymupdf:
+        if (
+            name in PYMUPDF_MODULE_RENAMES
+            and isinstance(original_node.value, cst.Name)
+            and original_node.value.value in self._scan.pymupdf_modules
+        ):
             self.rewrites += 1
             return updated_node.with_changes(attr=cst.Name(PYMUPDF_MODULE_RENAMES[name]))
         if name in MODULE_MEMBER_RENAMES:

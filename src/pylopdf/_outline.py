@@ -6,16 +6,16 @@ import itertools
 import math
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import KW_ONLY, dataclass
-from typing import TYPE_CHECKING, cast, overload
+from typing import TYPE_CHECKING, overload
 
 from pylopdf._content import Color
 from pylopdf._limits import _validate_cumulative_pdf_text_input, _validate_cumulative_utf8_input
+from pylopdf._objects import Dictionary
 from pylopdf._targets import Destination, Target, _target_from_core, _target_to_core
 from pylopdf.pylopdf_core import LimitError, StaleObjectError
 
 if TYPE_CHECKING:
     from pylopdf._document import Document
-    from pylopdf._objects import Dictionary
     from pylopdf._targets import _TargetTuple
     from pylopdf.pylopdf_core import _Document
 
@@ -139,7 +139,7 @@ class OutlineItem:
     def obj(self) -> Dictionary:
         """Return the item's dictionary in the low-level object model."""
         self._read()
-        return cast("Dictionary", self._document.objects[self._id[0]])
+        return Dictionary(self._document, self._id)
 
     @property
     def level(self) -> int:

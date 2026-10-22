@@ -123,6 +123,8 @@ for item in doc.outline.walk():
 
 命名目标读取为它所指的`Destination`，页面已不存在的目标读取为`None`。读写的上限为65,536个条目、64层，以及16 MiB的标题和目标文本（`LimitError`代码为`toc_entry_count`、`toc_text_size`和`toc_input_size`）。
 
+修改标题或目标时，会先检查修改后整个大纲的文本总量，再写入更改。被拒绝的修改不会改变大纲。文件目标支持Unicode文件名；坐标和缩放比例必须在PDF有限实数的表示范围内。批量修改标题或目标时，可以修改`entries()`返回的列表后一次性赋值，这样只需检查一次文本总量。
+
 `doc.page_labels`是`PageLabelRange(start, style=DECIMAL, prefix="", first=1)`记录的列表。每个范围为从从0开始的`start`到下一个范围之前的页面加上标签：`prefix`后接一个从`first`开始计数、按`PageLabelStyle`（`DECIMAL`、`UPPER_ROMAN`、`LOWER_ROMAN`、`UPPER_LETTERS`、`LOWER_LETTERS`，或只用前缀的`None`）书写的编号。赋值一个列表会按页面顺序替换这些范围，第一个范围必须从第0页开始；赋值`[]`或`del doc.page_labels`会删除它们。`page.label`是单个页面的标签，文档没有标签时为`""`；`doc.pages.labeled(label)`按标签查找页面。
 
 ```python

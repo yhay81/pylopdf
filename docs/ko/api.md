@@ -123,6 +123,9 @@ for item in doc.outline.walk():
 
 이름 있는 대상은 그것이 가리키는 `Destination`으로 읽고, 페이지가 더 이상 없는 대상은 `None`으로 읽습니다. 읽기와 쓰기는 항목 65,536개, 64단계, 제목과 대상 텍스트 16 MiB까지입니다(`LimitError` 코드 `toc_entry_count`, `toc_text_size`, `toc_input_size`).
 
+제목이나 대상을 편집할 때는 변경 후 전체 개요의 텍스트 총량을 먼저 확인합니다. 거부된 편집은 개요를 바꾸지 않습니다. 파일 대상은 Unicode 파일 이름을 지원하며, 좌표와 확대율은 PDF의 유한 실수로 표현할 수 있는 범위여야 합니다.
+여러 제목이나 대상을 편집할 때는 `entries()`의 리스트를 수정한 뒤 한 번 대입하면 전체 텍스트 검사를 한 번만 합니다.
+
 `doc.page_labels`는 `PageLabelRange(start, style=DECIMAL, prefix="", first=1)` 레코드의 리스트입니다. 각 범위는 0부터 시작하는 `start`부터 다음 범위 직전까지의 페이지에 `prefix`와, `first`부터 센 번호를 `PageLabelStyle`(`DECIMAL`, `UPPER_ROMAN`, `LOWER_ROMAN`, `UPPER_LETTERS`, `LOWER_LETTERS`, 또는 접두사만 쓰는 `None`) 형식으로 붙입니다. 리스트를 대입하면 페이지 순서대로 범위를 교체하며, 첫 범위는 0페이지에서 시작해야 합니다. `[]`를 대입하거나 `del doc.page_labels`를 쓰면 제거됩니다. `page.label`은 한 페이지의 레이블이며 문서에 레이블이 없으면 `""`입니다. `doc.pages.labeled(label)`는 레이블로 페이지를 찾습니다.
 
 ```python

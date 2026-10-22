@@ -62,14 +62,34 @@ fn no_target() -> TargetTuple {
 struct TextBudget {
     source: usize,
     returned: usize,
+    input: bool,
 }
 
 impl TextBudget {
+    fn charge(&mut self, amount: usize, returned: bool) -> PyResult<()> {
+        let (total, label) = if returned {
+            (&mut self.returned, "returned text")
+        } else {
+            (&mut self.source, "source text")
+        };
+        if self.input {
+            add_input_text_budget(
+                total,
+                amount,
+                MAX_TOC_TEXT_BYTES,
+                "toc_input_size",
+                &format!("outline {label}"),
+            )
+        } else {
+            add_toc_text_budget(total, amount, label)
+        }
+    }
+
     /// Return bytes as lossy UTF-8 after charging both budgets.
     fn bytes(&mut self, bytes: &[u8]) -> PyResult<String> {
-        add_toc_text_budget(&mut self.source, bytes.len(), "source text")?;
+        self.charge(bytes.len(), false)?;
         let text = String::from_utf8_lossy(bytes).into_owned();
-        add_toc_text_budget(&mut self.returned, text.len(), "returned text")?;
+        self.charge(text.len(), true)?;
         Ok(text)
     }
 
@@ -79,11 +99,11 @@ impl TextBudget {
         let Object::String(encoded, _) = object else {
             return Ok(None);
         };
-        add_toc_text_budget(&mut self.source, encoded.len(), "source text")?;
+        self.charge(encoded.len(), false)?;
         let Ok(text) = decode_text_string(object) else {
             return Ok(None);
         };
-        add_toc_text_budget(&mut self.returned, text.len(), "returned text")?;
+        self.charge(text.len(), true)?;
         Ok(Some(text))
     }
 
@@ -114,13 +134,10 @@ fn outline_root(doc: &Document) -> PyResult<Option<(&Dictionary, Option<ObjectId
     };
     match non_null_value(doc, object) {
         Ok(None) => Ok(None),
-        Ok(Some(Object::Dictionary(root))) => Ok(Some((
-            root,
-            match object {
-                Object::Reference(id) => Some(*id),
-                _ => None,
-            },
-        ))),
+        Ok(Some(Object::Dictionary(root))) => {
+            let (id, _) = doc.dereference(object).map_err(to_py_err)?;
+            Ok(Some((root, id)))
+        }
         _ => Err(PdfError::new_err("catalog Outlines is not a dictionary")),
     }
 }
@@ -184,6 +201,15 @@ fn child_ids(doc: &Document, parent: &Dictionary) -> PyResult<Vec<ObjectId>> {
     Ok(out)
 }
 
+/// An editable item has children only when its first child names a
+/// dictionary; a null, missing, or mistyped target is absent.
+fn item_has_children(doc: &Document, item: &Dictionary) -> bool {
+    match item.get(b"First") {
+        Ok(Object::Reference(id)) => matches!(doc.objects.get(id), Some(Object::Dictionary(_))),
+        _ => false,
+    }
+}
+
 /// Return the color of an outline item, three finite components.
 fn item_color(doc: &Document, item: &Dictionary) -> Option<(f64, f64, f64)> {
     let Ok(Object::Array(components)) = item.get(b"C").map(|object| deref_object(doc, object))
@@ -200,7 +226,7 @@ fn item_color(doc: &Document, item: &Dictionary) -> Option<(f64, f64, f64)> {
             let (red, green, blue) = (number(red)?, number(green)?, number(blue)?);
             [red, green, blue]
                 .iter()
-                .all(|value| value.is_finite())
+                .all(|value| value.is_finite() && (0.0..=1.0).contains(value))
                 .then_some((red, green, blue))
         }
         _ => None,
@@ -224,15 +250,22 @@ impl _Document {
         cache: &mut LinkResolutionCache,
         budget: &mut TextBudget,
     ) -> PyResult<TargetTuple> {
+        self.outline_target_entries(item.get(b"A").ok(), item.get(b"Dest").ok(), cache, budget)
+    }
+
+    fn outline_target_entries(
+        &self,
+        action: Option<&Object>,
+        destination: Option<&Object>,
+        cache: &mut LinkResolutionCache,
+        budget: &mut TextBudget,
+    ) -> PyResult<TargetTuple> {
         let doc = &self.doc;
-        let action = item
-            .get(b"A")
-            .ok()
-            .and_then(|action| deref_object(doc, action).as_dict().ok());
+        let action = action.and_then(|action| deref_object(doc, action).as_dict().ok());
         let Some(action) = action else {
-            return match item.get(b"Dest") {
-                Ok(dest) => self.goto_target(dest, cache, budget),
-                Err(_) => Ok(no_target()),
+            return match destination {
+                Some(dest) => self.goto_target(dest, cache, budget),
+                None => Ok(no_target()),
             };
         };
         match action.get(b"S").and_then(Object::as_name) {
@@ -389,7 +422,7 @@ fn read_outline_item(
         item_color(doc, item),
         item_integer(doc, item, b"F"),
         item_integer(doc, item, b"Count"),
-        matches!(item.get(b"First"), Ok(Object::Reference(_))),
+        item_has_children(doc, item),
     ))
 }
 
@@ -401,15 +434,31 @@ pub(super) fn outline_entries(
 ) -> PyResult<Vec<OutlineEntryTuple>> {
     py.detach(|| {
         let mut cache = this.link_resolution.take().unwrap_or_default();
-        let result = collect_outline(this, &mut cache);
+        let result = collect_outline(this, &mut cache, None);
         this.link_resolution = Some(cache);
         result
     })
 }
 
+/// A prepared field replacement borrowed while validating the complete
+/// outline's resulting text, before any PDF mutation.
+enum OutlineEdit<'a> {
+    Title(ObjectId, &'a Object),
+    Target(ObjectId, &'a Option<(&'static str, Object)>),
+}
+
+impl OutlineEdit<'_> {
+    fn id(&self) -> ObjectId {
+        match self {
+            Self::Title(id, _) | Self::Target(id, _) => *id,
+        }
+    }
+}
+
 fn collect_outline(
     this: &_Document,
     cache: &mut LinkResolutionCache,
+    edit: Option<&OutlineEdit<'_>>,
 ) -> PyResult<Vec<OutlineEntryTuple>> {
     let doc = &this.doc;
     let Some((root, _)) = outline_root(doc)? else {
@@ -426,7 +475,10 @@ fn collect_outline(
     let mut visited = HashSet::new();
     let mut nodes = 0usize;
     let mut edges = 1usize;
-    let mut budget = TextBudget::default();
+    let mut budget = TextBudget {
+        input: edit.is_some(),
+        ..TextBudget::default()
+    };
     let mut out = Vec::new();
     while let Some((node_object, depth)) = stack.pop() {
         let id = match node_object {
@@ -447,26 +499,43 @@ fn collect_outline(
                 "outline tree exceeds the {MAX_TOC_TREE_NODES}-node safety limit"
             )));
         }
-        let title = match node.get(b"Title") {
-            Ok(title) => budget.text(doc, title)?.unwrap_or_default(),
-            Err(_) => String::new(),
+        let changed = edit.filter(|edit| edit.id() == id);
+        let title = match changed {
+            Some(OutlineEdit::Title(_, title)) => Some(*title),
+            _ => node.get(b"Title").ok(),
         };
-        let target = this.outline_target(node, cache, &mut budget)?;
-        if out.len() == out.capacity() {
-            out.try_reserve(1).map_err(|error| {
-                PdfError::new_err(format!("failed to grow returned outline items: {error}"))
-            })?;
+        let title = match title {
+            Some(title) => budget.text(doc, title)?.unwrap_or_default(),
+            None => String::new(),
+        };
+        let target = match changed {
+            Some(OutlineEdit::Target(_, entry)) => {
+                let (action, destination) = match entry.as_ref() {
+                    Some(("A", object)) => (Some(object), None),
+                    Some((_, object)) => (None, Some(object)),
+                    None => (None, None),
+                };
+                this.outline_target_entries(action, destination, cache, &mut budget)?
+            }
+            _ => this.outline_target(node, cache, &mut budget)?,
+        };
+        if edit.is_none() {
+            if out.len() == out.capacity() {
+                out.try_reserve(1).map_err(|error| {
+                    PdfError::new_err(format!("failed to grow returned outline items: {error}"))
+                })?;
+            }
+            out.push((
+                id.0,
+                id.1,
+                u32::try_from(depth).map_err(|error| PdfError::new_err(error.to_string()))?,
+                title,
+                target,
+                item_color(doc, node),
+                item_integer(doc, node, b"F"),
+                item_integer(doc, node, b"Count"),
+            ));
         }
-        out.push((
-            id.0,
-            id.1,
-            u32::try_from(depth).map_err(|error| PdfError::new_err(error.to_string()))?,
-            title,
-            target,
-            item_color(doc, node),
-            item_integer(doc, node, b"F"),
-            item_integer(doc, node, b"Count"),
-        ));
         for (key, child_depth) in [
             (b"Next".as_slice(), depth),
             (b"First".as_slice(), depth + 1),
@@ -554,10 +623,14 @@ fn target_entry(
                 PdfError::new_err(format!("an outline {kind} target needs a {label}"))
             })?;
         budget.charge(text, label)?;
-        Ok(Object::String(
-            text.as_bytes().to_vec(),
-            StringFormat::Literal,
-        ))
+        if label == "file" {
+            try_info_metadata_text_string(text)
+        } else {
+            Ok(Object::String(
+                text.as_bytes().to_vec(),
+                StringFormat::Literal,
+            ))
+        }
     };
     Ok(match kind.as_str() {
         "none" => None,
@@ -569,6 +642,9 @@ fn target_entry(
             if zoom.is_some_and(|zoom| zoom < 0.0) {
                 return Err(PdfError::new_err("outline zoom must not be negative"));
             }
+            let zoom = zoom
+                .map(|zoom| checked_pdf_real(zoom, "outline zoom"))
+                .transpose()?;
             let array = match (point, zoom) {
                 (None, None) => vec![Object::Reference(page_id), Object::Name(b"Fit".to_vec())],
                 _ => {
@@ -581,7 +657,10 @@ fn target_entry(
                                 finite(*x, "point")?,
                                 finite(*y, "point")?,
                             );
-                            (Object::Real(left as f32), Object::Real(top as f32))
+                            (
+                                Object::Real(checked_pdf_real(left, "outline left")?),
+                                Object::Real(checked_pdf_real(top, "outline top")?),
+                            )
                         }
                         None => (Object::Null, Object::Null),
                     };
@@ -590,7 +669,7 @@ fn target_entry(
                         Object::Name(b"XYZ".to_vec()),
                         left,
                         top,
-                        zoom.map_or(Object::Null, |zoom| Object::Real(zoom as f32)),
+                        zoom.map_or(Object::Null, Object::Real),
                     ]
                 }
             };
@@ -858,6 +937,11 @@ pub(super) fn set_outline_title(this: &mut _Document, id: (u32, u16), title: &st
     InputBudget::default().charge(title, "title")?;
     let title = try_info_metadata_text_string(title)?;
     item_dictionary(&this.doc, id)?;
+    collect_outline(
+        this,
+        &mut LinkResolutionCache::default(),
+        Some(&OutlineEdit::Title(id, &title)),
+    )?;
     this.invalidate_hayro_pdf_keeping_placements();
     item_dictionary_mut(&mut this.doc, id)?.set("Title", title);
     Ok(())
@@ -901,6 +985,11 @@ pub(super) fn set_outline_target(
         &target,
         &mut InputBudget::default(),
     )?;
+    collect_outline(
+        this,
+        &mut LinkResolutionCache::default(),
+        Some(&OutlineEdit::Target(id, &entry)),
+    )?;
     this.invalidate_hayro_pdf_keeping_placements();
     let item = item_dictionary_mut(&mut this.doc, id)?;
     item.remove(b"Dest");
@@ -915,7 +1004,7 @@ pub(super) fn set_outline_target(
 /// children, then recount every `/Count` of the outline.
 pub(super) fn set_outline_open(this: &mut _Document, id: (u32, u16), open: bool) -> PyResult<()> {
     let item = item_dictionary(&this.doc, id)?;
-    if !matches!(item.get(b"First"), Ok(Object::Reference(_))) {
+    if !item_has_children(&this.doc, item) {
         return Err(PdfError::new_err(
             "an outline item without children has no open state",
         ));
@@ -923,12 +1012,27 @@ pub(super) fn set_outline_open(this: &mut _Document, id: (u32, u16), open: bool)
     // Plan the counts with the item's new state before changing anything.
     let counts = outline_counts(&this.doc, Some((id, open)))?;
     let root = outline_root(&this.doc)?.and_then(|(_, root)| root);
+    // Resolve every indirect write target before changing any count. The
+    // root ID is the dictionary at the end of a possible reference chain.
+    for (target, _) in &counts {
+        if let Some(target) = target.or(root) {
+            item_dictionary(&this.doc, target)?;
+        }
+    }
     this.invalidate_hayro_pdf_keeping_placements();
     for (target, count) in counts {
-        let Some(target) = target.or(root) else {
-            continue;
-        };
-        item_dictionary_mut(&mut this.doc, target)?.set("Count", count);
+        if let Some(target) = target.or(root) {
+            item_dictionary_mut(&mut this.doc, target)?.set("Count", count);
+        } else {
+            // A direct root has no object ID, but its count still belongs
+            // to the same plan as every referenced item.
+            this.doc
+                .catalog_mut()
+                .and_then(|catalog| catalog.get_mut(b"Outlines"))
+                .and_then(Object::as_dict_mut)
+                .map_err(to_py_err)?
+                .set("Count", count);
+        }
     }
     Ok(())
 }
