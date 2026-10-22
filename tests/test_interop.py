@@ -63,6 +63,13 @@ def test_typst_bold_italic_flow_into_markdown() -> None:
     assert "*italic part*" in md
 
 
+def test_emphasis_markers_stay_outside_inferred_word_gaps() -> None:
+    # Horizontal spacing separates the spans without a space glyph.
+    pdf = typst.compile(b'#set document(title: "t")\nPlain#h(0.3em)*bold*#h(0.3em)_italic_#h(0.3em)end')
+    with pylopdf.open(pdf) as doc:
+        assert doc.to_markdown() == "Plain **bold** *italic* end"
+
+
 def test_pdfa_claim_reads_typst_output() -> None:
     # get_pdfa_claim reads typst/krilla's validated PDF/A declaration.
     pdf_a = typst.compile(TYP_SOURCE, pdf_standards="a-2b")

@@ -91,6 +91,8 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 颠倒页面顺序
 
 `table_strategy="lines"`转换以框线绘制的表格，`"text"`还会转换对齐明确的无边框表格，`None`则关闭表格转换。
 
+同一行的词间空格遵循`get_text()`的规则，即使字体或样式发生变化也不例外。空格保留在强调标记之外，组合字符与其基础字符保持相连。
+
 ### 渲染与图像 { #document-rendering }
 
 | 成员 | 用途 |

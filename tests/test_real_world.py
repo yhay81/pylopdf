@@ -662,6 +662,15 @@ def test_nics_table_rows_keep_row_major_reading_order() -> None:
     assert text.index("Alaska") < text.index("Arizona") < text.index("Arkansas")
 
 
+def test_markdown_keeps_word_gaps_between_font_spans() -> None:
+    """Keep the extractor's inferred spaces where a font change ends a span."""
+    doc = pylopdf.open(ASSETS / "usrguide.pdf")
+    markdown = doc.to_markdown(pages=[1])
+
+    assert "6 Expandable \\input equivalent" in markdown
+    assert [word for word in markdown.split() if word.strip("#")] == doc.pages[1].get_text().split()
+
+
 @ALL
 def test_extract_drawings_page0(case: Case) -> None:
     """Interpret real vector paths without returning malformed commands."""
