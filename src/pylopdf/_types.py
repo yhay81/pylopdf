@@ -470,14 +470,6 @@ class MarkInfo(TypedDict, total=False):
     Suspects: bool
 
 
-class MetadataProbe(_InfoMetadata):
-    """Metadata plus cheap structural facts returned by :func:`peek_metadata`."""
-
-    page_count: int
-    encrypted: bool
-    repaired: bool
-
-
 class DocumentComplexity(TypedDict):
     """Cheap structural facts that require no stream decoding or rendering."""
 
@@ -527,7 +519,6 @@ for _public in (
     DocumentMetadata,
     MetadataUpdate,
     MarkInfo,
-    MetadataProbe,
     DocumentComplexity,
     OcrWord,
 ):

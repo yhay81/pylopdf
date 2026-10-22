@@ -1,7 +1,8 @@
 """PDF editing and rendering backed by Rust.
 
-The :class:`Document` API follows pymupdf conventions. lopdf handles editing
-and hayro handles rendering; both are pure Rust under permissive licenses.
+:func:`open` opens a document and :func:`create` writes a new one. lopdf
+handles editing, hayro rendering and extraction, and krilla generated text and
+new documents; all are pure Rust under permissive licenses.
 """
 
 from __future__ import annotations
@@ -93,12 +94,11 @@ from pylopdf._content import (
     TransparencyGroup,
 )
 from pylopdf._create import Builder, Standard, create
-from pylopdf._document import Document, open, peek_metadata  # noqa: A004 - pymupdf's open().
+from pylopdf._document import Document, Probe, open, probe  # noqa: A004 - the package's open().
 from pylopdf._errors import (
     DocumentClosedError,
-    EmptyFileError,
     EncryptedDocumentError,
-    FileDataError,
+    MalformedPdfError,
     PylopdfWarning,
     StalePageError,
 )
@@ -124,6 +124,7 @@ from pylopdf._limits import DocumentLimits
 from pylopdf._objects import Array, Dictionary, Name, Objects, Stream, String
 from pylopdf._ocr import OcrEngine
 from pylopdf._page import Page
+from pylopdf._pages import Pages
 from pylopdf._pixmap import CS_CMYK, CS_GRAY, CS_RGB, Colorspace, csCMYK, csGRAY, csRGB
 from pylopdf._shape import Shape
 from pylopdf._tables import Table, TableDiagnostics, TableFinder
@@ -167,7 +168,6 @@ from pylopdf._types import (
     LinkInfo,
     LinkKind,
     MarkInfo,
-    MetadataProbe,
     MetadataUpdate,
     OcrWord,
     OutlineEntry,
@@ -295,11 +295,9 @@ __all__ = [
     "DocumentMetadata",
     "DrawingInfo",
     "DrawingItem",
-    "EmptyFileError",
     "EncryptedDocumentError",
     "EncryptionMethod",
     "ExtractedImage",
-    "FileDataError",
     "FillRule",
     "Font",
     "FontLanguage",
@@ -323,10 +321,10 @@ __all__ = [
     "LineTo",
     "LinkInfo",
     "LinkKind",
+    "MalformedPdfError",
     "MarkInfo",
     "MarkedContent",
     "Matrix",
-    "MetadataProbe",
     "MetadataUpdate",
     "MoveTo",
     "Name",
@@ -339,6 +337,7 @@ __all__ = [
     "Page",
     "PageLabelInfo",
     "PageLabelSpec",
+    "Pages",
     "Paint",
     "PasswordError",
     "Path",
@@ -346,6 +345,7 @@ __all__ = [
     "PdfError",
     "Permissions",
     "Point",
+    "Probe",
     "Quad",
     "RawTextBlock",
     "RawTextLine",
@@ -385,8 +385,8 @@ __all__ = [
     "csGRAY",
     "csRGB",
     "open",
-    "peek_metadata",
     "planish_line",
+    "probe",
 ]
 __all__ += ["Pixmap", "PylopdfWarning"]
 

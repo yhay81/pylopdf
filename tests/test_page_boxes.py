@@ -10,7 +10,7 @@ import pylopdf
 
 def _page(page: str, pages: str = "") -> pylopdf.Page:
     doc = pylopdf.open(
-        stream=build_raw_pdf(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R >>",
                 2: f"<< /Type /Pages /Kids [3 0 R] /Count 1 {pages} >>",
@@ -18,7 +18,7 @@ def _page(page: str, pages: str = "") -> pylopdf.Page:
             }
         )
     )
-    return doc[0]
+    return doc.pages[0]
 
 
 def test_mediabox_is_stored_and_normalized() -> None:
@@ -77,7 +77,7 @@ def test_set_mediabox_removes_the_other_page_boxes() -> None:
     assert page.rect == pylopdf.Rect(0, 0, 200, 300)
     for key in ("CropBox", "BleedBox", "TrimBox", "ArtBox"):
         assert key not in page.obj
-    reopened = pylopdf.open(stream=page.parent.tobytes())[0]
+    reopened = pylopdf.open(page.document.tobytes()).pages[0]
     assert reopened.cropbox == reopened.mediabox == pylopdf.Rect(0, 0, 200, 300)
 
 

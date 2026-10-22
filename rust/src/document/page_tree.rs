@@ -720,21 +720,41 @@ pub(super) fn new_page(
     Ok(())
 }
 
-/// Implements [`_Document::copy_page`].
-pub(super) fn copy_page(
+/// Implements [`_Document::copy_pages`].
+pub(super) fn copy_pages(
     this: &mut _Document,
-    page_number: u32,
+    page_numbers: Vec<u32>,
     position: Option<usize>,
 ) -> PyResult<()> {
+    if page_numbers.is_empty() {
+        return Ok(());
+    }
     let existing_pages = this.doc.owned_page_ids()?;
-    let source_id = page_id_from_index(&existing_pages, page_number)?;
+    check_page_entry_count(page_numbers.len(), existing_pages.len(), "copy")?;
     this.preflight_page_tree_rebuild(&existing_pages)?;
+    let mut copies = Vec::new();
+    copies
+        .try_reserve_exact(page_numbers.len())
+        .map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate copied page dictionaries: {error}"
+            ))
+        })?;
+    for &page_number in &page_numbers {
+        let source_id = page_id_from_index(&existing_pages, page_number)?;
+        copies.push(resolve_inherited_page_dict(&this.doc, source_id)?);
+    }
+    let mut new_ids = Vec::new();
+    new_ids.try_reserve_exact(copies.len()).map_err(|error| {
+        PdfError::new_err(format!("failed to allocate copied page IDs: {error}"))
+    })?;
     let pages_id = this.ensure_page_tree().map_err(to_py_err)?;
-    let mut dict = resolve_inherited_page_dict(&this.doc, source_id)?;
-    dict.set("Parent", pages_id);
     this.invalidate_hayro_pdf_keeping_placements();
-    let new_id = this.doc.add_object(Object::Dictionary(dict));
-    let order = _Document::spliced_page_order(existing_pages, vec![new_id], position)?;
+    for mut dict in copies {
+        dict.set("Parent", pages_id);
+        new_ids.push(this.doc.add_object(Object::Dictionary(dict)));
+    }
+    let order = _Document::spliced_page_order(existing_pages, new_ids, position)?;
     this.rebuild_page_tree(pages_id, order)?;
     prune_unreachable_objects(&mut this.doc)?;
     Ok(())

@@ -36,9 +36,9 @@ def test_typst_compile_to_pylopdf() -> None:
     # Ecosystem guide recipe: pass typst.compile() PDF bytes directly to open(stream=).
     pdf_bytes = typst.compile(TYP_SOURCE)
     assert isinstance(pdf_bytes, bytes)
-    with pylopdf.open(stream=pdf_bytes) as doc:
-        assert doc.page_count == 1
-        assert "Hello pylopdf" in doc.get_page_text(0)
+    with pylopdf.open(pdf_bytes) as doc:
+        assert len(doc.pages) == 1
+        assert "Hello pylopdf" in doc.pages[0].get_text()
 
 
 def test_typst_pdfa_output_opens() -> None:
@@ -46,16 +46,16 @@ def test_typst_pdfa_output_opens() -> None:
     # uncompressed XMP metadata, so the identifier appears in raw bytes.
     pdf_bytes = typst.compile(TYP_SOURCE, pdf_standards="a-2b")
     assert b"pdfaid" in pdf_bytes
-    with pylopdf.open(stream=pdf_bytes) as doc:
-        assert doc.page_count == 1
-        assert "Hello pylopdf" in doc.get_page_text(0)
+    with pylopdf.open(pdf_bytes) as doc:
+        assert len(doc.pages) == 1
+        assert "Hello pylopdf" in doc.pages[0].get_text()
 
 
 def test_typst_bold_italic_flow_into_markdown() -> None:
     # Embedded font weight/italic metadata flows through span flags to emphasis.
     pdf = typst.compile(b'#set document(title: "t")\nNormal and *bold emphasis* and _italic part_ here.')
-    with pylopdf.open(stream=pdf) as doc:
-        span = doc.get_page_text(0, "dict")["blocks"][0]["lines"][0]["spans"][1]
+    with pylopdf.open(pdf) as doc:
+        span = doc.pages[0].get_text("dict")["blocks"][0]["lines"][0]["spans"][1]
         assert span["flags"] & 16  # Bold, using the pymupdf-compatible bit.
         assert "Bold" in span["font"]
         md = doc.to_markdown()
@@ -66,10 +66,10 @@ def test_typst_bold_italic_flow_into_markdown() -> None:
 def test_pdfa_claim_reads_typst_output() -> None:
     # get_pdfa_claim reads typst/krilla's validated PDF/A declaration.
     pdf_a = typst.compile(TYP_SOURCE, pdf_standards="a-2b")
-    with pylopdf.open(stream=pdf_a) as doc:
+    with pylopdf.open(pdf_a) as doc:
         assert doc.get_pdfa_claim() == (2, "B")
     plain = typst.compile(TYP_SOURCE)
-    with pylopdf.open(stream=plain) as doc:
+    with pylopdf.open(plain) as doc:
         assert doc.get_pdfa_claim() is None
 
 
@@ -86,11 +86,11 @@ def test_typst_japanese_watermark_via_show_pdf_page() -> None:
 #align(center + horizon)[社外秘]
 """
     stamp_pdf = typst.compile(stamp_typ.encode(), font_paths=[str(fonts.sans_path().parent)])
-    stamp = pylopdf.open(stream=stamp_pdf)
+    stamp = pylopdf.open(stamp_pdf)
 
     doc = pylopdf.Document()
-    doc.new_page()  # A4-sized default page.
-    page = doc[0]
+    doc.pages.new()  # A4-sized default page.
+    page = doc.pages[0]
     page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
 
     # Vector overlay leaves the CJK watermark directly extractable.
@@ -146,7 +146,7 @@ def test_pyhanko_signs_pylopdf_output_incrementally(tmp_path: Path) -> None:
     # Ecosystem guide recipe: pyHanko incrementally signs pylopdf output. Incremental
     # updates append bytes, preserving pylopdf's complete output unchanged.
     doc = pylopdf.Document()
-    doc.new_page()
+    doc.pages.new()
     doc.set_metadata({"title": "pylopdf interop test"})
     original = doc.tobytes()
 
@@ -162,6 +162,6 @@ def test_pyhanko_signs_pylopdf_output_incrementally(tmp_path: Path) -> None:
 
     assert signed[: len(original)] == original
     assert b"/ByteRange" in signed
-    with pylopdf.open(stream=signed) as reopened:
-        assert reopened.page_count == 1
+    with pylopdf.open(signed) as reopened:
+        assert len(reopened.pages) == 1
         assert reopened.metadata["title"] == "pylopdf interop test"

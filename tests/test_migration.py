@@ -44,7 +44,7 @@ def test_hints_module_matches_the_manifest() -> None:
     [
         (pylopdf.Document, "get_toc", "is Document.get_outline in pylopdf. pylopdf's get_outline uses zero-based"),
         (pylopdf.Document, "embfile_add", "Use doc.attachments.add(name, data"),
-        (lambda: pylopdf.Document().new_page(), "get_textpage", "Page.get_textpage in the Reading milestone"),
+        (pylopdf.Document().pages.new, "get_textpage", "Page.get_textpage in the Reading milestone"),
         (lambda: pylopdf.Rect(0, 0, 1, 1), "include_rect", "Use r | other"),
         (lambda: pylopdf.IRect(0, 0, 1, 1), "intersect", "Use r & other, which returns a new IRect."),
         (pylopdf.Matrix, "prerotate", "pylopdf.Matrix(deg) * m"),
@@ -82,7 +82,16 @@ def test_hinted_errors_keep_python_semantics() -> None:
 def test_successful_lookups_never_reach_the_hints() -> None:
     for cls in (pylopdf.Document, pylopdf.Page, pylopdf.Rect, pylopdf.Matrix, pylopdf.Shape):
         assert "__getattr__" in vars(cls) or any("__getattr__" in vars(base) for base in cls.__mro__[1:])
-    assert pylopdf.Document().page_count == 0
+    assert len(pylopdf.Document().pages) == 0
+
+
+def test_pylopdf_015_names_raise_hinted_attribute_errors() -> None:
+    with pytest.raises(AttributeError, match=r"peek_metadata is probe in pylopdf"):
+        _ = pylopdf.peek_metadata  # ty: ignore[unresolved-attribute]
+    with pytest.raises(AttributeError, match=r"Page\.render is Page\.get_pixmap in pylopdf"):
+        _ = pylopdf.Document().pages.new().render  # ty: ignore[unresolved-attribute]
+    with pytest.raises(AttributeError, match=r"pylopdf 0\.15's TextPage is TextPageDict"):
+        _ = pylopdf.TextPage  # ty: ignore[unresolved-attribute]
 
 
 Migrate = Callable[[str], "Migration"]
@@ -138,10 +147,52 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
-        ("import fitz as F\nF.open()\n", "import pylopdf as F\nF.open()\n"),
+        ("import fitz as F\nF.open()\n", "import pylopdf as F\nF.Document()\n"),
         ("import pymupdf\npymupdf.Rect()\n", "import pylopdf\npylopdf.Rect()\n"),
         ("from fitz import Rect, Matrix\nm = Matrix()\nm.prescale(2, 3)\n", "Matrix(2, 3) * m"),
-        ("import fitz\ndoc.copy_page(0, to=2)\n", "doc.fullcopy_page(0, to=2)"),
+        ("import fitz\ndoc.copy_page(0, to=2)\n", "doc.pages.insert(2, doc.pages[0])"),
+        ("import fitz\ndoc = fitz.open('a.pdf')\n", "doc = pylopdf.open('a.pdf')"),
+        ("import fitz\ndoc = fitz.open(stream=data, filetype='pdf')\n", "doc = pylopdf.open(data)"),
+        ("import fitz\ndoc = fitz.Document('pdf', data)\n", "doc = pylopdf.open(data)"),
+        ("from fitz import open\ndoc = open(stream=data)\n", "doc = open(data)"),
+        ("import fitz\ndoc = fitz.open()\npage = doc[0]\n", "page = doc.pages[0]"),
+        ("import fitz\ndoc = fitz.open()\nn = len(doc)\n", "n = len(doc.pages)"),
+        (
+            "import fitz\ndoc = fitz.open()\nfor page in doc:\n    print(page.number)\n",
+            "for page in doc.pages:\n    print(page.index)",
+        ),
+        (
+            "import fitz\ndoc = fitz.open()\npages = [p.parent for p in doc]\n",
+            "pages = [p.document for p in doc.pages]",
+        ),
+        (
+            "import fitz\nwith fitz.open() as doc:\n    print(list(enumerate(doc)))\n",
+            "print(list(enumerate(doc.pages)))",
+        ),
+        ("import fitz\nn = doc.page_count\n", "n = len(doc.pages)"),
+        ("import fitz\nlocked = doc.needs_pass\n", "locked = doc.needs_password"),
+        ("import fitz\npage = doc.load_page(3)\n", "page = doc.pages[3]"),
+        ("import fitz\npage = doc.new_page(0, width=200, height=300)\n", "page = doc.pages.new((200, 300), index=0)"),
+        (
+            "import fitz\ndoc.insert_pdf(src, from_page=2, to_page=4, start_at=0)\n",
+            "doc.pages.insert(0, src.pages[2:5])",
+        ),
+        ("import fitz\ndoc.insert_pdf(src, from_page=4, to_page=2)\n", "doc.pages.extend(src.pages[2:5][::-1])"),
+        ("import fitz\ndoc.insert_pdf(fitz.open(path))\n", "doc.pages.extend(pylopdf.open(path).pages)"),
+        ("import fitz\ndoc.move_page(1, 4)\n", "doc.pages.move(1, 3)"),
+        ("import fitz\ndoc.delete_page()\n", "del doc.pages[-1]"),
+        ("import fitz\ndoc.delete_pages(1, 3)\n", "del doc.pages[1:4]"),
+        ("import fitz\ndoc.delete_pages(from_page=2)\n", "del doc.pages[2:]"),
+        (
+            "import fitz\ndoc.delete_pages([0, 2])\n",
+            "doc.pages.select(index for index in range(len(doc.pages)) if index not in {0, 2})",
+        ),
+        ("import fitz\ndoc.select([2, 0])\n", "doc.pages.select([2, 0])"),
+        ("import fitz\nfor page in doc.pages(1, 5):\n    pass\n", "for page in doc.pages[1:5]:"),
+        ("import fitz\nlabels = doc.get_page_numbers('iv', only_one=True)\n", "labels = doc.pages.labeled('iv')[:1]"),
+        ("import fitz\ntext = doc.get_page_text(2, 'words')\n", "text = doc.pages[2].get_text('words')"),
+        ("import fitz\nxref = doc.page_xref(0)\n", "xref = doc.pages[0].xref"),
+        ("import fitz\ntry:\n    pass\nexcept fitz.FileDataError:\n    pass\n", "except pylopdf.MalformedPdfError:"),
         ("import fitz\nnames = doc.embfile_names()\n", "names = list(doc.attachments)"),
         (
             "import fitz\ndoc.embfile_add('a', data, ufilename='Ä.txt')\n",
@@ -157,6 +208,60 @@ def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> N
     result = migrate_source(source)
     assert expected in result.code
     assert result.todos == ()
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            "import pylopdf\ndoc = pylopdf.open(stream=data, max_decompressed_size=9)\n",
+            "doc = pylopdf.open(data, limits=pylopdf.DocumentLimits(max_decompressed_size=9))",
+        ),
+        (
+            "import pylopdf\ndoc = pylopdf.Document('a.pdf', password='pw')\n",
+            "doc = pylopdf.open('a.pdf', password='pw')",
+        ),
+        ("import pylopdf as pl\ndoc = pl.Document()\nfirst = doc[0]\n", "first = doc.pages[0]"),
+        (
+            "from pylopdf import FileDataError\ntry:\n    pass\nexcept FileDataError:\n    pass\n",
+            "except MalformedPdfError:",
+        ),
+        (
+            "import pylopdf\nwith pylopdf.open(path) as doc:\n    doc.fullcopy_page(0)\n",
+            "doc.pages.extend(doc.pages[0])",
+        ),
+    ],
+)
+def test_codemod_migrates_pylopdf_015_programs(migrate_source: Migrate, source: str, expected: str) -> None:
+    result = migrate_source(source)
+    assert expected in result.code
+    assert result.todos == ()
+
+
+def test_codemod_marks_probe_results_for_review(migrate_source: Migrate) -> None:
+    result = migrate_source("import pylopdf\ninfo = pylopdf.peek_metadata(stream=data)\n")
+
+    assert "info = pylopdf.probe(data)" in result.code
+    assert "Probe record" in result.todos[0][1]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        # pymupdf's in-place geometry rules leave pylopdf's own methods alone.
+        "import pylopdf\nwith page.draw() as canvas:\n    canvas.transform((1, 0, 0, 1, 5, 5))\n",
+        # A name bound to something other than a document is not indexed through pages.
+        "import pylopdf\ndoc = pylopdf.open(path)\ndoc = {}\nvalue = doc[0]\n",
+        # A probe or a builder keeps its own page_count.
+        "import pylopdf\nprobe = pylopdf.probe(path)\nn = probe.page_count\n",
+        "import pylopdf\nbuilder = pylopdf.create()\nn = builder.page_count\n",
+        # Calls that already use doc.pages stay as they are.
+        "import pylopdf\ndoc = pylopdf.open(path)\ndoc.pages.select([0])\nfor page in doc.pages:\n    pass\n",
+    ],
+)
+def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, source: str) -> None:
+    result = migrate_source(source)
+    assert (result.code, result.rewrites, result.todos) == (source, 0, ())
 
 
 @pytest.mark.parametrize(

@@ -34,7 +34,15 @@ Key facts:
   branch.
 - PDF files only. Typesetting, digital signatures, and PDF/A validation are
   done with typst, pyHanko, and veraPDF.
-- Page numbers start at 0 everywhere; get_outline/set_outline replace
+- pylopdf.open(source) opens a path or bytes; pylopdf.Document() is an empty
+  document; pylopdf.probe(source) reads page count, version, encryption, and
+  metadata without loading the document.
+- doc.pages is the page sequence: doc.pages[i], doc.pages[a:b] (a list),
+  len(doc.pages), for page in doc.pages, doc.pages.new(size, index=),
+  doc.pages.insert(index, pages), doc.pages.extend(pages), del doc.pages[i],
+  del doc.pages[a:b], doc.pages.select(indexes), doc.pages.move(index, to),
+  doc.pages.labeled(label). A Document itself is not indexable or iterable.
+- Page indexes start at 0 everywhere; get_outline/set_outline replace
   pymupdf's 1-based get_toc/set_toc.
 - Coordinates are points with a top-left origin in the displayed page,
   shared by extraction, search, drawing, and rendering.
@@ -49,20 +57,27 @@ Key facts:
 - get_pixmap(matrix=) takes scaling matrices only; dpi= takes precedence.
 - DocumentLimits.web() and LimitError.code bound untrusted input.
 
-Migrating pymupdf code:
+Migrating pymupdf and pylopdf 0.15 code:
 - python -m pylopdf.migrate PATH (pip install "pylopdf[migrate]") renames the
-  fitz and pymupdf imports, rewrites mechanical replacements such as
-  get_toc/set_toc, embfile_*, xref_* readers and in-place geometry methods,
-  and adds a "# TODO(pylopdf): <hint>" comment above every statement that
-  still needs a person; it then lists those steps as path:line: message.
-- Looking up a pymupdf name that pylopdf lacks raises AttributeError whose
-  message names the replacement or the milestone that plans it.
+  fitz and pymupdf imports, rewrites mechanical replacements such as opening
+  documents, the page operations that doc.pages replaced, get_toc/set_toc,
+  embfile_*, xref_* readers and in-place geometry methods, and adds a
+  "# TODO(pylopdf): <hint>" comment above every statement that still needs a
+  person; it then lists those steps as path:line: message.
+- Looking up a pymupdf name or a pylopdf 0.15 name that pylopdf lacks raises
+  AttributeError whose message names the replacement or the milestone that
+  plans it.
 
 pymupdf name map (generated from api/pymupdf-parity.json; each pymupdf name that pylopdf replaced, its
 replacement, and the migration hint):
 - DisplayList -> Content: Use the Content that page.content() returns; it records the page's items once and can be read any number of times.
 - DisplayList.rect -> Page.rect: Read page.rect, the display area in which the content items are positioned.
-- Document.copy_page -> Document.fullcopy_page: pylopdf never shares page objects; use fullcopy_page.
+- Document.__contains__ -> Pages.__contains__: Test page in doc.pages, which takes Page views.
+- Document.__getitem__ -> Pages.__getitem__: Use doc.pages[i]; doc.pages also takes slices.
+- Document.__len__ -> Pages.__len__: Use len(doc.pages).
+- Document.copy_page -> Pages.insert: Use doc.pages.insert(to, doc.pages[i]); the copy is a new page object, not a second reference.
+- Document.delete_page -> Pages.__delitem__: Use del doc.pages[i].
+- Document.delete_pages -> Pages.__delitem__: Use del doc.pages[a:b], or doc.pages.select(...) to keep the other pages.
 - Document.embfile_add -> Document.attachments: Use doc.attachments.add(name, data, filename=..., description=...).
 - Document.embfile_count -> Document.attachments: Use len(doc.attachments).
 - Document.embfile_del -> Document.attachments: Use del doc.attachments[name].
@@ -70,12 +85,28 @@ replacement, and the migration hint):
 - Document.embfile_info -> Document.attachments: Read name, filename, description, size, creation_date, and mod_date from doc.attachments[name].
 - Document.embfile_names -> Document.attachments: Use list(doc.attachments).
 - Document.embfile_upd -> Document.attachments: Use doc.attachments[name].write(data).
+- Document.fullcopy_page -> Pages.insert: Use doc.pages.insert(to, doc.pages[i]), or doc.pages.extend(doc.pages[i]) to append.
 - Document.get_new_xref -> Objects.add: Call doc.objects.add(value), which creates the object and returns its object number.
+- Document.get_page_images -> Page.get_images: Use doc.pages[i].get_images(...).
+- Document.get_page_numbers -> Pages.labeled: Use doc.pages.labeled(label).
+- Document.get_page_pixmap -> Page.get_pixmap: Use doc.pages[i].get_pixmap(...).
+- Document.get_page_text -> Page.get_text: Use doc.pages[i].get_text(...).
 - Document.get_toc -> Document.get_outline: pylopdf's get_outline uses zero-based pages; get_toc used one-based pages.
+- Document.insert_pdf -> Pages.insert: Use doc.pages.insert(index, other.pages[a:b + 1]), or doc.pages.extend(other.pages) to append.
 - Document.is_stream -> Stream: Check isinstance(doc.objects[xref], pylopdf.Stream).
 - Document.language -> Document.language_tag: pylopdf's language_tag keeps the complete BCP 47 tag, such as zh-TW, where pymupdf's language keeps at most three letters.
+- Document.load_page -> Pages.__getitem__: Use doc.pages[i].
+- Document.move_page -> Pages.move: Use doc.pages.move(i, to); to is the index where the page ends up, where pymupdf inserted before page to.
+- Document.name -> Document.path: Read doc.path, a pathlib.Path, or None for a document opened from bytes or created empty.
+- Document.needs_pass -> Document.needs_password: Read doc.needs_password.
+- Document.new_page -> Pages.new: Use doc.pages.new((width, height), index=i); without index the page is appended.
+- Document.page_count -> Pages.__len__: Use len(doc.pages).
+- Document.page_xref -> Page.xref: Use doc.pages[i].xref.
+- Document.pages -> Document.pages: doc.pages is a sequence; slice it, as in doc.pages[start:stop:step], instead of calling it.
 - Document.pdf_catalog -> Document.catalog: Use doc.catalog, a live dictionary handle; doc.catalog.xref is its object number.
 - Document.pdf_trailer -> Document.trailer: Use doc.trailer, a live dictionary handle, instead of its PDF syntax.
+- Document.reload_page -> Pages.__getitem__: Fetch the page again with doc.pages[page.index].
+- Document.select -> Pages.select: Use doc.pages.select(indexes).
 - Document.set_language -> Document.set_language_tag: pylopdf's set_language_tag writes the complete BCP 47 tag, such as zh-TW, where pymupdf's set_language keeps at most three letters.
 - Document.set_toc -> Document.set_outline: pylopdf's set_outline uses zero-based pages; set_toc used one-based pages.
 - Document.to_text -> Document.get_text: Call Document.get_text() for the plain text of every page.
@@ -100,6 +131,8 @@ replacement, and the migration hint):
 - DocumentWriter.begin_page -> Builder.page: Use `with builder.page(size) as canvas:`; the canvas draws the page and the block adds it.
 - DocumentWriter.close -> Builder.to_bytes: Write the document with builder.to_bytes(), or open it with builder.finish().
 - DocumentWriter.end_page -> Builder.page: The `with builder.page(size) as canvas:` block adds the page when it ends.
+- EmptyFileError -> MalformedPdfError: Catch MalformedPdfError, which empty input raises.
+- FileDataError -> MalformedPdfError: Catch MalformedPdfError, a PdfError and thus a ValueError, which empty input raises as well.
 - FileNotFoundError -> FileNotFoundError: Catch Python's built-in FileNotFoundError, which pylopdf raises for a missing file.
 - IRect.__setitem__ -> IRect: IRect values are immutable; build a new IRect instead.
 - IRect.include_point -> IRect.__or__: Use r | p, which returns a new IRect.
@@ -121,6 +154,8 @@ replacement, and the migration hint):
 - Page.get_image_rects -> Page.content: Keep the items of page.content().images whose xref is the image's object number, and read their bbox and matrix.
 - Page.get_texttrace -> Page.content: Call page.content() and read the glyphs of its text_runs, each run with its font, size, paints, and graphics context.
 - Page.last_point -> PathBuilder.current_point: Build the path with a PathBuilder and read its current_point, the end of its last segment.
+- Page.number -> Page.index: Read page.index.
+- Page.parent -> Page.document: Read page.document.
 - Page.run -> Page.content: Call page.content() for the items that the page paints; pylopdf has no device protocol.
 - Point.__setitem__ -> Point: Point values are immutable; build a new Point instead.
 - Point.transform -> Point.__mul__: Use p * m, which returns a new Point.
@@ -135,3 +170,46 @@ replacement, and the migration hint):
 - get_pdf_str -> String: Write a Python str into the object model, which encodes it as a PDF text string, or read String.text.
 - set_log -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
 - set_messages -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
+
+pylopdf 0.15 name map (replaced names that the capability map does not list):
+- AnnotationInfo -> Annot: Page.annots() returns Annot handles instead of AnnotationInfo dictionaries.
+- AnnotationInfo.contents -> Annot.info: Read annot.info["content"].
+- AnnotationInfo.rect -> Annot.rect: Read annot.rect.
+- AnnotationInfo.type -> Annot.type: Read annot.type, a (type code, subtype name) tuple.
+- AnnotationInfo.uri -> Page.get_links: Read the uri of the page's links from page.get_links().
+- BlockEntry -> Block: get_text("blocks") returns Block records.
+- Document.__iter__ -> Pages.__iter__: Iterate over doc.pages.
+- Document.compress_images -> Document.rewrite_images: Use doc.rewrite_images(dpi_threshold=..., dpi_target=..., quality=...).
+- Document.render_page -> Page.get_pixmap: Use doc.pages[i].get_pixmap(...); its tobytes() gives the PNG.
+- Document.render_page_svg -> Page.get_svg_image: Use doc.pages[i].get_svg_image().
+- ImageInfo.ext -> Document.extract_image: Document.extract_image(xref) returns an image's data and ext; Page.get_image_info describes placements.
+- ImageInfo.image -> Document.extract_image: Document.extract_image(xref) returns an image's data and ext; Page.get_image_info describes placements.
+- MetadataProbe -> Probe: probe(source) returns a Probe record.
+- MetadataProbe.author -> Probe.metadata: Read probe.metadata["author"].
+- MetadataProbe.creationDate -> Probe.metadata: Read probe.metadata["created"].
+- MetadataProbe.creator -> Probe.metadata: Read probe.metadata["creator"].
+- MetadataProbe.encrypted -> Probe.is_encrypted: Read probe.is_encrypted.
+- MetadataProbe.format -> Probe.version: Read probe.version, such as "1.7".
+- MetadataProbe.keywords -> Probe.metadata: Read probe.metadata["keywords"].
+- MetadataProbe.modDate -> Probe.metadata: Read probe.metadata["modified"].
+- MetadataProbe.page_count -> Probe.page_count: Read probe.page_count.
+- MetadataProbe.producer -> Probe.metadata: Read probe.metadata["producer"].
+- MetadataProbe.repaired -> Probe.is_repaired: Read probe.is_repaired.
+- MetadataProbe.subject -> Probe.metadata: Read probe.metadata["subject"].
+- MetadataProbe.title -> Probe.metadata: Read probe.metadata["title"].
+- Page.add_link_annot -> Page.insert_link: Use page.insert_link({"kind": pylopdf.LinkKind.URI, "from": rect, "uri": uri}).
+- Page.render -> Page.get_pixmap: Use page.get_pixmap(...).tobytes() for PNG.
+- Page.render_svg -> Page.get_svg_image: Use page.get_svg_image().
+- Permissions.COPY_FOR_ACCESSIBILITY -> Permissions.ACCESSIBILITY: Use Permissions.ACCESSIBILITY.
+- Permissions.FILL_FORMS -> Permissions.FORM: Use Permissions.FORM.
+- Permissions.PRINT_HIGH_QUALITY -> Permissions.PRINT_HQ: Use Permissions.PRINT_HQ.
+- RawTextPage -> RawTextPageDict: get_text("rawdict") returns a RawTextPageDict.
+- RawTextPage.blocks -> RawTextPageDict.blocks: Read get_text("rawdict")["blocks"].
+- RawTextPage.height -> RawTextPageDict.height: Read get_text("rawdict")["height"].
+- RawTextPage.width -> RawTextPageDict.width: Read get_text("rawdict")["width"].
+- TextPage -> TextPageDict: get_text("dict") returns a TextPageDict.
+- TextPage.blocks -> TextPageDict.blocks: Read get_text("dict")["blocks"].
+- TextPage.height -> TextPageDict.height: Read get_text("dict")["height"].
+- TextPage.width -> TextPageDict.width: Read get_text("dict")["width"].
+- WordEntry -> Word: get_text("words") returns Word records.
+- peek_metadata -> probe: probe(source) takes a path or bytes and returns a Probe record with page_count, version, is_encrypted, is_repaired, and metadata.

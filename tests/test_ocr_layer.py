@@ -17,7 +17,7 @@ import pylopdf
 
 def _blank_page_doc() -> pylopdf.Document:
     doc = pylopdf.Document()
-    doc.new_page(width=300, height=200)
+    doc.pages.new((300, 200))
     return doc
 
 
@@ -39,7 +39,7 @@ def _rotate_box_clockwise(
 
 def test_ocr_layer_is_extractable_and_searchable() -> None:
     doc = _blank_page_doc()
-    page = doc[0]
+    page = doc.pages[0]
     page.insert_ocr_text_layer(
         [
             (50, 50, 150, 70, "Hello"),
@@ -60,7 +60,7 @@ def test_ocr_layer_is_extractable_and_searchable() -> None:
 
 def test_ocr_layer_is_invisible() -> None:
     doc = _blank_page_doc()
-    page = doc[0]
+    page = doc.pages[0]
     page.insert_ocr_text_layer([(50, 50, 150, 70, "Invisible")])
     pix = page.get_pixmap(background=(255, 255, 255), alpha=True)
     samples = pix.samples
@@ -72,40 +72,40 @@ def test_ocr_layer_does_not_need_fallback_fonts() -> None:
     # disabled, proving independence from optional locale font extras.
     doc = _blank_page_doc()
     doc.set_fallback_font(None)
-    page = doc[0]
+    page = doc.pages[0]
     page.insert_ocr_text_layer([(50, 50, 200, 75, "帳票スキャン")])
     assert "帳票スキャン" in page.get_text()
 
 
 def test_ocr_layer_survives_save_roundtrip() -> None:
     doc = _blank_page_doc()
-    doc[0].insert_ocr_text_layer([(50, 50, 150, 70, "Persistent"), (50, 80, 150, 100, "残存")])
-    reopened = pylopdf.open(stream=doc.tobytes())
-    text = reopened[0].get_text()
+    doc.pages[0].insert_ocr_text_layer([(50, 50, 150, 70, "Persistent"), (50, 80, 150, 100, "残存")])
+    reopened = pylopdf.open(doc.tobytes())
+    text = reopened.pages[0].get_text()
     assert "Persistent" in text
     assert "残存" in text
-    assert reopened[0].search_for("残存")
+    assert reopened.pages[0].search_for("残存")
 
 
 def test_ocr_layer_accepts_get_text_words_shape() -> None:
     # Pass get_text("words") eight-item tuples directly; only the first five
     # items are used.
     src = pylopdf.Document()
-    src.new_page()
-    src[0].insert_text((72, 100), "Roundtrip works")
-    words = src[0].get_text("words")
+    src.pages.new()
+    src.pages[0].insert_text((72, 100), "Roundtrip works")
+    words = src.pages[0].get_text("words")
     assert words
 
     doc = _blank_page_doc()
-    doc[0].insert_ocr_text_layer(words)
-    extracted = {w[4] for w in doc[0].get_text("words")}
+    doc.pages[0].insert_ocr_text_layer(words)
+    extracted = {w[4] for w in doc.pages[0].get_text("words")}
     assert extracted == {"Roundtrip", "works"}
 
 
 def test_ocr_layer_on_rotated_page_uses_display_coordinates() -> None:
     doc = pylopdf.Document()
-    doc.new_page(width=100, height=200)
-    page = doc[0]
+    doc.pages.new((100, 200))
+    page = doc.pages[0]
     page.set_rotation(90)  # Display is 200 x 100.
     page.insert_ocr_text_layer([(120, 30, 180, 50, "回転ページ")])
     hits = page.search_for("回転ページ")
@@ -116,7 +116,7 @@ def test_ocr_layer_on_rotated_page_uses_display_coordinates() -> None:
 @pytest.mark.parametrize("rotation", [90, 180, 270])
 def test_ocr_layer_orients_sideways_baselines(rotation: pylopdf.OcrRotation) -> None:
     doc = _blank_page_doc()
-    page = doc[0]
+    page = doc.pages[0]
     page.insert_ocr_text_layer([(80, 30, 105, 150, "Vertical box")], rotation=rotation)
 
     hits = page.search_for("Vertical box")
@@ -152,8 +152,8 @@ def test_ocr_layer_orders_rotated_columns_logically(rotation: pylopdf.OcrRotatio
         (logical_height, logical_width) if display_rotation in (90, 270) else (logical_width, logical_height)
     )
     doc = pylopdf.Document()
-    doc.new_page(width=page_width, height=page_height)
-    page = doc[0]
+    doc.pages.new((page_width, page_height))
+    page = doc.pages[0]
     # Geometry, not caller ordering, determines the logical reading sequence.
     scrambled = physical_words[4:] + physical_words[:4]
     page.insert_ocr_text_layer(
@@ -172,15 +172,15 @@ def test_ocr_layer_orders_rotated_columns_logically(rotation: pylopdf.OcrRotatio
 def test_ocr_layer_rejects_empty() -> None:
     doc = _blank_page_doc()
     with pytest.raises(ValueError, match="words"):
-        doc[0].insert_ocr_text_layer([])
+        doc.pages[0].insert_ocr_text_layer([])
     with pytest.raises(ValueError, match="words"):
-        doc[0].insert_ocr_text_layer([(10, 10, 50, 20, "")])
+        doc.pages[0].insert_ocr_text_layer([(10, 10, 50, 20, "")])
     with pytest.raises(pylopdf.OcrError, match="rotation"):
-        doc[0].insert_ocr_text_layer([(10, 10, 50, 20, "Text")], rotation=45)  # ty: ignore[invalid-argument-type]
+        doc.pages[0].insert_ocr_text_layer([(10, 10, 50, 20, "Text")], rotation=45)  # ty: ignore[invalid-argument-type]
 
 
 def test_ocr_layer_bounds_generator_words_before_full_materialization() -> None:
-    doc = pylopdf.open(stream=build_pdf(["Hello"]))
+    doc = pylopdf.open(build_pdf(["Hello"]))
     before = doc.tobytes()
     consumed = 0
 
@@ -191,26 +191,26 @@ def test_ocr_layer_bounds_generator_words_before_full_materialization() -> None:
             yield (10, 10, 50, 20, f"word-{index}")
 
     with pytest.raises(ValueError, match="4096 non-empty entries"):
-        doc[0].insert_ocr_text_layer(words())
+        doc.pages[0].insert_ocr_text_layer(words())
     assert consumed == 4097
     assert doc.tobytes() == before
 
 
 def test_ocr_layer_bounds_utf8_text_before_mutation() -> None:
-    doc = pylopdf.open(stream=build_pdf(["Hello"]))
+    doc = pylopdf.open(build_pdf(["Hello"]))
     before = doc.tobytes()
 
     with pytest.raises(ValueError, match="1048576 UTF-8 bytes"):
-        doc[0].insert_ocr_text_layer([(10, 10, 50, 20, "é" * (512 * 1024 + 1))])
+        doc.pages[0].insert_ocr_text_layer([(10, 10, 50, 20, "é" * (512 * 1024 + 1))])
     assert doc.tobytes() == before
 
 
 def test_ocr_layer_bounds_distinct_cids_before_mutation() -> None:
-    doc = pylopdf.open(stream=build_pdf(["Hello"]))
+    doc = pylopdf.open(build_pdf(["Hello"]))
     before = doc.tobytes()
     text = "".join(chr(codepoint) for codepoint in range(1, 0x11000) if not 0xD800 <= codepoint <= 0xDFFF)
     text = text[:65_535]
 
     with pytest.raises(pylopdf.PdfError, match="65,534 per call"):
-        doc[0].insert_ocr_text_layer([(10, 10, 290, 20, text)])
+        doc.pages[0].insert_ocr_text_layer([(10, 10, 290, 20, text)])
     assert doc.tobytes() == before

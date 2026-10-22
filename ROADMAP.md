@@ -340,7 +340,14 @@ the canvas.
   `doc.outline`, and `doc.form`), computed results take noun names
   (`page.text()`, `page.render()`), and pymupdf's duplicates and conveniences
   go.
-- The codemod and the hints migrate pymupdf code and pylopdf 0.15 code alike.
+- The codemod and the hints migrate pymupdf code and pylopdf 0.15 code alike;
+  `api/pylopdf-0.15.json` lists the 0.15 names each step removes.
+- Done: documents and pages. `pylopdf.open(source)`, `Document()`,
+  `pylopdf.probe()`, `doc.pages` with `new`, `insert`, `extend`, `select`,
+  `move`, `labeled`, and `del`, `page.index` and `page.document`,
+  `doc.needs_password` and `doc.path`, and `MalformedPdfError`. Still to come,
+  each with its codemod rules: saving and encryption, reading, rendering,
+  document properties, interaction, writing, and the constants and records.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs

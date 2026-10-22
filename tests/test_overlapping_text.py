@@ -16,7 +16,7 @@ NOTO_SANS_JP = (
 
 def _new_page() -> tuple[pylopdf.Document, pylopdf.Page]:
     doc = pylopdf.Document()
-    return doc, doc.new_page(width=400, height=200)
+    return doc, doc.pages.new((400, 200))
 
 
 def _dict_line_texts(page: pylopdf.Page) -> list[str]:
@@ -35,10 +35,10 @@ def _assert_text_views(
     doc: pylopdf.Document,
     expected_lines: list[str],
 ) -> None:
-    page = doc[0]
+    page = doc.pages[0]
     expected_text = "".join(f"{line}\n" for line in expected_lines)
     assert page.get_text("text") == expected_text
-    assert doc.get_page_text(0) == expected_text
+    assert doc.pages[0].get_text() == expected_text
     assert _dict_line_texts(page) == expected_lines
     assert _word_line_texts(page) == expected_lines
 

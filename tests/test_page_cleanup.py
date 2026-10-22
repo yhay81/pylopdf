@@ -60,18 +60,18 @@ def _linked_pdf(*, indirect_annots: bool = False, excessive_names: bool = False)
 @pytest.mark.parametrize("indirect_annots", [False, True])
 def test_excluded_page_navigation_is_removed(operation: Literal["delete", "select"], *, indirect_annots: bool) -> None:
     """Remove excluded targets while preserving retained and external links."""
-    doc = pylopdf.Document(stream=_linked_pdf(indirect_annots=indirect_annots))
+    doc = pylopdf.open(_linked_pdf(indirect_annots=indirect_annots))
     if operation == "delete":
-        doc.delete_page(1)
+        del doc.pages[1]
         source, target = 0, 1
     else:
-        doc.select([2, 0])
+        doc.pages.select([2, 0])
         source, target = 1, 0
-    assert doc.page_count == 2
+    assert len(doc.pages) == 2
     saved = doc.tobytes(garbage=True)
     assert _EXCLUDED_TEXT.encode() not in saved
-    for current in (doc, pylopdf.Document(stream=saved)):
-        links = current[source].get_links()
+    for current in (doc, pylopdf.open(saved)):
+        links = current.pages[source].get_links()
         goto = [link for link in links if link["kind"] == pylopdf.LINK_GOTO]
         assert [link["nameddest"] for link in goto] == ["keep", "legacykeep"]
         assert [link["page"] for link in goto] == [target, target]
@@ -88,45 +88,45 @@ def test_excluded_page_navigation_is_removed(operation: Literal["delete", "selec
 @pytest.mark.parametrize("indirect_annots", [False, True])
 def test_duplicate_selected_pages_share_clean_navigation(*, indirect_annots: bool) -> None:
     """Clean direct and shared annotation arrays on selected page duplicates."""
-    doc = pylopdf.Document(stream=_linked_pdf(indirect_annots=indirect_annots))
-    doc.select([0, 0, 2])
+    doc = pylopdf.open(_linked_pdf(indirect_annots=indirect_annots))
+    doc.pages.select([0, 0, 2])
     saved = doc.tobytes(garbage=True)
     assert _EXCLUDED_TEXT.encode() not in saved
-    reloaded = pylopdf.Document(stream=saved)
+    reloaded = pylopdf.open(saved)
     for page_number in (0, 1):
-        links = reloaded[page_number].get_links()
+        links = reloaded.pages[page_number].get_links()
         assert len(links) == 4
         assert [link["page"] for link in links if link["kind"] == pylopdf.LINK_GOTO] == [2, 2]
 
 
 @pytest.mark.parametrize("operation", ["delete", "select"])
 def test_removing_every_page_drops_outline_and_destination_references(operation: Literal["delete", "select"]) -> None:
-    doc = pylopdf.Document(stream=_linked_pdf())
+    doc = pylopdf.open(_linked_pdf())
     if operation == "delete":
-        doc.delete_pages([0, 1, 2])
+        del doc.pages[0:3]
     else:
-        doc.select([])
+        doc.pages.select([])
     saved = doc.tobytes(garbage=True)
     assert _EXCLUDED_TEXT.encode() not in saved
-    for current in (doc, pylopdf.Document(stream=saved)):
-        assert current.page_count == 0
+    for current in (doc, pylopdf.open(saved)):
+        assert len(current.pages) == 0
         assert current.get_outline() == []
 
 
 @pytest.mark.parametrize("operation", ["delete", "select"])
 def test_cleanup_limit_failure_preserves_document(operation: Literal["delete", "select"]) -> None:
     """Reject a truncated destination tree before mutating pages or navigation."""
-    doc = pylopdf.Document(stream=_linked_pdf(excessive_names=True))
+    doc = pylopdf.open(_linked_pdf(excessive_names=True))
     before = doc.tobytes()
-    page = doc[0]
+    page = doc.pages[0]
     if operation == "delete":
         with pytest.raises(pylopdf.LimitError, match="65536-entry safety limit") as caught:
-            doc.delete_page(1)
+            del doc.pages[1]
     else:
         with pytest.raises(pylopdf.LimitError, match="65536-entry safety limit") as caught:
-            doc.select([0, 2])
+            doc.pages.select([0, 2])
     assert caught.value.code == "named_destination_count"
-    assert doc.page_count == 3
+    assert len(doc.pages) == 3
     assert doc.tobytes() == before
     assert page.rect == pylopdf.Rect(0, 0, 200, 200)
 
@@ -135,23 +135,23 @@ def test_cleanup_limit_failure_preserves_document(operation: Literal["delete", "
 def test_cleanup_refuses_navigation_tree_aliasing_a_page(operation: Literal["delete", "select"]) -> None:
     """Do not replace a page when a malformed destination root aliases it."""
     data = _linked_pdf().replace(b"/Dests 11 0 R", b"/Dests 3 0 R ")
-    doc = pylopdf.Document(stream=data)
+    doc = pylopdf.open(data)
     before = doc.tobytes()
     if operation == "delete":
         with pytest.raises(pylopdf.PdfError, match="cannot alias a page"):
-            doc.delete_page(1)
+            del doc.pages[1]
     else:
         with pytest.raises(pylopdf.PdfError, match="cannot alias a page"):
-            doc.select([0, 2])
-    assert doc.page_count == 3
+            doc.pages.select([0, 2])
+    assert len(doc.pages) == 3
     assert doc.tobytes() == before
 
 
 @pytest.mark.parametrize("operation", ["delete", "select"])
 def test_cleanup_refuses_annotation_aliasing_a_page(operation: Literal["delete", "select"]) -> None:
     """Do not treat navigation-bearing page dictionaries as annotations."""
-    doc = pylopdf.Document(
-        stream=build_raw_pdf(
+    doc = pylopdf.open(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R >>",
                 2: "<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 /MediaBox [0 0 200 200] >>",
@@ -162,23 +162,23 @@ def test_cleanup_refuses_annotation_aliasing_a_page(operation: Literal["delete",
             }
         )
     )
-    page = doc[0]
+    page = doc.pages[0]
     before = doc.tobytes()
     if operation == "delete":
         with pytest.raises(pylopdf.PdfError, match="cannot alias a page"):
-            doc.delete_page(1)
+            del doc.pages[1]
     else:
         with pytest.raises(pylopdf.PdfError, match="cannot alias a page"):
-            doc.select([0, 2])
+            doc.pages.select([0, 2])
     assert doc.tobytes() == before
-    assert doc.page_count == 3
+    assert len(doc.pages) == 3
     assert page.rect == pylopdf.Rect(0, 0, 200, 200)
 
 
 @pytest.mark.parametrize("operation", ["delete", "select"])
 def test_cleanup_refuses_outline_root_aliasing_a_page(operation: Literal["delete", "select"]) -> None:
-    doc = pylopdf.Document(
-        stream=build_raw_pdf(
+    doc = pylopdf.open(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R >>",
                 2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 200 200] >>",
@@ -189,23 +189,23 @@ def test_cleanup_refuses_outline_root_aliasing_a_page(operation: Literal["delete
             }
         )
     )
-    page = doc[0]
+    page = doc.pages[0]
     before = doc.tobytes()
     if operation == "delete":
         with pytest.raises(pylopdf.PdfError, match="cannot alias a page"):
-            doc.delete_page(1)
+            del doc.pages[1]
     else:
         with pytest.raises(pylopdf.PdfError, match="cannot alias a page"):
-            doc.select([0])
+            doc.pages.select([0])
     assert doc.tobytes() == before
-    assert doc.page_count == 2
+    assert len(doc.pages) == 2
     assert page.rect == pylopdf.Rect(0, 0, 200, 200)
 
 
 @pytest.mark.parametrize("operation", ["delete", "select"])
 def test_cleanup_preserves_indirect_name_tree_keys(operation: Literal["delete", "select"]) -> None:
-    doc = pylopdf.Document(
-        stream=build_raw_pdf(
+    doc = pylopdf.open(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R /Names << /Dests 5 0 R >> >>",
                 2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 200 200] >>",
@@ -217,21 +217,21 @@ def test_cleanup_preserves_indirect_name_tree_keys(operation: Literal["delete", 
             }
         )
     )
-    assert doc[0].get_links()[0]["page"] == 0
+    assert doc.pages[0].get_links()[0]["page"] == 0
     if operation == "delete":
-        doc.delete_page(1)
+        del doc.pages[1]
     else:
-        doc.select([0])
+        doc.pages.select([0])
     saved = doc.tobytes()
-    for current in (doc, pylopdf.Document(stream=saved)):
-        assert current[0].get_links()[0]["page"] == 0
-        assert current[0].get_links()[0]["nameddest"] == "keep"
+    for current in (doc, pylopdf.open(saved)):
+        assert current.pages[0].get_links()[0]["page"] == 0
+        assert current.pages[0].get_links()[0]["nameddest"] == "keep"
 
 
 @pytest.mark.parametrize("operation", ["delete", "select"])
 def test_cleanup_refuses_names_container_aliasing_a_page(operation: Literal["delete", "select"]) -> None:
-    doc = pylopdf.Document(
-        stream=build_raw_pdf(
+    doc = pylopdf.open(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R /Names 4 0 R >>",
                 2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 200 200] >>",
@@ -242,16 +242,16 @@ def test_cleanup_refuses_names_container_aliasing_a_page(operation: Literal["del
             }
         )
     )
-    page = doc[0]
+    page = doc.pages[0]
     before = doc.tobytes()
     if operation == "delete":
         with pytest.raises(pylopdf.PdfError, match="cannot alias a page"):
-            doc.delete_page(1)
+            del doc.pages[1]
     else:
         with pytest.raises(pylopdf.PdfError, match="cannot alias a page"):
-            doc.select([0])
+            doc.pages.select([0])
     assert doc.tobytes() == before
-    assert doc.page_count == 2
+    assert len(doc.pages) == 2
     assert page.rect == pylopdf.Rect(0, 0, 200, 200)
 
 
@@ -282,8 +282,8 @@ def test_cleanup_reads_null_navigation_roots_as_absent(operation: Literal["delet
     skipped a reference to a missing object but refused a null value, which
     loading now also produces for references above every object.
     """
-    doc = pylopdf.Document(
-        stream=build_raw_pdf(
+    doc = pylopdf.open(
+        build_raw_pdf(
             {
                 1: f"<< /Type /Catalog /Pages 2 0 R {catalog} >>",
                 2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 200 200] "
@@ -298,11 +298,11 @@ def test_cleanup_reads_null_navigation_roots_as_absent(operation: Literal["delet
         )
     )
     if operation == "delete":
-        doc.delete_page(1)
+        del doc.pages[1]
     else:
-        doc.select([0])
+        doc.pages.select([0])
     saved = doc.tobytes(garbage=True)
     assert _EXCLUDED_TEXT.encode() not in saved
-    for current in (doc, pylopdf.Document(stream=saved)):
-        assert current.page_count == 1
-        assert current.get_page_text(0).split() == ["Retained", "page"]
+    for current in (doc, pylopdf.open(saved)):
+        assert len(current.pages) == 1
+        assert current.pages[0].get_text().split() == ["Retained", "page"]

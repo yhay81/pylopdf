@@ -18,20 +18,23 @@ description: pylopdf的Document、Page、Font、Shape、Pixmap、几何类型、
 ## Document { #document }
 
 ```python
-pylopdf.Document(filename=None, stream=None, filetype=None, *,
-                 password=None, limits=None, max_decompressed_size=None)
+pylopdf.open(source, /, *, password=None, limits=None)
+pylopdf.Document(*, limits=None)
 ```
 
-`pylopdf.open`是同一个可调用对象。将路径作为`filename`传入，或将文件内容作为`stream`（`bytes`、`bytearray`、`memoryview`或`io.BytesIO`）传入。不带参数的`Document()`会创建一个空PDF。`limits`接受用于不可信输入的[`DocumentLimits`](security.md#untrusted-pdfs)策略。请将文档用作上下文管理器，或调用`close()`。
+`open`从路径（`str`或`os.PathLike`）或文件内容（`bytes`、`bytearray`或`memoryview`）读取PDF；文件对象请先读出内容，例如`pylopdf.open(file.read())`。`Document()`会创建一个空PDF。`limits`接受用于不可信输入的[`DocumentLimits`](security.md#untrusted-pdfs)策略。请将文档用作上下文管理器，或调用`close()`。
 
 ### 打开、查看与保存 { #document-io }
 
 | 成员 | 用途 |
 |---|---|
-| `page_count`、`len(doc)` | 页数 |
+| `pages` | 文档的页面；参见[页面](#document-pages) |
 | `metadata` / `set_metadata(m)` | 标题、作者等Info字段，以及`format`和`encryption`。`set_metadata`会删除值为空的键，传入`{}`则全部删除 |
-| `needs_pass`、`is_encrypted`、`authenticate(password)` | 加密状态；`authenticate`解锁文档并返回与pymupdf相同的代码：密码错误时为0，否则为1、2、4或6 |
+| `needs_password`、`is_encrypted`、`authenticate(password)` | 加密状态；`authenticate`解锁文档并返回与pymupdf相同的代码：密码错误时为0，否则为1、2、4或6 |
 | `is_repaired` | 打开时是否修复了损坏的交叉引用数据 |
+| `permissions` | 与pymupdf报告方式相同的权限标志：需要密码时为`0`，未加密的文档或使用所有者密码解锁后为`-4`（全部权限），否则为加密的`/P`值。用`doc.permissions & Permissions.PRINT`检查某个标志 |
+| `is_dirty` | 文档自打开以来是否被编辑过。与pymupdf相同，新建的空文档一开始就算作已编辑，保存也不会重置该状态 |
+| `is_closed`、`path` | 文档是否已关闭，以及打开时所用文件的`pathlib.Path`；从bytes打开的文档和空文档为`None` |
 | `limits`、`complexity` | 打开文档时使用的策略，以及用于判断是否处理该文档的轻量结构信息（页数、对象数、流数） |
 | `save(filename, *, garbage=0, deflate=False, use_objstms=False, encryption=, user_pw=, owner_pw=, permissions=)` | 写出PDF。只有在完整写入成功后才会替换文件 |
 | `tobytes(..., max_size=512 MiB)` | 以`bytes`形式返回相同的输出 |
@@ -41,25 +44,37 @@ pylopdf.Document(filename=None, stream=None, filetype=None, *,
 
 ### 页面 { #document-pages }
 
+`doc.pages`是由[`Page`](#page)视图组成的序列：支持`len(doc.pages)`、`doc.pages[i]`（负数索引从末尾倒数）、`doc.pages[2:5]`这样返回列表的切片，以及迭代。
+
 | 成员 | 用途 |
 |---|---|
-| `doc[i]`、`load_page(pno)`、迭代 | [`Page`](#page)对象 |
-| `new_page(pno=-1, *, width=595, height=842)` | 插入空白页（默认A4） |
-| `insert_pdf(docsrc, *, from_page=-1, to_page=-1, start_at=-1)` | 从另一个文档复制页面，连同其链接和表单字段 |
-| `select(page_numbers)` | 按列出的顺序保留列出的页面；重复某个页码即复制该页 |
-| `delete_page(pno)`、`delete_pages(...)` | 删除页面；`delete_pages`接受一个页码、两个页码、`from_page=`/`to_page=`或可迭代对象 |
-| `fullcopy_page(pno, to=-1)` | 插入某页的独立副本 |
+| `doc.pages.new(size=(595, 842), *, index=None)` | 添加一个空白页，默认A4；未指定`index`时追加到末尾 |
+| `doc.pages.insert(index, pages)`、`doc.pages.extend(pages)` | 插入或追加单个页面或一组页面的副本，连同其链接和表单字段；页面可以来自本文档或另一个文档 |
+| `del doc.pages[i]`、`del doc.pages[a:b]` | 删除页面 |
+| `doc.pages.select(indexes)` | 按列出的顺序保留列出的页面；重复某个索引即复制该页 |
+| `doc.pages.move(index, to)` | 移动某页，使其最终位于索引`to` |
+| `doc.pages.labeled(label)` | 标签为`label`的页面的索引 |
 | `get_outline()` / `set_outline(entries)` | 以`OutlineEntry(level, title, page)`条目读取或替换目录 |
 | `get_page_labels()` / `set_page_labels(labels)` | 页码标签范围，例如前言部分使用罗马数字 |
 
-删除或选择页面时，也会删除仅指向被删页面的链接、书签条目、表单字段和标签PDF（tagged PDF）结构。但这不会删除其内容的所有副本，因此不能作为安全的涂黑（redaction）手段。
+```python
+merged = pylopdf.Document()
+for path in ["a.pdf", "b.pdf"]:
+    merged.pages.extend(pylopdf.open(path).pages)
+del merged.pages[0]                         # 删除第一页
+merged.pages.insert(0, merged.pages[-1])    # 将最后一页复制到最前面
+merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 颠倒页面顺序
+```
+
+`insert`和`extend`像`list.insert`一样接受索引位置，因此超出末尾的索引会追加到末尾。一次调用中的页面都来自同一个文档，而且另一个文档的同一页在一次调用中最多出现一次。来自另一个文档的页面会连同其链接、批注和表单字段一起导入；已被使用的字段名会加上最小的未使用后缀`+N`。同一文档中某页的副本是一个新的页面对象，在任何一方被编辑之前，它与原页面共享内容流和资源。
+
+添加、删除或重排页面后，之前获取的`Page`视图会失效：使用它会抛出`StalePageError`，在修改页面的同时迭代`doc.pages`会抛出`RuntimeError`。删除或选择页面时，也会删除仅指向被删页面的链接、书签条目、表单字段和标签PDF（tagged PDF）结构。但这不会删除其内容的所有副本，因此不能作为安全的涂黑（redaction）手段。
 
 ### 文本与Markdown { #document-text }
 
 | 成员 | 用途 |
 |---|---|
 | `get_text(pages=None)` | 将所有页面或列出页面的纯文本合并为一个字符串 |
-| `get_page_text(pno, option="text")` | 等同于`doc[pno].get_text(option)` |
 | `to_markdown(pages=None, *, table_strategy="lines", max_size=64 MiB)` | 生成包含标题、列表、强调、多栏顺序、CJK竖排和表格的Markdown |
 
 `table_strategy="lines"`转换以框线绘制的表格，`"text"`还会转换对齐明确的无边框表格，`None`则关闭表格转换。
@@ -68,9 +83,7 @@ pylopdf.Document(filename=None, stream=None, filetype=None, *,
 
 | 成员 | 用途 |
 |---|---|
-| `get_page_pixmap(pno, ...)` | 等同于`doc[pno].get_pixmap(...)` |
 | `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | 并行渲染所有页面或列出的页面，按顺序返回PNG bytes |
-| `get_page_images(pno, *, full=False)` | 等同于`doc[pno].get_images(full=...)` |
 | `extract_image(xref)` | 以pymupdf的键返回单个图像；JPEG数据原样返回，其他图像以PNG返回 |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | 对图像降采样并重新压缩，以减小文件 |
 | `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | 用于显示未嵌入字体的中文、日语或韩语文本的字体；CJK extra会自动完成设置 |
@@ -85,11 +98,18 @@ pylopdf.Document(filename=None, stream=None, filetype=None, *,
 | `set_form_field(name, value, *, font=, fontfile=, fontbuffer=, fontindex=, font_language=)` | 填写字段并重新生成其外观；参见[表单](#forms) |
 | `attachments` | 以映射形式访问嵌入文件；参见[附件](#attachments) |
 | `get_pdfa_claim()` | 文件声明的PDF/A部分和一致性级别，例如`(2, "B")`。这只读取声明，并不进行验证 |
-| `objects`、`trailer`、`catalog`、`page_xref(pno)` | 直接访问PDF对象；参见[底层对象](#low-level-objects) |
+| `get_xml_metadata(*, max_size=1 MiB)` / `set_xml_metadata(metadata, *, max_size=1 MiB)` / `del_xml_metadata()` | 以文本形式读写XMP元数据包（没有时为`""`）。`set_metadata`不会修改它 |
+| `language_tag` / `set_language_tag(tag)` | 文档的语言，为完整的BCP 47标签，例如`zh-TW`或`sr-Latn-RS`，或为`None`。`set_language_tag(None)`会删除它，格式不正确的标签会抛出异常 |
+| `pagemode` / `set_pagemode(mode)`、`pagelayout` / `set_pagelayout(layout)` | 阅读器打开文档的方式，例如`"UseOutlines"`或`"TwoColumnLeft"`；未设置时为`"UseNone"`和`"SinglePage"` |
+| `markinfo` / `set_markinfo(markinfo)` | 以`MarkInfo`字典表示的标签PDF标志（不存在时为`{}`）。设置时会写入全部三个标志，省略的标志为`False` |
+| `has_links()`、`has_annots()` | 是否有任何页面带有链接，或带有链接和表单控件以外的批注 |
+| `objects`、`trailer`、`catalog` | 直接访问PDF对象；参见[底层对象](#low-level-objects) |
+
+`language_tag`取代了pymupdf的`language`：后者最多只保留标签的三个字母，因此`zh-TW`和`zh-HK`都会被读成`zh-Hant`。写入XMP时，即使指定`deflate=True`也不会压缩数据包，因此在文件中搜索XMP的工具仍能找到它。
 
 ## Page { #page }
 
-`Page`是文档中某一页的视图，用`doc[i]`获取。
+`Page`是文档中某一页的视图，用`doc.pages[i]`获取。两个视图指向同一文档的同一页，且其间没有添加、删除或重排页面时，二者相等。
 
 ### 文本与搜索 { #page-text }
 
@@ -124,7 +144,7 @@ pylopdf.Document(filename=None, stream=None, filetype=None, *,
 
 | 成员 | 用途 |
 |---|---|
-| `number`、`parent` | 页码和所属文档 |
+| `index`、`document` | 该页在文档中的索引，以及所属文档 |
 | `rect` | 已应用旋转的可见页面区域 |
 | `rotation` / `set_rotation(deg)` | 显示旋转，为90的倍数 |
 | `mediabox`、`cropbox` / `set_mediabox(r)`、`set_cropbox(r)` | 遵循pymupdf约定的页面框 |
@@ -167,7 +187,7 @@ pylopdf.Document(filename=None, stream=None, filetype=None, *,
 
 ```python
 with pylopdf.open("report.pdf") as doc:
-    layout = doc[0].get_text("rawdict")
+    layout = doc.pages[0].get_text("rawdict")
     for block in layout["blocks"]:
         for line in block["lines"]:
             for span in line["spans"]:
@@ -185,7 +205,7 @@ with pylopdf.open("report.pdf") as doc:
 
 ```python
 with pylopdf.open("report.pdf") as doc:
-    content = doc[0].content()
+    content = doc.pages[0].content()
     for run in content.text_runs:
         print(run.text, run.font.name, run.size, run.fill)
         for glyph in run.glyphs:
@@ -509,8 +529,8 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 
 | 名称 | 用途 |
 |---|---|
-| `open(...)` | 等同于`Document(...)` |
-| `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 无需加载文档即可获取元数据和页数 |
+| `open(source, /, *, password=None, limits=None)` | 打开文档；参见[Document](#document) |
+| `probe(source, /, *, password=None, max_file_size=None)` | 无需加载文档即可读取的`Probe`记录，包含`page_count`、`version`、`is_encrypted`、`is_repaired`和`metadata`（存在时包含`title`、`author`、`subject`、`keywords`、`creator`、`producer`、`created`和`modified`） |
 | `DocumentLimits`、`DocumentLimits.web()` | 用于不可信输入的资源上限；参见[安全](security.md#untrusted-pdfs) |
 | `OcrEngine` | 可复用的OCR引擎；参见[离线OCR](ocr.md) |
 | `Canvas`、`PathBuilder`、`TextFit` | 参见[画布](#canvas) |
@@ -530,8 +550,7 @@ API返回的字典都是普通的`dict`对象，并通过`TextPageDict`、`RawTe
 | 名称 | 抛出时机 |
 |---|---|
 | `PdfError` | pylopdf错误的基类；`ValueError`的子类 |
-| `FileDataError` | 输入不是可读取的PDF；与pymupdf相同，也是`RuntimeError` |
-| `EmptyFileError` | 输入为空 |
+| `MalformedPdfError` | 输入不是可读取的PDF，包括输入为空的情况 |
 | `PasswordError` | 使用给定的密码解密失败 |
 | `EncryptedDocumentError` | 必须先用`authenticate()`解锁文档 |
 | `LimitError` | 达到了[大小或资源上限](security.md#error-codes)；`.code`说明是哪一个 |

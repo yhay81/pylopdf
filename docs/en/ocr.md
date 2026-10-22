@@ -30,7 +30,7 @@ unchanged:
 import pylopdf
 
 with pylopdf.open("scan.pdf") as doc:
-    for word in doc[0].get_text_ocr():
+    for word in doc.pages[0].get_text_ocr():
         print(word["bbox"], word["text"], word["confidence"])
 ```
 
@@ -47,7 +47,7 @@ import pylopdf
 
 engine = pylopdf.OcrEngine()
 with pylopdf.open("scan.pdf") as doc:
-    for page in doc:
+    for page in doc.pages:
         page.apply_ocr(engine=engine)
     doc.save("searchable.pdf", garbage=3, deflate=True, use_objstms=True)
 ```
@@ -66,7 +66,7 @@ items after `text` are ignored:
 
 ```python
 words = [(72, 90, 140, 104, "Invoice"), (146, 90, 190, 104, "#1024")]
-doc[0].insert_ocr_text_layer(words)
+doc.pages[0].insert_ocr_text_layer(words)
 ```
 
 The layer uses no embedded font, so it adds very little to the file size.

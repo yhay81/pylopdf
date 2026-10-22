@@ -35,11 +35,11 @@ def _calculation_order(objects: dict[int, bytes]) -> list[bytes]:
 
 @pytest.mark.parametrize("edit", ["delete", "select"])
 def test_deleting_the_second_page_removes_its_widgets_and_fields(edit: str) -> None:
-    doc = pylopdf.open(stream=_two_page_form())
+    doc = pylopdf.open(_two_page_form())
     if edit == "delete":
-        doc.delete_pages([1])
+        del doc.pages[1:2]
     else:
-        doc.select([0])
+        doc.pages.select([0])
 
     expected = {name: TWO_PAGE_FIELDS[name] for name in ("choice", "person.first", "person.note", "total", "hidden")}
     assert _fields(doc) == expected
@@ -55,7 +55,7 @@ def test_deleting_the_second_page_removes_its_widgets_and_fields(edit: str) -> N
     assert _reference_count(b"Kids", _field(objects, "person")) == 2
     assert _calculation_order(objects) == [_field(objects, "total")]
 
-    reopened = pylopdf.open(stream=saved)
+    reopened = pylopdf.open(saved)
     assert _fields(reopened) == expected
     reopened.set_form_field("person.first", "Grace")
     assert _fields(reopened)["person.first"] == ("text", "Grace")
@@ -63,11 +63,11 @@ def test_deleting_the_second_page_removes_its_widgets_and_fields(edit: str) -> N
 
 @pytest.mark.parametrize("edit", ["delete", "select"])
 def test_deleting_the_first_page_points_remaining_widgets_at_their_page(edit: str) -> None:
-    doc = pylopdf.open(stream=_two_page_form())
+    doc = pylopdf.open(_two_page_form())
     if edit == "delete":
-        doc.delete_pages([0])
+        del doc.pages[0:1]
     else:
-        doc.select([1])
+        doc.pages.select([1])
 
     expected = {name: TWO_PAGE_FIELDS[name] for name in ("choice", "person.last", "person.note", "hidden")}
     assert _fields(doc) == expected
@@ -82,7 +82,7 @@ def test_deleting_the_first_page_points_remaining_widgets_at_their_page(edit: st
     assert _calculation_order(objects) == [_field(objects, "last")]
     assert b"(total)" not in saved
 
-    reopened = pylopdf.open(stream=saved)
+    reopened = pylopdf.open(saved)
     assert _fields(reopened) == expected
     reopened.set_form_field("choice", "Off")
     assert _fields(reopened)["choice"] == ("radio", "Off")
@@ -90,15 +90,15 @@ def test_deleting_the_first_page_points_remaining_widgets_at_their_page(edit: st
 
 @pytest.mark.parametrize("order", [[1, 0], [0, 1], [0, 0, 1], [1, 1, 0]])
 def test_selecting_every_page_keeps_the_form(order: list[int]) -> None:
-    doc = pylopdf.open(stream=_two_page_form())
-    doc.select(order)
+    doc = pylopdf.open(_two_page_form())
+    doc.pages.select(order)
     assert _fields(doc) == TWO_PAGE_FIELDS
-    assert _fields(pylopdf.open(stream=doc.tobytes(garbage=True))) == TWO_PAGE_FIELDS
+    assert _fields(pylopdf.open(doc.tobytes(garbage=True))) == TWO_PAGE_FIELDS
 
 
 def test_selecting_no_page_keeps_only_widgetless_fields() -> None:
-    doc = pylopdf.open(stream=_two_page_form())
-    doc.select([])
+    doc = pylopdf.open(_two_page_form())
+    doc.pages.select([])
     assert _fields(doc) == {"hidden": TWO_PAGE_FIELDS["hidden"]}
     saved = doc.tobytes(garbage=True)
     assert b"/Subtype/Widget" not in saved
@@ -109,7 +109,7 @@ def test_selecting_no_page_keeps_only_widgetless_fields() -> None:
 def test_a_widget_that_no_page_lists_goes_only_with_its_page_entry(deleted: int, names: list[str]) -> None:
     """An invisible signature widget is often missing from `/Annots`; one without `/P` stays."""
     doc = pylopdf.open(
-        stream=build_raw_pdf(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R 6 0 R 8 0 R] >> >>",
                 2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 100 100] >>",
@@ -122,7 +122,7 @@ def test_a_widget_that_no_page_lists_goes_only_with_its_page_entry(deleted: int,
             }
         )
     )
-    doc.delete_pages([deleted])
+    del doc.pages[deleted]
     assert [field["name"] for field in doc.get_form_fields()] == names
 
 
@@ -133,17 +133,17 @@ def test_f1040_keeps_the_fields_of_its_remaining_page() -> None:
     assert len(fields) == 199
     assert len(first_page) == 128
 
-    doc.delete_pages([1])
+    del doc.pages[1:2]
     assert doc.get_form_fields() == first_page
-    reopened = pylopdf.open(stream=doc.tobytes(garbage=True))
+    reopened = pylopdf.open(doc.tobytes(garbage=True))
     assert reopened.get_form_fields() == first_page
     reopened.set_form_field(first_page[0]["name"], "x" if first_page[0]["type"] == "text" else "Off")
 
 
 def test_documents_without_a_form_delete_pages_unchanged(one_page_pdf: bytes) -> None:
-    doc = pylopdf.open(stream=one_page_pdf)
-    doc.new_page()
-    doc.delete_pages([1])
+    doc = pylopdf.open(one_page_pdf)
+    doc.pages.new()
+    del doc.pages[1:2]
     assert doc.get_form_fields() == []
     assert b"/AcroForm" not in doc.tobytes()
 
@@ -155,20 +155,24 @@ def test_documents_without_a_form_delete_pages_unchanged(one_page_pdf: bytes) ->
 )
 @pytest.mark.parametrize("edit", ["delete", "select"])
 def test_deletion_refuses_field_trees_beyond_the_read_limits(source: bytes, message: str, edit: str) -> None:
-    doc = pylopdf.open(stream=source)
-    page = doc[0]
+    doc = pylopdf.open(source)
+    page = doc.pages[0]
     before = doc.tobytes()
-    action = (lambda: doc.delete_pages([1])) if edit == "delete" else (lambda: doc.select([0]))
+
+    def delete() -> None:
+        del doc.pages[1]
+
+    action = delete if edit == "delete" else (lambda: doc.pages.select([0]))
     with pytest.raises(pylopdf.PdfError, match=message):
         action()
     assert doc.tobytes() == before
-    assert doc.page_count == 2
+    assert len(doc.pages) == 2
     assert page.rect.width == 100
 
 
 def test_indirect_fields_and_kids_arrays_are_filtered_in_place() -> None:
     doc = pylopdf.open(
-        stream=build_raw_pdf(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields 5 0 R >> >>",
                 2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 100 100] >>",
@@ -182,5 +186,5 @@ def test_indirect_fields_and_kids_arrays_are_filtered_in_place() -> None:
             }
         )
     )
-    doc.delete_pages([1])
+    del doc.pages[1:2]
     assert [field["name"] for field in doc.get_form_fields()] == ["group.a"]

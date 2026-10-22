@@ -18,7 +18,7 @@ _MAX_OVERLAY_GLYPHS = 2_000
 
 def _demo_document() -> pylopdf.Document:
     document = pylopdf.Document()
-    page = document.new_page(width=420, height=220)
+    page = document.pages.new((420, 220))
     page.insert_text((24, 42), "Glyph positions", fontsize=22)
     page.insert_text((24, 78), "PDF glyphs carry Unicode and geometry.", fontsize=13)
     page.insert_text((24, 112), "Blue boxes approximate glyph bounds.", fontsize=13)
@@ -112,12 +112,12 @@ def main() -> None:
         parser.error("--scale must be a positive finite number")
     document = pylopdf.open(args.pdf, limits=pylopdf.DocumentLimits.web()) if args.pdf is not None else _demo_document()
     with document:
-        page = document[args.page]
+        page = document.pages[args.page]
         layout = page.get_text("rawdict")
         png = page.get_pixmap(
             matrix=pylopdf.Matrix(args.scale, args.scale), background=(255, 255, 255), alpha=True
         ).tobytes()
-        source = f"{args.pdf.name if args.pdf is not None else 'Generated demo'} — page {page.number}"
+        source = f"{args.pdf.name if args.pdf is not None else 'Generated demo'} — page {page.index}"
         output = _create_html(layout, png, source)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(output, encoding="utf-8")

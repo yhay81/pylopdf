@@ -16,7 +16,7 @@ import typst
 import pylopdf
 
 pdf_bytes = typst.compile("report.typ")   # レイアウトはtypst
-doc = pylopdf.open(stream=pdf_bytes)      # 編集・結合・抽出はpylopdf
+doc = pylopdf.open(pdf_bytes)      # 編集・結合・抽出はpylopdf
 ```
 
 ## typstでPDF/Aを出力する { #new-pdfa }
@@ -25,7 +25,7 @@ typstはPDF/A（パート1〜4）とPDF/UA-1のファイルを書き出せます
 
 ```python
 pdf_a: bytes = typst.compile("report.typ", pdf_standards="a-2b")
-pylopdf.open(stream=pdf_a).get_pdfa_claim()   # (2, "B")
+pylopdf.open(pdf_a).get_pdfa_claim()   # (2, "B")
 ```
 
 `Document.get_pdfa_claim()`は、ファイルがどのPDF/Aレベルを宣言しているかを読むだけです。既存のPDFが本当に適合しているかを確認するには、標準的な検証ツールである[veraPDF](https://verapdf.org/)（Javaで動作）を使ってください。
@@ -42,8 +42,8 @@ stamp_typ = """
 #set text(font: "Noto Sans JP", size: 48pt, fill: rgb(255, 0, 0, 40%))
 #align(center + horizon)[社外秘]
 """
-stamp = pylopdf.open(stream=typst.compile(stamp_typ.encode(), font_paths=[str(sans_path().parent)]))
-for page in doc:
+stamp = pylopdf.open(typst.compile(stamp_typ.encode(), font_paths=[str(sans_path().parent)]))
+for page in doc.pages:
     page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
 ```
 
@@ -81,6 +81,6 @@ words = [  # from your OCR engine, in page coordinates
     (146, 90, 190, 104, "#1024"),
 ]
 with pylopdf.open("scan.pdf") as doc:
-    doc[0].insert_ocr_text_layer(words)
+    doc.pages[0].insert_ocr_text_layer(words)
     doc.save("searchable.pdf")
 ```

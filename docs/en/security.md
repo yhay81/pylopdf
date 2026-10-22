@@ -30,7 +30,7 @@ try:
     with pylopdf.open("upload.pdf", limits=pylopdf.DocumentLimits.web()) as doc:
         if doc.complexity["page_count"] > 50:
             reject_upload("too many pages")
-        preview = doc[0].get_pixmap(dpi=144)
+        preview = doc.pages[0].get_pixmap(dpi=144)
 except pylopdf.LimitError as error:
     reject_upload(error.code)
 ```
@@ -114,9 +114,9 @@ a default that is safe for most uses. Raise it with the keyword shown, or pass
 
 A few limits are fixed. Rendering is capped at 64 million pixels per page.
 Passwords stop at 127 UTF-8 bytes, the PDF 2.0 maximum. Lists of pages passed to
-`select()`, `delete_pages()`, `get_text()`, `to_markdown()`, and
-`render_pages()` may hold up to the page count or 4,096 entries, whichever is
-larger. Outlines, page labels, form fields, annotations, and attachment lists
+`doc.pages.select()`, `insert()`, and `extend()`, `get_text()`,
+`to_markdown()`, and `render_pages()` may hold up to the page count or 4,096
+entries, whichever is larger. Outlines, page labels, form fields, annotations, and attachment lists
 have generous fixed limits sized for large real-world documents.
 
 A refused call raises before it changes the document and never returns
@@ -168,7 +168,7 @@ These apply to every document, with or without `DocumentLimits`:
 - **Damaged files.** pylopdf repairs broken cross-reference data when it
   can, emits a `PylopdfWarning`, and sets `doc.is_repaired`. Reject such
   documents if your application must not accept repaired input. Some damaged
-  files cannot be opened and raise `FileDataError`.
+  files cannot be opened and raise `MalformedPdfError`.
 - **Safe saving.** `save()` and `Pixmap.save()` write to a temporary file
   next to the destination and replace it only after a complete write, so a
   failure never leaves a half-written file. Existing file permissions are kept,

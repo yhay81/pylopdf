@@ -112,15 +112,15 @@ def manual() -> bytes:
 
 
 def _link_targets(doc: pylopdf.Document) -> list[list[tuple[int, str | None]]]:
-    return [[(link["page"], link.get("nameddest")) for link in page.get_links()] for page in doc]
+    return [[(link["page"], link.get("nameddest")) for link in page.get_links()] for page in doc.pages]
 
 
 def _links(doc: pylopdf.Document) -> list[list[pylopdf.LinkInfo]]:
-    return [page.get_links() for page in doc]
+    return [page.get_links() for page in doc.pages]
 
 
 def test_manual_resolves_toc_and_links_at_the_entry_limit(manual: bytes) -> None:
-    doc = pylopdf.Document(stream=manual)
+    doc = pylopdf.open(manual)
     deepest = [_name(_deepest(MAX_NAMED_DEST_ENTRIES, page)) for page in range(MANUAL_PAGES)]
 
     assert doc.get_outline() == [(1, f"Page {page}", page) for page in range(MANUAL_PAGES)]
@@ -129,37 +129,37 @@ def test_manual_resolves_toc_and_links_at_the_entry_limit(manual: bytes) -> None
 
 @pytest.mark.parametrize("operation", ["delete", "select"])
 def test_manual_cleanup_rewrites_the_complete_tree(manual: bytes, operation: Literal["delete", "select"]) -> None:
-    doc = pylopdf.Document(stream=manual)
+    doc = pylopdf.open(manual)
     retained = [_name(_deepest(MAX_NAMED_DEST_ENTRIES, page)) for page in (0, 2)]
     removed = _name(_deepest(MAX_NAMED_DEST_ENTRIES, 1))
     # Warm the cached link indexes; the edit must drop them.
     assert [len(links) for links in _link_targets(doc)] == [MANUAL_PAGES] * MANUAL_PAGES
 
     if operation == "delete":
-        doc.delete_pages([1])
+        del doc.pages[1:2]
     else:
-        doc.select([0, 2])
+        doc.pages.select([0, 2])
 
     saved = doc.tobytes()
     assert removed.encode() not in saved
     assert _name(1).encode() not in saved
     assert all(_name(index).encode() in saved for index in (0, 2, MAX_NAMED_DEST_ENTRIES - 1))
-    for current in (doc, pylopdf.Document(stream=saved)):
+    for current in (doc, pylopdf.open(saved)):
         assert current.get_outline() == [(1, "Page 0", 0), (1, "Page 2", 1)]
         assert _link_targets(current) == [[(0, retained[0]), (1, retained[1])]] * 2
 
 
 def test_manual_links_import_through_insert_pdf(manual: bytes) -> None:
-    source = pylopdf.Document(stream=manual)
+    source = pylopdf.open(manual)
     target = pylopdf.Document()
-    target.new_page(width=200, height=200)
+    target.pages.new((200, 200))
 
-    target.insert_pdf(source)
+    target.pages.extend(source.pages)
 
     # Imported links become explicit destinations on the shifted pages.
     expected: list[list[tuple[int, str | None]]] = [[]]
     expected += [[(page + 1, None) for page in range(MANUAL_PAGES)]] * MANUAL_PAGES
-    for merged in (target, pylopdf.Document(stream=target.tobytes())):
+    for merged in (target, pylopdf.open(target.tobytes())):
         assert _link_targets(merged) == expected
 
 
@@ -170,8 +170,8 @@ def test_reading_every_page_of_a_large_manual_indexes_it_once() -> None:
     against about 0.03 s now; the generous bound only catches that regression.
     """
     pages = 1_000
-    doc = pylopdf.Document(stream=_manual(MAX_NAMED_DEST_ENTRIES, pages))
-    views = list(doc)
+    doc = pylopdf.open(_manual(MAX_NAMED_DEST_ENTRIES, pages))
+    views = list(doc.pages)
     deepest = [_name(_deepest(MAX_NAMED_DEST_ENTRIES, page, pages)) for page in range(MANUAL_PAGES)]
 
     start = time.perf_counter()
@@ -182,53 +182,57 @@ def test_reading_every_page_of_a_large_manual_indexes_it_once() -> None:
     assert targets == [[(page, deepest[page]) for page in range(MANUAL_PAGES)]] * pages
 
 
+def _delete_page(doc: pylopdf.Document, index: int) -> None:
+    del doc.pages[index]
+
+
 EDITS: dict[str, Callable[[pylopdf.Document], object]] = {
-    "delete_pages": lambda doc: doc.delete_pages([0]),
-    "select": lambda doc: doc.select([2, 0, 1]),
-    "insert_pdf": lambda doc: doc.insert_pdf(pylopdf.Document(stream=_manual(256)), start_at=0),
-    "new_page": lambda doc: doc.new_page(0, width=200, height=200),
-    "copy_page": lambda doc: doc.fullcopy_page(2, 0),
+    "delete_pages": lambda doc: _delete_page(doc, 0),
+    "select": lambda doc: doc.pages.select([2, 0, 1]),
+    "insert_pdf": lambda doc: doc.pages.insert(0, pylopdf.open(_manual(256)).pages),
+    "new_page": lambda doc: doc.pages.new((200, 200), index=0),
+    "copy_page": lambda doc: doc.pages.insert(0, doc.pages[2]),
     "set_outline": lambda doc: doc.set_outline([(1, "Last page", 2)]),
-    "add_link_annot": lambda doc: doc[1].insert_link(
+    "add_link_annot": lambda doc: doc.pages[1].insert_link(
         {"kind": pylopdf.LINK_URI, "from": (1, 20, 10, 30), "uri": "https://example.com/"}
     ),
     "attachments.add": lambda doc: doc.attachments.add("notes.txt", b"notes"),
-    "set_rotation": lambda doc: doc[2].set_rotation(90),
+    "set_rotation": lambda doc: doc.pages[2].set_rotation(90),
 }
 
 
 @pytest.mark.parametrize("edit", EDITS)
 def test_cached_link_reads_follow_every_edit(edit: str) -> None:
     """Warm link reads after an edit match a document that never cached them."""
-    doc = pylopdf.Document(stream=_manual(256))
+    doc = pylopdf.open(_manual(256))
     assert all(link["page"] >= 0 for links in _links(doc) for link in links)
 
     EDITS[edit](doc)
 
-    assert _links(doc) == _links(pylopdf.Document(stream=doc.tobytes()))
+    assert _links(doc) == _links(pylopdf.open(doc.tobytes()))
 
 
 def test_cached_link_reads_keep_stale_page_views_stale() -> None:
-    doc = pylopdf.Document(stream=_manual(256))
-    page = doc[2]
+    doc = pylopdf.open(_manual(256))
+    page = doc.pages[2]
     before = [link["page"] for link in page.get_links()]
 
-    doc.delete_pages([0])
+    del doc.pages[0:1]
 
     with pytest.raises(pylopdf.StalePageError):
         page.get_links()
     # Links to the deleted page are removed, and the rest shift down by one.
-    assert [link["page"] for link in doc[1].get_links()] == [target - 1 for target in before if target > 0]
+    assert [link["page"] for link in doc.pages[1].get_links()] == [target - 1 for target in before if target > 0]
 
 
 @pytest.mark.parametrize("shape", SHAPE_CODES)
 def test_refused_name_tree_index_is_never_cached(shape: Shape) -> None:
     """Every named lookup re-raises instead of trusting a partial index."""
     doc = _limited_document(shape, over=True)
-    named = doc[0]
+    named = doc.pages[0]
 
     # A page without named links never walks the tree.
-    assert doc[1].get_links() == []
+    assert doc.pages[1].get_links() == []
     for _ in range(2):
         with pytest.raises(pylopdf.LimitError) as caught:
             named.get_links()
@@ -246,8 +250,8 @@ def test_name_tree_index_keeps_first_occurrences_of_unsorted_keys() -> None:
         f"<< /Type /Annot /Subtype /Link /Rect [{index} 1 {index + 1} 2] /Dest ({name}) >>"
         for index, name in enumerate(names)
     )
-    doc = pylopdf.Document(
-        stream=build_raw_pdf(
+    doc = pylopdf.open(
+        build_raw_pdf(
             {
                 1: (
                     "<< /Type /Catalog /Pages 2 0 R /Names << /Dests << /Kids [5 0 R 6 0 R] >> >> "
@@ -263,7 +267,7 @@ def test_name_tree_index_keeps_first_occurrences_of_unsorted_keys() -> None:
     )
 
     for _ in range(2):
-        assert [(link["page"], link["nameddest"]) for link in doc[0].get_links()] == [
+        assert [(link["page"], link["nameddest"]) for link in doc.pages[0].get_links()] == [
             (1, "zeta"),
             (0, "alpha"),
             (1, ""),
@@ -315,7 +319,7 @@ def _limited_document(shape: Shape, *, over: bool, navigation: bool = True) -> p
         7: "<< /Title (Section) /Parent 6 0 R /Dest (section) >>",
         **extra,
     }
-    return pylopdf.Document(stream=build_raw_pdf(objects))
+    return pylopdf.open(build_raw_pdf(objects))
 
 
 @pytest.mark.parametrize("shape", SHAPE_CODES)
@@ -323,23 +327,23 @@ def test_reads_and_imports_accept_each_limit(shape: Shape) -> None:
     source = _limited_document(shape, over=False)
     target = pylopdf.Document()
 
-    target.insert_pdf(source)
+    target.pages.extend(source.pages)
 
-    assert [link["page"] for link in source[0].get_links()] == [1]
+    assert [link["page"] for link in source.pages[0].get_links()] == [1]
     assert source.get_outline() == [(1, "Section", 1)]
-    assert [link["page"] for link in target[0].get_links()] == [1]
+    assert [link["page"] for link in target.pages[0].get_links()] == [1]
 
 
 @pytest.mark.parametrize("shape", SHAPE_CODES)
 def test_reads_and_imports_refuse_beyond_each_limit(shape: Shape) -> None:
     source = _limited_document(shape, over=True)
-    target = pylopdf.Document(stream=build_pdf(["Unchanged"]))
+    target = pylopdf.open(build_pdf(["Unchanged"]))
     source_before = source.tobytes()
     target_before = target.tobytes()
     operations: list[Callable[[], object]] = [
-        source[0].get_links,
+        source.pages[0].get_links,
         source.get_outline,
-        lambda: target.insert_pdf(source),
+        lambda: target.pages.extend(source.pages),
     ]
 
     for operation in operations:
@@ -349,14 +353,14 @@ def test_reads_and_imports_refuse_beyond_each_limit(shape: Shape) -> None:
 
     assert source.tobytes() == source_before
     assert target.tobytes() == target_before
-    assert "Unchanged" in target[0].get_text()
+    assert "Unchanged" in target.pages[0].get_text()
 
 
 def _edit(doc: pylopdf.Document, operation: Literal["delete", "select"]) -> None:
     if operation == "delete":
-        doc.delete_pages([1])
+        del doc.pages[1:2]
     else:
-        doc.select([0])
+        doc.pages.select([0])
 
 
 @pytest.mark.parametrize("shape", SHAPE_CODES)
@@ -364,17 +368,17 @@ def _edit(doc: pylopdf.Document, operation: Literal["delete", "select"]) -> None
 def test_cleanup_shares_each_limit(shape: Shape, operation: Literal["delete", "select"]) -> None:
     accepted = _limited_document(shape, over=False, navigation=False)
     _edit(accepted, operation)
-    assert accepted.page_count == 1
+    assert len(accepted.pages) == 1
 
     refused = _limited_document(shape, over=True, navigation=False)
-    page = refused[0]
+    page = refused.pages[0]
     before = refused.tobytes()
     with pytest.raises(pylopdf.LimitError) as caught:
         _edit(refused, operation)
     assert caught.value.code == SHAPE_CODES[shape]
     assert refused.tobytes() == before
-    assert refused.page_count == 2
-    assert page.number == 0
+    assert len(refused.pages) == 2
+    assert page.index == 0
 
 
 def _outline_document(items: int) -> pylopdf.Document:
@@ -390,7 +394,7 @@ def _outline_document(items: int) -> pylopdf.Document:
     for item in range(items):
         following = f" /Next {8 + item} 0 R" if item + 1 < items else ""
         objects[7 + item] = f"<< /Title (Item {item}) /Parent 5 0 R /Dest 6 0 R{following} >>"
-    return pylopdf.Document(stream=build_raw_pdf(objects))
+    return pylopdf.open(build_raw_pdf(objects))
 
 
 def test_outline_cleanup_charges_destination_names_to_the_toc_budget() -> None:
@@ -399,7 +403,7 @@ def test_outline_cleanup_charges_destination_names_to_the_toc_budget() -> None:
     expected = [(1, "Item 0", 0), (1, "Item 1", 0)]
     assert doc.get_outline() == expected
 
-    doc.delete_pages([1])
+    del doc.pages[1:2]
 
     assert doc.get_outline() == expected
 
@@ -410,8 +414,8 @@ def test_outline_names_beyond_the_toc_budget_are_refused(operation: str) -> None
     before = doc.tobytes()
     call: Callable[[], object] = {
         "get_outline": doc.get_outline,
-        "delete": lambda: doc.delete_pages([1]),
-        "select": lambda: doc.select([0]),
+        "delete": lambda: _delete_page(doc, 1),
+        "select": lambda: doc.pages.select([0]),
     }[operation]
 
     with pytest.raises(pylopdf.LimitError, match="16777216-byte safety limit") as caught:
@@ -427,8 +431,8 @@ def _legacy_document(count: int) -> pylopdf.Document:
     The first page links to the last name that targets it.
     """
     entries = " ".join(f"/{_name(index)} [{3 + index % 2} 0 R /Fit]" for index in range(count))
-    return pylopdf.Document(
-        stream=build_raw_pdf(
+    return pylopdf.open(
+        build_raw_pdf(
             {
                 1: f"<< /Type /Catalog /Pages 2 0 R /Dests << {entries} >> >>",
                 2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 200 200] >>",
@@ -442,16 +446,16 @@ def _legacy_document(count: int) -> pylopdf.Document:
 
 def test_legacy_destinations_share_the_named_destination_limits() -> None:
     doc = _legacy_document(4_100)
-    doc.delete_pages([1])
+    del doc.pages[1:2]
     saved = doc.tobytes()
     assert _name(4_096).encode() in saved
     assert _name(4_097).encode() not in saved
-    assert [link["page"] for link in pylopdf.Document(stream=saved)[0].get_links()] == [0]
+    assert [link["page"] for link in pylopdf.open(saved).pages[0].get_links()] == [0]
 
     refused = _legacy_document(MAX_NAMED_DEST_ENTRIES + 1)
     before = refused.tobytes()
     with pytest.raises(pylopdf.LimitError, match="65536-entry safety limit") as caught:
-        refused.delete_pages([1])
+        del refused.pages[1:2]
     assert caught.value.code == "named_destination_count"
     assert refused.tobytes() == before
 
@@ -469,8 +473,8 @@ def test_cleanup_bounds_copied_destination_values(budget: str, error: str, code:
         value = f"[{'0 ' * (16 * MAX_NAMED_DEST_ENTRIES)}]"
     else:
         value = f"[({'v' * (MAX_NAMED_DEST_TEXT_BYTES + 1)})]"
-    doc = pylopdf.Document(
-        stream=build_raw_pdf(
+    doc = pylopdf.open(
+        build_raw_pdf(
             {
                 1: f"<< /Type /Catalog /Pages 2 0 R /Names << /Dests << /Names [(kept) {value}] >> >> >>",
                 2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 200 200] >>",
@@ -482,7 +486,7 @@ def test_cleanup_bounds_copied_destination_values(budget: str, error: str, code:
     before = doc.tobytes()
 
     with pytest.raises(pylopdf.LimitError, match=error) as caught:
-        doc.delete_pages([1])
+        del doc.pages[1:2]
 
     assert caught.value.code == code
     assert doc.tobytes() == before
@@ -490,8 +494,8 @@ def test_cleanup_bounds_copied_destination_values(budget: str, error: str, code:
 
 def test_cleanup_rejects_deeply_nested_destination_values() -> None:
     nested = "[" * 33 + "]" * 33
-    doc = pylopdf.Document(
-        stream=build_raw_pdf(
+    doc = pylopdf.open(
+        build_raw_pdf(
             {
                 1: f"<< /Type /Catalog /Pages 2 0 R /Names << /Dests << /Names [(kept) {nested}] >> >> >>",
                 2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 200 200] >>",
@@ -503,6 +507,6 @@ def test_cleanup_rejects_deeply_nested_destination_values() -> None:
     before = doc.tobytes()
 
     with pytest.raises(pylopdf.PdfError, match="32-level safety limit"):
-        doc.delete_pages([1])
+        del doc.pages[1:2]
 
     assert doc.tobytes() == before

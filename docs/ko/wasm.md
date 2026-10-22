@@ -75,8 +75,8 @@ await micropip.install(
 ```python
 import pylopdf
 
-with pylopdf.open(stream=pdf_bytes, limits=pylopdf.DocumentLimits.web()) as doc:
-    text = doc.get_page_text(0) if doc.page_count else ""
+with pylopdf.open(pdf_bytes, limits=pylopdf.DocumentLimits.web()) as doc:
+    text = doc.pages[0].get_text() if doc.pages else ""
     output = doc.tobytes()
 ```
 

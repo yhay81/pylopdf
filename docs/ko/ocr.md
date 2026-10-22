@@ -23,7 +23,7 @@ pip install "pylopdf[ocr]"
 import pylopdf
 
 with pylopdf.open("scan.pdf") as doc:
-    for word in doc[0].get_text_ocr():
+    for word in doc.pages[0].get_text_ocr():
         print(word["bbox"], word["text"], word["confidence"])
 ```
 
@@ -38,7 +38,7 @@ import pylopdf
 
 engine = pylopdf.OcrEngine()
 with pylopdf.open("scan.pdf") as doc:
-    for page in doc:
+    for page in doc.pages:
         page.apply_ocr(engine=engine)
     doc.save("searchable.pdf", garbage=3, deflate=True, use_objstms=True)
 ```
@@ -51,7 +51,7 @@ with pylopdf.open("scan.pdf") as doc:
 
 ```python
 words = [(72, 90, 140, 104, "Invoice"), (146, 90, 190, 104, "#1024")]
-doc[0].insert_ocr_text_layer(words)
+doc.pages[0].insert_ocr_text_layer(words)
 ```
 
 이 레이어는 글꼴을 포함하지 않으므로 파일 크기가 거의 늘지 않습니다.

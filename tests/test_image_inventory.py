@@ -55,7 +55,7 @@ def _inventory_pdf() -> bytes:
 
 
 def test_get_images_lists_image_xobjects_as_pymupdf_does() -> None:
-    page = pylopdf.open(stream=_inventory_pdf())[0]
+    page = pylopdf.open(_inventory_pdf()).pages[0]
 
     images = page.get_images()
 
@@ -70,22 +70,22 @@ def test_get_images_lists_image_xobjects_as_pymupdf_does() -> None:
 
 
 def test_get_images_full_adds_the_referencer() -> None:
-    doc = pylopdf.open(stream=_inventory_pdf())
+    doc = pylopdf.open(_inventory_pdf())
 
-    images = doc[0].get_images(full=True)
+    images = doc.pages[0].get_images(full=True)
 
     assert [(image.xref, image.referencer) for image in images] == [(5, 0), (7, 0), (9, 8)]
     assert isinstance(images[0], pylopdf.ImageItemFull)
-    assert doc.get_page_images(0, full=True) == images
-    assert doc.get_page_images(0) == doc[0].get_images()
+    assert doc.pages[0].get_images(full=True) == images
+    assert doc.pages[0].get_images() == doc.pages[0].get_images()
 
 
 def test_get_images_is_empty_without_image_xobjects() -> None:
-    assert pylopdf.open(stream=build_pdf(["Text only"]))[0].get_images() == []
+    assert pylopdf.open(build_pdf(["Text only"])).pages[0].get_images() == []
 
 
 def test_get_image_info_describes_each_placement() -> None:
-    page = pylopdf.open(stream=_inventory_pdf())[0]
+    page = pylopdf.open(_inventory_pdf()).pages[0]
 
     infos = page.get_image_info(xrefs=True)
 
@@ -125,11 +125,11 @@ def test_get_image_info_describes_each_placement() -> None:
 
 def test_get_image_info_hashes_raise_until_supported() -> None:
     with pytest.raises(pylopdf.PdfError, match="hashes"):
-        pylopdf.open(stream=_inventory_pdf())[0].get_image_info(hashes=True)
+        pylopdf.open(_inventory_pdf()).pages[0].get_image_info(hashes=True)
 
 
 def test_extract_image_returns_the_image_without_its_mask() -> None:
-    doc = pylopdf.open(stream=_inventory_pdf())
+    doc = pylopdf.open(_inventory_pdf())
 
     image = doc.extract_image(5)
 
@@ -146,7 +146,7 @@ def test_extract_image_returns_the_image_without_its_mask() -> None:
 def test_extract_image_passes_jpeg_through() -> None:
     doc = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")
     # The first image is Flate-wrapped JPEG data, which passes through as JPEG.
-    xref = doc[0].get_images()[0].xref
+    xref = doc.pages[0].get_images()[0].xref
 
     image = doc.extract_image(xref)
 
@@ -158,13 +158,13 @@ def test_extract_image_passes_jpeg_through() -> None:
 @pytest.mark.parametrize("xref", [1, 4, 8, 999])
 def test_extract_image_refuses_other_objects(xref: int) -> None:
     with pytest.raises(pylopdf.PdfError, match=f"xref {xref} is not"):
-        pylopdf.open(stream=_inventory_pdf()).extract_image(xref)
+        pylopdf.open(_inventory_pdf()).extract_image(xref)
 
 
 @pytest.mark.parametrize("xref", [0, -1, True, 1.5])
 def test_extract_image_validates_the_xref(xref: object) -> None:
     with pytest.raises(ValueError, match="xref must be a positive integer"):
-        pylopdf.open(stream=_inventory_pdf()).extract_image(xref)  # ty: ignore[invalid-argument-type]
+        pylopdf.open(_inventory_pdf()).extract_image(xref)  # ty: ignore[invalid-argument-type]
 
 
 def test_extract_image_guards_deep_color_space_chains() -> None:
@@ -178,7 +178,7 @@ def test_extract_image_guards_deep_color_space_chains() -> None:
     for index in range(depth):
         base = f"{6 + index} 0 R" if index + 1 < depth else "/DeviceRGB"
         objects[5 + index] = f"[/Indexed {base} 0 <000000>]"
-    doc = pylopdf.open(stream=build_raw_pdf(objects))
+    doc = pylopdf.open(build_raw_pdf(objects))
 
     with pytest.raises(pylopdf.LimitError) as caught:
         doc.extract_image(4)

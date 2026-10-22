@@ -1,7 +1,6 @@
-Raise pymupdf's error categories for unreadable input: a missing
-file raises Python's built-in `FileNotFoundError`, input that is not a
-readable PDF raises the new `FileDataError`, which derives from both
-`PdfError` and `RuntimeError`, and an empty file or stream raises the new
-`EmptyFileError`, a `FileDataError`. They replace `PdfError` when opening a
-document, probing metadata, and reading font, image, and OCR model paths;
-password and limit failures keep `PasswordError` and `LimitError`.
+Raise typed errors for unreadable input: input that is not a readable PDF,
+empty input included, raises the new `MalformedPdfError`, a `PdfError`, and a
+missing file raises Python's built-in `FileNotFoundError`. They replace
+`PdfError` when opening a document, probing it, and reading font, image, and
+OCR model paths; password and limit failures keep `PasswordError` and
+`LimitError`.

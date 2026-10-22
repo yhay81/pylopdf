@@ -32,7 +32,7 @@ HELV_ABC = [(100.0, "A"), (113.74, "B"), (127.48, "C")]
 
 
 def _page() -> pylopdf.Page:
-    return pylopdf.Document().new_page(width=200, height=130)
+    return pylopdf.Document().pages.new((200, 130))
 
 
 def _spans(page: pylopdf.Page) -> list[tuple[float, str]]:
@@ -131,10 +131,10 @@ def test_a_line_break_inside_a_list_item_does_not_start_a_line(via: str) -> None
 )
 def test_text_with_nothing_to_draw_inserts_nothing(via: str, text: str | list[str] | tuple[str, ...]) -> None:
     page = _page()
-    before = page.parent.tobytes()
+    before = page.document.tobytes()
 
     assert _insert_text(page, via, text) == 0
-    assert page.parent.tobytes() == before
+    assert page.document.tobytes() == before
 
 
 @pytest.mark.parametrize("via", ["page", "shape"])
@@ -248,7 +248,7 @@ def test_the_bottom_of_the_page_is_that_of_the_display_rectangle(via: str, page_
     # lines on all but the first page, because it measures in unrotated space
     # down to user-space y = 0; pylopdf measures in display space down to the
     # bottom of page.rect.
-    page = pylopdf.Document(stream=_one_page(page_entries))[0]
+    page = pylopdf.open(_one_page(page_entries)).pages[0]
     assert tuple(page.rect) == (0.0, 0.0, 200.0, 130.0)
 
     assert _insert_text(page, via, "\n".join("ABCDEFGHIJ")) == 3
@@ -265,12 +265,12 @@ def test_the_bottom_of_the_page_is_that_of_the_display_rectangle(via: str, page_
 )
 def test_the_font_checks_lines_below_the_page(via: str, options: dict[str, Any]) -> None:
     page = _page()
-    before = page.parent.tobytes()
+    before = page.document.tobytes()
 
     # The fifth line would not be drawn, but neither font can draw it.
     with pytest.raises(ValueError, match=r"WinAnsi|no glyph for U\+1F980"):
         _insert_text(page, via, ["A", "B", "C", "D", "\U0001f980"], **options)
-    assert page.parent.tobytes() == before
+    assert page.document.tobytes() == before
 
 
 @pytest.mark.parametrize("via", ["page", "shape"])
@@ -280,11 +280,11 @@ def test_the_line_limit_counts_lines_as_str_splitlines_does(via: str) -> None:
     assert _insert_text(_page(), via, "x\n" * 4096, max_text_size=8192) == 3
     for text in ("\n" * 4097, "x\n" * 4096 + "x", ["x"] * 4097):
         page = _page()
-        before = page.parent.tobytes()
+        before = page.document.tobytes()
         with pytest.raises(pylopdf.LimitError) as error:
             _insert_text(page, via, text, max_text_size=8193)
         assert error.value.code == "text_line_count"
-        assert page.parent.tobytes() == before
+        assert page.document.tobytes() == before
     assert _insert_text(_page(), via, ["x"] * 4097, max_text_size=None) == 3
 
 

@@ -48,8 +48,8 @@ draws some characters differently; pick the one that matches your documents.
 ```python
 import pylopdf
 
-with pylopdf.open("input.pdf") as doc:     # or pylopdf.open(stream=pdf_bytes)
-    print(doc.page_count)                  # len(doc) works too
+with pylopdf.open("input.pdf") as doc:     # or pylopdf.open(pdf_bytes)
+    print(len(doc.pages))
     print(doc.metadata["title"])
     doc.set_metadata({"title": "Report", "author": "Alice"})
 
@@ -66,8 +66,8 @@ with pylopdf.open("input.pdf") as doc:     # or pylopdf.open(stream=pdf_bytes)
 
 - **Encrypted files:** pass `password=` when opening, or call
   `doc.authenticate(password)` afterwards.
-- **Metadata only:** `pylopdf.peek_metadata(path)` reads the metadata and page
-  count without loading the whole document, which is useful when scanning
+- **Metadata only:** `pylopdf.probe(path)` reads the page count, version, and
+  metadata without loading the whole document, which is useful when scanning
   large collections.
 - **Damaged files:** when pylopdf has to repair a broken file to open it, it
   emits a `PylopdfWarning` and sets `doc.is_repaired`. Saving writes a clean
@@ -84,10 +84,10 @@ with pylopdf.open("input.pdf") as doc:     # or pylopdf.open(stream=pdf_bytes)
 
 ```python
 with pylopdf.open("input.pdf") as doc:
-    for page in doc:                       # or doc[0], doc[-1]; numbers start at 0
-        print(page.number, page.rect)
+    for page in doc.pages:                 # or doc.pages[0], doc.pages[-1]; indexes start at 0
+        print(page.index, page.rect)
 
-    page = doc[0]
+    page = doc.pages[0]
     text = page.get_text()                 # plain text
     words = page.get_text("words")         # (x0, y0, x1, y1, word, block, line, word_no)
     layout = page.get_text("dict")         # blocks → lines → spans with bbox, size, font
@@ -103,34 +103,35 @@ all use the same coordinates, also on rotated pages.
 
 ```python
 with pylopdf.open("input.pdf") as doc:
-    doc[0].get_pixmap(dpi=144).save("page-1.png")
-    png = doc[0].get_pixmap(dpi=300).tobytes()    # PNG bytes
-    pix = doc[0].get_pixmap(dpi=144)               # RGB pixels for NumPy or Pillow
-    pngs = doc.render_pages(dpi=144, workers=4)    # every page, in parallel
-    svg = doc[0].get_svg_image()
+    doc.pages[0].get_pixmap(dpi=144).save("page-1.png")
+    png = doc.pages[0].get_pixmap(dpi=300).tobytes()  # PNG bytes
+    pix = doc.pages[0].get_pixmap(dpi=144)            # RGB pixels for NumPy or Pillow
+    pngs = doc.render_pages(dpi=144, workers=4)       # every page, in parallel
+    svg = doc.pages[0].get_svg_image()
 ```
 
 ## Edit pages { #editing }
 
 ```python
 with pylopdf.open("input.pdf") as doc:
-    doc.select([2, 0, 1])                  # keep and reorder; repeat a number to duplicate
-    doc.delete_pages([1])
-    doc.new_page()                         # blank A4 page at the end
-    doc.fullcopy_page(0, to=1)             # independent copy of page 0 at position 1
-    doc[0].set_rotation(90)
+    doc.pages.select([2, 0, 1])            # keep and reorder; repeat an index to duplicate
+    del doc.pages[1]
+    doc.pages.new()                        # blank A4 page at the end
+    doc.pages.insert(1, doc.pages[0])      # a copy of page 0 at index 1
+    doc.pages.move(0, -1)                  # move the first page to the end
+    doc.pages[0].set_rotation(90)
     doc.set_outline([(1, "Chapter 1", 0), (2, "Section 1.1", 1)])
     doc.save("edited.pdf")
 
 with pylopdf.Document() as merged, pylopdf.open("a.pdf") as a, pylopdf.open("b.pdf") as b:
-    merged.insert_pdf(a)                   # all of a.pdf
-    merged.insert_pdf(b, from_page=0, to_page=2)  # the first three pages of b.pdf
+    merged.pages.extend(a.pages)           # all of a.pdf
+    merged.pages.extend(b.pages[:3])       # the first three pages of b.pdf
     merged.save("merged.pdf")
 ```
 
-Page numbers shift after pages are added, removed, or reordered. A `Page`
+Page indexes shift after pages are added, removed, or reordered. A `Page`
 object fetched before such a change raises `StalePageError`; fetch it again
-with `doc[i]`.
+with `doc.pages[i]`.
 
 ## Draw and annotate { #drawing-annotations }
 
@@ -138,7 +139,7 @@ Images, overlays, lines, and annotations:
 
 ```python
 with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterhead:
-    page = doc[0]
+    page = doc.pages[0]
     page.insert_image((72, 72, 200, 200), filename="logo.png")
     page.show_pdf_page(page.rect, letterhead)       # page 0 of another PDF, kept as vectors
     page.draw_line((36, 340), (400, 340), width=0.5, dashes="[3 2] 0")
@@ -157,7 +158,7 @@ Helvetica and other scripts with the font of an installed extra, such as
 
 ```python
 with pylopdf.open("input.pdf") as doc:
-    page = doc[0]
+    page = doc.pages[0]
     page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
     page.insert_text((40, 70), "社外秘", fontsize=18)                          # needs pylopdf[jp]
     page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")  # needs pylopdf[zh-cn]
@@ -175,7 +176,7 @@ and image is then stored once:
 from pylopdf import Color
 
 with pylopdf.open("input.pdf") as doc:
-    with doc[0].draw() as canvas:
+    with doc.pages[0].draw() as canvas:
         canvas.rect((36, 220, 400, 320), radius=6, fill=Color(0.95, 0.97, 1), stroke=Color(0.2, 0.4, 0.6))
         canvas.text("Report", (48, 250), size=16)
         canvas.textbox((48, 260, 390, 310), "Body paragraph.", size=11)
@@ -191,7 +192,7 @@ To write a new document, such as a tagged PDF/UA file, use
 
 ```python
 with pylopdf.open("scan.pdf") as doc:
-    doc[0].apply_ocr()                        # needs pylopdf[ocr]; adds invisible, searchable text
+    doc.pages[0].apply_ocr()                        # needs pylopdf[ocr]; adds invisible, searchable text
     doc.save("searchable.pdf")
 
 with pylopdf.open("form.pdf") as doc:

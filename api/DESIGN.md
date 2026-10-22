@@ -214,8 +214,8 @@ interpret the page separately and agree with it on the bundled corpus.
 | API | Notes |
 | --- | --- |
 | `pylopdf.open(source, /, *, password=None, limits=None)` → `Document` | `source` is a path, `bytes`, `bytearray`, or `memoryview`. |
-| `pylopdf.Document()` | An empty document. |
-| `pylopdf.probe(source, /, *, password=None, max_file_size=...)` → `Probe` | Page count, version, encryption, metadata, and repair status without a full load. |
+| `pylopdf.Document(*, limits=None)` | An empty document; `limits` sets the budgets for the pages it receives. |
+| `pylopdf.probe(source, /, *, password=None, max_file_size=None)` → `Probe` | A record of `page_count`, `version`, `is_encrypted`, `is_repaired`, and `metadata` (the Info entries present, by the names `doc.metadata` uses) without a full load. |
 | `doc.save(path, /, *, compress, prune, dedupe=False, renumber=False, object_streams=False, encryption=None, incremental=False)` | Each option is a boolean named after its effect; the defaults of `compress` and `prune` are an [open question](#15-open-questions). `encryption` takes an `Encryption(user_password=..., owner_password=..., permissions=..., method="aes-256")` value; `None` writes plaintext. Saving over the open file replaces it atomically. |
 | `doc.to_bytes(*, ..., max_size=...)` | The options of `save`. |
 | `doc.unlock(password)` → `Access` | `Access.USER` or `Access.OWNER`; a wrong password raises `PasswordError`. |
@@ -230,13 +230,13 @@ interpret the page separately and agree with it on the bundled corpus.
 | API | Notes |
 | --- | --- |
 | `doc.pages` | `len`, indexing and slicing with negative indexes, iteration. |
-| `doc.pages.new(size=(595, 842), *, index=None)` → `Page` | A blank page, appended unless `index` is given. |
-| `doc.pages.insert(index, pages)`, `doc.pages.extend(pages)` | `pages` is one `Page` or a sequence of pages from any open document. Pages are always copied as independent page objects, with their links, annotations, form fields, and structure. |
+| `doc.pages.new(size=(595, 842), *, index=None)` → `Page` | A blank page, appended unless `index` is given, which is clamped as `list.insert` clamps it. |
+| `doc.pages.insert(index, pages)`, `doc.pages.extend(pages)` | `pages` is one `Page` or an iterable of pages of one open document, this one or another; `index` is clamped as `list.insert` clamps it. Pages are always copied as independent page objects: pages of another document with their links, annotations, form fields, and structure, each at most once per call, and pages of the same document as new page objects that share content streams and resources. |
 | `del doc.pages[i]`, `del doc.pages[a:b]` | Removes pages with their form fields and structure content. |
 | `doc.pages.select(indexes)` | Keeps the listed pages in the listed order; a repeated index makes an independent copy. |
-| `doc.pages.move(index, to)` | |
+| `doc.pages.move(index, to)` | The page ends at index `to` and keeps its page object. |
 | `doc.pages.labeled(label)` → `list[int]` | The indexes of pages with a label. |
-| `page.index`, `page.document`, `page.xref`, `page.obj` | |
+| `page.index`, `page.document`, `page.xref`, `page.obj` | Two `Page` views are equal when they share document, generation, and index. |
 | `page.rect`, `page.rotation`, `page.boxes`, `page.label` | `rotation` is assignable. `boxes` has `media`, `crop`, `bleed`, `trim`, and `art`, assignable in PDF user space and validated against the MediaBox. |
 | `page.resources` | The fonts, images, Form XObjects, color spaces, and graphics states that the page's resources reach, as handles. |
 | `doc.metadata` | A live mutable mapping of the Info dictionary: `title`, `author`, `subject`, `keywords`, `creator`, `producer`, `created`, `modified`, and `trapped`. |

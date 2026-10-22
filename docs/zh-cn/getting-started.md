@@ -37,8 +37,8 @@ pip install "pylopdf[jp,ocr]"
 ```python
 import pylopdf
 
-with pylopdf.open("input.pdf") as doc:     # 也可使用 pylopdf.open(stream=pdf_bytes)
-    print(doc.page_count)                  # 也可使用 len(doc)
+with pylopdf.open("input.pdf") as doc:     # 也可使用 pylopdf.open(pdf_bytes)
+    print(len(doc.pages))
     print(doc.metadata["title"])
     doc.set_metadata({"title": "Report", "author": "Alice"})
 
@@ -54,7 +54,7 @@ with pylopdf.open("input.pdf") as doc:     # 也可使用 pylopdf.open(stream=pd
 ```
 
 - **加密文件**：打开时传入`password=`，或在打开后调用`doc.authenticate(password)`。
-- **只读元数据**：`pylopdf.peek_metadata(path)`无需加载整个文档即可读取元数据和页数，适合扫描大量文件。
+- **只读元数据**：`pylopdf.probe(path)`无需加载整个文档即可读取页数、版本和元数据，适合扫描大量文件。
 - **损坏的文件**：如果pylopdf需要修复损坏的文件才能打开，它会发出`PylopdfWarning`并设置`doc.is_repaired`。保存时会写出一份完好的文件。
 
 !!! tip "来源不可信的文件"
@@ -65,10 +65,10 @@ with pylopdf.open("input.pdf") as doc:     # 也可使用 pylopdf.open(stream=pd
 
 ```python
 with pylopdf.open("input.pdf") as doc:
-    for page in doc:                       # 也可使用 doc[0]、doc[-1]；页码从0开始
-        print(page.number, page.rect)
+    for page in doc.pages:                 # 也可使用 doc.pages[0]、doc.pages[-1]；索引从0开始
+        print(page.index, page.rect)
 
-    page = doc[0]
+    page = doc.pages[0]
     text = page.get_text()                 # 纯文本
     words = page.get_text("words")         # (x0, y0, x1, y1, word, block, line, word_no)
     layout = page.get_text("dict")         # blocks → lines → spans，含bbox、size、font
@@ -82,32 +82,33 @@ with pylopdf.open("input.pdf") as doc:
 
 ```python
 with pylopdf.open("input.pdf") as doc:
-    doc[0].get_pixmap(dpi=144).save("page-1.png")
-    png = doc[0].get_pixmap(dpi=300).tobytes()    # PNG bytes
-    pix = doc[0].get_pixmap(dpi=144)               # 供NumPy或Pillow使用的RGB像素
-    pngs = doc.render_pages(dpi=144, workers=4)    # 并行渲染所有页面
-    svg = doc[0].get_svg_image()
+    doc.pages[0].get_pixmap(dpi=144).save("page-1.png")
+    png = doc.pages[0].get_pixmap(dpi=300).tobytes()  # PNG bytes
+    pix = doc.pages[0].get_pixmap(dpi=144)            # 供NumPy或Pillow使用的RGB像素
+    pngs = doc.render_pages(dpi=144, workers=4)       # 并行渲染所有页面
+    svg = doc.pages[0].get_svg_image()
 ```
 
 ## 编辑页面 { #editing }
 
 ```python
 with pylopdf.open("input.pdf") as doc:
-    doc.select([2, 0, 1])                  # 保留并重排；重复某个页码即复制该页
-    doc.delete_pages([1])
-    doc.new_page()                         # 在末尾添加空白A4页面
-    doc.fullcopy_page(0, to=1)             # 在位置1插入第0页的独立副本
-    doc[0].set_rotation(90)
+    doc.pages.select([2, 0, 1])            # 保留并重排；重复某个索引即复制该页
+    del doc.pages[1]
+    doc.pages.new()                        # 在末尾添加空白A4页面
+    doc.pages.insert(1, doc.pages[0])      # 在索引1处插入第0页的副本
+    doc.pages.move(0, -1)                  # 将第一页移到末尾
+    doc.pages[0].set_rotation(90)
     doc.set_outline([(1, "Chapter 1", 0), (2, "Section 1.1", 1)])
     doc.save("edited.pdf")
 
 with pylopdf.Document() as merged, pylopdf.open("a.pdf") as a, pylopdf.open("b.pdf") as b:
-    merged.insert_pdf(a)                   # a.pdf的全部页面
-    merged.insert_pdf(b, from_page=0, to_page=2)  # b.pdf的前三页
+    merged.pages.extend(a.pages)           # a.pdf的全部页面
+    merged.pages.extend(b.pages[:3])       # b.pdf的前三页
     merged.save("merged.pdf")
 ```
 
-添加、删除或重排页面后，页码会随之变化。在此之前获取的`Page`对象会抛出`StalePageError`，请用`doc[i]`重新获取。
+添加、删除或重排页面后，页面索引会随之变化。在此之前获取的`Page`对象会抛出`StalePageError`，请用`doc.pages[i]`重新获取。
 
 ## 绘制与批注 { #drawing-annotations }
 
@@ -115,7 +116,7 @@ with pylopdf.Document() as merged, pylopdf.open("a.pdf") as a, pylopdf.open("b.p
 
 ```python
 with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterhead:
-    page = doc[0]
+    page = doc.pages[0]
     page.insert_image((72, 72, 200, 200), filename="logo.png")
     page.show_pdf_page(page.rect, letterhead)       # 另一个PDF的第0页，保持矢量
     page.draw_line((36, 340), (400, 340), width=0.5, dashes="[3 2] 0")
@@ -132,7 +133,7 @@ with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterh
 
 ```python
 with pylopdf.open("input.pdf") as doc:
-    page = doc[0]
+    page = doc.pages[0]
     page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
     page.insert_text((40, 70), "社外秘", fontsize=18)                          # 需要 pylopdf[jp]
     page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")  # 需要 pylopdf[zh-cn]
@@ -149,7 +150,7 @@ with pylopdf.open("input.pdf") as doc:
 from pylopdf import Color
 
 with pylopdf.open("input.pdf") as doc:
-    with doc[0].draw() as canvas:
+    with doc.pages[0].draw() as canvas:
         canvas.rect((36, 220, 400, 320), radius=6, fill=Color(0.95, 0.97, 1), stroke=Color(0.2, 0.4, 0.6))
         canvas.text("Report", (48, 250), size=16)
         canvas.textbox((48, 260, 390, 310), "Body paragraph.", size=11)
@@ -164,7 +165,7 @@ with pylopdf.open("input.pdf") as doc:
 
 ```python
 with pylopdf.open("scan.pdf") as doc:
-    doc[0].apply_ocr()                        # 需要 pylopdf[ocr]；添加不可见、可搜索的文本
+    doc.pages[0].apply_ocr()                        # 需要 pylopdf[ocr]；添加不可见、可搜索的文本
     doc.save("searchable.pdf")
 
 with pylopdf.open("form.pdf") as doc:

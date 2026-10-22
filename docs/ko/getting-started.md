@@ -43,8 +43,8 @@ pip install "pylopdf[jp,ocr]"
 ```python
 import pylopdf
 
-with pylopdf.open("input.pdf") as doc:     # pylopdf.open(stream=pdf_bytes)도 가능
-    print(doc.page_count)                  # len(doc)도 사용 가능
+with pylopdf.open("input.pdf") as doc:     # pylopdf.open(pdf_bytes)도 가능
+    print(len(doc.pages))
     print(doc.metadata["title"])
     doc.set_metadata({"title": "Report", "author": "Alice"})
 
@@ -60,7 +60,7 @@ with pylopdf.open("input.pdf") as doc:     # pylopdf.open(stream=pdf_bytes)도 �
 ```
 
 - **암호화된 파일:** 열 때 `password=`를 전달하거나, 연 뒤에 `doc.authenticate(password)`를 호출합니다.
-- **메타데이터만 읽기:** `pylopdf.peek_metadata(path)`는 문서 전체를 불러오지 않고 메타데이터와 페이지 수를 읽습니다. 대규모 파일 모음을 조사할 때 유용합니다.
+- **메타데이터만 읽기:** `pylopdf.probe(path)`는 문서 전체를 불러오지 않고 페이지 수, 버전, 메타데이터를 읽습니다. 대규모 파일 모음을 조사할 때 유용합니다.
 - **손상된 파일:** 파일을 열기 위해 손상된 부분을 복구해야 했다면 pylopdf는 `PylopdfWarning`을 내고 `doc.is_repaired`를 설정합니다. 저장하면 정상적인 파일로 기록됩니다.
 
 !!! tip "신뢰할 수 없는 출처의 파일"
@@ -73,10 +73,10 @@ with pylopdf.open("input.pdf") as doc:     # pylopdf.open(stream=pdf_bytes)도 �
 
 ```python
 with pylopdf.open("input.pdf") as doc:
-    for page in doc:                       # doc[0], doc[-1]도 가능. 번호는 0부터 시작
-        print(page.number, page.rect)
+    for page in doc.pages:                 # doc.pages[0], doc.pages[-1]도 가능. 인덱스는 0부터 시작
+        print(page.index, page.rect)
 
-    page = doc[0]
+    page = doc.pages[0]
     text = page.get_text()                 # 일반 텍스트
     words = page.get_text("words")         # (x0, y0, x1, y1, word, block, line, word_no)
     layout = page.get_text("dict")         # blocks → lines → spans(bbox, size, font 포함)
@@ -90,32 +90,33 @@ with pylopdf.open("input.pdf") as doc:
 
 ```python
 with pylopdf.open("input.pdf") as doc:
-    doc[0].get_pixmap(dpi=144).save("page-1.png")
-    png = doc[0].get_pixmap(dpi=300).tobytes()    # PNG bytes
-    pix = doc[0].get_pixmap(dpi=144)               # NumPy나 Pillow용 RGB 픽셀
-    pngs = doc.render_pages(dpi=144, workers=4)    # 모든 페이지를 병렬로
-    svg = doc[0].get_svg_image()
+    doc.pages[0].get_pixmap(dpi=144).save("page-1.png")
+    png = doc.pages[0].get_pixmap(dpi=300).tobytes()  # PNG bytes
+    pix = doc.pages[0].get_pixmap(dpi=144)            # NumPy나 Pillow용 RGB 픽셀
+    pngs = doc.render_pages(dpi=144, workers=4)       # 모든 페이지를 병렬로
+    svg = doc.pages[0].get_svg_image()
 ```
 
 ## 페이지 편집 { #editing }
 
 ```python
 with pylopdf.open("input.pdf") as doc:
-    doc.select([2, 0, 1])                  # 유지하고 재정렬. 번호를 반복하면 복제
-    doc.delete_pages([1])
-    doc.new_page()                         # 끝에 빈 A4 페이지 추가
-    doc.fullcopy_page(0, to=1)             # 페이지 0의 독립된 복사본을 위치 1에
-    doc[0].set_rotation(90)
+    doc.pages.select([2, 0, 1])            # 유지하고 재정렬. 인덱스를 반복하면 복제
+    del doc.pages[1]
+    doc.pages.new()                        # 끝에 빈 A4 페이지 추가
+    doc.pages.insert(1, doc.pages[0])      # 페이지 0의 복사본을 인덱스 1에
+    doc.pages.move(0, -1)                  # 첫 페이지를 끝으로 이동
+    doc.pages[0].set_rotation(90)
     doc.set_outline([(1, "Chapter 1", 0), (2, "Section 1.1", 1)])
     doc.save("edited.pdf")
 
 with pylopdf.Document() as merged, pylopdf.open("a.pdf") as a, pylopdf.open("b.pdf") as b:
-    merged.insert_pdf(a)                   # a.pdf 전체
-    merged.insert_pdf(b, from_page=0, to_page=2)  # b.pdf의 처음 세 페이지
+    merged.pages.extend(a.pages)           # a.pdf 전체
+    merged.pages.extend(b.pages[:3])       # b.pdf의 처음 세 페이지
     merged.save("merged.pdf")
 ```
 
-페이지를 추가, 삭제, 재정렬하면 페이지 번호가 바뀝니다. 이런 변경 전에 가져온 `Page` 객체는 `StalePageError`를 발생시키므로 `doc[i]`로 다시 가져오세요.
+페이지를 추가, 삭제, 재정렬하면 페이지 인덱스가 바뀝니다. 이런 변경 전에 가져온 `Page` 객체는 `StalePageError`를 발생시키므로 `doc.pages[i]`로 다시 가져오세요.
 
 ## 그리기와 주석 { #drawing-annotations }
 
@@ -123,7 +124,7 @@ with pylopdf.Document() as merged, pylopdf.open("a.pdf") as a, pylopdf.open("b.p
 
 ```python
 with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterhead:
-    page = doc[0]
+    page = doc.pages[0]
     page.insert_image((72, 72, 200, 200), filename="logo.png")
     page.show_pdf_page(page.rect, letterhead)       # 다른 PDF의 페이지 0을 벡터 그대로
     page.draw_line((36, 340), (400, 340), width=0.5, dashes="[3 2] 0")
@@ -140,7 +141,7 @@ with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterh
 
 ```python
 with pylopdf.open("input.pdf") as doc:
-    page = doc[0]
+    page = doc.pages[0]
     page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
     page.insert_text((40, 70), "社外秘", fontsize=18)                          # pylopdf[jp] 필요
     page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")  # pylopdf[zh-cn] 필요
@@ -157,7 +158,7 @@ with pylopdf.open("input.pdf") as doc:
 from pylopdf import Color
 
 with pylopdf.open("input.pdf") as doc:
-    with doc[0].draw() as canvas:
+    with doc.pages[0].draw() as canvas:
         canvas.rect((36, 220, 400, 320), radius=6, fill=Color(0.95, 0.97, 1), stroke=Color(0.2, 0.4, 0.6))
         canvas.text("Report", (48, 250), size=16)
         canvas.textbox((48, 260, 390, 310), "Body paragraph.", size=11)
@@ -172,7 +173,7 @@ with pylopdf.open("input.pdf") as doc:
 
 ```python
 with pylopdf.open("scan.pdf") as doc:
-    doc[0].apply_ocr()                        # pylopdf[ocr] 필요. 보이지 않는 검색 가능 텍스트 추가
+    doc.pages[0].apply_ocr()                        # pylopdf[ocr] 필요. 보이지 않는 검색 가능 텍스트 추가
     doc.save("searchable.pdf")
 
 with pylopdf.open("form.pdf") as doc:

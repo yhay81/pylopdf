@@ -68,7 +68,7 @@ def page_with(
             **(objects or {}),
         }
     )
-    return pylopdf.open(stream=pdf)[0]
+    return pylopdf.open(pdf).pages[0]
 
 
 def assert_color(paint: pylopdf.Paint | None, rgb: tuple[float, float, float], alpha: float = 1) -> None:
@@ -273,13 +273,13 @@ def test_shadings_and_tiling_patterns_are_paints() -> None:
 
 def test_images_report_their_object_mask_and_placement() -> None:
     source = pylopdf.Document()
-    source.new_page(width=2, height=1)
-    pixmap = source[0].get_pixmap(background=(10, 20, 30, 40), alpha=True)
+    source.pages.new((2, 1))
+    pixmap = source.pages[0].get_pixmap(background=(10, 20, 30, 40), alpha=True)
     doc = pylopdf.Document()
-    doc.new_page(width=200, height=100)
-    xref = doc[0].insert_image((10, 20, 50, 40), pixmap=pixmap)
+    doc.pages.new((200, 100))
+    xref = doc.pages[0].insert_image((10, 20, 50, 40), pixmap=pixmap)
 
-    (image,) = doc[0].content().images
+    (image,) = doc.pages[0].content().images
     assert image.xref == xref
     assert (image.width, image.height) == (2, 1)
     assert (image.colorspace, image.components, image.bits) == ("DeviceRGB", 3, 8)
@@ -300,7 +300,7 @@ def test_stencil_masks_are_images_without_an_object() -> None:
 
 
 def test_type3_glyphs_take_their_boxes_from_the_procedure() -> None:
-    page = pylopdf.open(CORPUS[0].parent / "pdfium-type3.pdf")[0]
+    page = pylopdf.open(CORPUS[0].parent / "pdfium-type3.pdf").pages[0]
     with pytest.warns(pylopdf.PylopdfWarning):
         page.get_text()
     runs = page.content().text_runs
@@ -334,7 +334,7 @@ def test_clip_keeps_the_items_that_meet_it() -> None:
 
 
 def test_annotations_can_be_left_out() -> None:
-    page = pylopdf.open(CORPUS[0].parent / "pdfium-links-highlights-annots.pdf")[0]
+    page = pylopdf.open(CORPUS[0].parent / "pdfium-links-highlights-annots.pdf").pages[0]
     with_annotations = page.content()
     without = page.content(annotations=False)
     assert len(without) < len(with_annotations)
@@ -391,8 +391,8 @@ def test_content_is_an_immutable_sequence() -> None:
 
 def test_content_reflects_edits() -> None:
     doc = pylopdf.Document()
-    doc.new_page(width=200, height=100)
-    page = doc[0]
+    doc.pages.new((200, 100))
+    page = doc.pages[0]
     assert len(page.content()) == 0
     page.draw_rect((10, 10, 50, 30), color=(1, 0, 0))
     (path,) = page.content().paths
@@ -432,7 +432,7 @@ def _paint_operations(page: pylopdf.Page) -> tuple[list[tuple[object, ...]], lis
 @pytest.mark.parametrize("path", CORPUS, ids=lambda path: path.name)
 def test_content_agrees_with_the_extraction_views(path: Path) -> None:
     doc = pylopdf.open(path)
-    for page in doc:
+    for page in doc.pages:
         content = page.content()
 
         drawn, painted = _paint_operations(page)

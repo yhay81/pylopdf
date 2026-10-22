@@ -52,7 +52,7 @@ def bold() -> pylopdf.Font:
 
 def _new_page(width: float = 300, height: float = 200) -> tuple[pylopdf.Document, pylopdf.Page]:
     doc = pylopdf.Document()
-    return doc, doc.new_page(width=width, height=height)
+    return doc, doc.pages.new((width, height))
 
 
 def _pixel(page: pylopdf.Page, x: float, y: float) -> tuple[int, int, int]:
@@ -352,7 +352,7 @@ def test_an_uncommitted_shape_warns_when_it_is_collected() -> None:
 def test_a_shape_can_commit_again_after_it_is_emptied() -> None:
     _, page = _new_page()
     shape = pylopdf.Shape(page)
-    assert (shape.page, shape.doc) == (page, page.parent)
+    assert (shape.page, shape.doc) == (page, page.document)
     shape.draw_line((10, 10), (100, 10))
     shape.finish()
     shape.commit()
@@ -369,7 +369,7 @@ def test_a_shape_on_a_stale_page_cannot_commit() -> None:
     shape = page.new_shape()
     shape.draw_line((10, 10), (100, 10))
     shape.finish()
-    doc.new_page()
+    doc.pages.new()
     with pytest.raises(pylopdf.StalePageError):
         shape.commit()
     shape._discard()  # noqa: SLF001 - drops drawing a refusal left behind.
@@ -654,7 +654,7 @@ def test_report_pages_with_measured_labels_and_photo_marks(regular: pylopdf.Font
     doc = pylopdf.Document()
     accent = (0.83, 0.26, 0.05)
     for number in range(2):
-        page = doc.new_page(width=A4[0], height=A4[1])
+        page = doc.pages.new((A4[0], A4[1]))
         with page.new_shape() as shape:
             shape.draw_rect((50, 50, 545, 792))
             shape.finish(color=(0.72, 0.78, 0.82), fill=(0.95, 0.96, 0.97), width=0.5)
@@ -692,7 +692,7 @@ def test_report_pages_with_measured_labels_and_photo_marks(regular: pylopdf.Font
     assert _font_files(doc) == 4
 
     # A record page: marks drawn after a photo lie on top of it.
-    page = doc.new_page(width=A4[0], height=A4[1])
+    page = doc.pages.new((A4[0], A4[1]))
     page.insert_image((56, 420, 300, 600), stream=PHOTO_JPEG)
     with page.new_shape() as shape:
         shape.draw_rect((120, 470, 200, 540))
@@ -707,6 +707,6 @@ def test_report_pages_with_measured_labels_and_photo_marks(regular: pylopdf.Font
     # Inside the stroked frame the photo still shows.
     red, green, blue = _pixel(page, 160, 505)
     assert red == green == blue < 250
-    saved = pylopdf.open(stream=doc.tobytes())
-    assert saved.page_count == 3
-    assert "現地調査報告書" in saved[0].get_text()
+    saved = pylopdf.open(doc.tobytes())
+    assert len(saved.pages) == 3
+    assert "現地調査報告書" in saved.pages[0].get_text()

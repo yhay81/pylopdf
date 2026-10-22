@@ -18,20 +18,23 @@ description: pylopdf의 Document, Page, Font, Shape, Pixmap, 기하 타입, 저�
 ## Document { #document }
 
 ```python
-pylopdf.Document(filename=None, stream=None, filetype=None, *,
-                 password=None, limits=None, max_decompressed_size=None)
+pylopdf.open(source, /, *, password=None, limits=None)
+pylopdf.Document(*, limits=None)
 ```
 
-`pylopdf.open`은 같은 호출 가능 객체입니다. 경로는 `filename`으로, 파일 내용은 `stream`(`bytes`, `bytearray`, `memoryview`, `io.BytesIO`)으로 전달합니다. 인수 없이 `Document()`를 호출하면 빈 PDF를 만듭니다. `limits`에는 신뢰할 수 없는 입력을 위한 [`DocumentLimits`](security.md#untrusted-pdfs) 정책을 전달합니다. 문서는 컨텍스트 관리자로 사용하거나 `close()`를 호출하세요.
+`open`은 경로(`str` 또는 `os.PathLike`)나 파일 내용(`bytes`, `bytearray`, `memoryview`)에서 PDF를 읽습니다. 파일 객체는 `pylopdf.open(file.read())`처럼 먼저 읽어서 전달하세요. `Document()`는 빈 PDF를 만듭니다. `limits`에는 신뢰할 수 없는 입력을 위한 [`DocumentLimits`](security.md#untrusted-pdfs) 정책을 전달합니다. 문서는 컨텍스트 관리자로 사용하거나 `close()`를 호출하세요.
 
 ### 열기, 확인, 저장 { #document-io }
 
 | 멤버 | 용도 |
 |---|---|
-| `page_count`, `len(doc)` | 페이지 수 |
+| `pages` | 페이지. [페이지](#document-pages) 참고 |
 | `metadata` / `set_metadata(m)` | 제목, 작성자 등 Info 필드와 `format`, `encryption`. `set_metadata`는 값이 빈 키를 삭제하고, `{}`이면 모두 삭제 |
-| `needs_pass`, `is_encrypted`, `authenticate(password)` | 암호화 상태. `authenticate`는 문서 잠금을 해제하고 pymupdf와 같은 코드를 반환: 비밀번호가 틀리면 0, 그렇지 않으면 1, 2, 4, 6 |
+| `needs_password`, `is_encrypted`, `authenticate(password)` | 암호화 상태. `authenticate`는 문서 잠금을 해제하고 pymupdf와 같은 코드를 반환: 비밀번호가 틀리면 0, 그렇지 않으면 1, 2, 4, 6 |
 | `is_repaired` | 열 때 손상된 cross-reference 데이터를 복구했는지 여부 |
+| `permissions` | pymupdf와 같은 방식으로 보고하는 권한 플래그. 비밀번호가 필요한 동안은 `0`, 암호화되지 않은 문서이거나 소유자 비밀번호로 연 뒤에는 `-4`(모두), 그 밖에는 암호화의 `/P` 값. 플래그는 `doc.permissions & Permissions.PRINT`로 확인 |
+| `is_dirty` | 연 뒤에 문서를 편집했는지 여부. pymupdf와 마찬가지로 새로 만든 빈 문서는 처음부터 편집된 상태이며, 저장해도 초기화되지 않음 |
+| `is_closed`, `path` | 문서가 닫혔는지 여부와, 문서를 연 파일의 `pathlib.Path`. bytes에서 연 문서와 빈 문서는 `None` |
 | `limits`, `complexity` | 문서를 열 때 사용한 정책과, 처리 여부를 판단하기 위한 저비용 구조 정보(페이지, 객체, 스트림) |
 | `save(filename, *, garbage=0, deflate=False, use_objstms=False, encryption=, user_pw=, owner_pw=, permissions=)` | PDF를 기록. 쓰기가 완전히 성공한 뒤에만 파일을 교체 |
 | `tobytes(..., max_size=512 MiB)` | 같은 출력을 `bytes`로 |
@@ -41,25 +44,37 @@ pylopdf.Document(filename=None, stream=None, filetype=None, *,
 
 ### 페이지 { #document-pages }
 
+`doc.pages`는 [`Page`](#page) 뷰의 시퀀스입니다. `len(doc.pages)`, `doc.pages[i]`(음수 인덱스는 끝에서부터 셈), 리스트를 반환하는 `doc.pages[2:5]` 같은 슬라이스, 반복을 지원합니다.
+
 | 멤버 | 용도 |
 |---|---|
-| `doc[i]`, `load_page(pno)`, 반복 | [`Page`](#page) 객체 |
-| `new_page(pno=-1, *, width=595, height=842)` | 빈 페이지 삽입(기본값은 A4) |
-| `insert_pdf(docsrc, *, from_page=-1, to_page=-1, start_at=-1)` | 다른 문서의 페이지를 링크, 폼 필드와 함께 복사 |
-| `select(page_numbers)` | 나열한 페이지를 나열한 순서로 유지. 번호를 반복하면 페이지를 복제 |
-| `delete_page(pno)`, `delete_pages(...)` | 페이지 삭제. `delete_pages`는 번호 하나, 번호 두 개, `from_page=`/`to_page=`, 또는 iterable을 받음 |
-| `fullcopy_page(pno, to=-1)` | 페이지의 독립된 복사본을 삽입 |
+| `doc.pages.new(size=(595, 842), *, index=None)` | 빈 페이지 추가. 기본값은 A4이며, `index`를 지정하지 않으면 끝에 추가 |
+| `doc.pages.insert(index, pages)`, `doc.pages.extend(pages)` | 페이지 하나 또는 페이지 시퀀스의 복사본을 링크, 폼 필드와 함께 삽입하거나 끝에 추가. 이 문서의 페이지도, 다른 문서의 페이지도 가능 |
+| `del doc.pages[i]`, `del doc.pages[a:b]` | 페이지 삭제 |
+| `doc.pages.select(indexes)` | 나열한 페이지를 나열한 순서로 유지. 인덱스를 반복하면 페이지를 복제 |
+| `doc.pages.move(index, to)` | 페이지가 인덱스 `to`에 오도록 이동 |
+| `doc.pages.labeled(label)` | 레이블이 `label`인 페이지의 인덱스 |
 | `get_outline()` / `set_outline(entries)` | 목차를 `OutlineEntry(level, title, page)` 항목으로 읽거나 교체 |
 | `get_page_labels()` / `set_page_labels(labels)` | 앞부분을 로마 숫자로 표시하는 등의 페이지 레이블 범위 |
 
-페이지를 삭제하거나 선택하면 삭제된 페이지만 가리키던 링크, 목차 항목, 폼 필드, 태그 PDF 구조도 함께 제거됩니다. 다만 그 페이지 내용의 모든 사본을 제거하지는 않으므로 안전한 민감 정보 삭제(redaction)는 아닙니다.
+```python
+merged = pylopdf.Document()
+for path in ["a.pdf", "b.pdf"]:
+    merged.pages.extend(pylopdf.open(path).pages)
+del merged.pages[0]                         # 첫 페이지 삭제
+merged.pages.insert(0, merged.pages[-1])    # 마지막 페이지를 맨 앞에 복사
+merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 순서를 뒤집음
+```
+
+`insert`와 `extend`는 `list.insert`처럼 인덱스 위치를 받으므로, 끝을 넘는 인덱스는 끝에 추가합니다. 한 번의 호출에 전달하는 페이지는 모두 한 문서의 것이어야 하며, 다른 문서의 같은 페이지는 한 번의 호출에 한 번만 넣을 수 있습니다. 다른 문서의 페이지는 링크, 주석, 폼 필드와 함께 가져오며, 이미 쓰이는 필드 이름에는 쓰이지 않은 가장 작은 `+N` 접미사가 붙습니다. 같은 문서에 있는 페이지의 복사본은 새 페이지 객체이며, 둘 중 하나가 편집될 때까지 원본과 콘텐츠 스트림 및 리소스를 공유합니다.
+
+페이지를 추가, 삭제, 재정렬하면 그 전에 가져온 `Page` 뷰는 더 이상 유효하지 않습니다. 그런 뷰를 사용하면 `StalePageError`가 발생하고, 페이지를 변경하면서 `doc.pages`를 반복하면 `RuntimeError`가 발생합니다. 페이지를 삭제하거나 선택하면 삭제된 페이지만 가리키던 링크, 목차 항목, 폼 필드, 태그 PDF 구조도 함께 제거됩니다. 다만 그 페이지 내용의 모든 사본을 제거하지는 않으므로 안전한 민감 정보 삭제(redaction)는 아닙니다.
 
 ### 텍스트와 Markdown { #document-text }
 
 | 멤버 | 용도 |
 |---|---|
 | `get_text(pages=None)` | 모든 페이지 또는 나열한 페이지의 일반 텍스트를 하나의 문자열로 |
-| `get_page_text(pno, option="text")` | `doc[pno].get_text(option)`과 같음 |
 | `to_markdown(pages=None, *, table_strategy="lines", max_size=64 MiB)` | 제목, 목록, 강조, 다단 순서, CJK 세로쓰기, 표를 포함한 Markdown |
 
 `table_strategy="lines"`는 괘선으로 그린 표를 변환하고, `"text"`는 정렬이 분명한 테두리 없는 표도 변환하며, `None`은 표 변환을 끕니다.
@@ -68,9 +83,7 @@ pylopdf.Document(filename=None, stream=None, filetype=None, *,
 
 | 멤버 | 용도 |
 |---|---|
-| `get_page_pixmap(pno, ...)` | `doc[pno].get_pixmap(...)`과 같음 |
 | `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | 모든 페이지 또는 나열한 페이지를 순서대로 병렬 렌더링한 PNG bytes |
-| `get_page_images(pno, *, full=False)` | `doc[pno].get_images(full=...)`와 같음 |
 | `extract_image(xref)` | pymupdf와 같은 키를 가진 이미지 하나. JPEG 데이터는 그대로, 다른 이미지는 PNG로 반환 |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | 이미지를 다운샘플링하고 재압축해 파일 크기를 줄임 |
 | `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | 글꼴이 포함되지 않은 중국어, 일본어, 한국어 텍스트를 표시할 때 쓰는 글꼴. CJK extra가 자동으로 설정 |
@@ -85,11 +98,18 @@ pylopdf.Document(filename=None, stream=None, filetype=None, *,
 | `set_form_field(name, value, *, font=, fontfile=, fontbuffer=, fontindex=, font_language=)` | 필드를 채우고 표시 모양을 다시 생성. [폼](#forms) 참고 |
 | `attachments` | 포함된 파일을 매핑으로. [첨부 파일](#attachments) 참고 |
 | `get_pdfa_claim()` | 파일이 선언한 PDF/A 파트와 적합성 수준(예: `(2, "B")`). 선언만 읽으며 검증하지는 않음 |
-| `objects`, `trailer`, `catalog`, `page_xref(pno)` | PDF 객체에 직접 접근. [저수준 객체](#low-level-objects) 참고 |
+| `get_xml_metadata(*, max_size=1 MiB)` / `set_xml_metadata(metadata, *, max_size=1 MiB)` / `del_xml_metadata()` | XMP 메타데이터 패킷을 텍스트로(없으면 `""`). `set_metadata`는 이를 바꾸지 않음 |
+| `language_tag` / `set_language_tag(tag)` | `zh-TW`나 `sr-Latn-RS` 같은 완전한 BCP 47 태그로 나타낸 문서의 언어, 또는 `None`. `set_language_tag(None)`은 언어를 제거하며, 형식이 잘못된 태그는 예외를 발생시킴 |
+| `pagemode` / `set_pagemode(mode)`, `pagelayout` / `set_pagelayout(layout)` | 뷰어가 문서를 여는 방식(예: `"UseOutlines"`, `"TwoColumnLeft"`). 설정되지 않았으면 `"UseNone"`과 `"SinglePage"` |
+| `markinfo` / `set_markinfo(markinfo)` | 태그 PDF 플래그를 담은 `MarkInfo` 딕셔너리(없으면 `{}`). 설정할 때는 세 플래그를 모두 기록하며, 생략한 플래그는 `False`가 됨 |
+| `has_links()`, `has_annots()` | 어느 페이지에 링크가 있는지, 또는 링크나 폼 위젯이 아닌 주석이 있는지 여부 |
+| `objects`, `trailer`, `catalog` | PDF 객체에 직접 접근. [저수준 객체](#low-level-objects) 참고 |
+
+`language_tag`는 pymupdf의 `language`를 대신합니다. `language`는 태그를 최대 세 글자까지만 유지하므로 `zh-TW`와 `zh-HK`가 모두 `zh-Hant`로 읽힙니다. XMP는 `deflate=True`에서도 압축하지 않고 기록하므로, 파일에서 XMP를 찾는 도구도 계속 찾을 수 있습니다.
 
 ## Page { #page }
 
-`Page`는 문서의 한 페이지에 대한 뷰입니다. `doc[i]`로 가져옵니다.
+`Page`는 문서의 한 페이지에 대한 뷰입니다. `doc.pages[i]`로 가져옵니다. 두 뷰는 같은 문서의 같은 페이지를 가리키고, 그 사이에 페이지가 추가, 삭제, 재정렬되지 않았다면 서로 같습니다.
 
 ### 텍스트와 검색 { #page-text }
 
@@ -124,7 +144,7 @@ pymupdf와 마찬가지로 pixmap은 기본적으로 흰 바탕의 RGB이고, `a
 
 | 멤버 | 용도 |
 |---|---|
-| `number`, `parent` | 페이지 번호와 문서 |
+| `index`, `document` | 문서 안에서 페이지의 인덱스와, 그 문서 |
 | `rect` | 회전이 반영된, 보이는 페이지 영역 |
 | `rotation` / `set_rotation(deg)` | 90의 배수인 표시 회전 |
 | `mediabox`, `cropbox` / `set_mediabox(r)`, `set_cropbox(r)` | pymupdf 규약의 페이지 박스 |
@@ -167,7 +187,7 @@ pymupdf와 마찬가지로 pixmap은 기본적으로 흰 바탕의 RGB이고, `a
 
 ```python
 with pylopdf.open("report.pdf") as doc:
-    layout = doc[0].get_text("rawdict")
+    layout = doc.pages[0].get_text("rawdict")
     for block in layout["blocks"]:
         for line in block["lines"]:
             for span in line["spans"]:
@@ -185,7 +205,7 @@ with pylopdf.open("report.pdf") as doc:
 
 ```python
 with pylopdf.open("report.pdf") as doc:
-    content = doc[0].content()
+    content = doc.pages[0].content()
     for run in content.text_runs:
         print(run.text, run.font.name, run.size, run.fill)
         for glyph in run.glyphs:
@@ -509,8 +529,8 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 
 | 이름 | 용도 |
 |---|---|
-| `open(...)` | `Document(...)`와 같음 |
-| `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 문서를 불러오지 않고 메타데이터와 페이지 수를 읽음 |
+| `open(source, /, *, password=None, limits=None)` | 문서를 엶. [Document](#document) 참고 |
+| `probe(source, /, *, password=None, max_file_size=None)` | 문서를 불러오지 않고 읽은 `Probe` 레코드. `page_count`, `version`, `is_encrypted`, `is_repaired`, `metadata`(`title`, `author`, `subject`, `keywords`, `creator`, `producer`, `created`, `modified` 중 있는 것)를 가짐 |
 | `DocumentLimits`, `DocumentLimits.web()` | 신뢰할 수 없는 입력을 위한 리소스 제한. [보안](security.md#untrusted-pdfs) 참고 |
 | `OcrEngine` | 재사용 가능한 OCR 엔진. [오프라인 OCR](ocr.md) 참고 |
 | `Canvas`, `PathBuilder`, `TextFit` | [캔버스](#canvas) 참고 |
@@ -530,8 +550,7 @@ API가 반환하는 딕셔너리는 일반 `dict` 객체이며, 타입 검사기
 | 이름 | 발생하는 경우 |
 |---|---|
 | `PdfError` | pylopdf 오류의 기본 클래스. `ValueError`의 하위 클래스 |
-| `FileDataError` | 입력이 읽을 수 있는 PDF가 아님. pymupdf와 마찬가지로 `RuntimeError`이기도 함 |
-| `EmptyFileError` | 입력이 비어 있음 |
+| `MalformedPdfError` | 입력이 읽을 수 있는 PDF가 아님. 빈 입력도 포함 |
 | `PasswordError` | 주어진 비밀번호로 복호화하지 못함 |
 | `EncryptedDocumentError` | 먼저 `authenticate()`로 문서 잠금을 해제해야 함 |
 | `LimitError` | [크기 또는 리소스 제한](security.md#error-codes)에 도달함. `.code`가 어느 제한인지 알려 줌 |

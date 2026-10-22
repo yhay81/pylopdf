@@ -58,7 +58,7 @@ def test_permissions_drop_the_old_member_names() -> None:
 
 
 def test_get_links_reports_link_kind_members() -> None:
-    page = pylopdf.open(stream=build_pdf(["Link"]))[0]
+    page = pylopdf.open(build_pdf(["Link"])).pages[0]
     page.insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 100, 30), "uri": "https://example.com/"})
 
     (link,) = page.get_links()
@@ -69,7 +69,7 @@ def test_get_links_reports_link_kind_members() -> None:
 
 def test_text_align_members_and_plain_integers_align_alike() -> None:
     def spare(align: int) -> list[tuple[float, ...]]:
-        page = pylopdf.open().new_page()
+        page = pylopdf.Document().pages.new()
         page.insert_textbox((20, 20, 300, 100), "centered", align=align)
         return [tuple(round(value, 3) for value in word[:4]) for word in page.get_text("words")]
 
@@ -78,7 +78,7 @@ def test_text_align_members_and_plain_integers_align_alike() -> None:
 
 
 def test_save_defaults_to_pdf_encrypt_none() -> None:
-    doc = pylopdf.open(stream=build_pdf(["Plain"]))
+    doc = pylopdf.open(build_pdf(["Plain"]))
 
     assert b"/Encrypt" not in doc.tobytes()
     assert b"/Encrypt" not in doc.tobytes(encryption=pylopdf.PDF_ENCRYPT_NONE)
@@ -86,7 +86,7 @@ def test_save_defaults_to_pdf_encrypt_none() -> None:
 
 @pytest.mark.parametrize("method", ["save", "tobytes"])
 def test_aes_256_encrypts_with_passwords(tmp_path: Path, method: str) -> None:
-    doc = pylopdf.open(stream=build_pdf(["Secret"]))
+    doc = pylopdf.open(build_pdf(["Secret"]))
     options = {"encryption": pylopdf.PDF_ENCRYPT_AES_256, "user_pw": "user", "owner_pw": "owner"}
 
     if method == "save":
@@ -96,24 +96,24 @@ def test_aes_256_encrypts_with_passwords(tmp_path: Path, method: str) -> None:
     else:
         data = doc.tobytes(**options)  # ty: ignore[invalid-argument-type]
 
-    locked = pylopdf.open(stream=data)
-    assert locked.needs_pass
-    assert pylopdf.open(stream=data, password="user")[0].get_text().strip() == "Secret"
+    locked = pylopdf.open(data)
+    assert locked.needs_password
+    assert pylopdf.open(data, password="user").pages[0].get_text().strip() == "Secret"
     assert not doc.is_encrypted
 
 
 def test_aes_256_without_passwords_encrypts_with_empty_passwords() -> None:
-    data = pylopdf.open(stream=build_pdf(["Open"])).tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256)
+    data = pylopdf.open(build_pdf(["Open"])).tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256)
 
     assert b"/Encrypt" in data
-    reopened = pylopdf.open(stream=data)
-    assert not reopened.needs_pass
-    assert reopened[0].get_text().strip() == "Open"
+    reopened = pylopdf.open(data)
+    assert not reopened.needs_password
+    assert reopened.pages[0].get_text().strip() == "Open"
 
 
 @pytest.mark.parametrize("password", [{"user_pw": "x"}, {"owner_pw": "x"}, {"user_pw": ""}])
 def test_password_without_encrypting_method_raises(tmp_path: Path, password: dict[str, str]) -> None:
-    doc = pylopdf.open(stream=build_pdf(["Plain"]))
+    doc = pylopdf.open(build_pdf(["Plain"]))
     before = doc.tobytes()
 
     with pytest.raises(pylopdf.PdfError, match="PDF_ENCRYPT_AES_256"):
@@ -136,14 +136,14 @@ def test_password_without_encrypting_method_raises(tmp_path: Path, password: dic
     ],
 )
 def test_unsupported_encryption_methods_raise(encryption: int, name: str) -> None:
-    doc = pylopdf.open(stream=build_pdf(["Plain"]))
+    doc = pylopdf.open(build_pdf(["Plain"]))
 
     with pytest.raises(pylopdf.PdfError, match=f"encryption={name} is not supported"):
         doc.tobytes(encryption=encryption, user_pw="x")
 
 
 def test_encryption_must_be_an_integer() -> None:
-    doc = pylopdf.open(stream=build_pdf(["Plain"]))
+    doc = pylopdf.open(build_pdf(["Plain"]))
 
     with pytest.raises(TypeError, match="PDF_ENCRYPT"):
         doc.tobytes(encryption=True)

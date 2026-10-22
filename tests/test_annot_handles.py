@@ -15,7 +15,7 @@ def _annotated() -> pylopdf.Document:
         "/F 4 /C [1 0 0] /IC [0 0 1] >>"
     )
     return pylopdf.open(
-        stream=build_raw_pdf(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R >>",
                 2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
@@ -30,7 +30,7 @@ def _annotated() -> pylopdf.Document:
 
 
 def test_annots_returns_read_only_handles() -> None:
-    page = _annotated()[0]
+    page = _annotated().pages[0]
 
     text, free_text = page.annots()
 
@@ -60,7 +60,7 @@ def test_annots_returns_read_only_handles() -> None:
 
 
 def test_annots_filters_by_type() -> None:
-    page = _annotated()[0]
+    page = _annotated().pages[0]
 
     assert [annot.type[1] for annot in page.annots(types=[pylopdf.PDF_ANNOT_FREE_TEXT])] == ["FreeText"]
     assert page.annots(types=[pylopdf.PDF_ANNOT_LINK]) == []
@@ -69,7 +69,7 @@ def test_annots_filters_by_type() -> None:
 def test_handles_compare_by_annotation() -> None:
     doc = _annotated()
 
-    first, second = doc[0].annots(), doc[0].annots()
+    first, second = doc.pages[0].annots(), doc.pages[0].annots()
 
     assert first == second
     assert len(set(first) | set(second)) == 2
@@ -78,22 +78,22 @@ def test_handles_compare_by_annotation() -> None:
 
 def test_handles_go_stale() -> None:
     doc = _annotated()
-    doc.new_page()
-    text = doc[0].annots()[0]
+    doc.pages.new()
+    text = doc.pages[0].annots()[0]
 
-    del doc[0].obj["Annots"][0]
+    del doc.pages[0].obj["Annots"][0]
     with pytest.raises(pylopdf.StaleObjectError):
         _ = text.rect
 
-    remaining = doc[0].annots()[0]
-    doc.delete_page(1)
+    remaining = doc.pages[0].annots()[0]
+    del doc.pages[1]
     with pytest.raises(pylopdf.StaleObjectError):
         _ = remaining.type
 
 
 def test_add_highlight_annot_returns_its_annot() -> None:
-    doc = pylopdf.open(stream=build_pdf(["Highlight me"]))
-    page = doc[0]
+    doc = pylopdf.open(build_pdf(["Highlight me"]))
+    page = doc.pages[0]
     hit = page.search_for("Highlight")[0]
 
     annot = page.add_highlight_annot(hit, content="note")
@@ -111,8 +111,8 @@ def test_add_highlight_annot_returns_its_annot() -> None:
 
 
 def test_insert_link_takes_a_pymupdf_link_dictionary() -> None:
-    doc = pylopdf.open(stream=build_pdf(["Links"]))
-    page = doc[0]
+    doc = pylopdf.open(build_pdf(["Links"]))
+    page = doc.pages[0]
 
     page.insert_link({"kind": pylopdf.LINK_URI, "from": pylopdf.Rect(10, 10, 60, 30), "uri": "https://e.test/"})
 

@@ -35,18 +35,18 @@ SHOW = "BT /F1 20 Tf 20 100 Td (PAGE TEXT) Tj ET"
 
 #: Every public path that makes hayro interpret a page.
 OPERATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
-    "get_page_text": lambda doc: doc.get_page_text(0),
-    "get_text_words": lambda doc: doc[0].get_text("words"),
-    "get_text_dict": lambda doc: doc[0].get_text("dict"),
-    "get_text_rawdict": lambda doc: doc[0].get_text("rawdict"),
-    "search_for": lambda doc: doc[0].search_for("PAGE"),
-    "find_tables": lambda doc: doc[0].find_tables(),
-    "get_drawings": lambda doc: doc[0].get_drawings(),
-    "get_image_info": lambda doc: doc[0].get_image_info(),
-    "get_pixmap": lambda doc: doc[0].get_pixmap(alpha=True),
-    "render_page": lambda doc: doc.get_page_pixmap(0, alpha=True).tobytes(),
+    "get_page_text": lambda doc: doc.pages[0].get_text(),
+    "get_text_words": lambda doc: doc.pages[0].get_text("words"),
+    "get_text_dict": lambda doc: doc.pages[0].get_text("dict"),
+    "get_text_rawdict": lambda doc: doc.pages[0].get_text("rawdict"),
+    "search_for": lambda doc: doc.pages[0].search_for("PAGE"),
+    "find_tables": lambda doc: doc.pages[0].find_tables(),
+    "get_drawings": lambda doc: doc.pages[0].get_drawings(),
+    "get_image_info": lambda doc: doc.pages[0].get_image_info(),
+    "get_pixmap": lambda doc: doc.pages[0].get_pixmap(alpha=True),
+    "render_page": lambda doc: doc.pages[0].get_pixmap(alpha=True).tobytes(),
     "render_pages": lambda doc: doc.render_pages(alpha=True, workers=2),
-    "render_page_svg": lambda doc: doc[0].get_svg_image(),
+    "render_page_svg": lambda doc: doc.pages[0].get_svg_image(),
     "to_markdown": lambda doc: doc.to_markdown(),
     "rewrite_images": lambda doc: doc.rewrite_images(quality=75),
 }
@@ -520,7 +520,7 @@ SAVED_FORMS: dict[str, Callable[[pylopdf.Document], bytes]] = {
 def test_saved_variants_are_refused_too(placement: str, saved: str, tmp_path: Path) -> None:
     """Flate-compressed streams, object streams, and decrypted documents reach the same check."""
     path = tmp_path / f"{placement}-{saved}.pdf"
-    doc = pylopdf.Document(stream=PLACEMENTS[placement](CRASH_DEPTH))
+    doc = pylopdf.open(PLACEMENTS[placement](CRASH_DEPTH))
     path.write_bytes(SAVED_FORMS[saved](doc))
     assert path.stat().st_size < 100_000
     password = "secret" if saved == "encrypted" else None
@@ -544,7 +544,7 @@ def test_every_operation_refuses_content_beyond_the_limit(placement: str) -> Non
     """Check each operation in process at the smallest refused depth, where nothing can crash."""
     data = PLACEMENTS[placement](LIMIT + 1)
     for operation in OPERATIONS.values():
-        doc = pylopdf.Document(stream=data)
+        doc = pylopdf.open(data)
         error = _refusal(partial(operation, doc))
         assert error.code == CODE
         assert isinstance(error, pylopdf.PdfError)
@@ -553,7 +553,7 @@ def test_every_operation_refuses_content_beyond_the_limit(placement: str) -> Non
 
 @pytest.mark.parametrize("placement", PLACEMENTS)
 def test_content_at_the_limit_is_interpreted(placement: str) -> None:
-    doc = pylopdf.Document(stream=PLACEMENTS[placement](LIMIT))
+    doc = pylopdf.open(PLACEMENTS[placement](LIMIT))
 
     for operation in OPERATIONS.values():
         operation(doc)
@@ -570,30 +570,30 @@ def test_content_at_the_limit_is_interpreted(placement: str) -> None:
     ],
 )
 def test_the_limit_is_exactly_64_levels(payload: Callable[[int], str]) -> None:
-    accepted = pylopdf.Document(stream=page_content(payload(LIMIT)))
-    assert accepted.get_page_text(0) is not None
+    accepted = pylopdf.open(page_content(payload(LIMIT)))
+    assert accepted.pages[0].get_text() is not None
 
-    refused = pylopdf.Document(stream=page_content(payload(LIMIT + 2)))
-    assert _refusal(lambda: refused.get_page_text(0)).code == CODE
+    refused = pylopdf.open(page_content(payload(LIMIT + 2)))
+    assert _refusal(refused.pages[0].get_text).code == CODE
 
 
 def test_refusals_name_where_the_content_is() -> None:
-    page = pylopdf.Document(stream=PLACEMENTS["page"](LIMIT + 1))
+    page = pylopdf.open(PLACEMENTS["page"](LIMIT + 1))
     assert "content of page 1 nests arrays or dictionaries deeper than the 64-level limit" in str(
-        _refusal(lambda: page.get_page_text(0))
+        _refusal(page.pages[0].get_text)
     )
 
-    nested = pylopdf.Document(stream=PLACEMENTS["nested-form"](LIMIT + 1))
-    assert "content stream 7 0 R reachable from page 1" in str(_refusal(lambda: nested.get_page_text(0)))
+    nested = pylopdf.open(PLACEMENTS["nested-form"](LIMIT + 1))
+    assert "content stream 7 0 R reachable from page 1" in str(_refusal(nested.pages[0].get_text))
 
 
 def test_many_shallow_containers_are_not_nesting() -> None:
     arrays = " ".join(["[ (a) 1 ] TJ"] * 5000)
     dictionaries = " ".join(["/P << /A [1 2] /B << /C 3 >> >> BDC EMC"] * 2000)
 
-    doc = pylopdf.Document(stream=page_content(f"{arrays} {dictionaries} {SHOW}"))
+    doc = pylopdf.open(page_content(f"{arrays} {dictionaries} {SHOW}"))
 
-    assert "PAGE TEXT" in doc.get_page_text(0)
+    assert "PAGE TEXT" in doc.pages[0].get_text()
 
 
 def test_brackets_inside_strings_comments_names_and_hex_do_not_nest() -> None:
@@ -603,24 +603,22 @@ def test_brackets_inside_strings_comments_names_and_hex_do_not_nest() -> None:
     name = "/A" + "x" * 3000
     parentheses = "(" * 100_000 + ")" * 100_000
 
-    doc = pylopdf.Document(
-        stream=page_content(f"{hidden} pop {comment} {hex_string} pop {name} pop {parentheses} pop {SHOW}")
-    )
+    doc = pylopdf.open(page_content(f"{hidden} pop {comment} {hex_string} pop {name} pop {parentheses} pop {SHOW}"))
 
-    assert "PAGE TEXT" in doc.get_page_text(0)
+    assert "PAGE TEXT" in doc.pages[0].get_text()
 
 
 def test_nesting_adds_up_across_the_streams_of_one_page() -> None:
     """Containers opened in one `/Contents` stream close in the next, as hayro joins them."""
-    split = pylopdf.Document(
-        stream=page_content_array("BT /F1 20 Tf 20 100 Td " + "[" * 40, "[" * 40 + "(X)" + "]" * 80 + " TJ ET")
+    split = pylopdf.open(
+        page_content_array("BT /F1 20 Tf 20 100 Td " + "[" * 40, "[" * 40 + "(X)" + "]" * 80 + " TJ ET")
     )
-    assert _refusal(lambda: split.get_page_text(0)).code == CODE
+    assert _refusal(split.pages[0].get_text).code == CODE
 
-    shallow = pylopdf.Document(
-        stream=page_content_array("BT /F1 20 Tf 20 100 Td " + "[" * 30, "[" * 30 + "(X)" + "]" * 60 + " TJ ET")
+    shallow = pylopdf.open(
+        page_content_array("BT /F1 20 Tf 20 100 Td " + "[" * 30, "[" * 30 + "(X)" + "]" * 60 + " TJ ET")
     )
-    assert shallow.get_page_text(0) is not None
+    assert shallow.pages[0].get_text() is not None
 
 
 def _inline_image(data: bytes, tail: str = SHOW) -> bytes:
@@ -630,26 +628,26 @@ def _inline_image(data: bytes, tail: str = SHOW) -> bytes:
 def test_binary_inline_image_data_is_not_tokenized() -> None:
     """Image data may hold any bytes, including unbalanced brackets and stray ends."""
     data = b"[" * 500 + b"(" + b"<<" * 200 + b"\x00%\xff" + b"EI \xfe\xff" + b"BI /W 1 " + b"]" * 3
-    doc = pylopdf.Document(stream=page_content(_inline_image(data)))
+    doc = pylopdf.open(page_content(_inline_image(data)))
 
-    assert "PAGE TEXT" in doc.get_page_text(0)
-    assert doc[0].get_pixmap(alpha=True).width == 300
-    assert isinstance(doc[0].get_image_info(), list)
+    assert "PAGE TEXT" in doc.pages[0].get_text()
+    assert doc.pages[0].get_pixmap(alpha=True).width == 300
+    assert isinstance(doc.pages[0].get_image_info(), list)
 
 
 def test_ascii_hex_inline_image_is_not_tokenized() -> None:
     """ASCII-encoded image data is as opaque as binary data."""
     content = f"q 20 0 0 20 10 10 cm BI /W 2 /H 2 /BPC 8 /CS /G /F /AHx ID 00 ff 00 ff> EI Q {SHOW}"
-    doc = pylopdf.Document(stream=page_content(content))
+    doc = pylopdf.open(page_content(content))
 
-    assert "PAGE TEXT" in doc.get_page_text(0)
+    assert "PAGE TEXT" in doc.pages[0].get_text()
 
 
 def test_two_inline_images_in_one_stream() -> None:
     content = _inline_image(b"[[\x00(", "") + b" " + _inline_image(b"\xff<<\x01]")
-    doc = pylopdf.Document(stream=page_content(content))
+    doc = pylopdf.open(page_content(content))
 
-    assert "PAGE TEXT" in doc.get_page_text(0)
+    assert "PAGE TEXT" in doc.pages[0].get_text()
 
 
 #: Streams where hayro resumes tokenizing somewhere an `EI` search would not expect.
@@ -684,8 +682,8 @@ INLINE_IMAGE_EVASIONS = {
 
 @pytest.mark.parametrize("evasion", INLINE_IMAGE_EVASIONS)
 def test_inline_image_ends_cannot_hide_nesting(evasion: str, tmp_path: Path) -> None:
-    refused = pylopdf.Document(stream=page_content(INLINE_IMAGE_EVASIONS[evasion](b"[" * (LIMIT + 6))))
-    assert _refusal(lambda: refused.get_page_text(0)).code == CODE
+    refused = pylopdf.open(page_content(INLINE_IMAGE_EVASIONS[evasion](b"[" * (LIMIT + 6))))
+    assert _refusal(refused.pages[0].get_text).code == CODE
 
     path = tmp_path / "evasion.pdf"
     path.write_bytes(page_content(INLINE_IMAGE_EVASIONS[evasion](b"[" * CRASH_DEPTH)))
@@ -703,8 +701,8 @@ def test_signs_and_dots_do_not_hide_the_inline_image_keyword(prefix: str, tmp_pa
 
     A `+` splits only when a dot follows it.
     """
-    refused = pylopdf.Document(stream=page_content(_after_keyword(prefix, b"[" * (LIMIT + 6))))
-    assert _refusal(lambda: refused.get_page_text(0)).code == CODE
+    refused = pylopdf.open(page_content(_after_keyword(prefix, b"[" * (LIMIT + 6))))
+    assert _refusal(refused.pages[0].get_text).code == CODE
 
     path = tmp_path / "prefix.pdf"
     path.write_bytes(page_content(_after_keyword(prefix, b"[" * CRASH_DEPTH)))
@@ -724,28 +722,28 @@ def test_the_image_keyword_in_ordinary_text_is_harmless() -> None:
     """Prose after an inline image holds many `BI` pairs, and hayro stops reading each within a byte or two."""
     prose = "(BIG BIKE BIRD BIOGRAPHY BI/BI/BI BIID) Tj " * 100
     content = _inline_image(b"\x00\x01\x02\x03", "") + b" BT /F1 20 Tf 20 100 Td " + prose.encode() + b" ET"
-    doc = pylopdf.Document(stream=page_content(content))
+    doc = pylopdf.open(page_content(content))
 
-    assert "BIOGRAPHY" in doc.get_page_text(0)
-    assert doc[0].get_pixmap(alpha=True).width == 300
+    assert "BIOGRAPHY" in doc.pages[0].get_text()
+    assert doc.pages[0].get_pixmap(alpha=True).width == 300
 
 
 def test_stream_objects_inside_content_are_refused() -> None:
     """A dictionary followed by `stream` makes hayro skip an opaque body."""
-    doc = pylopdf.Document(stream=page_content(f"<< /Length 3 >> stream\nabc\nendstream {SHOW}"))
+    doc = pylopdf.open(page_content(f"<< /Length 3 >> stream\nabc\nendstream {SHOW}"))
 
-    error = _refusal(lambda: doc.get_page_text(0))
+    error = _refusal(doc.pages[0].get_text)
 
     assert error.code == CODE
     assert "embeds a stream object" in str(error)
 
 
 def test_refusal_is_per_page() -> None:
-    doc = pylopdf.Document(stream=_document([_show(_arrays(LIMIT + 1)), SHOW]))
+    doc = pylopdf.open(_document([_show(_arrays(LIMIT + 1)), SHOW]))
 
-    assert doc.get_page_text(1).strip() == "PAGE TEXT"
-    assert _refusal(lambda: doc.get_page_text(0)).code == CODE
-    assert doc.get_page_text(1).strip() == "PAGE TEXT"
+    assert doc.pages[1].get_text().strip() == "PAGE TEXT"
+    assert _refusal(doc.pages[0].get_text).code == CODE
+    assert doc.pages[1].get_text().strip() == "PAGE TEXT"
     assert doc.render_pages([1], alpha=True)
     assert _refusal(doc.render_pages).code == CODE
     assert _refusal(doc.get_text).code == CODE
@@ -755,29 +753,27 @@ def test_refusal_is_per_page() -> None:
 def test_a_refused_stream_is_never_remembered_as_clear() -> None:
     """Two pages share a deep form: neither may borrow the other's check."""
     deep = _stream(_show(_arrays(LIMIT + 1)), FORM + "/Resources << /Font << /F1 3 0 R >> >> ")
-    doc = pylopdf.Document(
-        stream=_document([f"{SHOW} /Fm0 Do", f"{SHOW} /Fm0 Do"], [deep], "/XObject << /Fm0 {0} 0 R >> ")
-    )
+    doc = pylopdf.open(_document([f"{SHOW} /Fm0 Do", f"{SHOW} /Fm0 Do"], [deep], "/XObject << /Fm0 {0} 0 R >> "))
 
     for _ in range(2):
-        assert _refusal(lambda: doc.get_page_text(0)).code == CODE
-        assert _refusal(lambda: doc.get_page_text(1)).code == CODE
+        assert _refusal(doc.pages[0].get_text).code == CODE
+        assert _refusal(doc.pages[1].get_text).code == CODE
 
 
 def test_shared_clear_streams_serve_every_page() -> None:
     shallow = _stream(_show(_arrays(3)), FORM + "/Resources << /Font << /F1 3 0 R >> >> ")
-    doc = pylopdf.Document(stream=_document([f"{SHOW} /Fm0 Do"] * 3, [shallow], "/XObject << /Fm0 {0} 0 R >> "))
+    doc = pylopdf.open(_document([f"{SHOW} /Fm0 Do"] * 3, [shallow], "/XObject << /Fm0 {0} 0 R >> "))
 
-    assert all("PAGE TEXT" in doc.get_page_text(index) for index in range(3))
+    assert all("PAGE TEXT" in doc.pages[index].get_text() for index in range(3))
     assert doc.get_text().count("PAGE TEXT") == 3
 
 
 def test_only_content_a_page_can_reach_is_checked() -> None:
     """A deep form that no resource dictionary lists is never decoded, so it cannot matter."""
     orphan = _stream(_show(_arrays(CRASH_DEPTH)), FORM)
-    doc = pylopdf.Document(stream=_document([SHOW], [orphan]))
+    doc = pylopdf.open(_document([SHOW], [orphan]))
 
-    assert "PAGE TEXT" in doc.get_page_text(0)
+    assert "PAGE TEXT" in doc.pages[0].get_text()
 
 
 def test_image_data_is_not_content() -> None:
@@ -787,53 +783,53 @@ def test_image_data_is_not_content() -> None:
         "/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 ",
     )
     data = _document([f"q 50 0 0 50 10 10 cm /Im0 Do Q {SHOW}"], [image], "/XObject << /Im0 {0} 0 R >> ")
-    doc = pylopdf.Document(stream=data)
+    doc = pylopdf.open(data)
 
-    assert "PAGE TEXT" in doc.get_page_text(0)
-    assert doc[0].get_pixmap(alpha=True).width == 300
+    assert "PAGE TEXT" in doc.pages[0].get_text()
+    assert doc.pages[0].get_pixmap(alpha=True).width == 300
 
 
 def test_listing_a_deep_form_is_enough_to_refuse_the_page() -> None:
     """Names resolve through every enclosing resource dictionary, so unused entries count too."""
     deep = _stream(_show(_arrays(LIMIT + 1)), FORM + "/Resources << /Font << /F1 3 0 R >> >> ")
-    doc = pylopdf.Document(stream=_document([SHOW], [deep], "/XObject << /Fm0 {0} 0 R >> "))
+    doc = pylopdf.open(_document([SHOW], [deep], "/XObject << /Fm0 {0} 0 R >> "))
 
-    assert _refusal(lambda: doc.get_page_text(0)).code == CODE
+    assert _refusal(doc.pages[0].get_text).code == CODE
 
 
 def test_every_appearance_state_is_checked() -> None:
     """Read every state of a check box, of which hayro draws one, without asking which."""
-    drawn = pylopdf.Document(stream=appearance_state("0 0 1 rg 0 0 190 50 re f"))
-    assert tuple(drawn[0].get_pixmap(clip=(20, 110, 40, 130), alpha=True).samples[:3]) == (0, 0, 255)
+    drawn = pylopdf.open(appearance_state("0 0 1 rg 0 0 190 50 re f"))
+    assert tuple(drawn.pages[0].get_pixmap(clip=(20, 110, 40, 130), alpha=True).samples[:3]) == (0, 0, 255)
 
     # `/AS` selects the shallow `/On`, the only state hayro draws, and `/Off` holds the deep content.
-    doc = pylopdf.Document(stream=appearance_state(_show(_arrays(LIMIT + 1)), holder="/Off"))
-    assert _refusal(lambda: doc.get_page_text(0)).code == CODE
+    doc = pylopdf.open(appearance_state(_show(_arrays(LIMIT + 1)), holder="/Off"))
+    assert _refusal(doc.pages[0].get_text).code == CODE
 
 
 def test_edits_drop_the_clearance_of_the_previous_snapshot() -> None:
-    doc = pylopdf.Document(stream=_document([SHOW]))
-    assert "PAGE TEXT" in doc.get_page_text(0)
+    doc = pylopdf.open(_document([SHOW]))
+    assert "PAGE TEXT" in doc.pages[0].get_text()
 
-    doc.insert_pdf(pylopdf.Document(stream=_document([_show(_arrays(LIMIT + 1))])))
-    assert len(doc) == 2
-    assert "PAGE TEXT" in doc.get_page_text(0)
-    assert _refusal(lambda: doc.get_page_text(1)).code == CODE
-    assert _refusal(lambda: doc.get_page_text(1)).code == CODE
+    doc.pages.extend(pylopdf.open(_document([_show(_arrays(LIMIT + 1))])).pages)
+    assert len(doc.pages) == 2
+    assert "PAGE TEXT" in doc.pages[0].get_text()
+    assert _refusal(doc.pages[1].get_text).code == CODE
+    assert _refusal(doc.pages[1].get_text).code == CODE
 
-    doc.delete_pages([1])
-    assert "PAGE TEXT" in doc.get_page_text(0)
+    del doc.pages[1:2]
+    assert "PAGE TEXT" in doc.pages[0].get_text()
     assert doc.get_text().strip() == "PAGE TEXT"
 
 
 def test_inserted_text_does_not_hide_deep_content() -> None:
     deep = _stream(_show(_arrays(LIMIT + 1)), FORM + "/Resources << /Font << /F1 3 0 R >> >> ")
-    doc = pylopdf.Document(stream=_document([f"{SHOW} /Fm0 Do"], [deep], "/XObject << /Fm0 {0} 0 R >> "))
-    assert _refusal(lambda: doc.get_page_text(0)).code == CODE
+    doc = pylopdf.open(_document([f"{SHOW} /Fm0 Do"], [deep], "/XObject << /Fm0 {0} 0 R >> "))
+    assert _refusal(doc.pages[0].get_text).code == CODE
 
-    doc[0].insert_text((20, 250), "ADDED")
+    doc.pages[0].insert_text((20, 250), "ADDED")
 
-    assert _refusal(lambda: doc.get_page_text(0)).code == CODE
+    assert _refusal(doc.pages[0].get_text).code == CODE
 
 
 def test_real_world_pages_pass_the_check() -> None:

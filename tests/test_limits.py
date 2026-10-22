@@ -77,12 +77,8 @@ def test_document_limits_validate_values() -> None:
         pylopdf.DocumentLimits(max_pages=1.5)  # ty: ignore[invalid-argument-type]
     with pytest.raises(ValueError, match="max_pages"):
         pylopdf.DocumentLimits(max_pages=0)
-    with pytest.raises(ValueError, match="cannot both"):
-        pylopdf.Document(
-            stream=build_pdf(["one"]),
-            max_decompressed_size=1024,
-            limits=pylopdf.DocumentLimits(max_pages=1),
-        )
+    with pytest.raises(TypeError, match="DocumentLimits"):
+        pylopdf.open(build_pdf(["one"]), limits={"max_pages": 1})  # ty: ignore[invalid-argument-type]
 
 
 def test_web_profile_has_bounded_worker_defaults() -> None:
@@ -98,10 +94,7 @@ def test_web_profile_has_bounded_worker_defaults() -> None:
 def test_limit_error_is_machine_readable_pdf_error() -> None:
     data = build_pdf(["one"])
     with pytest.raises(pylopdf.LimitError) as caught:
-        pylopdf.Document(
-            stream=data,
-            limits=pylopdf.DocumentLimits(max_file_size=len(data) - 1),
-        )
+        pylopdf.open(data, limits=pylopdf.DocumentLimits(max_file_size=len(data) - 1))
     assert isinstance(caught.value, pylopdf.PdfError)
     assert _error_code(caught.value) == "file_size"
     assert caught.value.args[0] == "file_size"
@@ -113,21 +106,18 @@ def test_file_size_limit_precedes_path_read(tmp_path: Path) -> None:
     data = build_pdf(["one"])
     path.write_bytes(data)
     with pytest.raises(pylopdf.LimitError) as caught:
-        pylopdf.open(
-            path,
-            limits=pylopdf.DocumentLimits(max_file_size=len(data) - 1),
-        )
+        pylopdf.open(path, limits=pylopdf.DocumentLimits(max_file_size=len(data) - 1))
     assert _error_code(caught.value) == "file_size"
 
 
 def test_page_and_object_limits() -> None:
     data = build_pdf(["one", "two", "three"])
     with pytest.raises(pylopdf.LimitError) as pages:
-        pylopdf.open(stream=data, limits=pylopdf.DocumentLimits(max_pages=2))
+        pylopdf.open(data, limits=pylopdf.DocumentLimits(max_pages=2))
     assert _error_code(pages.value) == "page_count"
 
     with pytest.raises(pylopdf.LimitError) as objects:
-        pylopdf.open(stream=data, limits=pylopdf.DocumentLimits(max_objects=4))
+        pylopdf.open(data, limits=pylopdf.DocumentLimits(max_objects=4))
     assert _error_code(objects.value) == "object_count"
 
 
@@ -181,10 +171,7 @@ def test_bounded_page_tree_walk_rejects_cycles_and_reuse(
     limits: pylopdf.DocumentLimits,
 ) -> None:
     with pytest.raises(pylopdf.PdfError, match=message):
-        pylopdf.open(
-            stream=build_raw_pdf(objects),
-            limits=limits,
-        )
+        pylopdf.open(build_raw_pdf(objects), limits=limits)
 
 
 def test_unbounded_open_defers_malformed_page_tree_rejection_to_indexing() -> None:
@@ -194,48 +181,36 @@ def test_unbounded_open_defers_malformed_page_tree_rejection_to_indexing() -> No
             2: "<< /Type /Pages /Kids [2 0 R] /Count 1 >>",
         }
     )
-    doc = pylopdf.open(stream=pdf)
+    doc = pylopdf.open(pdf)
     assert doc.limits.max_pages is None
 
     with pytest.raises(pylopdf.PdfError, match="cycle"):
-        _ = doc.page_count
+        _ = len(doc.pages)
     with pytest.raises(pylopdf.PdfError, match="cycle"):
         _ = doc.complexity
 
 
 def test_bounded_page_tree_walk_has_an_iterative_depth_boundary() -> None:
-    exact = pylopdf.open(
-        stream=_deep_page_tree_pdf(256),
-        limits=pylopdf.DocumentLimits(max_pages=1),
-    )
-    assert exact.page_count == 1
+    exact = pylopdf.open(_deep_page_tree_pdf(256), limits=pylopdf.DocumentLimits(max_pages=1))
+    assert len(exact.pages) == 1
 
-    unbounded_exact = pylopdf.open(stream=_deep_page_tree_pdf(256))
-    assert unbounded_exact.page_count == 1
+    unbounded_exact = pylopdf.open(_deep_page_tree_pdf(256))
+    assert len(unbounded_exact.pages) == 1
     assert unbounded_exact.complexity["page_count"] == 1
 
     with pytest.raises(pylopdf.PdfError, match="256-level safety limit"):
-        pylopdf.open(
-            stream=_deep_page_tree_pdf(257),
-            limits=pylopdf.DocumentLimits(max_pages=1),
-        )
-    unbounded_deep = pylopdf.open(stream=_deep_page_tree_pdf(257))
+        pylopdf.open(_deep_page_tree_pdf(257), limits=pylopdf.DocumentLimits(max_pages=1))
+    unbounded_deep = pylopdf.open(_deep_page_tree_pdf(257))
     with pytest.raises(pylopdf.PdfError, match="256-level safety limit"):
-        _ = unbounded_deep.page_count
+        _ = len(unbounded_deep.pages)
 
 
 def test_bounded_page_tree_walk_limits_indirect_kids_references() -> None:
-    exact = pylopdf.open(
-        stream=_indirect_kids_pdf(32),
-        limits=pylopdf.DocumentLimits(max_pages=1),
-    )
-    assert exact.page_count == 1
+    exact = pylopdf.open(_indirect_kids_pdf(32), limits=pylopdf.DocumentLimits(max_pages=1))
+    assert len(exact.pages) == 1
 
     with pytest.raises(pylopdf.PdfError, match="32-reference-depth safety limit"):
-        pylopdf.open(
-            stream=_indirect_kids_pdf(33),
-            limits=pylopdf.DocumentLimits(max_pages=1),
-        )
+        pylopdf.open(_indirect_kids_pdf(33), limits=pylopdf.DocumentLimits(max_pages=1))
 
 
 def test_bounded_page_tree_walk_limits_edges_by_object_count() -> None:
@@ -246,10 +221,7 @@ def test_bounded_page_tree_walk_limits_edges_by_object_count() -> None:
         }
     )
     with pytest.raises(pylopdf.PdfError, match="edge object-count safety limit"):
-        pylopdf.open(
-            stream=pdf,
-            limits=pylopdf.DocumentLimits(max_pages=1),
-        )
+        pylopdf.open(pdf, limits=pylopdf.DocumentLimits(max_pages=1))
 
 
 def test_direct_object_depth_limit_ignores_reference_cycles() -> None:
@@ -265,11 +237,11 @@ def test_direct_object_depth_limit_ignores_reference_cycles() -> None:
         }
     )
     with pytest.raises(pylopdf.LimitError) as depth:
-        pylopdf.open(stream=pdf, limits=pylopdf.DocumentLimits(max_object_depth=4))
+        pylopdf.open(pdf, limits=pylopdf.DocumentLimits(max_object_depth=4))
     assert _error_code(depth.value) == "object_depth"
 
-    doc = pylopdf.open(stream=pdf, limits=pylopdf.DocumentLimits(max_object_depth=16))
-    assert doc.page_count == 1
+    doc = pylopdf.open(pdf, limits=pylopdf.DocumentLimits(max_object_depth=16))
+    assert len(doc.pages) == 1
 
 
 def test_direct_object_depth_handles_wide_dictionaries_iteratively() -> None:
@@ -283,11 +255,11 @@ def test_direct_object_depth_handles_wide_dictionaries_iteratively() -> None:
         }
     )
 
-    doc = pylopdf.open(stream=pdf, limits=pylopdf.DocumentLimits(max_object_depth=4))
+    doc = pylopdf.open(pdf, limits=pylopdf.DocumentLimits(max_object_depth=4))
     assert doc.complexity["max_object_depth"] == 4
 
     with pytest.raises(pylopdf.LimitError) as depth:
-        pylopdf.open(stream=pdf, limits=pylopdf.DocumentLimits(max_object_depth=3))
+        pylopdf.open(pdf, limits=pylopdf.DocumentLimits(max_object_depth=3))
     assert _error_code(depth.value) == "object_depth"
 
 
@@ -304,49 +276,34 @@ def test_page_content_and_general_stream_limits_are_independent() -> None:
         }
     )
     with pytest.raises(pylopdf.LimitError) as content:
-        pylopdf.open(
-            stream=pdf,
-            limits=pylopdf.DocumentLimits(max_page_content_size=100),
-        )
+        pylopdf.open(pdf, limits=pylopdf.DocumentLimits(max_page_content_size=100))
     assert _error_code(content.value) == "page_content_size"
 
     doc = pylopdf.open(
-        stream=pdf,
+        pdf,
         limits=pylopdf.DocumentLimits(
             max_page_content_size=200,
             max_decompressed_size=200,
         ),
     )
-    assert doc.page_count == 1
+    assert len(doc.pages) == 1
 
 
 def test_bounded_decoding_caps_filter_chain_length() -> None:
-    exact = pylopdf.open(
-        stream=_filter_chain_pdf(16),
-        limits=pylopdf.DocumentLimits(max_decompressed_size=1),
-    )
-    assert exact.page_count == 1
+    exact = pylopdf.open(_filter_chain_pdf(16), limits=pylopdf.DocumentLimits(max_decompressed_size=1))
+    assert len(exact.pages) == 1
 
     with pytest.raises(pylopdf.LimitError) as caught:
-        pylopdf.open(
-            stream=_filter_chain_pdf(17),
-            limits=pylopdf.DocumentLimits(max_decompressed_size=1),
-        )
+        pylopdf.open(_filter_chain_pdf(17), limits=pylopdf.DocumentLimits(max_decompressed_size=1))
     assert _error_code(caught.value) == "stream_filter_count"
 
 
 def test_page_content_limit_preflights_raw_contents_array() -> None:
-    exact = pylopdf.open(
-        stream=_page_content_array_pdf(4096),
-        limits=pylopdf.DocumentLimits(max_page_content_size=1),
-    )
-    assert exact.page_count == 1
+    exact = pylopdf.open(_page_content_array_pdf(4096), limits=pylopdf.DocumentLimits(max_page_content_size=1))
+    assert len(exact.pages) == 1
 
     with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
-        pylopdf.open(
-            stream=_page_content_array_pdf(4097),
-            limits=pylopdf.DocumentLimits(max_page_content_size=1),
-        )
+        pylopdf.open(_page_content_array_pdf(4097), limits=pylopdf.DocumentLimits(max_page_content_size=1))
 
 
 def test_cumulative_decompressed_limit() -> None:
@@ -361,38 +318,29 @@ def test_cumulative_decompressed_limit() -> None:
         }
     )
     with pytest.raises(pylopdf.LimitError) as total:
-        pylopdf.open(
-            stream=pdf,
-            limits=pylopdf.DocumentLimits(max_total_decompressed_size=100),
-        )
+        pylopdf.open(pdf, limits=pylopdf.DocumentLimits(max_total_decompressed_size=100))
     assert _error_code(total.value) == "total_decompressed_size"
 
 
 def test_eager_object_stream_uses_cumulative_limit_code() -> None:
     with pytest.raises(pylopdf.LimitError) as total:
-        pylopdf.open(
-            REAL_WORLD / "f1040.pdf",
-            limits=pylopdf.DocumentLimits(max_total_decompressed_size=100),
-        )
+        pylopdf.open(REAL_WORLD / "f1040.pdf", limits=pylopdf.DocumentLimits(max_total_decompressed_size=100))
     assert _error_code(total.value) == "total_decompressed_size"
 
 
 def test_text_budget_is_cumulative_across_interpreted_pages() -> None:
-    doc = pylopdf.open(
-        stream=build_pdf(["ABC", "DEF", ""]),
-        limits=pylopdf.DocumentLimits(max_text_size=5),
-    )
-    assert "ABC" in doc[0].get_text()
+    doc = pylopdf.open(build_pdf(["ABC", "DEF", ""]), limits=pylopdf.DocumentLimits(max_text_size=5))
+    assert "ABC" in doc.pages[0].get_text()
     with pytest.raises(pylopdf.LimitError) as text:
-        doc[1].get_text()
+        doc.pages[1].get_text()
     assert _error_code(text.value) == "text_size"
     # A failed text-heavy page does not consume the remaining budget.
-    assert doc[2].get_text() == ""
+    assert doc.pages[2].get_text() == ""
 
 
 def test_text_budget_remains_active_on_generated_documents() -> None:
     doc = pylopdf.Document(limits=pylopdf.DocumentLimits(max_text_size=2))
-    page = doc.new_page()
+    page = doc.pages.new()
     page.insert_text((20, 20), "ABC")
     with pytest.raises(pylopdf.LimitError) as text:
         page.get_text()
@@ -400,79 +348,57 @@ def test_text_budget_remains_active_on_generated_documents() -> None:
 
 
 def test_text_glyph_budget_is_cumulative_without_double_charging_pages() -> None:
-    exact = pylopdf.open(
-        stream=build_pdf(["ABC"]),
-        limits=pylopdf.DocumentLimits(max_text_glyphs=3),
-    )
-    assert exact[0].get_text("words")
-    assert exact[0].find_tables().tables == []
+    exact = pylopdf.open(build_pdf(["ABC"]), limits=pylopdf.DocumentLimits(max_text_glyphs=3))
+    assert exact.pages[0].get_text("words")
+    assert exact.pages[0].find_tables().tables == []
 
-    cumulative = pylopdf.open(
-        stream=build_pdf(["ABC", "DEF", ""]),
-        limits=pylopdf.DocumentLimits(max_text_glyphs=5),
-    )
-    assert "ABC" in cumulative[0].get_text()
+    cumulative = pylopdf.open(build_pdf(["ABC", "DEF", ""]), limits=pylopdf.DocumentLimits(max_text_glyphs=5))
+    assert "ABC" in cumulative.pages[0].get_text()
     with pytest.raises(pylopdf.LimitError) as glyphs:
-        cumulative[1].get_text("dict")
+        cumulative.pages[1].get_text("dict")
     assert _error_code(glyphs.value) == "text_glyph_count"
     # A rejected page does not consume the remaining glyph budget.
-    assert cumulative[2].get_text() == ""
+    assert cumulative.pages[2].get_text() == ""
 
 
 def test_interpretation_budget_bounds_original_and_edited_snapshots(tmp_path: Path) -> None:
     source = build_pdf(["one"])
-    exact_source = pylopdf.open(
-        stream=source,
-        limits=pylopdf.DocumentLimits(max_interpretation_size=len(source)),
-    )
-    assert "one" in exact_source[0].get_text()
+    exact_source = pylopdf.open(source, limits=pylopdf.DocumentLimits(max_interpretation_size=len(source)))
+    assert "one" in exact_source.pages[0].get_text()
 
-    bounded_source = pylopdf.open(
-        stream=source,
-        limits=pylopdf.DocumentLimits(max_interpretation_size=len(source) - 1),
-    )
-    assert bounded_source.page_count == 1
+    bounded_source = pylopdf.open(source, limits=pylopdf.DocumentLimits(max_interpretation_size=len(source) - 1))
+    assert len(bounded_source.pages) == 1
     with pytest.raises(pylopdf.LimitError) as source_error:
-        bounded_source[0].get_text()
+        bounded_source.pages[0].get_text()
     assert _error_code(source_error.value) == "interpretation_size"
 
     path = tmp_path / "oversized-interpretation.pdf"
     path.write_bytes(source)
-    bounded_path = pylopdf.open(
-        path,
-        limits=pylopdf.DocumentLimits(max_interpretation_size=len(source) - 1),
-    )
-    assert bounded_path.page_count == 1
+    bounded_path = pylopdf.open(path, limits=pylopdf.DocumentLimits(max_interpretation_size=len(source) - 1))
+    assert len(bounded_path.pages) == 1
     with pytest.raises(pylopdf.LimitError) as path_error:
-        bounded_path[0].get_text()
+        bounded_path.pages[0].get_text()
     assert _error_code(path_error.value) == "interpretation_size"
 
     baseline = pylopdf.Document()
-    baseline.new_page()
+    baseline.pages.new()
     snapshot_size = len(baseline.tobytes(max_size=None))
 
-    exact_edited = pylopdf.Document(
-        limits=pylopdf.DocumentLimits(max_interpretation_size=snapshot_size),
-    )
-    exact_edited.new_page()
-    assert exact_edited[0].get_text() == ""
+    exact_edited = pylopdf.Document(limits=pylopdf.DocumentLimits(max_interpretation_size=snapshot_size))
+    exact_edited.pages.new()
+    assert exact_edited.pages[0].get_text() == ""
 
-    bounded_edited = pylopdf.Document(
-        limits=pylopdf.DocumentLimits(max_interpretation_size=snapshot_size - 1),
-    )
-    bounded_edited.new_page()
+    bounded_edited = pylopdf.Document(limits=pylopdf.DocumentLimits(max_interpretation_size=snapshot_size - 1))
+    bounded_edited.pages.new()
     with pytest.raises(pylopdf.LimitError) as edited_error:
-        bounded_edited[0].get_text()
+        bounded_edited.pages[0].get_text()
     assert _error_code(edited_error.value) == "interpretation_size"
-    assert bounded_edited.page_count == 1
+    assert len(bounded_edited.pages) == 1
 
 
 def test_empty_get_text_batch_skips_interpretation_snapshot() -> None:
     source = build_pdf(["one"])
-    bounded = pylopdf.open(
-        stream=source,
-        limits=pylopdf.DocumentLimits(max_interpretation_size=len(source) - 1),
-    )
+    bounded = pylopdf.open(source, limits=pylopdf.DocumentLimits(max_interpretation_size=len(source) - 1))
     assert bounded.get_text([]) == ""
     with pytest.raises(pylopdf.LimitError) as error:
         bounded.get_text()
@@ -481,10 +407,7 @@ def test_empty_get_text_batch_skips_interpretation_snapshot() -> None:
 
 def test_limits_revalidate_after_authentication() -> None:
     encrypted = (Path(__file__).parent / "assets" / "encrypted" / "user-aes-256.pdf").read_bytes()
-    doc = pylopdf.open(
-        stream=encrypted,
-        limits=pylopdf.DocumentLimits(max_pages=1),
-    )
+    doc = pylopdf.open(encrypted, limits=pylopdf.DocumentLimits(max_pages=1))
     assert doc.is_encrypted
     with pytest.raises(pylopdf.LimitError) as pages:
         doc.authenticate("userpw")
@@ -493,7 +416,7 @@ def test_limits_revalidate_after_authentication() -> None:
 
 def test_complexity_requires_no_stream_decoding() -> None:
     data = build_pdf(["one"])
-    doc = pylopdf.open(stream=data)
+    doc = pylopdf.open(data)
     facts = doc.complexity
     assert facts["page_count"] == 1
     assert facts["object_count"] == 5
@@ -505,12 +428,9 @@ def test_complexity_requires_no_stream_decoding() -> None:
 @pytest.mark.parametrize("name", ["f1040.pdf", "bunka-kokugo-series-019-p4.pdf"])
 def test_web_profile_accepts_representative_vector_and_scan_pdfs(name: str) -> None:
     doc = pylopdf.open(REAL_WORLD / name, limits=pylopdf.DocumentLimits.web())
-    assert doc.page_count >= 1
+    assert len(doc.pages) >= 1
 
 
 def test_malformed_input_stays_inside_pdf_error_hierarchy() -> None:
     with pytest.raises(pylopdf.PdfError):
-        pylopdf.open(
-            stream=b"%PDF-1.7\nnot a document",
-            limits=pylopdf.DocumentLimits.web(),
-        )
+        pylopdf.open(b"%PDF-1.7\nnot a document", limits=pylopdf.DocumentLimits.web())

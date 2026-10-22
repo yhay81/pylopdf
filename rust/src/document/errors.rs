@@ -71,19 +71,18 @@ pub(super) fn load_err(
     }
 }
 
-// pymupdf's error categories for unreadable input, defined in Python because
-// FileDataError derives from both PdfError and RuntimeError.
-pyo3::import_exception!(pylopdf._errors, FileDataError);
-pyo3::import_exception!(pylopdf._errors, EmptyFileError);
+// Input that cannot be read as a PDF, empty input included; defined in Python
+// next to the other errors that only Python raises.
+pyo3::import_exception!(pylopdf._errors, MalformedPdfError);
 
-/// Reject empty PDF input before parsing it, as pymupdf does.
+/// Reject empty PDF input before parsing it.
 pub(super) fn reject_empty_input(data: &[u8], prefix: Option<&str>) -> PyResult<()> {
     if data.is_empty() {
         let message = match prefix {
             Some(prefix) => format!("{prefix}: the input is empty"),
             None => "cannot open an empty stream".to_owned(),
         };
-        return Err(EmptyFileError::new_err(message));
+        return Err(MalformedPdfError::new_err(message));
     }
     Ok(())
 }
@@ -105,7 +104,7 @@ pub(crate) fn path_io_err(prefix: &str, path: &str, error: &std::io::Error) -> P
 
 /// Convert a lenient-load failure, including a refused recovery scan.
 ///
-/// Input that cannot be parsed raises `FileDataError`; a wrong password and an
+/// Input that cannot be parsed raises `MalformedPdfError`; a wrong password and an
 /// exceeded decompression budget keep `PasswordError` and `LimitError`.
 pub(super) fn recovery_load_err(
     prefix: Option<&str>,
@@ -120,7 +119,7 @@ pub(super) fn recovery_load_err(
         ) => load_err(prefix, error, limit_code),
         recovery::LoadError::Pdf(error) => {
             let chain = LopdfErrorChain(error);
-            FileDataError::new_err(match prefix {
+            MalformedPdfError::new_err(match prefix {
                 Some(prefix) => format!("{prefix}: {chain}"),
                 None => chain.to_string(),
             })

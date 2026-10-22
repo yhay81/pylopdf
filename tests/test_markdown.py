@@ -110,7 +110,7 @@ def _layout_pdf(pages: list[list[tuple]]) -> bytes:
 
 def test_heading_detected_by_size() -> None:
     doc = pylopdf.open(
-        stream=_layout_pdf(
+        _layout_pdf(
             [
                 [
                     (24, 720, "Big Title"),
@@ -128,7 +128,7 @@ def test_heading_detected_by_size() -> None:
 
 def test_two_heading_levels() -> None:
     doc = pylopdf.open(
-        stream=_layout_pdf(
+        _layout_pdf(
             [
                 [
                     (28, 720, "Title"),
@@ -146,13 +146,13 @@ def test_two_heading_levels() -> None:
 
 
 def test_uniform_size_has_no_headings() -> None:
-    doc = pylopdf.open(stream=_layout_pdf([[(12, 720, "Only body"), (12, 706, "same size")]]))
+    doc = pylopdf.open(_layout_pdf([[(12, 720, "Only body"), (12, 706, "same size")]]))
     assert "#" not in doc.to_markdown()
 
 
 def test_bullets_and_numbers_normalize() -> None:
     doc = pylopdf.open(
-        stream=_layout_pdf(
+        _layout_pdf(
             [
                 [
                     (12, 720, "Intro paragraph"),
@@ -172,8 +172,8 @@ def test_dict_spans_have_font_and_flags_keys() -> None:
     # Embedded fonts exercise real bold/italic detection in test_interop.py.
     # Hayro exposes no metadata for Standard 14 Type1 substitutes, so the
     # current contract is flags=0 and an empty font name.
-    doc = pylopdf.open(stream=_layout_pdf([[(12, 720, "Standard font words", "F2")]]))
-    span = doc.get_page_text(0, "dict")["blocks"][0]["lines"][0]["spans"][0]
+    doc = pylopdf.open(_layout_pdf([[(12, 720, "Standard font words", "F2")]]))
+    span = doc.pages[0].get_text("dict")["blocks"][0]["lines"][0]["spans"][0]
     assert span["flags"] == 0
     assert span["font"] == ""
 
@@ -181,8 +181,8 @@ def test_dict_spans_have_font_and_flags_keys() -> None:
 def test_cjk_lines_join_without_space() -> None:
     # Use two Japanese OCR-layer fixture lines without building a CJK font PDF.
     doc = pylopdf.Document()
-    doc.new_page(width=300, height=200)
-    page = doc[0]
+    doc.pages.new((300, 200))
+    page = doc.pages[0]
     page.insert_ocr_text_layer(
         [
             (50, 50, 200, 64, "日本語の折り返しは"),
@@ -204,8 +204,8 @@ def test_cjk_lines_join_without_space() -> None:
 )
 def test_no_space_scripts_join_wrapped_lines_without_ascii_gap(first: str, second: str) -> None:
     doc = pylopdf.Document()
-    doc.new_page(width=300, height=200)
-    doc[0].insert_ocr_text_layer(
+    doc.pages.new((300, 200))
+    doc.pages[0].insert_ocr_text_layer(
         [
             (50, 50, 200, 64, first),
             (50, 66, 200, 80, second),
@@ -220,8 +220,8 @@ def test_no_space_scripts_join_wrapped_lines_without_ascii_gap(first: str, secon
 
 def test_latin_lines_join_with_space() -> None:
     doc = pylopdf.Document()
-    doc.new_page(width=300, height=200)
-    doc[0].insert_ocr_text_layer(
+    doc.pages.new((300, 200))
+    doc.pages[0].insert_ocr_text_layer(
         [
             (50, 50, 200, 64, "Latin lines"),
             (50, 66, 200, 80, "join spaced"),
@@ -232,14 +232,14 @@ def test_latin_lines_join_with_space() -> None:
 
 def test_page_to_markdown_and_page_selection() -> None:
     doc = pylopdf.open(
-        stream=_layout_pdf(
+        _layout_pdf(
             [
                 [(12, 720, "First page")],
                 [(12, 720, "Second page")],
             ]
         )
     )
-    assert doc[1].to_markdown() == "Second page"
+    assert doc.pages[1].to_markdown() == "Second page"
     assert doc.to_markdown(pages=[1, 0]) == "Second page\n\nFirst page"
     full = doc.to_markdown()
     assert "First page" in full
@@ -248,23 +248,23 @@ def test_page_to_markdown_and_page_selection() -> None:
 
 def test_markdown_bounds_utf8_output_without_partial_result() -> None:
     doc = pylopdf.Document()
-    doc.new_page(width=300, height=200)
-    doc.new_page(width=300, height=200)
-    doc[0].insert_ocr_text_layer([(20, 20, 200, 40, "First page")])
-    doc[1].insert_ocr_text_layer([(20, 20, 200, 40, "日本語の二ページ目")])
+    doc.pages.new((300, 200))
+    doc.pages.new((300, 200))
+    doc.pages[0].insert_ocr_text_layer([(20, 20, 200, 40, "First page")])
+    doc.pages[1].insert_ocr_text_layer([(20, 20, 200, 40, "日本語の二ページ目")])
     expected = doc.to_markdown(max_size=None)
     exact_size = len(expected.encode())
-    expected_page = doc[1].to_markdown(max_size=None)
+    expected_page = doc.pages[1].to_markdown(max_size=None)
 
     with pytest.raises(pylopdf.LimitError) as caught:
         doc.to_markdown(max_size=exact_size - 1)
     assert caught.value.code == "markdown_output_size"
     assert doc.to_markdown(max_size=exact_size) == expected
-    assert doc[1].to_markdown(max_size=len(expected_page.encode())) == expected_page
+    assert doc.pages[1].to_markdown(max_size=len(expected_page.encode())) == expected_page
 
 
 def test_markdown_bounds_page_entries_before_final_join(monkeypatch: pytest.MonkeyPatch) -> None:
-    doc = pylopdf.open(stream=_layout_pdf([[(12, 720, "Page body exceeds budget")]]))
+    doc = pylopdf.open(_layout_pdf([[(12, 720, "Page body exceeds budget")]]))
 
     def fail_final_join(*_args: object, **_kwargs: object) -> str:
         raise AssertionError
@@ -276,7 +276,7 @@ def test_markdown_bounds_page_entries_before_final_join(monkeypatch: pytest.Monk
 
 
 def test_markdown_table_and_prose_share_exact_page_budget() -> None:
-    doc = pylopdf.open(stream=_table_pdf())
+    doc = pylopdf.open(_table_pdf())
     expected = doc.to_markdown(max_size=None)
     exact_size = len(expected.encode())
 
@@ -288,7 +288,7 @@ def test_markdown_table_and_prose_share_exact_page_budget() -> None:
 
 def test_markdown_headings_lists_and_paragraphs_share_exact_budget() -> None:
     doc = pylopdf.open(
-        stream=_layout_pdf(
+        _layout_pdf(
             [
                 [
                     (24, 720, "Title"),
@@ -308,7 +308,7 @@ def test_markdown_headings_lists_and_paragraphs_share_exact_budget() -> None:
 
 
 def test_markdown_bounds_page_iterable_before_interpretation() -> None:
-    doc = pylopdf.open(stream=_layout_pdf([[(12, 720, "Page")]]))
+    doc = pylopdf.open(_layout_pdf([[(12, 720, "Page")]]))
     consumed = 0
 
     def pages() -> Iterator[int]:
@@ -325,26 +325,26 @@ def test_markdown_bounds_page_iterable_before_interpretation() -> None:
 
 @pytest.mark.parametrize("max_size", [True, 1.5, "1024"])
 def test_markdown_rejects_non_integer_size_limits(max_size: object) -> None:
-    doc = pylopdf.open(stream=_layout_pdf([[(12, 720, "Page")]]))
+    doc = pylopdf.open(_layout_pdf([[(12, 720, "Page")]]))
     with pytest.raises(TypeError, match="max_size"):
         doc.to_markdown(max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize("max_size", [0, -1])
 def test_markdown_rejects_non_positive_size_limits(max_size: int) -> None:
-    doc = pylopdf.open(stream=_layout_pdf([[(12, 720, "Page")]]))
+    doc = pylopdf.open(_layout_pdf([[(12, 720, "Page")]]))
     with pytest.raises(ValueError, match="max_size"):
         doc.to_markdown(max_size=max_size)
 
 
 def test_empty_document() -> None:
     doc = pylopdf.Document()
-    doc.new_page()
+    doc.pages.new()
     assert doc.to_markdown() == ""
 
 
 def test_bordered_table_is_inserted_without_duplicate_cell_text() -> None:
-    doc = pylopdf.open(stream=_table_pdf())
+    doc = pylopdf.open(_table_pdf())
 
     markdown = doc.to_markdown()
 
@@ -356,9 +356,9 @@ def test_bordered_table_is_inserted_without_duplicate_cell_text() -> None:
 
 
 def test_table_conversion_can_be_disabled() -> None:
-    doc = pylopdf.open(stream=_table_pdf())
+    doc = pylopdf.open(_table_pdf())
 
-    markdown = doc[0].to_markdown(table_strategy=None)
+    markdown = doc.pages[0].to_markdown(table_strategy=None)
 
     assert "| --- |" not in markdown
     assert "Name" in markdown
@@ -366,7 +366,7 @@ def test_table_conversion_can_be_disabled() -> None:
 
 
 def test_borderless_table_conversion_is_explicit() -> None:
-    doc = pylopdf.open(stream=_table_pdf(bordered=False))
+    doc = pylopdf.open(_table_pdf(bordered=False))
 
     default = doc.to_markdown()
     with_text_tables = doc.to_markdown(table_strategy="text")
@@ -377,7 +377,7 @@ def test_borderless_table_conversion_is_explicit() -> None:
 
 
 def test_text_strategy_prefers_overlapping_bordered_table() -> None:
-    doc = pylopdf.open(stream=_table_pdf())
+    doc = pylopdf.open(_table_pdf())
 
     markdown = doc.to_markdown(table_strategy="text")
 
@@ -387,17 +387,17 @@ def test_text_strategy_prefers_overlapping_bordered_table() -> None:
 
 @pytest.mark.parametrize("rotation", [0, 90, 180, 270])
 def test_table_markdown_preserves_page_reading_order(rotation: int) -> None:
-    doc = pylopdf.open(stream=_table_pdf())
-    doc[0].set_rotation(rotation)
+    doc = pylopdf.open(_table_pdf())
+    doc.pages[0].set_rotation(rotation)
 
-    markdown = doc[0].to_markdown()
+    markdown = doc.pages[0].to_markdown()
 
     assert markdown.index("# Section") < markdown.index("| Name | Value |") < markdown.index("After table")
     assert markdown.count("Alpha") == 1
 
 
 def test_table_text_does_not_influence_heading_size_inference() -> None:
-    doc = pylopdf.open(stream=_table_pdf(table_font_size=24))
+    doc = pylopdf.open(_table_pdf(table_font_size=24))
 
     markdown = doc.to_markdown()
 
@@ -406,8 +406,8 @@ def test_table_text_does_not_influence_heading_size_inference() -> None:
 
 @pytest.mark.parametrize("rotation", [0, 90, 180, 270])
 def test_empty_bordered_table_uses_geometric_reading_order(rotation: int) -> None:
-    doc = pylopdf.open(stream=_table_pdf(include_cells=False))
-    doc[0].set_rotation(rotation)
+    doc = pylopdf.open(_table_pdf(include_cells=False))
+    doc.pages[0].set_rotation(rotation)
 
     markdown = doc.to_markdown()
 
@@ -417,6 +417,6 @@ def test_empty_bordered_table_uses_geometric_reading_order(rotation: int) -> Non
 
 @pytest.mark.parametrize("table_strategy", ["guess", 1, False])
 def test_markdown_rejects_unknown_table_strategy(table_strategy: object) -> None:
-    doc = pylopdf.open(stream=_table_pdf())
+    doc = pylopdf.open(_table_pdf())
     with pytest.raises(ValueError, match="table_strategy"):
         doc.to_markdown(table_strategy=table_strategy)  # ty: ignore[invalid-argument-type]

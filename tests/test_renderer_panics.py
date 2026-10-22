@@ -83,7 +83,7 @@ def test_a_renderer_panic_raises_pdf_error(case: str) -> None:
     """No operation lets a panic through: each one completes or raises `PdfError`, and rendering raises."""
     errors: dict[str, pylopdf.PdfError] = {}
     for name, operation in OPERATIONS.items():
-        doc = pylopdf.Document(stream=CASES[case])
+        doc = pylopdf.open(CASES[case])
         try:
             operation(doc)
         except pylopdf.PdfError as error:
@@ -93,42 +93,42 @@ def test_a_renderer_panic_raises_pdf_error(case: str) -> None:
         assert not isinstance(failure, pylopdf.LimitError)
         assert MESSAGE in str(failure)
 
-    doc = pylopdf.Document(stream=CASES[case])
+    doc = pylopdf.open(CASES[case])
     with pytest.raises(pylopdf.PdfError, match=MESSAGE) as caught:
-        doc[0].get_pixmap(alpha=True)
+        doc.pages[0].get_pixmap(alpha=True)
     assert "copy_from_slice" in str(caught.value)
-    assert "PAGE TEXT" in doc.get_page_text(0)
+    assert "PAGE TEXT" in doc.pages[0].get_text()
 
 
 def test_the_document_stays_usable_after_a_panic() -> None:
     """A panic drops the snapshot that hayro may have left half-built, so later calls start over."""
     resources, content = _shading("/Pattern")
-    doc = pylopdf.Document(stream=_pages((resources, content), ("", "0 0 1 rg 0 0 100 100 re f"), ("", "")))
+    doc = pylopdf.open(_pages((resources, content), ("", "0 0 1 rg 0 0 100 100 re f"), ("", "")))
 
     with pytest.raises(pylopdf.PdfError, match=MESSAGE):
-        doc[0].get_pixmap(alpha=True)
-    assert doc[1].get_pixmap(alpha=True).width == 300
-    assert "PAGE TEXT" in doc.get_page_text(0)
+        doc.pages[0].get_pixmap(alpha=True)
+    assert doc.pages[1].get_pixmap(alpha=True).width == 300
+    assert "PAGE TEXT" in doc.pages[0].get_text()
     with pytest.raises(pylopdf.PdfError, match=MESSAGE):
-        doc.get_page_pixmap(0, alpha=True).tobytes()
+        doc.pages[0].get_pixmap(alpha=True).tobytes()
     assert len(doc.render_pages([1, 2], alpha=True, workers=2)) == 2
 
     # A worker thread of the parallel renderer panics as well.
     with pytest.raises(pylopdf.PdfError, match=MESSAGE):
         _render_all(doc)
 
-    doc.delete_pages([0])
+    del doc.pages[0:1]
     assert len(doc.render_pages(alpha=True, workers=2)) == 2
 
 
 def test_a_contained_panic_leaves_edits_in_place() -> None:
     """Containment drops derived state only: the edited document is still the one that saves."""
     resources, content = _shading("/Pattern")
-    doc = pylopdf.Document(stream=_pages((resources, content), ("", "")))
-    doc[1].insert_text((20, 250), "ADDED")
+    doc = pylopdf.open(_pages((resources, content), ("", "")))
+    doc.pages[1].insert_text((20, 250), "ADDED")
 
     with pytest.raises(pylopdf.PdfError, match=MESSAGE):
-        doc[0].get_pixmap(alpha=True)
+        doc.pages[0].get_pixmap(alpha=True)
 
-    assert "ADDED" in doc.get_page_text(1)
-    assert "ADDED" in pylopdf.Document(stream=doc.tobytes()).get_page_text(1)
+    assert "ADDED" in doc.pages[1].get_text()
+    assert "ADDED" in pylopdf.open(doc.tobytes()).pages[1].get_text()

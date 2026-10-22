@@ -63,19 +63,19 @@ def _refusal(call: Callable[[], object]) -> pylopdf.LimitError:
 
 def test_a_page_at_the_limit_is_read() -> None:
     """The page dictionary is the first level, so an entry may nest 63 more."""
-    doc = pylopdf.Document(stream=_document([f"/PieceInfo {_arrays(READ_DEPTH - 1)} "]))
+    doc = pylopdf.open(_document([f"/PieceInfo {_arrays(READ_DEPTH - 1)} "]))
 
     for operation in OPERATIONS.values():
         operation(doc)
-    assert "PAGE TEXT" in doc.get_page_text(0)
-    assert doc[0].get_pixmap(alpha=True).width == 300
+    assert "PAGE TEXT" in doc.pages[0].get_text()
+    assert doc.pages[0].get_pixmap(alpha=True).width == 300
 
 
 @pytest.mark.parametrize("levels", [READ_DEPTH, 99])
 def test_every_operation_refuses_a_page_nested_too_deeply(levels: int) -> None:
     data = _document([f"/PieceInfo {_arrays(levels)} "])
     for operation in OPERATIONS.values():
-        doc = pylopdf.Document(stream=data)
+        doc = pylopdf.open(data)
         error = _refusal(partial(operation, doc))
         assert error.code == CODE
         assert error.args[0] == CODE
@@ -83,28 +83,28 @@ def test_every_operation_refuses_a_page_nested_too_deeply(levels: int) -> None:
 
 
 def test_only_the_page_nested_too_deeply_is_refused() -> None:
-    doc = pylopdf.Document(stream=_document(["", f"/PieceInfo {_arrays(80)} ", ""]))
+    doc = pylopdf.open(_document(["", f"/PieceInfo {_arrays(80)} ", ""]))
 
-    assert "PAGE TEXT" in doc.get_page_text(0)
-    assert "PAGE TEXT" in doc.get_page_text(2)
-    assert doc[2].get_pixmap(alpha=True).width == 300
+    assert "PAGE TEXT" in doc.pages[0].get_text()
+    assert "PAGE TEXT" in doc.pages[2].get_text()
+    assert doc.pages[2].get_pixmap(alpha=True).width == 300
     assert len(doc.render_pages([0, 2], alpha=True, workers=2)) == 2
-    assert _refusal(lambda: doc.get_page_text(1)).code == CODE
+    assert _refusal(doc.pages[1].get_text).code == CODE
     assert _refusal(doc.get_text).code == CODE
     assert _refusal(doc.render_pages).code == CODE
     assert _refusal(lambda: doc.rewrite_images(quality=75)).code == CODE
 
 
 def test_a_deep_page_stays_refused_across_refusals_and_edits() -> None:
-    doc = pylopdf.Document(stream=_document(["", f"/PieceInfo {_arrays(80)} "]))
+    doc = pylopdf.open(_document(["", f"/PieceInfo {_arrays(80)} "]))
 
-    assert _refusal(lambda: doc.get_page_text(1)).code == CODE
-    assert _refusal(lambda: doc.get_page_text(1)).code == CODE
-    doc[0].insert_text((20, 250), "ADDED")
-    assert "ADDED" in doc.get_page_text(0)
-    assert _refusal(lambda: doc.get_page_text(1)).code == CODE
+    assert _refusal(doc.pages[1].get_text).code == CODE
+    assert _refusal(doc.pages[1].get_text).code == CODE
+    doc.pages[0].insert_text((20, 250), "ADDED")
+    assert "ADDED" in doc.pages[0].get_text()
+    assert _refusal(doc.pages[1].get_text).code == CODE
 
-    doc.delete_pages([1])
+    del doc.pages[1:2]
     assert "ADDED" in doc.get_text()
 
 
@@ -123,11 +123,11 @@ def test_inherited_resources_nested_too_deeply_refuse_the_pages_that_inherit_the
             8: _stream(SHOW),
         }
     )
-    doc = pylopdf.Document(stream=data)
+    doc = pylopdf.open(data)
 
-    assert "PAGE TEXT" in doc.get_page_text(0)
-    assert doc[0].get_pixmap(alpha=True).width == 300
-    assert _refusal(lambda: doc.get_page_text(1)).code == CODE
+    assert "PAGE TEXT" in doc.pages[0].get_text()
+    assert doc.pages[0].get_pixmap(alpha=True).width == 300
+    assert _refusal(doc.pages[1].get_text).code == CODE
 
 
 @pytest.mark.parametrize("where", ["catalog", "pages", "trailer"])
@@ -140,27 +140,30 @@ def test_a_document_root_nested_too_deeply_still_opens(where: str) -> None:
         pages=deep if where == "pages" else "",
         trailer=f"/Info << /Title (deep) /Extra {_arrays(80)} >> " if where == "trailer" else "",
     )
-    doc = pylopdf.Document(stream=data)
+    doc = pylopdf.open(data)
 
     for operation in OPERATIONS.values():
         operation(doc)
     assert doc.get_text().count("PAGE TEXT") == 2
-    assert [pixmap.width for pixmap in (doc[0].get_pixmap(alpha=True), doc[1].get_pixmap(alpha=True))] == [300, 300]
+    assert [pixmap.width for pixmap in (doc.pages[0].get_pixmap(alpha=True), doc.pages[1].get_pixmap(alpha=True))] == [
+        300,
+        300,
+    ]
 
 
 def test_the_web_profile_refuses_such_documents_when_they_open() -> None:
     """`DocumentLimits.web()` bounds direct nesting at 64 levels when it opens a document."""
     with pytest.raises(pylopdf.LimitError) as caught:
-        pylopdf.Document(stream=_document([f"/PieceInfo {_arrays(80)} "]), limits=pylopdf.DocumentLimits.web())
+        pylopdf.open(_document([f"/PieceInfo {_arrays(80)} "]), limits=pylopdf.DocumentLimits.web())
     assert caught.value.code == CODE
 
 
 def test_the_saved_document_keeps_the_deep_entries() -> None:
     """Only the rendering copy is cut; the editable and saved document keep what lopdf read."""
     deep = f"/PieceInfo {_arrays(80)} "
-    doc = pylopdf.Document(stream=_document(["", deep], catalog=deep))
-    assert _refusal(lambda: doc.get_page_text(1)).code == CODE
+    doc = pylopdf.open(_document(["", deep], catalog=deep))
+    assert _refusal(doc.pages[1].get_text).code == CODE
 
-    reopened = pylopdf.Document(stream=doc.tobytes())
+    reopened = pylopdf.open(doc.tobytes())
     assert reopened.complexity["max_object_depth"] > READ_DEPTH
-    assert _refusal(lambda: reopened.get_page_text(1)).code == CODE
+    assert _refusal(reopened.pages[1].get_text).code == CODE

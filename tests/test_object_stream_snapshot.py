@@ -121,7 +121,7 @@ def _object_stream_pdf(  # noqa: PLR0913 - each keyword shapes one part of the f
 
 def _source(data: bytes, **kwargs: object) -> str:
     """Open `data`, extract the first page, and report which input hayro parsed."""
-    doc = pylopdf.Document(stream=data, **kwargs)  # ty: ignore[invalid-argument-type]
+    doc = pylopdf.open(data, **kwargs)  # ty: ignore[invalid-argument-type]
     doc.get_text(pages=[0])
     return doc._doc.snapshot_source()  # noqa: SLF001
 
@@ -151,7 +151,7 @@ def test_a_file_larger_than_the_rebuilt_tables_keeps_the_original_bytes() -> Non
 
 
 def test_nothing_is_read_before_the_first_interpretation_and_after_an_edit() -> None:
-    doc = pylopdf.Document(stream=_object_stream_pdf(THRESHOLD, annotations=20))
+    doc = pylopdf.open(_object_stream_pdf(THRESHOLD, annotations=20))
     assert doc._doc.snapshot_source() == "none"  # noqa: SLF001
     doc.get_text(pages=[0])
     assert doc._doc.snapshot_source() == "serialized"  # noqa: SLF001
@@ -162,7 +162,7 @@ def test_nothing_is_read_before_the_first_interpretation_and_after_an_edit() -> 
 
 
 def _views(doc: pylopdf.Document) -> tuple[str, str, str, str]:
-    page = doc[0]
+    page = doc.pages[0]
     return (
         doc.get_text(),
         repr(page.get_text("words")),
@@ -173,8 +173,8 @@ def _views(doc: pylopdf.Document) -> tuple[str, str, str, str]:
 
 def test_the_serialized_graph_gives_the_views_of_the_original_bytes() -> None:
     """Both snapshots describe the same document, so every reader agrees on a page that draws text and annotations."""
-    original = pylopdf.Document(stream=_object_stream_pdf(300, annotations=250, appearance=True))
-    serialized = pylopdf.Document(stream=_object_stream_pdf(2 * THRESHOLD, annotations=250, appearance=True))
+    original = pylopdf.open(_object_stream_pdf(300, annotations=250, appearance=True))
+    serialized = pylopdf.open(_object_stream_pdf(2 * THRESHOLD, annotations=250, appearance=True))
     assert _views(original) == _views(serialized)
     assert original._doc.snapshot_source() == "original"  # noqa: SLF001
     assert serialized._doc.snapshot_source() == "serialized"  # noqa: SLF001
@@ -191,7 +191,7 @@ def test_the_original_bytes_remain_when_the_serialization_exceeds_the_interpreta
 
 def test_a_page_of_thousands_of_annotations_in_one_container_is_not_quadratic() -> None:
     """Rebuilding the member table for every annotation took 4 s here, for hayro and again for the content guard."""
-    doc = pylopdf.Document(stream=_object_stream_pdf(12_000, annotations=12_000, appearance=True))
+    doc = pylopdf.open(_object_stream_pdf(12_000, annotations=12_000, appearance=True))
     started = time.perf_counter()
     doc.get_text(pages=[0])
     assert time.perf_counter() - started < 2
@@ -204,7 +204,7 @@ def test_the_content_guard_reads_every_annotation_from_the_serialized_graph() ->
     Poisoning the last appearance makes the guard refuse the page before hayro interprets anything, so the time to
     refuse is the time of the guard's pass over `/Annots` alone: 2 s here when every lookup rebuilds the table.
     """
-    doc = pylopdf.Document(stream=_object_stream_pdf(12_000, annotations=12_000, appearance=True, poison_last=True))
+    doc = pylopdf.open(_object_stream_pdf(12_000, annotations=12_000, appearance=True, poison_last=True))
     started = time.perf_counter()
     with pytest.raises(pylopdf.LimitError) as refusal:
         doc.get_text(pages=[0])

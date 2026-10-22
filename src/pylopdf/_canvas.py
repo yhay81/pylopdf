@@ -613,7 +613,7 @@ class Canvas:
         if not isinstance(page, Page):
             msg = f"page must be a pylopdf.Page, not {type(page).__name__}"
             raise TypeError(msg)
-        width, height = page.parent._doc.page_display_size(page._page_number())
+        width, height = page.document._doc.page_display_size(page._page_number())
         self._page: Page | None = page
         self._builder: Builder | None = None
         self._overlay = not underlay
@@ -633,7 +633,7 @@ class Canvas:
 
     def _target(self) -> _Document | None:
         """Return the core document of a page canvas, or ``None`` for a new document's page."""
-        return None if self._page is None else self._page.parent._doc
+        return None if self._page is None else self._page.document._doc
 
     def __enter__(self) -> Self:
         """Return the canvas; leaving the block writes it."""
@@ -660,7 +660,7 @@ class Canvas:
                 self._record.clear()
             return
         page = cast("Page", self._page)
-        document = page.parent
+        document = page.document
         try:
             document._doc.commit_canvas(page._page_number(), self._record, self._overlay)
         finally:
@@ -929,8 +929,8 @@ class Canvas:
             raise ValueError(msg)
         box = tuple(_rect(rect, "rect"))
         self._record.add_page(
-            self._page.parent._doc,
-            source.parent._doc,
+            self._page.document._doc,
+            source.document._doc,
             source._page_number(),
             box,
             bool(keep_aspect),

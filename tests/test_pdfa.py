@@ -45,7 +45,7 @@ def test_pdfa_claim_reads_exact_attribute_tokens() -> None:
   </rdf:RDF>
 </x:xmpmeta>
 """
-    doc = pylopdf.open(stream=_xmp_pdf(xmp))
+    doc = pylopdf.open(_xmp_pdf(xmp))
     assert doc.get_pdfa_claim() == (2, "B")
 
 
@@ -58,21 +58,19 @@ def test_pdfa_claim_reads_elements_without_matching_comments_or_cdata() -> None:
   <pdfaid:part >4</pdfaid:part>
 </x:xmpmeta>
 """
-    doc = pylopdf.open(stream=_xmp_pdf(xmp))
+    doc = pylopdf.open(_xmp_pdf(xmp))
     assert doc.get_pdfa_claim() == (4, "")
 
 
 def test_pdfa_claim_returns_none_without_an_exact_numeric_claim() -> None:
-    assert pylopdf.open(stream=build_pdf(["plain"])).get_pdfa_claim() is None
-    non_numeric = pylopdf.open(
-        stream=_xmp_pdf('<rdf:Description pdfaid:part="two"/>'),
-    )
+    assert pylopdf.open(build_pdf(["plain"])).get_pdfa_claim() is None
+    non_numeric = pylopdf.open(_xmp_pdf('<rdf:Description pdfaid:part="two"/>'))
     assert non_numeric.get_pdfa_claim() is None
 
 
 def test_pdfa_claim_bounds_compressed_xmp_before_materializing_it() -> None:
     xmp = '<rdf:Description pdfaid:part="3" pdfaid:conformance="U"/>' + " " * 2_000_000
-    doc = pylopdf.open(stream=_xmp_pdf(xmp, filter_value=b"/FlateDecode"))
+    doc = pylopdf.open(_xmp_pdf(xmp, filter_value=b"/FlateDecode"))
 
     with pytest.raises(pylopdf.LimitError) as caught:
         doc.get_pdfa_claim(max_size=1024)
@@ -85,27 +83,27 @@ def test_pdfa_claim_bounds_compressed_xmp_before_materializing_it() -> None:
 
 def test_pdfa_claim_normalizes_filter_abbreviations_and_reports_decode_errors() -> None:
     xmp = '<rdf:Description pdfaid:part="2" pdfaid:conformance="A"/>'
-    abbreviated = pylopdf.open(stream=_xmp_pdf(xmp, filter_value=b"/Fl"))
+    abbreviated = pylopdf.open(_xmp_pdf(xmp, filter_value=b"/Fl"))
     assert abbreviated.get_pdfa_claim() == (2, "A")
 
-    unsupported = pylopdf.open(stream=_xmp_pdf(xmp, filter_value=b"/DCTDecode"))
+    unsupported = pylopdf.open(_xmp_pdf(xmp, filter_value=b"/DCTDecode"))
     with pytest.raises(pylopdf.PdfError, match="failed to decode XMP metadata"):
         unsupported.get_pdfa_claim()
 
-    malformed = pylopdf.open(stream=_xmp_pdf(xmp, filter_value=b"123"))
+    malformed = pylopdf.open(_xmp_pdf(xmp, filter_value=b"123"))
     with pytest.raises(pylopdf.PdfError, match="XMP metadata has an invalid Filter"):
         malformed.get_pdfa_claim()
 
 
 @pytest.mark.parametrize("max_size", [True, 1.5, "1024"])
 def test_pdfa_claim_rejects_non_integer_size_limits(max_size: object) -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain"]))
+    doc = pylopdf.open(build_pdf(["plain"]))
     with pytest.raises(TypeError, match="max_size"):
         doc.get_pdfa_claim(max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize("max_size", [0, -1])
 def test_pdfa_claim_rejects_non_positive_size_limits(max_size: int) -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain"]))
+    doc = pylopdf.open(build_pdf(["plain"]))
     with pytest.raises(ValueError, match="max_size"):
         doc.get_pdfa_claim(max_size=max_size)

@@ -27,27 +27,27 @@ Conventions used throughout:
 ## Document { #document }
 
 ```python
-pylopdf.Document(filename=None, stream=None, filetype=None, *,
-                 password=None, limits=None, max_decompressed_size=None)
+pylopdf.open(source, /, *, password=None, limits=None)
+pylopdf.Document(*, limits=None)
 ```
 
-`pylopdf.open` is the same callable. Pass a path as `filename`, or the file's
-contents as `stream` (`bytes`, `bytearray`, `memoryview`, or `io.BytesIO`).
-`Document()` with no arguments creates an empty PDF. `limits` takes a
-[`DocumentLimits`](security.md#untrusted-pdfs) policy for untrusted input. Use
-the document as a context manager, or call `close()`.
+`open` reads a PDF from a path (`str` or `os.PathLike`) or from the file's
+contents (`bytes`, `bytearray`, or `memoryview`); read a file object first,
+as in `pylopdf.open(file.read())`. `Document()` creates an empty PDF.
+`limits` takes a [`DocumentLimits`](security.md#untrusted-pdfs) policy for
+untrusted input. Use the document as a context manager, or call `close()`.
 
 ### Open, inspect, and save { #document-io }
 
 | Member | Purpose |
 |---|---|
-| `page_count`, `len(doc)` | Number of pages |
+| `pages` | The pages; see [Pages](#document-pages) |
 | `metadata` / `set_metadata(m)` | Title, author, and the other Info fields, plus `format` and `encryption`. `set_metadata` removes keys whose value is empty, and `{}` removes all of them |
-| `needs_pass`, `is_encrypted`, `authenticate(password)` | Encryption state; `authenticate` unlocks the document and returns pymupdf's codes: 0 if the password is wrong, otherwise 1, 2, 4, or 6 |
+| `needs_password`, `is_encrypted`, `authenticate(password)` | Encryption state; `authenticate` unlocks the document and returns pymupdf's codes: 0 if the password is wrong, otherwise 1, 2, 4, or 6 |
 | `is_repaired` | Whether opening had to repair damaged cross-reference data |
 | `permissions` | The permission flags, as pymupdf reports them: `0` while a password is needed, `-4` (all) for an unencrypted document or after the owner password, else the encryption's `/P` value. Test a flag with `doc.permissions & Permissions.PRINT` |
 | `is_dirty` | Whether the document was edited since it was opened. A new empty document starts edited, and saving does not reset it, as in pymupdf |
-| `is_closed`, `is_pdf`, `name` | Whether the document is closed; always `True`; the `filename` it was opened with, or `None` for a stream, an empty document, or after `close()` |
+| `is_closed`, `path` | Whether the document is closed, and the file it was opened from as a `pathlib.Path`, or `None` for bytes and an empty document |
 | `limits`, `complexity` | The policy the document was opened with, and cheap structural facts (pages, objects, streams) for deciding whether to process it |
 | `save(filename, *, garbage=0, deflate=False, use_objstms=False, encryption=, user_pw=, owner_pw=, permissions=)` | Write the PDF. The file is replaced only after the complete write succeeds |
 | `tobytes(..., max_size=512 MiB)` | The same output as `bytes` |
@@ -61,28 +61,50 @@ streams. `encryption` is `PDF_ENCRYPT_NONE` (the default) or
 
 ### Pages { #document-pages }
 
+`doc.pages` is a sequence of [`Page`](#page) views: `len(doc.pages)`,
+`doc.pages[i]` (negative indexes count from the end), slices such as
+`doc.pages[2:5]`, which return a list, and iteration.
+
 | Member | Purpose |
 |---|---|
-| `doc[i]`, `load_page(pno)`, iteration | [`Page`](#page) objects |
-| `new_page(pno=-1, *, width=595, height=842)` | Insert a blank page (A4 by default) |
-| `insert_pdf(docsrc, *, from_page=-1, to_page=-1, start_at=-1)` | Copy pages from another document, with their links and form fields |
-| `select(page_numbers)` | Keep the listed pages in the listed order; repeating a number duplicates the page |
-| `delete_page(pno)`, `delete_pages(...)` | Remove pages; `delete_pages` takes one number, two numbers, `from_page=`/`to_page=`, or an iterable |
-| `fullcopy_page(pno, to=-1)` | Insert an independent copy of a page |
+| `doc.pages.new(size=(595, 842), *, index=None)` | Add a blank page, A4 by default, appended unless `index` is given |
+| `doc.pages.insert(index, pages)`, `doc.pages.extend(pages)` | Insert or append copies of one page or a sequence of pages, from this document or another one, with their links and form fields |
+| `del doc.pages[i]`, `del doc.pages[a:b]` | Delete pages |
+| `doc.pages.select(indexes)` | Keep the listed pages in the listed order; repeating an index duplicates the page |
+| `doc.pages.move(index, to)` | Move a page so that it ends at index `to` |
+| `doc.pages.labeled(label)` | The indexes of the pages labeled `label` |
 | `get_outline()` / `set_outline(entries)` | Read or replace the table of contents as `OutlineEntry(level, title, page)` items |
 | `get_page_labels()` / `set_page_labels(labels)` | Page label ranges, such as roman numerals for front matter |
-| `get_page_numbers(label, only_one=False)` | The zero-based numbers of the pages labeled `label` |
 
-Deleting or selecting pages also removes the links, outline entries, form
-fields, and tagged-PDF structure that pointed only to the removed pages. It
-does not remove every copy of their content, so it is not secure redaction.
+```python
+merged = pylopdf.Document()
+for path in ["a.pdf", "b.pdf"]:
+    merged.pages.extend(pylopdf.open(path).pages)
+del merged.pages[0]                         # drop the first page
+merged.pages.insert(0, merged.pages[-1])    # copy the last page to the front
+merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # reverse the order
+```
+
+`insert` and `extend` take index positions as `list.insert` does, so an index
+past the end appends. The pages of one call come from one document, and a
+page of another document appears at most once per call. Pages of another
+document are imported with their links, annotations, and form fields; a field
+name already in use gains the smallest unused `+N` suffix. A copy of a page of
+the same document is a new page object that shares its content streams and
+resources with the original until either is edited.
+
+Adding, deleting, or reordering pages makes earlier `Page` views stale: using
+one raises `StalePageError`, and iterating over `doc.pages` while changing
+them raises `RuntimeError`. Deleting or selecting pages also removes the
+links, outline entries, form fields, and tagged-PDF structure that pointed
+only to the removed pages. It does not remove every copy of their content, so
+it is not secure redaction.
 
 ### Text and Markdown { #document-text }
 
 | Member | Purpose |
 |---|---|
 | `get_text(pages=None)` | Plain text of every page, or of the listed pages, as one string |
-| `get_page_text(pno, option="text")` | Same as `doc[pno].get_text(option)` |
 | `to_markdown(pages=None, *, table_strategy="lines", max_size=64 MiB)` | Markdown with headings, lists, emphasis, multi-column order, vertical CJK, and tables |
 
 `table_strategy="lines"` converts tables drawn with ruling lines,
@@ -93,9 +115,7 @@ turns table conversion off.
 
 | Member | Purpose |
 |---|---|
-| `get_page_pixmap(pno, ...)` | Same as `doc[pno].get_pixmap(...)` |
 | `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | PNG bytes for every page, or the listed pages, in order, rendered in parallel |
-| `get_page_images(pno, *, full=False)` | Same as `doc[pno].get_images(full=...)` |
 | `extract_image(xref)` | One image with pymupdf's keys; JPEG data is returned as is and other images as PNG |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | Downsample and recompress images to make the file smaller |
 | `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | Font used to display Chinese, Japanese, or Korean text whose font is not embedded; the CJK extras set this up automatically |
@@ -119,7 +139,7 @@ encoding would not be smaller, and returns statistics.
 | `pagemode` / `set_pagemode(mode)`, `pagelayout` / `set_pagelayout(layout)` | How a viewer opens the document, such as `"UseOutlines"` or `"TwoColumnLeft"`; `"UseNone"` and `"SinglePage"` when unset |
 | `markinfo` / `set_markinfo(markinfo)` | The tagged-PDF flags as a `MarkInfo` dictionary (`{}` when absent). The setter writes all three flags, and a flag left out becomes `False` |
 | `has_links()`, `has_annots()` | Whether any page has a link, or an annotation other than a link or form widget |
-| `objects`, `trailer`, `catalog`, `page_xref(pno)` | Direct access to PDF objects; see [Low-level objects](#low-level-objects) |
+| `objects`, `trailer`, `catalog` | Direct access to PDF objects; see [Low-level objects](#low-level-objects) |
 
 `language_tag` replaces pymupdf's `language`, which keeps at most three
 letters of the tag, so `zh-TW` and `zh-HK` both read as `zh-Hant`. Writing XMP
@@ -128,7 +148,9 @@ files for it still find it.
 
 ## Page { #page }
 
-A `Page` is a view of one page of its document. Fetch it with `doc[i]`.
+A `Page` is a view of one page of its document. Fetch it with `doc.pages[i]`.
+Two views are equal when they view the same page of the same document and
+no page was added, deleted, or reordered in between.
 
 ### Text and search { #page-text }
 
@@ -171,7 +193,7 @@ matrix such as `Matrix(2, 2)`. `clip` renders only part of the page.
 
 | Member | Purpose |
 |---|---|
-| `number`, `parent` | Page number and document |
+| `index`, `document` | The page's index in its document, and the document |
 | `rect` | The visible page area, with rotation applied |
 | `rotation` / `set_rotation(deg)` | Display rotation in multiples of 90 |
 | `mediabox`, `cropbox` / `set_mediabox(r)`, `set_cropbox(r)` | Page boxes in pymupdf's convention |
@@ -216,7 +238,7 @@ span's `text` with a `chars` list:
 
 ```python
 with pylopdf.open("report.pdf") as doc:
-    layout = doc[0].get_text("rawdict")
+    layout = doc.pages[0].get_text("rawdict")
     for block in layout["blocks"]:
         for line in block["lines"]:
             for span in line["spans"]:
@@ -244,7 +266,7 @@ display coordinates. Every value is immutable.
 
 ```python
 with pylopdf.open("report.pdf") as doc:
-    content = doc[0].content()
+    content = doc.pages[0].content()
     for run in content.text_runs:
         print(run.text, run.font.name, run.size, run.fill)
         for glyph in run.glyphs:
@@ -710,8 +732,8 @@ a rectangle lies inside a quad tests all four corners.
 
 | Name | Purpose |
 |---|---|
-| `open(...)` | Same as `Document(...)` |
-| `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | Metadata and page count without loading the document |
+| `open(source, /, *, password=None, limits=None)` | Open a document; see [Document](#document) |
+| `probe(source, /, *, password=None, max_file_size=None)` | A `Probe` record with `page_count`, `version`, `is_encrypted`, `is_repaired`, and `metadata` (`title`, `author`, `subject`, `keywords`, `creator`, `producer`, `created`, and `modified` when present), read without loading the document |
 | `DocumentLimits`, `DocumentLimits.web()` | Resource limits for untrusted input; see [Security](security.md#untrusted-pdfs) |
 | `OcrEngine` | A reusable OCR engine; see [Offline OCR](ocr.md) |
 | `Canvas`, `PathBuilder`, `TextFit` | See [Canvas](#canvas) |
@@ -740,8 +762,7 @@ are named tuples.
 | Name | Raised when |
 |---|---|
 | `PdfError` | The base class for pylopdf errors; a subclass of `ValueError` |
-| `FileDataError` | The input is not a readable PDF; also a `RuntimeError`, as in pymupdf |
-| `EmptyFileError` | The input is empty |
+| `MalformedPdfError` | The input is not a readable PDF, including empty input |
 | `PasswordError` | Decryption with the given password failed |
 | `EncryptedDocumentError` | The document must be unlocked with `authenticate()` first |
 | `LimitError` | A [size or resource limit](security.md#error-codes) was reached; `.code` says which |

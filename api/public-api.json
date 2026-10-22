@@ -35,13 +35,11 @@
     "EMPTY_IRECT",
     "EMPTY_QUAD",
     "EMPTY_RECT",
-    "EmptyFileError",
     "EncryptedDocumentError",
     "EncryptionMethod",
     "ExtractedImage",
     "FZ_MAX_INF_RECT",
     "FZ_MIN_INF_RECT",
-    "FileDataError",
     "FillRule",
     "Font",
     "FontLanguage",
@@ -74,10 +72,10 @@
     "LineTo",
     "LinkInfo",
     "LinkKind",
+    "MalformedPdfError",
     "MarkInfo",
     "MarkedContent",
     "Matrix",
-    "MetadataProbe",
     "MetadataUpdate",
     "MoveTo",
     "Name",
@@ -144,6 +142,7 @@
     "Page",
     "PageLabelInfo",
     "PageLabelSpec",
+    "Pages",
     "Paint",
     "PasswordError",
     "Path",
@@ -152,6 +151,7 @@
     "Permissions",
     "Pixmap",
     "Point",
+    "Probe",
     "PylopdfWarning",
     "Quad",
     "RawTextBlock",
@@ -196,8 +196,8 @@
     "csGRAY",
     "csRGB",
     "open",
-    "peek_metadata",
-    "planish_line"
+    "planish_line",
+    "probe"
   ],
   "schema": 1,
   "symbols": {
@@ -306,6 +306,23 @@
     "Array": {
       "kind": "class",
       "members": {
+        "__delitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | slice",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              }
+            ],
+            "returns": "None"
+          }
+        },
         "__getitem__": {
           "kind": "method",
           "signature": {
@@ -495,6 +512,23 @@
               }
             ],
             "returns": "bool"
+          }
+        },
+        "__delitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "name"
+              }
+            ],
+            "returns": "None"
           }
         },
         "__getitem__": {
@@ -745,8 +779,8 @@
               {
                 "annotation": "Sequence[float]",
                 "default": [
-                  595.28,
-                  841.89
+                  595.0,
+                  842.0
                 ],
                 "kind": "positional_or_keyword",
                 "name": "size"
@@ -1750,6 +1784,23 @@
             "returns": "bool"
           }
         },
+        "__delitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "key"
+              }
+            ],
+            "returns": "None"
+          }
+        },
         "__getitem__": {
           "kind": "method",
           "signature": {
@@ -1868,47 +1919,6 @@
             "returns": "None"
           }
         },
-        "__getitem__": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              }
-            ],
-            "returns": "Page"
-          }
-        },
-        "__iter__": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "Iterator[Page]"
-          }
-        },
-        "__len__": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "int"
-          }
-        },
         "attachments": {
           "kind": "property",
           "returns": "Attachments"
@@ -1962,53 +1972,6 @@
             "returns": "None"
           }
         },
-        "delete_page": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "default": -1,
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "delete_pages": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int | Iterable[int]",
-                "kind": "var_positional",
-                "name": "args"
-              },
-              {
-                "annotation": "int | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "from_page"
-              },
-              {
-                "annotation": "int | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "to_page"
-              }
-            ],
-            "returns": "None"
-          }
-        },
         "extract_image": {
           "kind": "method",
           "signature": {
@@ -2024,29 +1987,6 @@
               }
             ],
             "returns": "ExtractedImage"
-          }
-        },
-        "fullcopy_page": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              },
-              {
-                "annotation": "int",
-                "default": -1,
-                "kind": "positional_or_keyword",
-                "name": "to"
-              }
-            ],
-            "returns": "None"
           }
         },
         "get_form_fields": {
@@ -2073,29 +2013,6 @@
             "returns": "list[OutlineEntry]"
           }
         },
-        "get_page_images": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              },
-              {
-                "annotation": "bool",
-                "default": false,
-                "kind": "keyword_only",
-                "name": "full"
-              }
-            ],
-            "returns": "list[ImageItem] | list[ImageItemFull]"
-          }
-        },
         "get_page_labels": {
           "kind": "method",
           "signature": {
@@ -2106,99 +2023,6 @@
               }
             ],
             "returns": "list[PageLabelInfo]"
-          }
-        },
-        "get_page_numbers": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "label"
-              },
-              {
-                "annotation": "bool",
-                "default": false,
-                "kind": "positional_or_keyword",
-                "name": "only_one"
-              }
-            ],
-            "returns": "list[int]"
-          }
-        },
-        "get_page_pixmap": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              },
-              {
-                "annotation": "Matrix | Sequence[float] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "matrix"
-              },
-              {
-                "annotation": "float | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "dpi"
-              },
-              {
-                "annotation": "Sequence[float] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "clip"
-              },
-              {
-                "annotation": "bool",
-                "default": false,
-                "kind": "keyword_only",
-                "name": "alpha"
-              },
-              {
-                "annotation": "tuple[int, int, int] | tuple[int, int, int, int] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "background"
-              }
-            ],
-            "returns": "Pixmap"
-          }
-        },
-        "get_page_text": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              },
-              {
-                "annotation": "str",
-                "default": "text",
-                "kind": "positional_or_keyword",
-                "name": "option"
-              }
-            ],
-            "returns": "str | list[Word] | list[Block] | TextPageDict | RawTextPageDict"
           }
         },
         "get_pdfa_claim": {
@@ -2279,41 +2103,6 @@
             "returns": "bool"
           }
         },
-        "insert_pdf": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Document",
-                "kind": "positional_or_keyword",
-                "name": "docsrc"
-              },
-              {
-                "annotation": "int",
-                "default": -1,
-                "kind": "keyword_only",
-                "name": "from_page"
-              },
-              {
-                "annotation": "int",
-                "default": -1,
-                "kind": "keyword_only",
-                "name": "to_page"
-              },
-              {
-                "annotation": "int",
-                "default": -1,
-                "kind": "keyword_only",
-                "name": "start_at"
-              }
-            ],
-            "returns": "None"
-          }
-        },
         "is_closed": {
           "kind": "property",
           "returns": "bool"
@@ -2323,10 +2112,6 @@
           "returns": "bool"
         },
         "is_encrypted": {
-          "kind": "property",
-          "returns": "bool"
-        },
-        "is_pdf": {
           "kind": "property",
           "returns": "bool"
         },
@@ -2342,23 +2127,6 @@
           "kind": "property",
           "returns": "DocumentLimits"
         },
-        "load_page": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              }
-            ],
-            "returns": "Page"
-          }
-        },
         "markinfo": {
           "kind": "property",
           "returns": "MarkInfo"
@@ -2367,68 +2135,13 @@
           "kind": "property",
           "returns": "DocumentMetadata"
         },
-        "name": {
-          "kind": "property",
-          "returns": "str | None"
-        },
-        "needs_pass": {
+        "needs_password": {
           "kind": "property",
           "returns": "bool"
-        },
-        "new_page": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "default": -1,
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              },
-              {
-                "annotation": "float",
-                "default": 595.0,
-                "kind": "keyword_only",
-                "name": "width"
-              },
-              {
-                "annotation": "float",
-                "default": 842.0,
-                "kind": "keyword_only",
-                "name": "height"
-              }
-            ],
-            "returns": "Page"
-          }
         },
         "objects": {
           "kind": "property",
           "returns": "Objects"
-        },
-        "page_count": {
-          "kind": "property",
-          "returns": "int"
-        },
-        "page_xref": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              }
-            ],
-            "returns": "int"
-          }
         },
         "pagelayout": {
           "kind": "property",
@@ -2437,6 +2150,14 @@
         "pagemode": {
           "kind": "property",
           "returns": "str"
+        },
+        "pages": {
+          "kind": "property",
+          "returns": "Pages"
+        },
+        "path": {
+          "kind": "property",
+          "returns": "Path | None"
         },
         "permissions": {
           "kind": "property",
@@ -2622,23 +2343,6 @@
                 "default": 3900,
                 "kind": "keyword_only",
                 "name": "permissions"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "select": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_only",
-                "name": "self"
-              },
-              {
-                "annotation": "Iterable[int]",
-                "kind": "positional_only",
-                "name": "page_numbers"
               }
             ],
             "returns": "None"
@@ -2983,40 +2687,10 @@
       "signature": {
         "parameters": [
           {
-            "annotation": "str | os.PathLike[str] | None",
-            "default": null,
-            "kind": "positional_or_keyword",
-            "name": "filename"
-          },
-          {
-            "annotation": "bytes | bytearray | memoryview | io.BytesIO | None",
-            "default": null,
-            "kind": "positional_or_keyword",
-            "name": "stream"
-          },
-          {
-            "annotation": "str | None",
-            "default": null,
-            "kind": "positional_or_keyword",
-            "name": "filetype"
-          },
-          {
-            "annotation": "str | None",
-            "default": null,
-            "kind": "keyword_only",
-            "name": "password"
-          },
-          {
             "annotation": "DocumentLimits | None",
             "default": null,
             "kind": "keyword_only",
             "name": "limits"
-          },
-          {
-            "annotation": "int | None",
-            "default": null,
-            "kind": "keyword_only",
-            "name": "max_decompressed_size"
           }
         ],
         "returns": "None"
@@ -3269,13 +2943,6 @@
         "returns": "Rect"
       }
     },
-    "EmptyFileError": {
-      "bases": [
-        "pylopdf.FileDataError"
-      ],
-      "kind": "exception",
-      "members": {}
-    },
     "EncryptedDocumentError": {
       "bases": [
         "pylopdf.PdfError"
@@ -3330,14 +2997,6 @@
     "FZ_MIN_INF_RECT": {
       "kind": "constant",
       "value": -2147483648
-    },
-    "FileDataError": {
-      "bases": [
-        "pylopdf.PdfError",
-        "RuntimeError"
-      ],
-      "kind": "exception",
-      "members": {}
     },
     "FillRule": {
       "kind": "enum",
@@ -4762,6 +4421,13 @@
         "URI": 2
       }
     },
+    "MalformedPdfError": {
+      "bases": [
+        "pylopdf.PdfError"
+      ],
+      "kind": "exception",
+      "members": {}
+    },
     "MarkInfo": {
       "fields": {
         "Marked": "bool",
@@ -5041,38 +4707,6 @@
         ],
         "returns": "Self"
       }
-    },
-    "MetadataProbe": {
-      "fields": {
-        "author": "str",
-        "creationDate": "str",
-        "creator": "str",
-        "encrypted": "bool",
-        "format": "str",
-        "keywords": "str",
-        "modDate": "str",
-        "page_count": "int",
-        "producer": "str",
-        "repaired": "bool",
-        "subject": "str",
-        "title": "str"
-      },
-      "kind": "typed-dict",
-      "optional_keys": [],
-      "required_keys": [
-        "author",
-        "creationDate",
-        "creator",
-        "encrypted",
-        "format",
-        "keywords",
-        "modDate",
-        "page_count",
-        "producer",
-        "repaired",
-        "subject",
-        "title"
-      ]
     },
     "MetadataUpdate": {
       "fields": {
@@ -5786,6 +5420,10 @@
         "cropbox": {
           "kind": "property",
           "returns": "Rect"
+        },
+        "document": {
+          "kind": "property",
+          "returns": "Document"
         },
         "draw": {
           "kind": "method",
@@ -6939,6 +6577,10 @@
             "returns": "list[OcrWord]"
           }
         },
+        "index": {
+          "kind": "property",
+          "returns": "int"
+        },
         "insert_image": {
           "kind": "method",
           "signature": {
@@ -7268,17 +6910,9 @@
             "returns": "Shape"
           }
         },
-        "number": {
-          "kind": "property",
-          "returns": "int"
-        },
         "obj": {
           "kind": "property",
           "returns": "Dictionary"
-        },
-        "parent": {
-          "kind": "property",
-          "returns": "Document"
         },
         "rect": {
           "kind": "property",
@@ -7513,6 +7147,218 @@
       "required_keys": [
         "startpage"
       ]
+    },
+    "Pages": {
+      "kind": "class",
+      "members": {
+        "__contains__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "page"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "__delitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | slice",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | slice",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              }
+            ],
+            "returns": "Page | list[Page]"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[Page]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        },
+        "extend": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Page | Iterable[Page]",
+                "kind": "positional_or_keyword",
+                "name": "pages"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "insert": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              },
+              {
+                "annotation": "Page | Iterable[Page]",
+                "kind": "positional_or_keyword",
+                "name": "pages"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "labeled": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "label"
+              }
+            ],
+            "returns": "list[int]"
+          }
+        },
+        "move": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "to"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "new": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "default": [
+                  595.0,
+                  842.0
+                ],
+                "kind": "positional_or_keyword",
+                "name": "size"
+              },
+              {
+                "annotation": "int | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "index"
+              }
+            ],
+            "returns": "Page"
+          }
+        },
+        "select": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "self"
+              },
+              {
+                "annotation": "Iterable[int]",
+                "kind": "positional_only",
+                "name": "indexes"
+              }
+            ],
+            "returns": "None"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "Paint": {
       "kind": "type-alias",
@@ -8216,6 +8062,70 @@
           }
         ],
         "returns": "Self"
+      }
+    },
+    "Probe": {
+      "annotations": {
+        "is_encrypted": "bool",
+        "is_repaired": "bool",
+        "metadata": "Mapping[str, str]",
+        "page_count": "int",
+        "version": "str"
+      },
+      "dataclass_fields": [
+        "page_count",
+        "version",
+        "is_encrypted",
+        "is_repaired",
+        "metadata"
+      ],
+      "kind": "class",
+      "members": {
+        "is_encrypted": {
+          "kind": "property"
+        },
+        "is_repaired": {
+          "kind": "property"
+        },
+        "metadata": {
+          "kind": "property"
+        },
+        "page_count": {
+          "kind": "property"
+        },
+        "version": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "page_count"
+          },
+          {
+            "annotation": "str",
+            "kind": "keyword_only",
+            "name": "version"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_encrypted"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_repaired"
+          },
+          {
+            "annotation": "Mapping[str, str]",
+            "kind": "keyword_only",
+            "name": "metadata"
+          }
+        ],
+        "returns": "None"
       }
     },
     "PylopdfWarning": {
@@ -10724,1178 +10634,13 @@
       }
     },
     "open": {
-      "kind": "class",
-      "members": {
-        "__enter__": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "Self"
-          }
-        },
-        "__exit__": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "type[BaseException] | None",
-                "kind": "positional_or_keyword",
-                "name": "exc_type"
-              },
-              {
-                "annotation": "BaseException | None",
-                "kind": "positional_or_keyword",
-                "name": "exc_value"
-              },
-              {
-                "annotation": "TracebackType | None",
-                "kind": "positional_or_keyword",
-                "name": "traceback"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "__getitem__": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              }
-            ],
-            "returns": "Page"
-          }
-        },
-        "__iter__": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "Iterator[Page]"
-          }
-        },
-        "__len__": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "int"
-          }
-        },
-        "attachments": {
-          "kind": "property",
-          "returns": "Attachments"
-        },
-        "authenticate": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "password"
-              }
-            ],
-            "returns": "int"
-          }
-        },
-        "catalog": {
-          "kind": "property",
-          "returns": "Dictionary"
-        },
-        "close": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "complexity": {
-          "kind": "property",
-          "returns": "DocumentComplexity"
-        },
-        "del_xml_metadata": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "delete_page": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "default": -1,
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "delete_pages": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int | Iterable[int]",
-                "kind": "var_positional",
-                "name": "args"
-              },
-              {
-                "annotation": "int | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "from_page"
-              },
-              {
-                "annotation": "int | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "to_page"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "extract_image": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "xref"
-              }
-            ],
-            "returns": "ExtractedImage"
-          }
-        },
-        "fullcopy_page": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              },
-              {
-                "annotation": "int",
-                "default": -1,
-                "kind": "positional_or_keyword",
-                "name": "to"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "get_form_fields": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "list[FormFieldInfo]"
-          }
-        },
-        "get_outline": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "list[OutlineEntry]"
-          }
-        },
-        "get_page_images": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              },
-              {
-                "annotation": "bool",
-                "default": false,
-                "kind": "keyword_only",
-                "name": "full"
-              }
-            ],
-            "returns": "list[ImageItem] | list[ImageItemFull]"
-          }
-        },
-        "get_page_labels": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "list[PageLabelInfo]"
-          }
-        },
-        "get_page_numbers": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "label"
-              },
-              {
-                "annotation": "bool",
-                "default": false,
-                "kind": "positional_or_keyword",
-                "name": "only_one"
-              }
-            ],
-            "returns": "list[int]"
-          }
-        },
-        "get_page_pixmap": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              },
-              {
-                "annotation": "Matrix | Sequence[float] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "matrix"
-              },
-              {
-                "annotation": "float | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "dpi"
-              },
-              {
-                "annotation": "Sequence[float] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "clip"
-              },
-              {
-                "annotation": "bool",
-                "default": false,
-                "kind": "keyword_only",
-                "name": "alpha"
-              },
-              {
-                "annotation": "tuple[int, int, int] | tuple[int, int, int, int] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "background"
-              }
-            ],
-            "returns": "Pixmap"
-          }
-        },
-        "get_page_text": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              },
-              {
-                "annotation": "str",
-                "default": "text",
-                "kind": "positional_or_keyword",
-                "name": "option"
-              }
-            ],
-            "returns": "str | list[Word] | list[Block] | TextPageDict | RawTextPageDict"
-          }
-        },
-        "get_pdfa_claim": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int | None",
-                "default": 1048576,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "tuple[int, str] | None"
-          }
-        },
-        "get_text": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Iterable[int] | None",
-                "default": null,
-                "kind": "positional_or_keyword",
-                "name": "pages"
-              }
-            ],
-            "returns": "str"
-          }
-        },
-        "get_xml_metadata": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int | None",
-                "default": 1048576,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "str"
-          }
-        },
-        "has_annots": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "bool"
-          }
-        },
-        "has_links": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "bool"
-          }
-        },
-        "insert_pdf": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Document",
-                "kind": "positional_or_keyword",
-                "name": "docsrc"
-              },
-              {
-                "annotation": "int",
-                "default": -1,
-                "kind": "keyword_only",
-                "name": "from_page"
-              },
-              {
-                "annotation": "int",
-                "default": -1,
-                "kind": "keyword_only",
-                "name": "to_page"
-              },
-              {
-                "annotation": "int",
-                "default": -1,
-                "kind": "keyword_only",
-                "name": "start_at"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "is_closed": {
-          "kind": "property",
-          "returns": "bool"
-        },
-        "is_dirty": {
-          "kind": "property",
-          "returns": "bool"
-        },
-        "is_encrypted": {
-          "kind": "property",
-          "returns": "bool"
-        },
-        "is_pdf": {
-          "kind": "property",
-          "returns": "bool"
-        },
-        "is_repaired": {
-          "kind": "property",
-          "returns": "bool"
-        },
-        "language_tag": {
-          "kind": "property",
-          "returns": "str | None"
-        },
-        "limits": {
-          "kind": "property",
-          "returns": "DocumentLimits"
-        },
-        "load_page": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              }
-            ],
-            "returns": "Page"
-          }
-        },
-        "markinfo": {
-          "kind": "property",
-          "returns": "MarkInfo"
-        },
-        "metadata": {
-          "kind": "property",
-          "returns": "DocumentMetadata"
-        },
-        "name": {
-          "kind": "property",
-          "returns": "str | None"
-        },
-        "needs_pass": {
-          "kind": "property",
-          "returns": "bool"
-        },
-        "new_page": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "default": -1,
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              },
-              {
-                "annotation": "float",
-                "default": 595.0,
-                "kind": "keyword_only",
-                "name": "width"
-              },
-              {
-                "annotation": "float",
-                "default": 842.0,
-                "kind": "keyword_only",
-                "name": "height"
-              }
-            ],
-            "returns": "Page"
-          }
-        },
-        "objects": {
-          "kind": "property",
-          "returns": "Objects"
-        },
-        "page_count": {
-          "kind": "property",
-          "returns": "int"
-        },
-        "page_xref": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              }
-            ],
-            "returns": "int"
-          }
-        },
-        "pagelayout": {
-          "kind": "property",
-          "returns": "str"
-        },
-        "pagemode": {
-          "kind": "property",
-          "returns": "str"
-        },
-        "permissions": {
-          "kind": "property",
-          "returns": "int"
-        },
-        "render_pages": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Iterable[int] | None",
-                "default": null,
-                "kind": "positional_or_keyword",
-                "name": "pages"
-              },
-              {
-                "annotation": "Matrix | Sequence[float] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "matrix"
-              },
-              {
-                "annotation": "float | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "dpi"
-              },
-              {
-                "annotation": "bool",
-                "default": false,
-                "kind": "keyword_only",
-                "name": "alpha"
-              },
-              {
-                "annotation": "tuple[int, int, int] | tuple[int, int, int, int] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "background"
-              },
-              {
-                "annotation": "int | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "workers"
-              },
-              {
-                "annotation": "int | None",
-                "default": 536870912,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "list[bytes]"
-          }
-        },
-        "rewrite_images": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "float | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "dpi_threshold"
-              },
-              {
-                "annotation": "float",
-                "default": 0,
-                "kind": "keyword_only",
-                "name": "dpi_target"
-              },
-              {
-                "annotation": "int",
-                "default": 0,
-                "kind": "keyword_only",
-                "name": "quality"
-              },
-              {
-                "annotation": "bool",
-                "default": true,
-                "kind": "keyword_only",
-                "name": "lossy"
-              },
-              {
-                "annotation": "bool",
-                "default": true,
-                "kind": "keyword_only",
-                "name": "lossless"
-              },
-              {
-                "annotation": "bool",
-                "default": true,
-                "kind": "keyword_only",
-                "name": "bitonal"
-              },
-              {
-                "annotation": "bool",
-                "default": true,
-                "kind": "keyword_only",
-                "name": "color"
-              },
-              {
-                "annotation": "bool",
-                "default": true,
-                "kind": "keyword_only",
-                "name": "gray"
-              },
-              {
-                "annotation": "bool",
-                "default": false,
-                "kind": "keyword_only",
-                "name": "set_to_gray"
-              },
-              {
-                "annotation": "object",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "options"
-              }
-            ],
-            "returns": "ImageCompressionResult"
-          }
-        },
-        "save": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str | os.PathLike[str]",
-                "kind": "positional_or_keyword",
-                "name": "filename"
-              },
-              {
-                "annotation": "int",
-                "default": 0,
-                "kind": "keyword_only",
-                "name": "garbage"
-              },
-              {
-                "annotation": "bool",
-                "default": false,
-                "kind": "keyword_only",
-                "name": "deflate"
-              },
-              {
-                "annotation": "bool",
-                "default": false,
-                "kind": "keyword_only",
-                "name": "use_objstms"
-              },
-              {
-                "annotation": "int",
-                "default": 1,
-                "kind": "keyword_only",
-                "name": "encryption"
-              },
-              {
-                "annotation": "str | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "user_pw"
-              },
-              {
-                "annotation": "str | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "owner_pw"
-              },
-              {
-                "annotation": "int",
-                "default": 3900,
-                "kind": "keyword_only",
-                "name": "permissions"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "select": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_only",
-                "name": "self"
-              },
-              {
-                "annotation": "Iterable[int]",
-                "kind": "positional_only",
-                "name": "page_numbers"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "set_fallback_font": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "bytes | str | os.PathLike[str] | None",
-                "kind": "positional_or_keyword",
-                "name": "font"
-              },
-              {
-                "annotation": "str",
-                "default": "sans",
-                "kind": "positional_or_keyword",
-                "name": "kind"
-              },
-              {
-                "annotation": "int",
-                "default": 0,
-                "kind": "positional_or_keyword",
-                "name": "index"
-              },
-              {
-                "annotation": "CjkFontLanguage",
-                "default": "ja",
-                "kind": "keyword_only",
-                "name": "font_language"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_font_size"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "set_form_field": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "name"
-              },
-              {
-                "annotation": "str | bool",
-                "kind": "positional_or_keyword",
-                "name": "value"
-              },
-              {
-                "annotation": "Font | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "font"
-              },
-              {
-                "annotation": "str | os.PathLike[str] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "fontfile"
-              },
-              {
-                "annotation": "bytes | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "fontbuffer"
-              },
-              {
-                "annotation": "int",
-                "default": 0,
-                "kind": "keyword_only",
-                "name": "fontindex"
-              },
-              {
-                "annotation": "FontLanguage | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "font_language"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_font_size"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "set_language_tag": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str | None",
-                "kind": "positional_or_keyword",
-                "name": "tag"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "set_markinfo": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "MarkInfo",
-                "kind": "positional_or_keyword",
-                "name": "markinfo"
-              }
-            ],
-            "returns": "bool"
-          }
-        },
-        "set_metadata": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "MetadataUpdate | DocumentMetadata",
-                "kind": "positional_or_keyword",
-                "name": "m"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "set_outline": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_only",
-                "name": "self"
-              },
-              {
-                "annotation": "Sequence[OutlineEntry | Sequence[int | str]]",
-                "kind": "positional_only",
-                "name": "entries"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "set_page_labels": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Sequence[PageLabelSpec]",
-                "kind": "positional_or_keyword",
-                "name": "labels"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "set_pagelayout": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "pagelayout"
-              }
-            ],
-            "returns": "bool"
-          }
-        },
-        "set_pagemode": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "pagemode"
-              }
-            ],
-            "returns": "bool"
-          }
-        },
-        "set_xml_metadata": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "metadata"
-              },
-              {
-                "annotation": "int | None",
-                "default": 1048576,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "to_markdown": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Iterable[int] | None",
-                "default": null,
-                "kind": "positional_or_keyword",
-                "name": "pages"
-              },
-              {
-                "annotation": "Literal['lines', 'text'] | None",
-                "default": "lines",
-                "kind": "keyword_only",
-                "name": "table_strategy"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "str"
-          }
-        },
-        "tobytes": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "default": 0,
-                "kind": "keyword_only",
-                "name": "garbage"
-              },
-              {
-                "annotation": "bool",
-                "default": false,
-                "kind": "keyword_only",
-                "name": "deflate"
-              },
-              {
-                "annotation": "bool",
-                "default": false,
-                "kind": "keyword_only",
-                "name": "use_objstms"
-              },
-              {
-                "annotation": "int",
-                "default": 1,
-                "kind": "keyword_only",
-                "name": "encryption"
-              },
-              {
-                "annotation": "str | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "user_pw"
-              },
-              {
-                "annotation": "str | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "owner_pw"
-              },
-              {
-                "annotation": "int",
-                "default": 3900,
-                "kind": "keyword_only",
-                "name": "permissions"
-              },
-              {
-                "annotation": "int | None",
-                "default": 536870912,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "bytes"
-          }
-        },
-        "trailer": {
-          "kind": "property",
-          "returns": "Dictionary"
-        }
-      },
+      "kind": "function",
       "signature": {
         "parameters": [
           {
-            "annotation": "str | os.PathLike[str] | None",
-            "default": null,
-            "kind": "positional_or_keyword",
-            "name": "filename"
-          },
-          {
-            "annotation": "bytes | bytearray | memoryview | io.BytesIO | None",
-            "default": null,
-            "kind": "positional_or_keyword",
-            "name": "stream"
-          },
-          {
-            "annotation": "str | None",
-            "default": null,
-            "kind": "positional_or_keyword",
-            "name": "filetype"
+            "annotation": "str | os.PathLike[str] | bytes | bytearray | memoryview",
+            "kind": "positional_only",
+            "name": "source"
           },
           {
             "annotation": "str | None",
@@ -11908,47 +10653,9 @@
             "default": null,
             "kind": "keyword_only",
             "name": "limits"
-          },
-          {
-            "annotation": "int | None",
-            "default": null,
-            "kind": "keyword_only",
-            "name": "max_decompressed_size"
           }
         ],
-        "returns": "None"
-      }
-    },
-    "peek_metadata": {
-      "kind": "function",
-      "signature": {
-        "parameters": [
-          {
-            "annotation": "str | os.PathLike[str] | None",
-            "default": null,
-            "kind": "positional_or_keyword",
-            "name": "filename"
-          },
-          {
-            "annotation": "bytes | None",
-            "default": null,
-            "kind": "positional_or_keyword",
-            "name": "stream"
-          },
-          {
-            "annotation": "str | None",
-            "default": null,
-            "kind": "positional_or_keyword",
-            "name": "password"
-          },
-          {
-            "annotation": "int | None",
-            "default": null,
-            "kind": "keyword_only",
-            "name": "max_file_size"
-          }
-        ],
-        "returns": "MetadataProbe"
+        "returns": "Document"
       }
     },
     "planish_line": {
@@ -11967,6 +10674,31 @@
           }
         ],
         "returns": "Matrix"
+      }
+    },
+    "probe": {
+      "kind": "function",
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str | os.PathLike[str] | bytes | bytearray | memoryview",
+            "kind": "positional_only",
+            "name": "source"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "password"
+          },
+          {
+            "annotation": "int | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "max_file_size"
+          }
+        ],
+        "returns": "Probe"
       }
     }
   }

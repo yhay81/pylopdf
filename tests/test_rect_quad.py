@@ -581,7 +581,7 @@ def test_no_mutating_aliases(value: object, names: tuple[str, ...]) -> None:
 @pytest.mark.parametrize("rotation", [0, 90, 180, 270])
 def test_rectangles_drive_drawing_and_search_on_rotated_pages(rotation: int) -> None:
     with pylopdf.Document() as document:
-        page = document.new_page(width=300, height=200)
+        page = document.pages.new((300, 200))
         page.set_rotation(rotation)
         box = (page.rect * Matrix(0.5, 0.5)) + (20, 20, 20, 20)
         assert box in page.rect
@@ -592,8 +592,8 @@ def test_rectangles_drive_drawing_and_search_on_rotated_pages(rotation: int) -> 
             fontsize=14,
         )
         data = document.tobytes()
-    with pylopdf.Document(stream=data) as reopened:
-        page = reopened[0]
+    with pylopdf.open(data) as reopened:
+        page = reopened.pages[0]
         (hit,) = page.search_for("Geometry")
         assert isinstance(hit, Rect)
         assert hit in box

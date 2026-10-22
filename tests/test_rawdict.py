@@ -78,9 +78,9 @@ def _raw_line_texts(layout: pylopdf.RawTextPageDict) -> list[str]:
 
 
 def test_rawdict_schema_and_horizontal_japanese_geometry() -> None:
-    doc = pylopdf.open(stream=build_nonembedded_cjk_pdf("日本語"))
+    doc = pylopdf.open(build_nonembedded_cjk_pdf("日本語"))
     doc.set_fallback_font(None)
-    page = doc[0]
+    page = doc.pages[0]
     layout: pylopdf.RawTextPageDict = page.get_text("rawdict")
     assert set(layout) == {"width", "height", "blocks"}
     assert (layout["width"], layout["height"]) == (612.0, 792.0)
@@ -101,7 +101,7 @@ def test_rawdict_schema_and_horizontal_japanese_geometry() -> None:
         x = 72 + 24 * index
         assert char["origin"] == pytest.approx((x, 72))
         assert char["bbox"] == pytest.approx((x, 52.8, x + 24, 76.8))
-    document_layout: pylopdf.RawTextPageDict = doc.get_page_text(0, "rawdict")
+    document_layout: pylopdf.RawTextPageDict = doc.pages[0].get_text("rawdict")
     assert document_layout == layout
     assert page.get_text() == "日本語\n"
 
@@ -109,7 +109,7 @@ def test_rawdict_schema_and_horizontal_japanese_geometry() -> None:
 def test_rawdict_dimension_text_preserves_each_letter_digit_and_unit() -> None:
     dimension = "DN100 2400 mm"
     stream = f"BT /F1 20 Tf 40 140 Td ({dimension}) Tj ET"
-    page = pylopdf.open(stream=_courier_pdf(stream))[0]
+    page = pylopdf.open(_courier_pdf(stream)).pages[0]
     chars = _chars(page.get_text("rawdict"))
     assert [char["c"] for char in chars] == list(dimension)
     # Courier's 600-unit width at 20 pt applies to letters, digits, and spaces.
@@ -125,7 +125,7 @@ def test_rawdict_tj_adjustments_use_actual_glyph_positions() -> None:
     # TJ subtracts 100/1000 * 20 = 2 pt after W and adds 200/1000 * 20 = 4 pt
     # after i. These origins cannot come from evenly splitting the span bbox.
     stream = "BT /F1 20 Tf 40 140 Td [(W) 100 (i) -200 (8)] TJ ET"
-    page = pylopdf.open(stream=_courier_pdf(stream))[0]
+    page = pylopdf.open(_courier_pdf(stream)).pages[0]
     layout = page.get_text("rawdict")
     span = layout["blocks"][0]["lines"][0]["spans"][0]
     assert span["bbox"] == (40, 44, 78, 64)
@@ -156,7 +156,7 @@ def test_rawdict_rotated_text_keeps_glyph_origins_and_advance_boxes(
     bbox_offset: tuple[float, float, float, float],
 ) -> None:
     stream = f"BT /F1 20 Tf {matrix} 100 200 Tm (ABC) Tj ET"
-    page = pylopdf.open(stream=_courier_pdf(stream, height=300))[0]
+    page = pylopdf.open(_courier_pdf(stream, height=300)).pages[0]
     before_text = page.get_text()
     before_dict = page.get_text("dict")
     layout = page.get_text("rawdict")
@@ -199,9 +199,7 @@ def test_rawdict_resolves_page_rotation_and_crop_offsets(
 ) -> None:
     stream = "BT /F1 20 Tf 40 180 Td (AB) Tj ET"
     attributes = f"/CropBox [20 30 300 210] /Rotate {rotation}"
-    page = pylopdf.open(
-        stream=_courier_pdf(stream, width=320, height=240, page_attributes=attributes),
-    )[0]
+    page = pylopdf.open(_courier_pdf(stream, width=320, height=240, page_attributes=attributes)).pages[0]
     layout = page.get_text("rawdict")
     assert (layout["width"], layout["height"]) == size
     assert layout["blocks"][0]["lines"][0]["dir"] == pytest.approx(direction)
@@ -213,9 +211,9 @@ def test_rawdict_resolves_page_rotation_and_crop_offsets(
 
 def test_rawdict_vertical_cjk_preserves_per_glyph_vertical_positions() -> None:
     pdf = build_nonembedded_cjk_pdf("日本語").replace(b"/90ms-RKSJ-H", b"/90ms-RKSJ-V")
-    doc = pylopdf.open(stream=pdf)
+    doc = pylopdf.open(pdf)
     doc.set_fallback_font(None)
-    layout = doc[0].get_text("rawdict")
+    layout = doc.pages[0].get_text("rawdict")
     line = layout["blocks"][0]["lines"][0]
     assert line["dir"] == (0.0, 1.0)
     assert line["wmode"] == 1
@@ -231,11 +229,8 @@ def test_rawdict_vertical_cjk_preserves_per_glyph_vertical_positions() -> None:
 
 
 def test_rawdict_retains_a_multi_unicode_mapping_as_one_glyph() -> None:
-    doc = pylopdf.open(
-        stream=_ligature_pdf(),
-        limits=pylopdf.DocumentLimits(max_text_glyphs=2, max_text_size=3),
-    )
-    page = doc[0]
+    doc = pylopdf.open(_ligature_pdf(), limits=pylopdf.DocumentLimits(max_text_glyphs=2, max_text_size=3))
+    page = doc.pages[0]
     first, second = _chars(page.get_text("rawdict"))
     assert (first["c"], second["c"]) == ("fi", "B")
     assert first["origin"] == (40, 60)
@@ -254,9 +249,9 @@ def test_rawdict_retains_a_multi_unicode_mapping_as_one_glyph() -> None:
     ],
 )
 def test_rawdict_applies_glyph_and_unicode_payload_limits(limits: pylopdf.DocumentLimits, code: str) -> None:
-    doc = pylopdf.open(stream=_ligature_pdf(), limits=limits)
+    doc = pylopdf.open(_ligature_pdf(), limits=limits)
     with pytest.raises(pylopdf.LimitError) as caught:
-        doc[0].get_text("rawdict")
+        doc.pages[0].get_text("rawdict")
     assert caught.value.code == code
 
 
@@ -265,7 +260,7 @@ def test_rawdict_contains_only_painted_spaces(*, painted_space: bool) -> None:
     stream = (
         "BT /F1 20 Tf 40 140 Td (A B) Tj ET" if painted_space else "BT /F1 20 Tf 40 140 Td (A) Tj 24 0 Td (B) Tj ET"
     )
-    page = pylopdf.open(stream=_courier_pdf(stream))[0]
+    page = pylopdf.open(_courier_pdf(stream)).pages[0]
     chars = _chars(page.get_text("rawdict"))
     assert [char["c"] for char in chars] == list("A B" if painted_space else "AB")
     assert chars[0]["origin"] == (40, 60)
@@ -277,7 +272,7 @@ def test_rawdict_contains_only_painted_spaces(*, painted_space: bool) -> None:
 @pytest.mark.parametrize("second_text", ["AB", "CD"])
 def test_rawdict_keeps_overprinted_glyphs_in_separate_paint_runs(second_text: str) -> None:
     stream = f"BT /F1 20 Tf 40 140 Td (AB) Tj ET BT /F1 20 Tf 40 140 Td ({second_text}) Tj ET"
-    page = pylopdf.open(stream=_courier_pdf(stream))[0]
+    page = pylopdf.open(_courier_pdf(stream)).pages[0]
     layout = page.get_text("rawdict")
     assert _raw_line_texts(layout) == ["AB", second_text]
     chars = _chars(layout)
@@ -289,13 +284,13 @@ def test_rawdict_keeps_overprinted_glyphs_in_separate_paint_runs(second_text: st
 
 def test_rawdict_empty_page_has_dimensions_and_no_blocks() -> None:
     doc = pylopdf.Document()
-    page = doc.new_page(width=321, height=123)
+    page = doc.pages.new((321, 123))
     assert page.get_text("rawdict") == {"width": 321.0, "height": 123.0, "blocks": []}
     assert page.get_text() == ""
 
 
 def test_rawdict_unmapped_glyphs_reuse_the_existing_warning_contract() -> None:
-    page = pylopdf.open(_REAL_WORLD / "pdfium-type3.pdf")[0]
+    page = pylopdf.open(_REAL_WORLD / "pdfium-type3.pdf").pages[0]
     with pytest.warns(pylopdf.PylopdfWarning, match="no Unicode mapping") as caught:
         layout = page.get_text("rawdict")
     assert layout["blocks"] == []
@@ -309,39 +304,33 @@ def test_rawdict_unmapped_glyphs_reuse_the_existing_warning_contract() -> None:
 
 
 def test_rawdict_shares_admission_with_other_text_and_table_views() -> None:
-    doc = pylopdf.open(
-        stream=build_pdf(["AB", "CD", "E"]),
-        limits=pylopdf.DocumentLimits(max_text_glyphs=3),
-    )
-    page = doc[0]
+    doc = pylopdf.open(build_pdf(["AB", "CD", "E"]), limits=pylopdf.DocumentLimits(max_text_glyphs=3))
+    page = doc.pages[0]
     assert _raw_line_texts(page.get_text("rawdict")) == ["AB"]
     assert page.get_text() == "AB\n"
     assert page.get_text("words")[0][4] == "AB"
     assert page.get_text("dict")["blocks"][0]["lines"][0]["spans"][0]["text"] == "AB"
     assert page.find_tables().tables == []
     with pytest.raises(pylopdf.LimitError) as caught:
-        doc[1].get_text("rawdict")
+        doc.pages[1].get_text("rawdict")
     assert caught.value.code == "text_glyph_count"
     # Failed admission leaves the final one-glyph page available.
-    assert _raw_line_texts(doc.get_page_text(2, "rawdict")) == ["E"]
+    assert _raw_line_texts(doc.pages[2].get_text("rawdict")) == ["E"]
 
 
 def test_rawdict_reinterprets_evicted_pages_without_charging_budget_twice() -> None:
     # Ten pages exceed the eight-page interpretation cache while exactly
     # exhausting both document-wide admission budgets.
     source = list("ABCDEFGHIJ")
-    doc = pylopdf.open(
-        stream=build_pdf(source),
-        limits=pylopdf.DocumentLimits(max_text_glyphs=10, max_text_size=10),
-    )
-    first = doc.get_page_text(0, "rawdict")
+    doc = pylopdf.open(build_pdf(source), limits=pylopdf.DocumentLimits(max_text_glyphs=10, max_text_size=10))
+    first = doc.pages[0].get_text("rawdict")
     for index, expected in enumerate(source):
-        assert _raw_line_texts(doc.get_page_text(index, "rawdict")) == [expected]
-    assert doc.get_page_text(0, "rawdict") == first
+        assert _raw_line_texts(doc.pages[index].get_text("rawdict")) == [expected]
+    assert doc.pages[0].get_text("rawdict") == first
 
 
 def test_rawdict_results_do_not_mutate_the_cached_interpretation() -> None:
-    page = pylopdf.open(stream=_courier_pdf("BT /F1 20 Tf 40 140 Td (AB) Tj ET"))[0]
+    page = pylopdf.open(_courier_pdf("BT /F1 20 Tf 40 140 Td (AB) Tj ET")).pages[0]
     layout = page.get_text("rawdict")
     chars = _chars(layout)
     chars[0]["c"] = "Changed"
@@ -353,8 +342,8 @@ def test_rawdict_results_do_not_mutate_the_cached_interpretation() -> None:
 
 
 def test_rawdict_cache_reflects_a_page_edit() -> None:
-    doc = pylopdf.open(stream=build_pdf(["ABC"]))
-    page = doc[0]
+    doc = pylopdf.open(build_pdf(["ABC"]))
+    page = doc.pages[0]
     assert _raw_line_texts(page.get_text("rawdict")) == ["ABC"]
     page.insert_text((72, 120), "D")
     layout = page.get_text("rawdict")
@@ -365,7 +354,7 @@ def test_rawdict_cache_reflects_a_page_edit() -> None:
 
 def test_rawdict_preserves_existing_layout_metadata_and_span_boundaries() -> None:
     stream = "BT /F1 20 Tf 40 140 Td (AB) Tj /F1 10 Tf (CD) Tj ET"
-    page = pylopdf.open(stream=_courier_pdf(stream))[0]
+    page = pylopdf.open(_courier_pdf(stream)).pages[0]
     before = page.get_text("dict")
     raw = page.get_text("rawdict")
     assert page.get_text("dict") == before

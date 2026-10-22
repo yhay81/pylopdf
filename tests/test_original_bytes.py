@@ -90,7 +90,7 @@ def _keeps_original_bytes(data: bytes) -> bool:
     """
     limits = pylopdf.DocumentLimits(max_interpretation_size=len(data) - 1)
     try:
-        pylopdf.Document(stream=data, limits=limits).get_text()
+        pylopdf.open(data, limits=limits).get_text()
     except pylopdf.LimitError as error:
         return "rendering and extraction source is" in str(error)
     return False
@@ -99,20 +99,22 @@ def _keeps_original_bytes(data: bytes) -> bool:
 def _page_views(doc: pylopdf.Document) -> list[tuple[str, str]]:
     return [
         (
-            doc.get_page_text(index),
-            hashlib.sha256(doc[index].get_pixmap(matrix=pylopdf.Matrix(0.25, 0.25), alpha=True).samples).hexdigest(),
+            doc.pages[index].get_text(),
+            hashlib.sha256(
+                doc.pages[index].get_pixmap(matrix=pylopdf.Matrix(0.25, 0.25), alpha=True).samples
+            ).hexdigest(),
         )
-        for index in range(doc.page_count)
+        for index in range(len(doc.pages))
     ]
 
 
 def _consistent_page_texts(data: bytes) -> list[list[str]]:
     """Return each page's lines after checking that an edit and a save change nothing."""
-    doc = pylopdf.Document(stream=data)
+    doc = pylopdf.open(data)
     unedited = _page_views(doc)
     doc.set_metadata({"title": "Edited"})
     assert _page_views(doc) == unedited
-    assert _page_views(pylopdf.Document(stream=doc.tobytes())) == unedited
+    assert _page_views(pylopdf.open(doc.tobytes())) == unedited
     return [text.splitlines() for text, _ in unedited]
 
 
@@ -171,7 +173,7 @@ def test_unreachable_object_under_a_mismatched_header_is_dropped() -> None:
     )
 
     assert _keeps_original_bytes(data)
-    doc = pylopdf.Document(stream=data)
+    doc = pylopdf.open(data)
     assert b"UNREACHED" not in doc.tobytes()
     assert _consistent_page_texts(data) == [["TARGET PAGE"]]
 
@@ -217,12 +219,12 @@ def test_form_with_a_bare_keyword_survives_edits_and_saves() -> None:
 
     assert not _keeps_original_bytes(data)
     assert _consistent_page_texts(data) == [["FORM TEXT", "PAGE TEXT"]]
-    doc = pylopdf.Document(stream=data)
+    doc = pylopdf.open(data)
     for index in range(3):
-        doc[0].insert_text((20, 30 + 20 * index), f"STAMP {index}")
+        doc.pages[0].insert_text((20, 30 + 20 * index), f"STAMP {index}")
     saved = doc.tobytes()
     assert re.search(rb"/Type null\s*/Subtype\s*/Form", saved)
-    assert sorted(pylopdf.Document(stream=saved).get_page_text(0).splitlines()) == [
+    assert sorted(pylopdf.open(saved).pages[0].get_text().splitlines()) == [
         "FORM TEXT",
         "PAGE TEXT",
         "STAMP 0",
@@ -271,7 +273,7 @@ def test_skipped_stream_is_recovered(body: str, saved_entries: bytes) -> None:
     )
 
     assert _consistent_page_texts(data) == [["RECOVERED"]]
-    saved = pylopdf.Document(stream=data).tobytes()
+    saved = pylopdf.open(data).tobytes()
     assert re.search(saved_entries, saved), saved
     assert saved.count(b"RECOVERED") == 1
 
@@ -280,7 +282,7 @@ def test_unreachable_recovered_object_keeps_original_bytes() -> None:
     data = _pdf(_one_page("5 0 R", {5: _stream("TARGET PAGE"), 6: "<< /Type Unused >>"}))
 
     assert _keeps_original_bytes(data)
-    assert re.search(rb"6 0 obj\s*<</Type null>>", pylopdf.Document(stream=data).tobytes())
+    assert re.search(rb"6 0 obj\s*<</Type null>>", pylopdf.open(data).tobytes())
 
 
 CONTENT = "BT /F1 20 Tf 20 100 Td (NO USABLE LENGTH) Tj ET"
@@ -313,7 +315,7 @@ def test_stream_without_a_usable_length_keeps_the_data_that_hayro_reads(
 
     assert _keeps_original_bytes(data)
     assert _consistent_page_texts(data) == [["NO USABLE LENGTH"]]
-    saved = pylopdf.Document(stream=data).tobytes()
+    saved = pylopdf.open(data).tobytes()
     assert saved.count(b"NO USABLE LENGTH") == 1
     assert re.search(rb"<</Length \d+>>stream\n", saved)
 
@@ -366,7 +368,7 @@ def test_stream_with_an_entry_pointing_into_its_data_is_recovered(declared: int)
 
     assert not _keeps_original_bytes(data)
     assert _consistent_page_texts(data) == [["NO USABLE LENGTH"]]
-    saved = pylopdf.Document(stream=data).tobytes()
+    saved = pylopdf.open(data).tobytes()
     assert saved.count(b"NO USABLE LENGTH") == 1
     assert b"NEXT OBJECT" not in saved
 
@@ -408,7 +410,7 @@ def test_deeply_nested_object_that_lopdf_skips_never_reaches_hayro(tmp_path: Pat
             )
         )
     )
-    script = "import sys, pylopdf; print(pylopdf.open(sys.argv[1]).get_page_text(0), end='')"
+    script = "import sys, pylopdf; print(pylopdf.open(sys.argv[1]).pages[0].get_text(), end='')"
 
     completed = subprocess.run(  # noqa: S603  # Run this interpreter on a fixture written above.
         [sys.executable, "-c", script, str(path)],
@@ -447,12 +449,12 @@ def test_unreachable_object_stream_debris_is_dropped_with_its_numbers() -> None:
     )
 
     assert _keeps_original_bytes(data)
-    doc = pylopdf.Document(stream=data)
-    doc[0].insert_text((20, 40), "STAMP")
+    doc = pylopdf.open(data)
+    doc.pages[0].insert_text((20, 40), "STAMP")
     saved = doc.tobytes()
     assert b"Debris" not in saved
     assert max(int(number) for number in re.findall(rb"(\d+) 0 obj", saved)) < 20
-    assert sorted(pylopdf.Document(stream=saved).get_page_text(0).splitlines()) == ["STAMP", "TARGET PAGE"]
+    assert sorted(pylopdf.open(saved).pages[0].get_text().splitlines()) == ["STAMP", "TARGET PAGE"]
 
 
 # The page draws `(abc)`, which a font that maps those codes to other glyphs extracts as `xyz`.
@@ -645,7 +647,7 @@ def test_every_view_lists_the_walker_pages(kids: str, extra: dict[int, str | Non
     """
     data = _pdf(_two_page_tree(kids, extra))
 
-    assert pylopdf.Document(stream=data).page_count == 2
+    assert len(pylopdf.open(data).pages) == 2
     assert _consistent_page_texts(data) == [["PAGE ONE"], ["PAGE TWO"]]
 
 
@@ -653,16 +655,16 @@ def test_walker_pages_render_under_an_interpretation_limit() -> None:
     """A finite limit reloads the bounded serialization before flattening it."""
     data = _pdf(_two_page_tree("4 0 R 8 0 R 6 0 R", {8: None, 9: "<< >>"}))
     limits = pylopdf.DocumentLimits(max_interpretation_size=1024 * 1024)
-    doc = pylopdf.Document(stream=data, limits=limits)
+    doc = pylopdf.open(data, limits=limits)
 
-    assert [doc.get_page_text(index).splitlines() for index in range(2)] == [["PAGE ONE"], ["PAGE TWO"]]
-    assert doc.render_pages(alpha=True)[1] == doc[1].get_pixmap(alpha=True).tobytes()
+    assert [doc.pages[index].get_text().splitlines() for index in range(2)] == [["PAGE ONE"], ["PAGE TWO"]]
+    assert doc.render_pages(alpha=True)[1] == doc.pages[1].get_pixmap(alpha=True).tobytes()
 
 
 def test_walker_pages_render_without_changing_the_saved_tree() -> None:
-    doc = pylopdf.Document(stream=_pdf(_two_page_tree("4 0 R 8 0 R 6 0 R", {8: "42"})))
+    doc = pylopdf.open(_pdf(_two_page_tree("4 0 R 8 0 R 6 0 R", {8: "42"})))
 
-    assert doc.get_page_text(1).splitlines() == ["PAGE TWO"]
+    assert doc.pages[1].get_text().splitlines() == ["PAGE TWO"]
     assert re.search(rb"/Kids\s*\[4 0 R 8 0 R 6 0 R\]", doc.tobytes())
 
 
@@ -685,9 +687,9 @@ def test_rendered_walker_pages_keep_inherited_attributes() -> None:
     )
 
     assert _consistent_page_texts(data) == [["PAGE ONE"], ["PAGE TWO"]]
-    doc = pylopdf.Document(stream=data)
-    assert doc[0].rotation == 90
-    rotated = doc[0].get_pixmap(alpha=True)
+    doc = pylopdf.open(data)
+    assert doc.pages[0].rotation == 90
+    rotated = doc.pages[0].get_pixmap(alpha=True)
     assert (rotated.width, rotated.height) == (200, 400)
-    square = doc[1].get_pixmap(alpha=True)
+    square = doc.pages[1].get_pixmap(alpha=True)
     assert (square.width, square.height) == (300, 300)

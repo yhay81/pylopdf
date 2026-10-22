@@ -1,18 +1,24 @@
-"""LibCST rules that rewrite pymupdf programs for pylopdf.
+"""LibCST rules that rewrite pymupdf programs, and pylopdf 0.15 programs, for pylopdf.
 
 :mod:`pylopdf.migrate` is the command-line entry point. The rules rename the
 ``fitz`` and ``pymupdf`` imports, rewrite the calls whose pylopdf replacement
-is mechanical (the one-based TOC, ``embfile_*``, the PDF-syntax ``xref_*``
+is mechanical (opening documents, the page operations that ``doc.pages``
+replaced, the one-based TOC, ``embfile_*``, the PDF-syntax ``xref_*``
 readers, and the in-place geometry methods), and add a ``TODO(pylopdf)``
 comment, with the migration hint from the capability map, above every other
-statement that uses a pymupdf name pylopdf does not provide. Receivers are
-not typed, so a rule applies to any attribute of that name; the rules use
-names that are specific to pymupdf, and files that import neither ``fitz``
-nor ``pymupdf`` are left alone.
+statement that uses a name pylopdf does not provide. Receivers are not
+typed, so a rule applies to any attribute of that name; the rules use names
+that are specific to pymupdf or to pylopdf 0.15. A name bound only to
+documents (``doc = fitz.open(...)``) is also indexed, measured, and iterated
+through ``doc.pages``, and a name bound only to pages (``page = doc[0]`` or a
+loop over a document's pages) has its ``number`` and ``parent`` renamed.
+Files that import neither ``fitz``, ``pymupdf``, nor ``pylopdf`` are left
+alone.
 """
 
 from __future__ import annotations
 
+import ast
 import inspect
 from dataclasses import dataclass
 from functools import cache
@@ -22,16 +28,32 @@ import libcst as cst
 
 import pylopdf
 from pylopdf._hints import migration_hint
-from pylopdf._migration_hints import HINTS
+from pylopdf._migration_hints import HINTS, PYLOPDF_015_REMOVED
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
 TODO = "TODO(pylopdf)"
 PYMUPDF_MODULES = frozenset({"fitz", "pymupdf"})
+PACKAGE = "pylopdf"
 #: Module attributes that become a builtin name.
 MODULE_TO_BUILTIN = {"FileNotFoundError": "FileNotFoundError"}
-#: Coordinate helpers that pylopdf's display-space results make redundant.
+#: Module attributes that the API reset renamed, pymupdf's and pylopdf 0.15's alike.
+MODULE_RENAMES = {
+    "FileDataError": "MalformedPdfError",
+    "EmptyFileError": "MalformedPdfError",
+    "peek_metadata": "probe",
+}
+#: Builtins that iterate their arguments, whose document arguments become ``doc.pages``.
+ITERATING_BUILTINS = frozenset(
+    {"all", "any", "enumerate", "filter", "frozenset", "iter", "list", "map"}
+    | {"reversed", "set", "sorted", "tuple", "zip"}
+)
+#: Module calls whose result is a document, a value that is no document, or neither.
+DOCUMENT_FACTORIES = frozenset({"open", "Document"})
+OTHER_FACTORIES = frozenset({"probe", "peek_metadata", "create"})
+#: Document methods whose result is a page.
+PAGE_METHODS = frozenset({"load_page", "new_page", "reload_page"})
 #: Statements with headers or bodies of their own; each collects its own hints.
 COMPOUND_STATEMENTS = (
     cst.If,
@@ -97,8 +119,19 @@ def _member_hints() -> dict[str, str]:
     return {member: message for member, (_, message) in ranked.items()}
 
 
+@cache
+def _removed_015_members() -> frozenset[str]:
+    """Return the member names of pylopdf 0.15.0's public classes that pylopdf no longer provides."""
+    return frozenset(name.partition(".")[2] for name in PYLOPDF_015_REMOVED if "." in name)
+
+
 def _code(node: cst.CSTNode) -> str:
     return cst.Module(body=[]).code_for_node(node)
+
+
+def _same_code(replacement: str, node: cst.CSTNode) -> bool:
+    """Return whether ``replacement`` is the expression ``node`` apart from layout and comments."""
+    return ast.dump(ast.parse(replacement, mode="eval")) == ast.dump(ast.parse(_code(node).strip(), mode="eval"))
 
 
 def _receiver(node: cst.BaseExpression) -> str:
@@ -212,9 +245,160 @@ def _update_stream(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     return f"{receiver}.objects[{bound['xref']}].write({bound['stream']})"
 
 
+def _int_literal(text: str) -> int | None:
+    """Return the value of an integer literal, possibly negated, or None."""
+    try:
+        node = cst.parse_expression(text)
+    except cst.ParserSyntaxError:
+        return None
+    sign = 1
+    if isinstance(node, cst.UnaryOperation) and isinstance(node.operator, cst.Minus):
+        sign, node = -1, node.expression
+    if isinstance(node, cst.Integer):
+        return sign * int(node.evaluated_value)
+    return None
+
+
+def _wrapped(text: str) -> str:
+    """Parenthesize an expression's code unless it is a name, attribute, call, or subscript."""
+    return _receiver(cst.parse_expression(text))
+
+
+def _page_range(source: str, first: str | None, last: str | None) -> str | None:
+    """Render ``insert_pdf``'s inclusive page range of ``source`` as a slice of its pages."""
+    pages = f"{_wrapped(source)}.pages"
+    start = 0 if first is None else _int_literal(first)
+    stop = -1 if last is None else _int_literal(last)
+    if start is None or stop is None:
+        return None
+    start = max(start, 0)
+    if stop < 0:
+        return pages if start == 0 else f"{pages}[{start}:]"
+    if start <= stop:
+        return f"{pages}[{start}:{stop + 1}]"
+    return f"{pages}[{stop}:{start + 1}][::-1]"
+
+
+def _insert_pdf(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    bound = args.bind(
+        (
+            "docsrc",
+            "from_page",
+            "to_page",
+            "start_at",
+            "rotate",
+            "links",
+            "annots",
+            "widgets",
+            "join_duplicates",
+            "show_progress",
+            "final",
+        )
+    )
+    if bound is None or "docsrc" not in bound:
+        return None
+    defaults = {"rotate": "-1", "links": "True", "annots": "True", "widgets": "True", "join_duplicates": "False"}
+    if any(bound.get(key, value) != value for key, value in defaults.items()):
+        return None
+    pages = _page_range(bound["docsrc"], bound.get("from_page"), bound.get("to_page"))
+    if pages is None:
+        return None
+    start = _int_literal(bound.get("start_at", "-1"))
+    if start is None:
+        return None
+    if start < 0:
+        return f"{receiver}.pages.extend({pages})"
+    return f"{receiver}.pages.insert({start}, {pages})"
+
+
+def _new_page(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    bound = args.bind(("pno", "width", "height"))
+    if bound is None:
+        return None
+    parts = []
+    if "width" in bound or "height" in bound:
+        parts.append(f"({bound.get('width', '595')}, {bound.get('height', '842')})")
+    index = _int_literal(bound.get("pno", "-1"))
+    if index is None:
+        return None
+    if index != -1:
+        parts.append(f"index={index}")
+    return f"{receiver}.pages.new({', '.join(parts)})"
+
+
 def _copy_page(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
-    arguments = [*args.positional, *(f"{key}={value}" for key, value in args.keywords.items())]
-    return f"{receiver}.fullcopy_page({', '.join(arguments)})"
+    bound = args.bind(("pno", "to"))
+    if bound is None or "pno" not in bound:
+        return None
+    page = f"{receiver}.pages[{bound['pno']}]"
+    to = _int_literal(bound.get("to", "-1"))
+    if to is None:
+        return None
+    if to == -1:
+        return f"{receiver}.pages.extend({page})"
+    return f"{receiver}.pages.insert({to}, {page})"
+
+
+def _move_page(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    bound = args.bind(("pno", "to"))
+    if bound is None or "pno" not in bound:
+        return None
+    index = _int_literal(bound["pno"])
+    to = _int_literal(bound.get("to", "-1"))
+    if index is None or to is None or index < 0:
+        return None
+    # pymupdf inserts before page ``to``; pylopdf names the index the page ends at.
+    destination = -1 if to == -1 else (to - 1 if to > index else to)
+    return f"{receiver}.pages.move({index}, {destination})"
+
+
+def _select(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    if receiver.endswith(".pages") or len(args.positional) != 1 or args.keywords:
+        return None
+    return f"{receiver}.pages.select({args.positional[0]})"
+
+
+def _load_page(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    bound = args.bind(("page_id",))
+    if bound is None:
+        return None
+    return f"{receiver}.pages[{bound.get('page_id', '0')}]"
+
+
+def _page_method(method: str, names: tuple[str, ...]) -> Callable[[_Migrator, str, _Arguments], str | None]:
+    """Rewrite ``doc.<name>(pno, ...)`` to ``doc.pages[pno].<method>(...)``, keeping the other arguments."""
+
+    def rule(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+        bound = args.bind(("pno", *names))
+        if bound is None or "pno" not in bound:
+            return None
+        rest = [*args.positional[1:], *(f"{key}={value}" for key, value in args.keywords.items() if key != "pno")]
+        return f"{receiver}.pages[{bound['pno']}].{method}({', '.join(rest)})"
+
+    return rule
+
+
+def _get_page_numbers(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    bound = args.bind(("label", "only_one"))
+    if bound is None or "label" not in bound:
+        return None
+    only_one = bound.get("only_one", "False")
+    if only_one not in {"True", "False"}:
+        return None
+    suffix = "[:1]" if only_one == "True" else ""
+    return f"{receiver}.pages.labeled({bound['label']}){suffix}"
+
+
+def _pages_call(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    bound = args.bind(("start", "stop", "step"))
+    if bound is None:
+        return None
+    if not bound:
+        return f"{receiver}.pages"
+    parts = [bound.get(key, "") for key in ("start", "stop", "step")]
+    if parts[2] == "":
+        parts.pop()
+    return f"{receiver}.pages[{':'.join('' if part == 'None' else part for part in parts)}]"
 
 
 #: Calls rewritten wherever they appear.
@@ -222,6 +406,20 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "get_toc": _get_toc,
     "set_toc": _set_toc,
     "copy_page": _copy_page,
+    "fullcopy_page": _copy_page,
+    "move_page": _move_page,
+    "insert_pdf": _insert_pdf,
+    "new_page": _new_page,
+    "select": _select,
+    "load_page": _load_page,
+    "page_xref": _one_argument("pno", "{receiver}.pages[{value}].xref"),
+    "get_page_numbers": _get_page_numbers,
+    "get_page_text": _page_method("get_text", ("option",)),
+    "get_page_pixmap": _page_method(
+        "get_pixmap", ("matrix", "dpi", "colorspace", "clip", "alpha", "annots", "background")
+    ),
+    "get_page_images": _page_method("get_images", ("full",)),
+    "pages": _pages_call,
     "embfile_names": _no_arguments("list({receiver}.attachments)"),
     "embfile_count": _no_arguments("len({receiver}.attachments)"),
     "embfile_get": _embfile_get,
@@ -282,8 +480,75 @@ def _embfile_del(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     return f"del {receiver}.attachments[{bound['item']}]"
 
 
+def _delete_page(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    bound = args.bind(("pno",))
+    if bound is None:
+        return None
+    return f"del {receiver}.pages[{bound.get('pno', '-1')}]"
+
+
+def _deleted_indexes(text: str) -> list[int] | None:
+    """Return the indexes that a literal list, tuple, set, or ``range`` of literals names."""
+    node = cst.parse_expression(text)
+    if isinstance(node, (cst.List, cst.Tuple, cst.Set)):
+        values = [_int_literal(_code(element.value)) for element in node.elements]
+        if any(value is None or value < 0 for value in values):
+            return None
+        return sorted({value for value in values if value is not None})
+    # range(stop) and range(start, stop) of literals.
+    if isinstance(node, cst.Call) and _code(node.func) == "range" and len(node.args) in {1, 2}:
+        bounds = [_int_literal(_code(arg.value)) for arg in node.args]
+        valid = (
+            value is not None and value >= 0 and not arg.keyword and not arg.star
+            for value, arg in zip(bounds, node.args, strict=True)
+        )
+        if not all(valid):
+            return None
+        start, stop = (0, bounds[0]) if len(bounds) == 1 else bounds
+        return list(range(start or 0, stop or 0))
+    return None
+
+
+def _deleted_slice(args: _Arguments) -> str | None:
+    """Return the slice of pages that pymupdf's ``from_page``/``to_page`` forms delete, or None."""
+    if args.keywords:
+        if args.positional or set(args.keywords) - {"from_page", "to_page"}:
+            return None
+        first = _int_literal(args.keywords.get("from_page", "-1"))
+        last = _int_literal(args.keywords.get("to_page", "-1"))
+        if first is None or last is None or first < -1 or last < -1 or (first == -1 and last != -1):
+            return None
+        if first == -1:
+            return "-1"
+        return f"{first}:" if last == -1 else f"{first}:{last + 1}"
+    first, last = (_int_literal(text) for text in args.positional)
+    if first is None or last is None or min(first, last) < 0:
+        return None
+    return f"{min(first, last)}:{max(first, last) + 1}"
+
+
+def _delete_pages(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    pages = f"{receiver}.pages"
+    if args.keywords or len(args.positional) == 2:  # noqa: PLR2004 - pymupdf's (from_page, to_page) form.
+        selected = _deleted_slice(args)
+        return None if selected is None else f"del {pages}[{selected}]"
+    if len(args.positional) != 1:
+        return None
+    single = _int_literal(args.positional[0])
+    if single is not None:
+        return f"del {pages}[{single}]"
+    indexes = _deleted_indexes(args.positional[0])
+    if not indexes:
+        return None
+    if indexes == list(range(indexes[0], indexes[-1] + 1)):
+        return f"del {pages}[{indexes[0]}:{indexes[-1] + 1}]"
+    kept = "{" + ", ".join(map(str, indexes)) + "}"
+    return f"{pages}.select(index for index in range(len({pages})) if index not in {kept})"
+
+
 #: Calls rewritten only as a statement of their own: pymupdf's in-place
-#: geometry methods become assignments of pylopdf's immutable results.
+#: geometry methods become assignments of pylopdf's immutable results, and
+#: page deletions become ``del`` statements.
 STATEMENT_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "include_rect": _in_place("|"),
     "include_point": _in_place("|"),
@@ -297,35 +562,266 @@ STATEMENT_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] =
     "preshear": _premultiply(2, "{}, {}, 1"),
     "pretranslate": _premultiply(2, "1, 0, 0, 1, {}, {}"),
     "embfile_del": _embfile_del,
+    "delete_page": _delete_page,
+    "delete_pages": _delete_pages,
+}
+#: Statement rules that assign to their receiver, which must therefore be a name or an attribute.
+ASSIGNING_RULES = frozenset(
+    {"include_rect", "include_point", "intersect", "transform", "normalize", "concat", "invert"}
+    | {"prerotate", "prescale", "preshear", "pretranslate"}
+)
+
+
+#: Page properties that the API reset renamed, rewritten on names bound only to pages.
+PAGE_RENAMES = {"number": "index", "parent": "document"}
+PROBE_MESSAGE = (
+    "probe() returns a Probe record with page_count, version, is_encrypted, is_repaired, and metadata, "
+    "whose keys are title, author, subject, keywords, creator, producer, created, and modified."
+)
+
+
+def _imported_as(migrator: _Migrator, name: str) -> str | None:
+    """Return the local name under which the module imported ``name``, or None."""
+    for local, original in migrator._scan.imported.items():  # noqa: SLF001 - the migrator's own scan.
+        if original == name:
+            return MODULE_RENAMES.get(local, local) if local == original else local
+    return None
+
+
+def _open_source(bound: dict[str, str]) -> tuple[str | None, bool]:
+    """Return the source argument of an ``open`` call, or None, and whether the call is supported."""
+    filename = None if bound.get("filename") == "None" else bound.get("filename")
+    stream = None if bound.get("stream") == "None" else bound.get("stream")
+    filetype = bound.get("filetype")
+    if stream is not None and filename is not None:
+        if filetype is not None:
+            return None, False
+        filetype, filename = filename, None
+    if filetype is not None and filetype.strip("'\"").lower() != "pdf":
+        return None, False
+    return (stream if stream is not None else filename), True
+
+
+def _open_document(migrator: _Migrator, prefix: str | None, _: str, args: _Arguments) -> str | None:
+    """Rewrite pymupdf's and pylopdf 0.15's ``open``/``Document`` to ``open(source)`` or ``Document()``."""
+    bound = args.bind(("filename", "stream", "filetype", "password", "limits", "max_decompressed_size"))
+    if bound is None:
+        return None
+    source, supported = _open_source(bound)
+    keywords = [f"password={bound['password']}"] if "password" in bound else []
+    limits = bound.get("limits")
+    if "max_decompressed_size" in bound:
+        limits_class = f"{prefix}DocumentLimits" if prefix else _imported_as(migrator, "DocumentLimits")
+        supported &= limits is None and limits_class is not None
+        limits = f"{limits_class}(max_decompressed_size={bound['max_decompressed_size']})"
+    if limits is not None:
+        keywords.append(f"limits={limits}")
+    if source is None:
+        supported &= "password" not in bound
+        function = f"{prefix}Document" if prefix else _imported_as(migrator, "Document")
+        arguments = keywords
+    else:
+        function = f"{prefix}open" if prefix else _imported_as(migrator, "open")
+        arguments = [source, *keywords]
+    if not supported or function is None:
+        return None
+    return f"{function}({', '.join(arguments)})"
+
+
+def _probe(migrator: _Migrator, prefix: str | None, function: str, args: _Arguments) -> str | None:
+    """Rewrite pylopdf 0.15's ``peek_metadata`` to ``probe(source)``."""
+    bound = args.bind(("filename", "stream", "password", "max_file_size"))
+    if bound is None or ("filename" in bound) == ("stream" in bound):
+        return None
+    source = bound.get("stream", bound.get("filename"))
+    keywords = [f"{key}={bound[key]}" for key in ("password", "max_file_size") if key in bound]
+    migrator.todo(PROBE_MESSAGE)
+    name = f"{prefix}probe" if prefix else function
+    return f"{name}({', '.join([str(source), *keywords])})"
+
+
+#: Module calls whose arguments changed, keyed by their name in the module.
+MODULE_CALL_RULES: dict[str, Callable[[_Migrator, str | None, str, _Arguments], str | None]] = {
+    "open": _open_document,
+    "Document": _open_document,
+    "peek_metadata": _probe,
 }
 
 
-class _ImportScanner(cst.CSTVisitor):
-    """Find whether a module imports pymupdf at all."""
+class _Scanner(cst.CSTVisitor):
+    """Find the module's pymupdf and pylopdf imports and the names bound to documents and pages.
 
-    def __init__(self) -> None:
+    A name is a document name when every binding of it in the module assigns
+    a document (``fitz.open(...)``, ``Document()``, or a ``with`` target), and
+    a page name when every binding assigns a page of a document name; the
+    scan runs once for documents and once more for pages.
+    """
+
+    def __init__(self, documents: frozenset[str] | None = None) -> None:
         self.found = False
+        #: Whether the module imports fitz or pymupdf, not only pylopdf.
+        self.pymupdf = False
+        #: Local names of the fitz, pymupdf, and pylopdf modules, before the rewrite.
+        self.modules: set[str] = set()
+        #: Local names imported from those modules, mapped to their names there.
+        self.imported: dict[str, str] = {}
+        #: The kinds of value that each name is bound to.
+        self.bindings: dict[str, set[str]] = {}
+        self._documents = documents
+
+    def names(self, kind: str) -> frozenset[str]:
+        """Return the names that only values of ``kind`` are bound to."""
+        return frozenset(name for name, kinds in self.bindings.items() if kinds == {kind})
+
+    def member(self, node: cst.BaseExpression) -> str | None:
+        """Return the module member that an expression names, such as ``open`` for ``fitz.open``."""
+        if isinstance(node, cst.Attribute) and isinstance(node.value, cst.Name) and node.value.value in self.modules:
+            return node.attr.value
+        if isinstance(node, cst.Name):
+            return self.imported.get(node.value)
+        return None
+
+    def is_document(self, node: cst.BaseExpression) -> bool:
+        return self._documents is not None and isinstance(node, cst.Name) and node.value in self._documents
+
+    def is_pages(self, node: cst.BaseExpression) -> bool:
+        """Return whether ``node`` is a document name or its ``pages``, possibly sliced."""
+        if isinstance(node, cst.Subscript) and all(isinstance(element.slice, cst.Slice) for element in node.slice):
+            node = node.value
+        if isinstance(node, cst.Attribute) and node.attr.value == "pages":
+            node = node.value
+        return self.is_document(node)
+
+    def kind(self, node: cst.BaseExpression | None) -> str:
+        """Classify the value bound to a name."""
+        if isinstance(node, cst.Call):
+            member = self.member(node.func)
+            if member in DOCUMENT_FACTORIES:
+                return "document"
+            if member in OTHER_FACTORIES:
+                return "factory"
+            function = node.func
+            if isinstance(function, cst.Attribute) and (
+                (function.attr.value in PAGE_METHODS and self.is_document(function.value))
+                or (function.attr.value == "new" and self.is_pages(function.value))
+            ):
+                return "page"
+        if (
+            isinstance(node, cst.Subscript)
+            and len(node.slice) == 1
+            and isinstance(node.slice[0].slice, cst.Index)
+            and self.is_pages(node.value)
+        ):
+            return "page"
+        return "other"
+
+    def bind(self, target: cst.BaseExpression | cst.BaseAssignTargetExpression, kind: str) -> None:
+        if isinstance(target, cst.Name):
+            self.bindings.setdefault(target.value, set()).add(kind)
+        elif isinstance(target, (cst.Tuple, cst.List)):
+            for element in target.elements:
+                self.bind(element.value, "other")
+        elif isinstance(target, cst.StarredElement):
+            self.bind(target.value, "other")
+
+    def _bind_loop(self, target: cst.BaseAssignTargetExpression, iterable: cst.BaseExpression) -> None:
+        if self.is_pages(iterable):
+            self.bind(target, "page")
+            return
+        if (
+            isinstance(iterable, cst.Call)
+            and _code(iterable.func) == "enumerate"
+            and iterable.args
+            and self.is_pages(iterable.args[0].value)
+            and isinstance(target, cst.Tuple)
+            and len(target.elements) == 2  # noqa: PLR2004 - (index, page).
+        ):
+            self.bind(target.elements[0].value, "other")
+            self.bind(target.elements[1].value, "page")
+            return
+        self.bind(target, "other")
 
     def visit_Import(self, node: cst.Import) -> None:
-        self.found |= any(_code(alias.name).split(".")[0] in PYMUPDF_MODULES for alias in node.names)
+        for alias in node.names:
+            dotted = _code(alias.name)
+            root = dotted.split(".")[0]
+            if root in PYMUPDF_MODULES or root == PACKAGE:
+                self.found = True
+                self.pymupdf |= root in PYMUPDF_MODULES
+            if dotted in PYMUPDF_MODULES or dotted == PACKAGE:
+                local = _code(alias.asname.name) if alias.asname is not None else dotted
+                self.modules.add(local)
+                self.bind(cst.Name(local), "module")
 
     def visit_ImportFrom(self, node: cst.ImportFrom) -> None:
-        if node.module is not None and _code(node.module).split(".")[0] in PYMUPDF_MODULES:
-            self.found = True
+        if node.module is None or node.relative:
+            return
+        module = _code(node.module)
+        if module.split(".")[0] not in (*PYMUPDF_MODULES, PACKAGE):
+            return
+        self.found = True
+        self.pymupdf |= module.split(".")[0] in PYMUPDF_MODULES
+        if module not in (*PYMUPDF_MODULES, PACKAGE) or isinstance(node.names, cst.ImportStar):
+            return
+        for alias in node.names:
+            name = _code(alias.name)
+            self.imported[_code(alias.asname.name) if alias.asname is not None else name] = name
+
+    def visit_Assign(self, node: cst.Assign) -> None:
+        kind = self.kind(node.value)
+        for target in node.targets:
+            self.bind(target.target, kind)
+
+    def visit_AnnAssign(self, node: cst.AnnAssign) -> None:
+        self.bind(node.target, self.kind(node.value))
+
+    def visit_AugAssign(self, node: cst.AugAssign) -> None:
+        self.bind(node.target, "other")
+
+    def visit_NamedExpr(self, node: cst.NamedExpr) -> None:
+        self.bind(node.target, self.kind(node.value))
+
+    def visit_WithItem(self, node: cst.WithItem) -> None:
+        if node.asname is not None:
+            self.bind(node.asname.name, self.kind(node.item))
+
+    def visit_For(self, node: cst.For) -> None:
+        self._bind_loop(node.target, node.iter)
+
+    def visit_CompFor(self, node: cst.CompFor) -> None:
+        self._bind_loop(node.target, node.iter)
+
+    def visit_Param(self, node: cst.Param) -> None:
+        self.bind(node.name, "other")
+
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> None:
+        self.bind(node.name, "other")
+
+    def visit_ClassDef(self, node: cst.ClassDef) -> None:
+        self.bind(node.name, "other")
+
+    def visit_ExceptHandler(self, node: cst.ExceptHandler) -> None:
+        if node.name is not None:
+            self.bind(node.name.name, "other")
 
 
 class _Migrator(cst.CSTTransformer):
     """Rewrite one module; each hint comment attaches to the innermost enclosing statement."""
 
-    def __init__(self) -> None:
+    def __init__(self, scan: _Scanner, documents: frozenset[str], pages: frozenset[str]) -> None:
         super().__init__()
         self.rewrites = 0
         #: Local names bound to the package, after the rewrite.
         self.module_names: set[str] = set()
-        #: Local names that ``import fitz`` bound and that now read ``pylopdf``.
+        #: Local names that ``import fitz`` or a renamed import bound, and what they read now.
         self.renamed: dict[str, str] = {}
-        #: Names that ``from fitz import ...`` bound.
+        #: Names that ``from fitz import ...`` or ``from pylopdf import ...`` bound.
         self.imported: set[str] = set()
+        self._scan = scan
+        self._documents = documents
+        self._pages = pages
+        #: Names bound to a value that a module factory returned that is not a document.
+        self._factories = scan.names("factory")
         self._todos: list[list[str]] = [[]]
         self._attribute_names: set[int] = set()
         self._call_functions: set[int] = set()
@@ -349,21 +845,37 @@ class _Migrator(cst.CSTTransformer):
         comments = [cst.EmptyLine(comment=cst.Comment(f"# {TODO}: {message}")) for message in messages]
         return node.with_changes(leading_lines=[*leading, *comments])
 
+    def module_name(self) -> str | None:
+        """Return how this module names the package, or None."""
+        return min(self.module_names) if self.module_names else None
+
     def matrix_name(self) -> str | None:
         """Return how this module can name ``pylopdf.Matrix``, or None."""
         if "Matrix" in self.imported:
             return "Matrix"
-        if self.module_names:
-            return f"{min(self.module_names)}.Matrix"
-        return None
+        module = self.module_name()
+        return None if module is None else f"{module}.Matrix"
 
     def _member_todo(self, name: str) -> None:
+        if not self._scan.pymupdf and name not in _removed_015_members():
+            # A pylopdf program can only miss what pylopdf 0.15 had; other names, such as re.search, are not ours.
+            return
         if name in ROTATION_NAMES:
             self.todo(ROTATION_MESSAGE)
             return
         hint = _member_hints().get(name)
         if hint is not None:
             self.todo(hint)
+
+    def _is_document(self, node: cst.BaseExpression) -> bool:
+        return isinstance(node, cst.Name) and node.value in self._documents
+
+    def _pages_of(self, node: cst.BaseExpression) -> cst.BaseExpression:
+        """Return ``node.pages`` for a document name, and ``node`` otherwise."""
+        if self._is_document(node):
+            self.rewrites += 1
+            return cst.Attribute(value=node, attr=cst.Name("pages"))
+        return node
 
     # Statements -----------------------------------------------------------
 
@@ -375,6 +887,7 @@ class _Migrator(cst.CSTTransformer):
                 isinstance(call, cst.Call)
                 and isinstance(call.func, cst.Attribute)
                 and call.func.attr.value in STATEMENT_RULES
+                and (self._scan.pymupdf or call.func.attr.value not in ASSIGNING_RULES)
             ):
                 self._statement_calls.add(id(call))
 
@@ -393,7 +906,7 @@ class _Migrator(cst.CSTTransformer):
             arguments = _Arguments.of(call)
             replacement = None
             if arguments is not None and (
-                name == "embfile_del" or isinstance(function.value, (cst.Name, cst.Attribute))
+                name not in ASSIGNING_RULES or isinstance(function.value, (cst.Name, cst.Attribute))
             ):
                 replacement = STATEMENT_RULES[name](self, _receiver(function.value), arguments)
             if replacement is None:
@@ -422,18 +935,25 @@ class _Migrator(cst.CSTTransformer):
             return self._pop(result)
         return result
 
+    def leave_For(self, original_node: cst.For, updated_node: cst.For) -> cst.For:
+        return updated_node.with_changes(iter=self._pages_of(updated_node.iter))
+
+    def leave_CompFor(self, original_node: cst.CompFor, updated_node: cst.CompFor) -> cst.CompFor:
+        return updated_node.with_changes(iter=self._pages_of(updated_node.iter))
+
     # Imports ----------------------------------------------------------------
 
     def leave_Import(self, original_node: cst.Import, updated_node: cst.Import) -> cst.Import:
         names = []
         for alias in updated_node.names:
             dotted = _code(alias.name)
-            if dotted in PYMUPDF_MODULES:
-                self.rewrites += 1
-                alias = alias.with_changes(name=cst.Name("pylopdf"))  # noqa: PLW2901
+            if dotted in PYMUPDF_MODULES or dotted == PACKAGE:
+                if dotted != PACKAGE:
+                    self.rewrites += 1
+                    alias = alias.with_changes(name=cst.Name(PACKAGE))  # noqa: PLW2901
                 if alias.asname is None:
-                    self.renamed[dotted] = "pylopdf"
-                    self.module_names.add("pylopdf")
+                    self.renamed[dotted] = PACKAGE
+                    self.module_names.add(PACKAGE)
                 else:
                     local = alias.asname.name
                     assert isinstance(local, cst.Name)  # noqa: S101 - import aliases are names.
@@ -448,19 +968,31 @@ class _Migrator(cst.CSTTransformer):
             return updated_node
         # The original name: a preceding ``import fitz`` already renamed this one.
         module = _code(original_node.module)
-        if module not in PYMUPDF_MODULES:
+        if module not in (*PYMUPDF_MODULES, PACKAGE):
             if module.split(".")[0] in PYMUPDF_MODULES:
                 self.todo(f"pylopdf has no {module} module; import from pylopdf instead.")
             return updated_node
-        self.rewrites += 1
-        if not isinstance(updated_node.names, cst.ImportStar):
-            for alias in updated_node.names:
-                name = _code(alias.name)
-                local = _code(alias.asname.name) if alias.asname is not None else name
-                self.imported.add(local)
-                if not hasattr(pylopdf, name):
-                    self.todo(migration_hint(name) or f"pylopdf does not provide pymupdf's {name}.")
-        return updated_node.with_changes(module=cst.Name("pylopdf"))
+        if module != PACKAGE:
+            self.rewrites += 1
+            updated_node = updated_node.with_changes(module=cst.Name(PACKAGE))
+        if isinstance(updated_node.names, cst.ImportStar):
+            return updated_node
+        aliases = []
+        for alias in updated_node.names:
+            name = _code(alias.name)
+            local = _code(alias.asname.name) if alias.asname is not None else name
+            if name in MODULE_RENAMES:
+                self.rewrites += 1
+                renamed = MODULE_RENAMES[name]
+                alias = alias.with_changes(name=cst.Name(renamed))  # noqa: PLW2901
+                if alias.asname is None:
+                    self.renamed[name] = renamed
+                    local = renamed
+            elif not hasattr(pylopdf, name):
+                self.todo(migration_hint(name) or f"pylopdf does not provide pymupdf's {name}.")
+            self.imported.add(local)
+            aliases.append(alias)
+        return updated_node.with_changes(names=aliases)
 
     # Expressions ------------------------------------------------------------
 
@@ -475,29 +1007,90 @@ class _Migrator(cst.CSTTransformer):
             return updated_node.with_changes(value=self.renamed[updated_node.value])
         return updated_node
 
-    def leave_Attribute(self, original_node: cst.Attribute, updated_node: cst.Attribute) -> cst.BaseExpression:
+    def leave_Subscript(self, original_node: cst.Subscript, updated_node: cst.Subscript) -> cst.Subscript:
+        return updated_node.with_changes(value=self._pages_of(updated_node.value))
+
+    def leave_Attribute(  # noqa: PLR0911 - one return per kind of attribute.
+        self, original_node: cst.Attribute, updated_node: cst.Attribute
+    ) -> cst.BaseExpression:
         name = updated_node.attr.value
-        value = updated_node.value
-        if isinstance(value, cst.Name) and value.value in self.module_names:
+        called = id(original_node) in self._call_functions
+        if isinstance(original_node.value, cst.Name) and original_node.value.value in self._scan.modules:
             if name in MODULE_TO_BUILTIN:
                 self.rewrites += 1
                 return cst.Name(MODULE_TO_BUILTIN[name])
+            if called and name in MODULE_CALL_RULES:
+                return updated_node
+            if name in MODULE_RENAMES:
+                self.rewrites += 1
+                return updated_node.with_changes(attr=cst.Name(MODULE_RENAMES[name]))
             if not hasattr(pylopdf, name) and not (name.startswith("__") and name.endswith("__")):
                 self.todo(migration_hint(name) or f"pylopdf does not provide pymupdf's {name}.")
             return updated_node
+        if not called:
+            replacement = self._attribute_rule(original_node, updated_node)
+            if replacement is not None:
+                self.rewrites += 1
+                return replacement
         if name in CALL_RULES or name in STATEMENT_RULES:
-            if id(original_node) not in self._call_functions:
+            if not called:
                 self._member_todo(name)
             return updated_node
         self._member_todo(name)
         return updated_node
 
+    def _attribute_rule(self, original_node: cst.Attribute, updated_node: cst.Attribute) -> cst.BaseExpression | None:
+        """Rewrite a renamed property that is read rather than called."""
+        name = original_node.attr.value
+        receiver = original_node.value
+        if name == "page_count" and not (
+            (isinstance(receiver, cst.Name) and receiver.value in self._factories)
+            or (isinstance(receiver, cst.Call) and self._scan.member(receiver.func) in OTHER_FACTORIES)
+        ):
+            return cst.parse_expression(f"len({_receiver(updated_node.value)}.pages)")
+        if name == "needs_pass":
+            return updated_node.with_changes(attr=cst.Name("needs_password"))
+        if isinstance(receiver, cst.Name) and receiver.value in self._pages and name in PAGE_RENAMES:
+            return updated_node.with_changes(attr=cst.Name(PAGE_RENAMES[name]))
+        return None
+
+    def _module_call(self, member: str, updated_node: cst.Call) -> cst.BaseExpression:
+        """Rewrite a call of a module function whose arguments changed."""
+        function = updated_node.func
+        arguments = _Arguments.of(updated_node)
+        prefix = f"{_code(function.value)}." if isinstance(function, cst.Attribute) else None
+        rule = MODULE_CALL_RULES[member]
+        replacement = None if arguments is None else rule(self, prefix, _code(function), arguments)
+        if replacement is None:
+            self.todo(
+                migration_hint(member)
+                or f"pylopdf.{MODULE_RENAMES.get(member, member)} takes other arguments; see the API reference."
+            )
+            return updated_node
+        if _same_code(replacement, updated_node):
+            return updated_node
+        self.rewrites += 1
+        return cst.parse_expression(replacement)
+
     def leave_Call(self, original_node: cst.Call, updated_node: cst.Call) -> cst.BaseExpression:
         function = updated_node.func
+        member = self._scan.member(original_node.func)
+        if member in MODULE_CALL_RULES:
+            return self._module_call(member, updated_node)
+        if isinstance(function, cst.Name) and function.value in {"len", *ITERATING_BUILTINS}:
+            if function.value == "len" and len(updated_node.args) != 1:
+                return updated_node
+            return updated_node.with_changes(
+                args=[arg.with_changes(value=self._pages_of(arg.value)) for arg in updated_node.args]
+            )
         if not isinstance(function, cst.Attribute) or id(original_node) in self._statement_calls:
             return updated_node
+        return self._method_call(function, updated_node)
+
+    def _method_call(self, function: cst.Attribute, updated_node: cst.Call) -> cst.BaseExpression:
+        """Rewrite a method call by the method's name."""
         name = function.attr.value
-        if name in STATEMENT_RULES:
+        if name in STATEMENT_RULES and (self._scan.pymupdf or name not in ASSIGNING_RULES):
             self._member_todo(name)
             return updated_node
         rule = CALL_RULES.get(name)
@@ -508,18 +1101,23 @@ class _Migrator(cst.CSTTransformer):
         if replacement is None:
             self._member_todo(name)
             return updated_node
+        if _same_code(replacement, updated_node):
+            return updated_node
         self.rewrites += 1
         return cst.parse_expression(replacement)
 
 
 def migrate_source(source: str) -> Migration:
-    """Migrate one pymupdf program; a module that imports neither fitz nor pymupdf stays as it is."""
+    """Migrate one pymupdf or pylopdf 0.15 program; other modules stay as they are."""
     module = cst.parse_module(source)
-    scanner = _ImportScanner()
+    scanner = _Scanner()
     module.visit(scanner)
     if not scanner.found:
         return Migration(source, 0, ())
-    migrator = _Migrator()
+    documents = scanner.names("document")
+    pages = _Scanner(documents)
+    module.visit(pages)
+    migrator = _Migrator(scanner, documents, pages.names("page"))
     code = module.visit(migrator).code
     marker = f"# {TODO}: "
     todos = tuple(

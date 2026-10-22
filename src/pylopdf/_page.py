@@ -243,31 +243,42 @@ def _highlight_rects(
 
 
 class Page:
-    """A view of one page in a document, obtained through ``doc[i]``.
+    """A view of one page of a document, obtained through ``doc.pages[i]``.
 
     Adding, deleting, or reordering pages invalidates existing views. Using an
     invalidated view raises :class:`StalePageError`; fetch it again with
-    ``doc[i]``.
+    ``doc.pages[i]``. Two views are equal when they are current views of the
+    same page.
     """
 
     if not TYPE_CHECKING:
         __getattr__ = hinted_getattr
 
     def __init__(self, document: Document, pno: int) -> None:
-        """Initialize a view for ``Document.__getitem__``; do not call directly."""
+        """Initialize a view for :class:`Pages`; do not call directly."""
         self._document = document
         self._pno = pno
         self._generation = document._generation
 
     @property
-    def number(self) -> int:
-        """Return the zero-based page number."""
+    def index(self) -> int:
+        """Return the zero-based index of the page in its document."""
         return self._pno
 
     @property
-    def parent(self) -> Document:
-        """Return the parent document."""
+    def document(self) -> Document:
+        """Return the document that holds the page."""
         return self._document
+
+    def __eq__(self, other: object) -> bool:
+        """Return whether ``other`` views the same page in the same document generation."""
+        if not isinstance(other, Page):
+            return NotImplemented
+        return other._document is self._document and other._generation == self._generation and other._pno == self._pno
+
+    def __hash__(self) -> int:
+        """Hash the document, generation, and index that identify the view."""
+        return hash((id(self._document), self._generation, self._pno))
 
     @property
     def xref(self) -> int:
@@ -291,7 +302,8 @@ class Page:
         doc._ensure_open()
         if self._generation != doc._generation:
             msg = (
-                f"page {self._pno} was invalidated by a document structure change; fetch it again via doc[{self._pno}]"
+                f"page {self._pno} was invalidated by a document structure change; "
+                f"fetch it again via doc.pages[{self._pno}]"
             )
             raise StalePageError(msg)
         return self._pno + 1
@@ -387,13 +399,30 @@ class Page:
     def get_text(self, option: str = "text") -> str | list[Word] | list[Block] | TextPageDict | RawTextPageDict:
         """Extract page text or positioned layout data.
 
-        ``option`` matches :meth:`Document.get_page_text`: ``"text"``,
-        ``"words"``, ``"blocks"``, ``"dict"``, or ``"rawdict"``. The last
-        exposes glyph Unicode, approximate bboxes, and baseline origins in
-        the same display coordinates; see :class:`TextChar` for its limits.
+        ``option`` uses pymupdf-style names without promising full compatibility:
+
+        - ``"text"``: plain text, the default.
+        - ``"words"``: ``(x0, y0, x1, y1, word, block, line, word index)``.
+        - ``"blocks"``: ``(x0, y0, x1, y1, text, block, 0)``.
+        - ``"dict"``: nested width, height, and blocks with lines and spans.
+        - ``"rawdict"``: the same text hierarchy with ``chars`` replacing span
+          ``text``; each item has ``c``, ``bbox``, and baseline ``origin``.
+
+        Coordinates are display points (1/72 inch at the default PDF UserUnit),
+        with a top-left origin, downward y, and page rotation/CropBox offsets
+        resolved. Bboxes use glyph advances and approximate baseline extents
+        from font-size ratios, not exact outlines. Reading order follows the
+        existing geometry and script heuristics rather than semantic document
+        order.
+
+        Raw entries preserve one glyph's complete Unicode mapping, including
+        ligatures with several characters; no positions are invented by
+        dividing span text. Inferred spaces have no raw entry. Unmapped glyphs
+        retain the existing skip/warning behavior. Output is text-only and
+        shares the existing text/glyph budgets and interpretation cache.
         """
         self._page_number()
-        return self._document.get_page_text(self._pno, option)  # ty: ignore[no-matching-overload]
+        return self._document._page_text(self._pno, option)  # ty: ignore[no-matching-overload]
 
     def get_text_ocr(  # noqa: PLR0913 - OCR resource controls are keyword-only.
         self,
@@ -892,7 +921,7 @@ class Page:
         consecutive placements on other pages.
         """
         x0, y0, x1, y1 = _validate_rect(rect)
-        src_number = docsrc[pno]._page_number()
+        src_number = docsrc.pages[pno]._page_number()
         if docsrc is self._document:
             return self._document._doc.show_pdf_page_self(
                 self._page_number(),
