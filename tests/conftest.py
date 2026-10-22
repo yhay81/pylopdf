@@ -271,9 +271,9 @@ def three_page_pdf() -> bytes:
 def drawn_images(page: pylopdf.Page) -> list[dict[str, Any]]:
     """Decode each image drawn on ``page``, composited with its soft mask.
 
-    ``Page.get_images`` used to return these placements; it now lists
-    image XObjects as pymupdf does. The core still decodes placements, which
-    tests use to check image decoding and its limits.
+    The core decodes placements for this test hook, which tests use to check
+    image decoding and its limits; ``page.content().images`` describes
+    placements and ``doc.images`` the image objects.
     """
     document = page.document
     return [

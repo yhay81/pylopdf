@@ -121,8 +121,8 @@ def test_images(tmp_path: Path) -> None:
     _assert_rect(images[3].bbox, (160, 10, 200, 90))
     # The same image is stored once, and JPEG data passes through.
     assert images[0].xref == images[4].xref
-    assert doc.extract_image(images[1].xref)["ext"] == "jpeg"
-    assert doc.extract_image(images[1].xref)["image"] == PHOTO_JPEG
+    extracted = doc.images[images[1].xref].extract()
+    assert (extracted.format, extracted.data) == ("jpeg", PHOTO_JPEG)
     pixels = doc.pages[0].get_pixmap()
     offset = 20 * pixels.stride + 15 * 3
     assert pixels.samples[offset : offset + 3] == b"\xff\x00\x00"

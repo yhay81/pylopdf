@@ -360,9 +360,14 @@ the canvas.
   kinds, and `content(text_runs=False, images=False).paths` and
   `content(text_runs=False, paths=False).images` replace `get_drawings()` and
   `get_image_info()`.
-- Still to come, each with its codemod rules: the image inventory
-  (`page.resources` and `doc.images`); rendering, document properties,
-  interaction, writing, and the constants and records.
+- Done: the image inventory. `doc.images` maps object numbers to
+  `ImageObject` handles with the image's dictionary facts, `extract()`
+  returning an `EncodedImage`, and `to_pixmap()`, and `page.resources.images`
+  replaces `get_images()`; the fonts, Form XObjects, color spaces, and
+  graphics states of `page.resources` follow with the content model's font
+  identity.
+- Still to come, each with its codemod rules: rendering, document
+  properties, interaction, writing, and the constants and records.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs

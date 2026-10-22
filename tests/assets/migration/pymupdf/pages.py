@@ -34,8 +34,7 @@ with tempfile.TemporaryDirectory() as folder:
     pixmap.save(path)
     page = doc.new_page(width=200, height=200)
     xref = page.insert_image(fitz.Rect(20, 20, 120, 120), filename=path)
-    images = page.get_images()
-    assert [image[0] for image in images] == [xref]
-    extracted = doc.extract_image(xref)
-    assert (extracted["width"], extracted["height"]) == (100, 100)
+    assert [image[0] for image in page.get_images()] == [xref]
+    assert (doc.extract_image(xref)["width"], doc.extract_image(xref)["height"]) == (100, 100)
+    assert doc.extract_image(xref)["ext"] == "png"
 print("pages ok")

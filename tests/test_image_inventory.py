@@ -1,4 +1,4 @@
-"""pymupdf's image inventory: get_images, drawn placements, and extract_image."""
+"""Image objects: doc.images, page.resources.images, drawn placements, extract, and to_pixmap."""
 
 from __future__ import annotations
 
@@ -54,34 +54,63 @@ def _inventory_pdf() -> bytes:
     )
 
 
-def test_get_images_lists_image_xobjects_as_pymupdf_does() -> None:
+def test_resources_list_the_image_xobjects_that_the_page_reaches() -> None:
     page = pylopdf.open(_inventory_pdf()).pages[0]
 
-    images = page.get_images()
+    images = page.resources.images
 
-    assert images == [
-        (5, 6, 2, 1, 8, "DeviceGray", "", "Im0", "FlateDecode"),
-        (7, 0, 1, 1, 8, "ICCBased", "DeviceRGB", "Im1", "FlateDecode"),
-        (9, 0, 1, 1, 8, "Indexed", "DeviceRGB", "Im2", "FlateDecode"),
-    ]
-    assert isinstance(images[0], pylopdf.ImageItem)
-    assert images[0].xref == 5
-    assert images[2].colorspace == "Indexed"
+    assert [image.xref for image in images] == [5, 7, 9]
+    assert all(isinstance(image, pylopdf.ImageObject) for image in images)
+    first, icc, indexed = images
+    assert (first.width, first.height, first.bits, first.colorspace, first.filters) == (
+        2,
+        1,
+        8,
+        "DeviceGray",
+        ("FlateDecode",),
+    )
+    assert first.soft_mask is not None
+    assert first.soft_mask.xref == 6
+    assert (first.mask, first.is_stencil, first.alternate_colorspace) == (None, False, None)
+    assert (icc.colorspace, icc.alternate_colorspace) == ("ICCBased", "DeviceRGB")
+    assert (indexed.colorspace, indexed.alternate_colorspace) == ("Indexed", "DeviceRGB")
+    assert page.resources.images == images
 
 
-def test_get_images_full_adds_the_referencer() -> None:
+def test_resources_list_no_images_without_image_xobjects() -> None:
+    assert pylopdf.open(build_pdf(["Text only"])).pages[0].resources.images == ()
+
+
+def test_document_images_map_every_image_xobject() -> None:
     doc = pylopdf.open(_inventory_pdf())
 
-    images = doc.pages[0].get_images(full=True)
+    assert list(doc.images) == [5, 6, 7, 9]
+    assert len(doc.images) == 4
+    assert 6 in doc.images
+    assert 8 not in doc.images
+    assert "5" not in doc.images
+    assert doc.images[9] == doc.pages[0].resources.images[2]
+    assert hash(doc.images[9]) == hash(doc.pages[0].resources.images[2])
+    assert repr(doc.images[9]) == "<ImageObject 9>"
+    assert doc.images[5].obj["Width"] == 2
+    for xref in (1, 4, 8, 999):
+        with pytest.raises(KeyError):
+            doc.images[xref]
+    with pytest.raises(TypeError):
+        doc.images["5"]  # ty: ignore[invalid-argument-type]
 
-    assert [(image.xref, image.referencer) for image in images] == [(5, 0), (7, 0), (9, 8)]
-    assert isinstance(images[0], pylopdf.ImageItemFull)
-    assert doc.pages[0].get_images(full=True) == images
-    assert doc.pages[0].get_images() == doc.pages[0].get_images()
 
-
-def test_get_images_is_empty_without_image_xobjects() -> None:
-    assert pylopdf.open(build_pdf(["Text only"])).pages[0].get_images() == []
+def test_an_image_handle_goes_stale_when_its_object_changes() -> None:
+    doc = pylopdf.open(_inventory_pdf())
+    image = doc.images[7]
+    doc.objects[7] = 1
+    with pytest.raises(pylopdf.StaleObjectError, match="no longer an image"):
+        _ = image.width
+    renumbered = pylopdf.open(doc.to_bytes(renumber=True))
+    first = renumbered.images[next(iter(renumbered.images))]
+    renumbered.to_bytes(renumber=True)
+    with pytest.raises(pylopdf.StaleObjectError, match="renumbered"):
+        _ = first.width
 
 
 def test_content_images_describe_each_placement() -> None:
@@ -104,46 +133,48 @@ def test_content_images_describe_each_placement() -> None:
     assert images[2].colorspace == "Indexed"
 
 
-def test_extract_image_returns_the_image_without_its_mask() -> None:
+def test_extract_returns_the_image_without_its_mask() -> None:
     doc = pylopdf.open(_inventory_pdf())
 
-    image = doc.extract_image(5)
+    image = doc.images[5].extract()
 
-    assert image["ext"] == "png"
-    assert image["image"].startswith(b"\x89PNG\r\n\x1a\n")
-    assert (image["width"], image["height"], image["colorspace"], image["bpc"]) == (2, 1, 1, 8)
-    assert (image["smask"], image["cs-name"]) == (6, "DeviceGray")
-    assert (image["xres"], image["yres"]) == (96, 96)
-    assert doc.extract_image(6)["smask"] == 0
-    indexed = doc.extract_image(9)
-    assert (indexed["colorspace"], indexed["cs-name"]) == (3, "Indexed")
+    assert isinstance(image, pylopdf.EncodedImage)
+    assert image.format == "png"
+    assert image.data.startswith(b"\x89PNG\r\n\x1a\n")
+    assert image.resolution == (96, 96)
+    assert doc.images[9].extract().format == "png"
 
 
-def test_extract_image_passes_jpeg_through() -> None:
+def test_extract_passes_jpeg_through() -> None:
     doc = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")
     # The first image is Flate-wrapped JPEG data, which passes through as JPEG.
-    xref = doc.pages[0].get_images()[0].xref
+    image = doc.pages[0].resources.images[0]
 
-    image = doc.extract_image(xref)
+    encoded = image.extract()
 
-    assert image["ext"] == "jpeg"
-    assert image["image"].startswith(b"\xff\xd8\xff")
-    assert image["colorspace"] in {1, 3}
-
-
-@pytest.mark.parametrize("xref", [1, 4, 8, 999])
-def test_extract_image_refuses_other_objects(xref: int) -> None:
-    with pytest.raises(pylopdf.PdfError, match=f"xref {xref} is not"):
-        pylopdf.open(_inventory_pdf()).extract_image(xref)
+    assert image.filters == ("FlateDecode", "DCTDecode")
+    assert encoded.format == "jpeg"
+    assert encoded.data.startswith(b"\xff\xd8\xff")
 
 
-@pytest.mark.parametrize("xref", [0, -1, True, 1.5])
-def test_extract_image_validates_the_xref(xref: object) -> None:
-    with pytest.raises(ValueError, match="xref must be a positive integer"):
-        pylopdf.open(_inventory_pdf()).extract_image(xref)  # ty: ignore[invalid-argument-type]
+def test_to_pixmap_renders_the_pixels_with_or_without_the_mask() -> None:
+    doc = pylopdf.open(_inventory_pdf())
+    image = doc.images[5]
+
+    opaque = image.to_pixmap()
+    masked = image.to_pixmap(alpha=True)
+
+    assert (opaque.width, opaque.height, opaque.n, opaque.alpha) == (2, 1, 3, False)
+    assert opaque.samples == bytes([10, 10, 10, 20, 20, 20])
+    assert (masked.width, masked.height, masked.n, masked.alpha) == (2, 1, 4, True)
+    assert masked.samples[3] == 255
+    assert 120 <= masked.samples[7] <= 136
+    assert doc.images[9].to_pixmap().samples == bytes([255, 0, 0])
+    with pytest.raises(TypeError):
+        image.to_pixmap(alpha=1)  # ty: ignore[invalid-argument-type]
 
 
-def test_extract_image_guards_deep_color_space_chains() -> None:
+def test_extract_and_to_pixmap_guard_deep_color_space_chains() -> None:
     depth = 40
     objects: dict[int, bytes | str] = {
         1: "<< /Type /Catalog /Pages 2 0 R >>",
@@ -156,6 +187,7 @@ def test_extract_image_guards_deep_color_space_chains() -> None:
         objects[5 + index] = f"[/Indexed {base} 0 <000000>]"
     doc = pylopdf.open(build_raw_pdf(objects))
 
-    with pytest.raises(pylopdf.LimitError) as caught:
-        doc.extract_image(4)
-    assert caught.value.code == "resource_nesting_depth"
+    for operation in (doc.images[4].extract, doc.images[4].to_pixmap):
+        with pytest.raises(pylopdf.LimitError) as caught:
+            operation()
+        assert caught.value.code == "resource_nesting_depth"

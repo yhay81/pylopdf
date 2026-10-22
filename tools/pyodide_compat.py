@@ -485,14 +485,15 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
     _require(scan.pages[0].text() == "", "image-only Japanese scan unexpectedly exposed text")
     bounded_scan = pylopdf.open(scan_bytes, limits=pylopdf.DocumentLimits.web())
     _require(len(bounded_scan.pages) == 1, "web limits rejected a representative scan")
-    scan_inventory = scan.pages[0].get_images(full=True)
+    scan_inventory = scan.pages[0].resources.images
     _require(len(scan_inventory) >= 1, "the scan lists no image XObject")
     scan_placements = scan.pages[0].content(text_runs=False, paths=False).images
     _require(
         {image.xref for image in scan_placements} <= {item.xref for item in scan_inventory},
         "a drawn image is missing from the inventory",
     )
-    scan_image = scan.extract_image(scan_inventory[0].xref)
+    scan_image = scan_inventory[0].extract()
+    scan_pixmap = scan_inventory[0].to_pixmap()
 
     encrypted_bytes = (root / "tests/assets/encrypted/user-aes-256.pdf").read_bytes()
     encrypted = pylopdf.open(encrypted_bytes)
@@ -550,14 +551,13 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
         "image_only": {
             "pages": len(scan.pages),
             "text": scan.pages[0].text(),
-            "inventory": [list(item) for item in scan_inventory],
-            "placements": len(scan_placements),
-            "extracted": [
-                scan_image["ext"],
-                scan_image["width"],
-                scan_image["height"],
-                hashlib.sha256(scan_image["image"]).hexdigest(),
+            "inventory": [
+                [image.xref, image.width, image.height, image.bits, image.colorspace, list(image.filters)]
+                for image in scan_inventory
             ],
+            "placements": len(scan_placements),
+            "extracted": [scan_image.format, list(scan_image.resolution), hashlib.sha256(scan_image.data).hexdigest()],
+            "pixmap": [scan_pixmap.width, scan_pixmap.height, scan_pixmap.n],
         },
         "encryption": {
             "locked_exception": encrypted_error,

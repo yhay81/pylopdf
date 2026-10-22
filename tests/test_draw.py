@@ -1218,7 +1218,7 @@ def test_insert_textbox_underlay_stays_below_existing_content(fontfile: Path | N
     assert set(rgb) == {0, 128}
 
 
-def test_get_images_bbox_on_rotated_page_is_display_space() -> None:
+def test_drawn_image_bbox_on_rotated_page_is_display_space() -> None:
     doc = pylopdf.Document()
     doc.pages.new((100, 200))
     page = doc.pages[0]

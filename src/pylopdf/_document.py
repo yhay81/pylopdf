@@ -30,6 +30,7 @@ from pylopdf._fonts import (
     _validate_form_font,
 )
 from pylopdf._hints import hinted_getattr, hinted_protocol
+from pylopdf._images import Images
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
     _DEFAULT_MAX_MARKDOWN_SIZE,
@@ -72,7 +73,6 @@ if TYPE_CHECKING:
         CjkFontLanguage,
         DocumentComplexity,
         DocumentMetadata,
-        ExtractedImage,
         FontLanguage,
         FormFieldInfo,
         FormFieldType,
@@ -1087,6 +1087,19 @@ class Document:
         self._doc.set_page_labels(payload)
 
     @property
+    def images(self) -> Images:
+        """Return the image XObjects, keyed by object number.
+
+        ``doc.images[xref]`` is an :class:`ImageObject` with the image's size,
+        color space, filters, and masks, :meth:`ImageObject.extract` for its
+        data, and :meth:`ImageObject.to_pixmap` for its pixels; another object
+        number raises :class:`KeyError`. ``page.resources.images`` lists the
+        images that one page's resources reach.
+        """
+        self._ensure_open()
+        return Images(self)
+
+    @property
     def attachments(self) -> Attachments:
         """Return the live mapping of embedded files, keyed by name.
 
@@ -1302,37 +1315,6 @@ class Document:
                         provider.language,
                     )
         self._fallback_configured = True
-
-    def extract_image(self, xref: int) -> ExtractedImage:
-        """Return the data of image XObject ``xref``, as pymupdf does.
-
-        The dictionary has pymupdf's keys. DCT data passes through unchanged
-        with ``ext == "jpeg"``; other image data, including JPX, JBIG2, CCITT,
-        and Flate, is decoded to PNG with ``ext == "png"``. The image is
-        returned without its soft mask, whose xref ``smask`` names (0 when
-        absent), and ``colorspace`` counts the returned image's components.
-        Decoding runs under the same content and colour-space guards and
-        resource limits as rendering. An xref that is not an image raises
-        :class:`PdfError`.
-        """
-        self._ensure_open()
-        if isinstance(xref, bool) or not isinstance(xref, int) or xref <= 0:
-            msg = f"xref must be a positive integer: {xref!r}"
-            raise ValueError(msg)
-        ext, width, height, components, cs_name, bpc, smask, (xres, yres), data = self._doc.extract_image(xref)
-        self._emit_warnings()
-        return {
-            "ext": cast("Literal['jpeg', 'png']", ext),
-            "smask": smask,
-            "width": width,
-            "height": height,
-            "colorspace": components,
-            "cs-name": cs_name,
-            "bpc": bpc,
-            "xres": xres,
-            "yres": yres,
-            "image": data,
-        }
 
     def render_pages(  # noqa: PLR0913 - batch resource controls are keyword-only.
         self,

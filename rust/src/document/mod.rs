@@ -770,14 +770,37 @@ impl _Document {
         extraction::extract_images(self, py, page_number)
     }
 
-    /// List the image XObjects that a one-based page's resources reach.
-    fn page_image_inventory(&self, page_number: u32) -> PyResult<Vec<ImageInventoryTuple>> {
+    /// List the xrefs of the image XObjects that a one-based page's
+    /// resources reach, in resource order.
+    fn page_image_inventory(&self, page_number: u32) -> PyResult<Vec<u32>> {
         extraction::page_image_inventory(self, page_number)
     }
 
-    /// Decode one image XObject by object number.
+    /// List the xrefs of every image XObject in ascending order.
+    fn image_xrefs(&self) -> PyResult<Vec<u32>> {
+        extraction::image_xrefs(self)
+    }
+
+    /// Read an image XObject's dictionary facts, or `None` when `xref` names
+    /// no image.
+    fn image_facts(&self, xref: u32) -> Option<ImageFactsTuple> {
+        extraction::image_facts(self, xref)
+    }
+
+    /// Decode one image XObject, without its masks, by object number.
     fn extract_image(&mut self, py: Python<'_>, xref: u32) -> PyResult<ExtractedImageTuple> {
         extraction::extract_image(self, py, xref)
+    }
+
+    /// Render one image XObject at its pixel size, with its masks as alpha
+    /// when `alpha` is set.
+    fn image_pixmap(
+        &mut self,
+        py: Python<'_>,
+        xref: u32,
+        alpha: bool,
+    ) -> PyResult<crate::pixmap::Pixmap> {
+        extraction::image_pixmap(self, py, xref, alpha)
     }
 
     /// Collect the content model of a one-based page: its painted items of

@@ -136,7 +136,7 @@ attached to their base characters.
 | Member | Purpose |
 |---|---|
 | `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | PNG bytes for every page, or the listed pages, in order, rendered in parallel |
-| `extract_image(xref)` | One image with pymupdf's keys; JPEG data is returned as is and other images as PNG |
+| `images` | The image objects by object number; see [Images](#images) |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | Downsample and recompress images to make the file smaller |
 | `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | Font used to display Chinese, Japanese, or Korean text whose font is not embedded; the CJK extras set this up automatically |
 
@@ -201,7 +201,7 @@ are not interpreted.
 |---|---|
 | `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` | Render to a [`Pixmap`](#pixmap) |
 | `get_svg_image(*, matrix=None, text_as_path=True)` | Render to an SVG string |
-| `get_images(*, full=False)` | The image objects the page uses, as `ImageItem` tuples |
+| `resources` | What the page's resources reach: `resources.images` lists its image objects; see [Images](#images) |
 
 As in pymupdf, a pixmap is RGB on white by default and RGBA with
 `alpha=True`. `dpi` takes precedence over `matrix`, which must be a scaling
@@ -343,6 +343,36 @@ components of a color, layer names and the other marked-content properties,
 the font dictionary behind a `FontRef`, and the object of an image mask. They
 are listed as
 [engine work](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#engine-work).
+
+## Images { #images }
+
+`doc.images` maps object numbers to the document's image objects, and
+`page.resources.images` lists the ones that a page's resources reach, once
+each, those of the Form XObjects that it uses included. Each is an
+`ImageObject` that reads the document on every access:
+
+| Member | Meaning |
+|---|---|
+| `xref`, `obj` | The object number, and the image's stream in the [object model](#low-level-objects) |
+| `width`, `height`, `bits` | The size in pixels and the bits per component |
+| `colorspace`, `alternate_colorspace` | The color space, such as `"DeviceRGB"` or `"ICCBased"`, and the base or alternate space of an indexed, ICC-based, or separation space |
+| `filters` | The stream's filters in decoding order, such as `("DCTDecode",)` |
+| `soft_mask`, `mask`, `is_stencil` | The soft mask and the stencil mask, as image objects, and whether the image is itself a stencil mask |
+| `extract()` | The image's data as an `EncodedImage` with `format`, `data`, and `resolution`: JPEG data as it is stored and any other image as PNG, without its masks |
+| `to_pixmap(*, alpha=False)` | The image's pixels as a [`Pixmap`](#pixmap): RGB without its masks, or RGBA in which they set the transparency |
+
+```python
+from pathlib import Path
+
+with pylopdf.open("scan.pdf") as doc:
+    for image in doc.pages[0].resources.images:
+        encoded = image.extract()
+        Path(f"image-{image.xref}.{encoded.format}").write_bytes(encoded.data)
+```
+
+Where an image is drawn belongs to the page's content:
+`page.content(text_runs=False, paths=False).images` lists every placement
+with its box and matrix.
 
 ## Canvas { #canvas }
 
@@ -781,7 +811,7 @@ such as `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`,
 `TableDiagnostics`, `OcrWord`, `Path`, and `Image`. Other dictionaries
 returned by the API are plain `dict` objects, described for type checkers by
 `TypedDict` classes such as `LinkInfo`, `FormFieldInfo`, and
-`DocumentMetadata`, and `ImageItem` and `OutlineEntry` are named tuples.
+`DocumentMetadata`, and `OutlineEntry` is a named tuple.
 
 ## Exceptions and warnings { #exceptions }
 
