@@ -158,7 +158,7 @@ def test_new_objects_cannot_wrap_onto_the_catalog(operation: str) -> None:
     assert re.search(rb"/PylopdfProbe 6 0 R", saved)
     assert re.search(rb"\n6 0 obj\n<</PylopdfMarker\(BIG\)>>", saved)
     for current in _with_reloaded(doc):
-        assert "TARGET PAGE" in current.pages[0].get_text().splitlines()
+        assert "TARGET PAGE" in current.pages[0].text().splitlines()
 
 
 def test_references_above_the_highest_kept_object_follow_it_or_become_null() -> None:
@@ -195,7 +195,7 @@ def test_moved_objects_keep_their_generation() -> None:
     assert re.search(rb"/Contents\[5 0 R 6 0 R 7 1 R null\]", saved)
     assert re.search(rb"\n7 1 obj\n", saved)
     for current in _with_reloaded(doc):
-        assert current.pages[0].get_text().splitlines() == ["GEN ONE", "GEN ZERO", "TARGET PAGE"]
+        assert current.pages[0].text().splitlines() == ["GEN ONE", "GEN ZERO", "TARGET PAGE"]
 
 
 def test_cross_reference_entry_above_the_limit_without_its_object_lowers_max_id() -> None:
@@ -218,7 +218,7 @@ def test_cross_reference_entry_above_the_limit_without_its_object_lowers_max_id(
     assert size is not None
     assert int(size[1]) < 30
     for current in _with_reloaded(doc):
-        assert Counter(current.pages[0].get_text().splitlines()) == Counter([*stamps, "SIX", "TARGET PAGE"])
+        assert Counter(current.pages[0].text().splitlines()) == Counter([*stamps, "SIX", "TARGET PAGE"])
 
 
 def test_document_numbered_past_i32_reads_and_saves() -> None:
@@ -231,7 +231,7 @@ def test_document_numbered_past_i32_reads_and_saves() -> None:
     objects = _objects(f"{numbers[4]} 0 R", numbers=numbers)
     doc = pylopdf.open(_numbered_pdf(objects, root=numbers[0]))
 
-    assert doc.pages[0].get_text().split() == ["TARGET", "PAGE"]
+    assert doc.pages[0].text().split() == ["TARGET", "PAGE"]
     saved = doc.to_bytes()
     assert re.search(rb"/Root 1 0 R", saved)
     assert not re.search(rb"\d{10} \d+ (?:obj|R)", saved)
@@ -260,7 +260,7 @@ def test_document_above_the_limit_saves_in_every_mode(mode: str) -> None:
     saved = save(_probe_document())
 
     reopened = pylopdf.open(saved, password=password)
-    assert reopened.pages[0].get_text().split() == ["TARGET", "PAGE"]
+    assert reopened.pages[0].text().split() == ["TARGET", "PAGE"]
     plain = reopened.to_bytes()
     assert re.search(rb"/PylopdfProbe 6 0 R", plain)
     assert re.search(rb"\n6 0 obj\n<</PylopdfMarker\(BIG\)>>", plain)
@@ -320,7 +320,7 @@ def test_objects_up_to_the_limit_keep_their_numbers() -> None:
     assert re.search(rb"/Contents\[5 0 R 8388607 0 R 8388608 0 R null\]", saved)
     assert re.search(rb"\n8388608 0 obj\n", saved)
     assert re.search(rb"/Size 8388609\b", saved)
-    assert doc.pages[0].get_text().splitlines() == ["AT LIMIT", "PAST LIMIT", "TARGET PAGE"]
+    assert doc.pages[0].text().splitlines() == ["AT LIMIT", "PAST LIMIT", "TARGET PAGE"]
 
 
 @pytest.mark.parametrize("unlock", ["password", "authenticate"])
@@ -350,4 +350,4 @@ def test_encrypted_document_above_the_limit_opens_and_edits(unlock: str) -> None
     doc.pages[0].insert_text((20, 250), "STAMP")
 
     for current in _with_reloaded(doc):
-        assert Counter(current.pages[0].get_text().splitlines()) == Counter(["SECRET", "STAMP", "TARGET PAGE"])
+        assert Counter(current.pages[0].text().splitlines()) == Counter(["SECRET", "STAMP", "TARGET PAGE"])

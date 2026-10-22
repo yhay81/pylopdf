@@ -143,7 +143,7 @@ def test_drawing_keeps_paint_order() -> None:
         canvas.rect((130, 10, 180, 60), fill=BLACK)
     kinds = [type(item).__name__ for item in _items(page)]
     assert kinds == ["Path", "TextRun", "Path", "TextRun", "Path"]
-    assert page.get_text() == "first\nsecond\n"
+    assert page.text() == "first\nsecond\n"
 
 
 def test_text_in_standard_and_embedded_fonts() -> None:
@@ -162,7 +162,7 @@ def test_text_in_standard_and_embedded_fonts() -> None:
     assert runs[1].glyphs[0].size == pytest.approx(16, abs=0.01)
     two, lines = runs[2], runs[3]
     assert lines.glyphs[0].origin.y - two.glyphs[0].origin.y == pytest.approx(20, abs=0.01)
-    assert page.get_text() == "Helvetica text\n日本語の文章\ntwo\nlines\n"
+    assert page.text() == "Helvetica text\n日本語の文章\ntwo\nlines\n"
 
 
 def test_non_winansi_text_without_a_font_uses_an_installed_extra() -> None:
@@ -170,7 +170,7 @@ def test_non_winansi_text_without_a_font_uses_an_installed_extra() -> None:
     _doc, page = _new_page()
     with page.draw() as canvas:
         canvas.text("こんにちは", (20, 40))
-    assert page.get_text() == "こんにちは\n"
+    assert page.text() == "こんにちは\n"
 
 
 @pytest.mark.parametrize("embedded", [False, True])
@@ -228,7 +228,7 @@ def test_textbox_fits_or_draws_nothing(embedded: bool) -> None:  # noqa: FBT001 
     assert not overflow.fits
     assert overflow.spare_height < 0
     assert empty == TextFit(spare_height=20)
-    text = page.get_text()
+    text = page.text()
     assert "A short paragraph" in text
     assert "Far too much" not in text
     assert all(run.bbox.y1 <= 100 for run in page.content().text_runs)
@@ -389,7 +389,7 @@ def test_pages_of_other_documents_are_stored_once() -> None:
     with page.draw() as canvas:
         canvas.page((0, 0, 200, 100), source.pages[0])
         canvas.page((200, 100, 400, 200), source.pages[0])
-    assert page.get_text() == "Source page\nSource page\n"
+    assert page.text() == "Source page\nSource page\n"
     runs = page.content().text_runs
     assert runs[0].bbox.x0 < 200 < runs[1].bbox.x0
     # Drawing the unchanged page again reuses the Form of the first canvas.
@@ -397,7 +397,7 @@ def test_pages_of_other_documents_are_stored_once() -> None:
     with page.draw() as canvas:
         canvas.page((0, 200, 200, 300), source.pages[0])
     assert len(doc.objects) - count < 10
-    assert page.get_text().count("Source page") == 3
+    assert page.text().count("Source page") == 3
 
 
 def test_a_page_is_drawn_as_it_was_recorded() -> None:
@@ -407,11 +407,11 @@ def test_a_page_is_drawn_as_it_was_recorded() -> None:
     with target.draw() as canvas:
         canvas.page((0, 0, 150, 75), source)
         canvas.rect((200, 10, 250, 60), fill=RED)
-    assert "Before" in target.get_text()
+    assert "Before" in target.text()
     # Placing a page on itself draws its earlier content.
     with source.draw() as canvas:
         canvas.page((100, 50, 200, 100), source)
-    assert source.get_text().count("Before") == 2
+    assert source.text().count("Before") == 2
 
 
 def test_underlay_draws_below_existing_content() -> None:
@@ -438,7 +438,7 @@ def test_rotated_pages_use_display_space() -> None:
     _assert_rect(rect.bbox, (10, 20, 110, 70))
     assert text.glyphs[0].origin.y == pytest.approx(150, abs=0.01)
     assert text.glyphs[0].matrix.a > 0
-    assert page.get_text() == "rotated\n"
+    assert page.text() == "rotated\n"
 
 
 def test_an_exception_discards_the_drawing() -> None:

@@ -127,7 +127,7 @@ def test_page_with_a_null_parent_reads_and_edits_its_own_attributes(value: str) 
         assert len(current.pages) == 2
         assert [page.mediabox for page in current.pages] == [pylopdf.Rect(0, 0, 300, 400)] * 2
         assert [page.rotation for page in current.pages] == [90, 90]
-        assert "STAMP" in current.pages[1].get_text().splitlines()
+        assert "STAMP" in current.pages[1].text().splitlines()
 
 
 @null_values
@@ -143,7 +143,7 @@ def test_inheritance_keeps_attributes_below_a_null_parent(value: str) -> None:
     for current in _with_reloaded(doc):
         assert [page.rotation for page in current.pages] == [90, 90]
         for number in range(2):
-            assert sorted(current.pages[number].get_text().splitlines()) == ["STAMP", "TARGET PAGE"]
+            assert sorted(current.pages[number].text().splitlines()) == ["STAMP", "TARGET PAGE"]
 
 
 @null_values
@@ -154,7 +154,7 @@ def test_text_insertion_starts_a_null_font_category(value: str) -> None:
     doc.pages[0].insert_text((20, 300), "STAMP")
 
     for current in _with_reloaded(doc):
-        assert current.pages[0].get_text().splitlines() == ["STAMP"]
+        assert current.pages[0].text().splitlines() == ["STAMP"]
 
 
 @null_values
@@ -165,7 +165,7 @@ def test_page_import_starts_a_null_xobject_category(value: str) -> None:
     doc.pages[0].show_pdf_page((0, 300, 612, 792), pylopdf.open(build_pdf(["SOURCE"])), 0)
 
     for current in _with_reloaded(doc):
-        assert sorted(current.pages[0].get_text().splitlines()) == ["SOURCE", "TARGET PAGE"]
+        assert sorted(current.pages[0].text().splitlines()) == ["SOURCE", "TARGET PAGE"]
 
 
 @null_values
@@ -195,7 +195,7 @@ def test_drawing_after_a_null_content_entry_stays_visible(value: str, layout: st
     doc.pages[0].insert_text((20, 300), "STAMP")
 
     for current in _with_reloaded(doc):
-        assert current.pages[0].get_text().splitlines() == expected
+        assert current.pages[0].text().splitlines() == expected
 
 
 @null_values

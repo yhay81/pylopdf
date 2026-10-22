@@ -5,7 +5,7 @@ description: 借助迁移工具、逐个名称的对照表以及需要注意的�
 
 # 从pymupdf迁移
 
-pylopdf的目标是用自己的API完成pymupdf对PDF文件能做的一切。目前许多名称与pymupdf相同，大多数代码所依赖的数据形状（例如`"words"`元组、`"dict"`结构以及返回矩形的`search_for()`）也相同。但它不能直接替代pymupdf：它**只能打开PDF文件**（不支持XPS、EPUB或图像），有意改变了少数行为，而且下一个版本将重新设计API，迁移工具会随着各部分的落地而跟进。文档及其页面已经采用新API：`pylopdf.open(source)`和`doc.pages`。本页列出可以直接沿用的部分、存在差异的部分，以及pylopdf尚未实现的功能应改用什么。
+pylopdf的目标是用自己的API完成pymupdf对PDF文件能做的一切。但它不能直接替代pymupdf：它**只能打开PDF文件**（不支持XPS、EPUB或图像），有意改变了少数行为，而且下一个版本将重新设计API，迁移工具会随着各部分的落地而跟进。文档及其页面、保存和文本读取已经采用新API：`pylopdf.open(source)`、`doc.pages`、`doc.save()`、`page.text()`和`page.layout()`。本页列出可以直接沿用的部分、存在差异的部分，以及pylopdf尚未实现的功能应改用什么。
 
 ## 自动迁移 { #codemod }
 
@@ -64,10 +64,13 @@ python -m pylopdf.migrate src/
 
 | pymupdf | pylopdf | 说明 |
 |---|---|---|
-| `page.get_text()` | 相同 | 选项为`text`、`words`、`blocks`、`dict`、`rawdict`；没有`html`和`xml` |
-| `page.search_for(text)` | 相同 | 返回矩形；没有`quads=`；除非调大`max_hits=`，最多返回4,096个结果 |
+| `page.get_text()`、`get_text("text")` | `page.text()` | |
+| `page.get_text("words")` | `page.words()` | 返回带有`text`、`bbox`、`block`、`line`和`index`的`Word`记录，而非元组 |
+| `page.get_text("blocks")` | `page.layout().blocks` | 返回带有`text`、`bbox`和`lines`的`Block`记录，而非元组 |
+| `page.get_text("dict")`、`get_text("rawdict")` | `page.layout().to_dict()`、`page.layout(chars=True).to_dict()` | 返回相同的字典；`page.layout()`本身返回记录。没有`html`和`xml` |
+| `page.search_for(text)` | `page.search(text)` | 返回矩形；没有`quads=`；除非调大`max_hits=`，最多返回4,096个结果 |
 | `page.get_textpage_ocr()` | `page.get_text_ocr()`、`page.apply_ocr()` | 内置离线OCR；参见[离线OCR](ocr.md) |
-| `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | 内置 |
+| `pymupdf4llm.to_markdown(doc)` | `doc.markdown()` | 内置 |
 | `page.get_pixmap(matrix=…, dpi=…)` | 相同 | 仅支持缩放矩阵；尚无`colorspace=`和`annots=`；`doc.get_page_pixmap(i)`改为`doc.pages[i].get_pixmap()` |
 | `pix.samples`、`width`、`height`、`n`、`alpha`、`stride`、`colorspace`、`save()` | 相同 | `save()`和`tobytes()`只输出PNG |
 | `page.get_svg_image()` | 相同 | 文本始终以路径绘制 |
@@ -108,7 +111,7 @@ python -m pylopdf.migrate src/
 - **页面底部附近的`insert_text`。**pylopdf依据可见页面区域（`page.rect`）判断哪些行放得下，而pymupdf测量到未旋转页面的底边为止。在普通的未旋转页面上，两者结果一致。
 - **字体处理严格。**pylopdf不会悄悄改用其他字体，而是抛出异常：例如字体缺少某个字符时，或`is_bold=True`请求的粗体字体未安装时。
 - **合并表单。**`doc.pages.insert()`和`extend()`总是复制表单字段，与pymupdf默认的`widgets=True`相同。接收文档中已存在的同名字段会被重命名为`name+1`、`name+2`等，因此同一表单的各个副本保持各自的值。
-- **表格与Markdown。**`find_tables()`默认检测以线条绘制的表格；无边框表格请传入`strategy="text"`。`to_markdown()`按阅读顺序放置检测到的表格，并从周围段落中移除表格文本。
+- **表格与Markdown。**`find_tables()`默认检测以线条绘制的表格；无边框表格请传入`strategy="text"`。`markdown()`按阅读顺序放置检测到的表格，并从周围段落中移除表格文本。
 
 ## 未实现的功能及替代方案 { #deliberate-scope }
 
@@ -139,7 +142,7 @@ doc.save("out.pdf", garbage=4, deflate=True)
 import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc.pages[0]
-page.add_highlight_annot(page.search_for("total"))   # 可直接传入整个列表
+page.add_highlight_annot(page.search("total"))       # 可直接传入整个列表
 page.get_pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
 doc.save("out.pdf", dedupe=True, renumber=True)
 ```

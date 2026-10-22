@@ -22,13 +22,13 @@ import ast
 import inspect
 from dataclasses import dataclass
 from functools import cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import libcst as cst
 
 import pylopdf
 from pylopdf._hints import migration_hint
-from pylopdf._migration_hints import HINTS, PYLOPDF_015_REMOVED
+from pylopdf._migration_hints import HINTS, PYLOPDF_015_ONLY, PYLOPDF_015_REMOVED
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -99,11 +99,12 @@ def _provided_members() -> frozenset[str]:
 
 
 @cache
-def _member_hints() -> dict[str, str]:
-    """Map a pymupdf member name that no pylopdf class provides to its hint.
+def _member_hints(pymupdf: bool) -> dict[str, str]:  # noqa: FBT001 - cached per kind of program.
+    """Map a pymupdf or pylopdf 0.15 member name that no pylopdf class provides to its hint.
 
-    A name that several pymupdf classes share takes the Document hint, then
-    the Page hint, then the first in alphabetical order.
+    A name that several classes share takes the Document hint, then the Page
+    hint, then the first in alphabetical order. A pymupdf program skips the
+    names that only pylopdf 0.15 had.
     """
     provided = _provided_members()
     priority = {"Document": 0, "Page": 1}
@@ -111,6 +112,8 @@ def _member_hints() -> dict[str, str]:
     for key, message in HINTS.items():
         owner, _, member = key.partition(".")
         if not member or (member.startswith("__") and member.endswith("__")) or member in provided:
+            continue
+        if pymupdf and key in PYLOPDF_015_ONLY:
             continue
         rank = priority.get(owner, len(priority))
         current = ranked.get(member)
@@ -371,14 +374,21 @@ def _load_page(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
 
 
 def _page_method(method: str, names: tuple[str, ...]) -> Callable[[_Migrator, str, _Arguments], str | None]:
-    """Rewrite ``doc.<name>(pno, ...)`` to ``doc.pages[pno].<method>(...)``, keeping the other arguments."""
+    """Rewrite ``doc.<name>(pno, ...)`` to ``doc.pages[pno].<method>(...)``, keeping the other arguments.
 
-    def rule(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    When the page method has a rule of its own, such as ``get_text``, that
+    rule rewrites the page call in turn.
+    """
+
+    def rule(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
         bound = args.bind(("pno", *names))
         if bound is None or "pno" not in bound:
             return None
-        rest = [*args.positional[1:], *(f"{key}={value}" for key, value in args.keywords.items() if key != "pno")]
-        return f"{receiver}.pages[{bound['pno']}].{method}({', '.join(rest)})"
+        rest = _Arguments(args.positional[1:], {key: value for key, value in args.keywords.items() if key != "pno"})
+        page = f"{receiver}.pages[{bound['pno']}]"
+        if method in CALL_RULES:
+            return CALL_RULES[method](migrator, page, rest)
+        return _call(page, method, rest)
 
     return rule
 
@@ -592,6 +602,81 @@ def _unlock(note: bool) -> Callable[[_Migrator, str, _Arguments], str | None]:  
     return rule
 
 
+#: ``get_text`` options and their replacements; ``words`` and ``blocks`` return records now.
+TEXT_OPTIONS = {
+    "text": "{receiver}.text()",
+    "words": "{receiver}.words()",
+    "blocks": "{receiver}.layout().blocks",
+    "dict": "{receiver}.layout().to_dict()",
+    "rawdict": "{receiver}.layout(chars=True).to_dict()",
+}
+TEXT_RECORD_MESSAGES = {
+    "words": "page.words() returns Word records with text, bbox, block, line, and index instead of tuples.",
+    "blocks": "page.layout().blocks holds Block records with text, bbox, and lines instead of tuples.",
+}
+
+
+def _string_literal(text: str) -> str | None:
+    """Return the value of a string literal, or None for another expression."""
+    try:
+        node = cst.parse_expression(text)
+    except cst.ParserSyntaxError:
+        return None
+    if isinstance(node, cst.SimpleString):
+        value = node.evaluated_value
+        return value if isinstance(value, str) else None
+    return None
+
+
+def _call(receiver: str, method: str, args: _Arguments) -> str:
+    """Render a method call with the arguments of another call."""
+    rendered = [*args.positional, *(f"{key}={value}" for key, value in args.keywords.items())]
+    return f"{receiver}.{method}({', '.join(rendered)})"
+
+
+def _renamed(method: str) -> Callable[[_Migrator, str, _Arguments], str | None]:
+    """Return a rule that renames a method and keeps its arguments."""
+
+    def rule(_: _Migrator, receiver: str, args: _Arguments) -> str:
+        return _call(receiver, method, args)
+
+    return rule
+
+
+def _get_text(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite pymupdf's ``Page.get_text(option)`` and pylopdf 0.15's ``Document.get_text(pages)``."""
+    if "pages" in args.keywords or (
+        args.positional and _string_literal(args.positional[0]) is None and migrator.is_document(receiver)
+    ):
+        bound = args.bind(("pages",))
+        return None if bound is None else _call(receiver, "text", args)
+    bound = args.bind(("option", "clip", "flags", "textpage", "sort", "delimiters", "tolerance"))
+    if bound is None or set(bound) - {"option", "sort"}:
+        return None
+    option = _string_literal(bound.get("option", '"text"'))
+    if option not in TEXT_OPTIONS:
+        return None
+    if option in TEXT_RECORD_MESSAGES:
+        migrator.todo(TEXT_RECORD_MESSAGES[option])
+    return TEXT_OPTIONS[option].format(receiver=receiver)
+
+
+def _search_for(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``search_for(needle, ...)`` to ``search(text, ...)``; clip and quads come with Reading."""
+    keywords = {"needle" if key == "text" else key: value for key, value in args.keywords.items()}
+    bound = _Arguments(args.positional, keywords).bind(
+        ("needle", "clip", "quads", "flags", "textpage", "hit_max", "max_hits")
+    )
+    if bound is None or "needle" not in bound or {"clip", "flags", "textpage"} & set(bound):
+        return None
+    if bound.get("quads", "False") not in _FALSE or ("hit_max" in bound and "max_hits" in bound):
+        return None
+    arguments = [bound["needle"]]
+    if "hit_max" in bound or "max_hits" in bound:
+        arguments.append(f"max_hits={bound.get('max_hits', bound.get('hit_max'))}")
+    return f"{receiver}.search({', '.join(arguments)})"
+
+
 #: Calls rewritten wherever they appear.
 CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "get_toc": _get_toc,
@@ -626,6 +711,9 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "tobytes": _tobytes,
     "write": _tobytes,
     "authenticate": _unlock(note=True),
+    "get_text": _get_text,
+    "search_for": _search_for,
+    "to_markdown": _renamed("markdown"),
 }
 
 
@@ -844,6 +932,145 @@ MODULE_CALL_RULES: dict[str, Callable[[_Migrator, str | None, str, _Arguments], 
 }
 
 
+#: The fields of word and block records by their position in pymupdf's tuples.
+RECORD_FIELDS = {
+    "words": {0: "bbox.x0", 1: "bbox.y0", 2: "bbox.x1", 3: "bbox.y1", 4: "text", 5: "block", 6: "line", 7: "index"},
+    "blocks": {0: "bbox.x0", 1: "bbox.y0", 2: "bbox.x1", 3: "bbox.y1", 4: "text"},
+}
+#: The variable name that a converted loop over unpacked tuples takes.
+RECORD_NAMES = {"words": "word", "blocks": "block"}
+_Comprehension = cst.ListComp | cst.SetComp | cst.DictComp | cst.GeneratorExp
+
+
+def _tuple_field(node: cst.Subscript, fields: dict[int, str]) -> str | None:
+    """Return the record field that ``node``, an index into a pymupdf tuple, reads, or None."""
+    if len(node.slice) != 1:
+        return None
+    element = node.slice[0].slice
+    if isinstance(element, cst.Index):
+        index = _int_literal(_code(element.value))
+        return None if index is None else fields.get(index)
+    if (
+        isinstance(element, cst.Slice)
+        and element.lower is None
+        and element.step is None
+        and element.upper is not None
+        and _int_literal(_code(element.upper)) == 4  # noqa: PLR2004 - the four box coordinates.
+    ):
+        return "bbox"
+    return None
+
+
+class _IndexedRecord(cst.CSTTransformer):
+    """Turn ``variable[i]`` into the record field at position ``i``, noting any other use of ``variable``."""
+
+    def __init__(self, variable: str, fields: dict[int, str], skip: set[int]) -> None:
+        super().__init__()
+        self.variable = variable
+        self.fields = fields
+        self.skip = skip
+        self.handled: set[int] = set()
+        self.unsupported = False
+
+    def visit_Subscript(self, node: cst.Subscript) -> None:
+        if (
+            isinstance(node.value, cst.Name)
+            and node.value.value == self.variable
+            and _tuple_field(node, self.fields) is not None
+        ):
+            self.handled.add(id(node.value))
+
+    def visit_Name(self, node: cst.Name) -> None:
+        if node.value == self.variable and id(node) not in self.handled and id(node) not in self.skip:
+            self.unsupported = True
+
+    def leave_Subscript(self, original_node: cst.Subscript, updated_node: cst.Subscript) -> cst.BaseExpression:
+        if id(original_node.value) in self.handled:
+            return cst.parse_expression(f"{self.variable}.{_tuple_field(original_node, self.fields)}")
+        return updated_node
+
+
+class _UnpackedRecord(cst.CSTTransformer):
+    """Turn the names that unpacked a pymupdf tuple into fields of one record variable."""
+
+    def __init__(self, replacements: dict[str, str | None]) -> None:
+        super().__init__()
+        self.replacements = replacements
+        self.names: set[int] = set()
+        self.unsupported = False
+
+    def visit_Attribute(self, node: cst.Attribute) -> None:
+        self.names.add(id(node.attr))
+
+    def visit_Arg(self, node: cst.Arg) -> None:
+        if node.keyword is not None:
+            self.names.add(id(node.keyword))
+
+    def leave_Name(self, original_node: cst.Name, updated_node: cst.Name) -> cst.BaseExpression:
+        if id(original_node) in self.names or original_node.value not in self.replacements:
+            return updated_node
+        replacement = self.replacements[original_node.value]
+        if replacement is None:
+            self.unsupported = True
+            return updated_node
+        return cst.parse_expression(replacement)
+
+
+def _record_loop(node: cst.CSTNode, target: cst.BaseAssignTargetExpression, kind: str) -> cst.CSTNode | None:
+    """Rewrite a loop over pymupdf's word or block tuples to read record fields, or return None.
+
+    ``node`` is a comprehension or a ``for`` statement whose ``target`` takes
+    each item. A name target must only be indexed by tuple positions that
+    the record has; a tuple target may name the positions that the record has
+    and ignore the rest with ``_`` names or a starred name.
+    """
+    if isinstance(target, cst.Name):
+        indexed = _IndexedRecord(target.value, RECORD_FIELDS[kind], {id(target)})
+        converted = node.visit(indexed)
+        if indexed.unsupported or not indexed.handled or not isinstance(converted, cst.CSTNode):
+            return None
+        return converted
+    if isinstance(target, cst.Tuple):
+        return _unpacked_loop(node, target, kind)
+    return None
+
+
+def _unpacked_loop(node: cst.CSTNode, target: cst.Tuple, kind: str) -> cst.CSTNode | None:
+    """Rewrite a loop that unpacks pymupdf's tuples to take one record, or return None."""
+    fields = RECORD_FIELDS[kind]
+    taken = {name.value for name in _names(node)}
+    variable = next((name for name in (RECORD_NAMES[kind], "item", "record") if name not in taken), None)
+    replacements: dict[str, str | None] = {}
+    for position, element in enumerate(target.elements):
+        value = element.value
+        ignored = isinstance(value, cst.Name) and value.value.startswith("_")
+        if isinstance(element, cst.StarredElement):
+            if position != len(target.elements) - 1 or not ignored:
+                return None
+        elif not isinstance(value, cst.Name):
+            return None
+        elif not ignored:
+            field = fields.get(position)
+            replacements[value.value] = None if field is None else f"{variable}.{field}"
+    if variable is None:
+        return None
+    unpacked = _UnpackedRecord(replacements)
+    converted = node.deep_replace(target, cst.Name(variable)).visit(unpacked)
+    return None if unpacked.unsupported or not isinstance(converted, cst.CSTNode) else converted
+
+
+def _names(node: cst.CSTNode) -> list[cst.Name]:
+    """Return every name node in ``node``."""
+    collected: list[cst.Name] = []
+
+    class _Collect(cst.CSTVisitor):
+        def visit_Name(self, node: cst.Name) -> None:
+            collected.append(node)
+
+    node.visit(_Collect())
+    return collected
+
+
 class _Scanner(cst.CSTVisitor):
     """Find the module's pymupdf and pylopdf imports and the names bound to documents and pages.
 
@@ -1028,8 +1255,11 @@ class _Migrator(cst.CSTTransformer):
     # Hint comments ------------------------------------------------------
 
     def todo(self, message: str) -> None:
-        if message not in self._todos[-1]:
-            self._todos[-1].append(message)
+        # One entry per emission, so that a rewrite that makes one unnecessary withdraws only its own.
+        self._todos[-1].append(message)
+
+    def _withdraw(self, message: str) -> None:
+        self._todos[-1].remove(message)
 
     def _push(self) -> None:
         self._todos.append([])
@@ -1038,9 +1268,9 @@ class _Migrator(cst.CSTTransformer):
         messages = self._todos.pop()
         leading: Sequence[cst.EmptyLine] | None = getattr(node, "leading_lines", None)
         if not messages or leading is None:
-            self._todos[-1].extend(message for message in messages if message not in self._todos[-1])
+            self._todos[-1].extend(messages)
             return node
-        comments = [cst.EmptyLine(comment=cst.Comment(f"# {TODO}: {message}")) for message in messages]
+        comments = [cst.EmptyLine(comment=cst.Comment(f"# {TODO}: {message}")) for message in dict.fromkeys(messages)]
         return node.with_changes(leading_lines=[*leading, *comments])
 
     def module_name(self) -> str | None:
@@ -1083,7 +1313,7 @@ class _Migrator(cst.CSTTransformer):
         if name in ROTATION_NAMES:
             self.todo(ROTATION_MESSAGE)
             return
-        hint = _member_hints().get(name)
+        hint = _member_hints(self._scan.pymupdf).get(name)
         if hint is not None:
             self.todo(hint)
 
@@ -1156,7 +1386,49 @@ class _Migrator(cst.CSTTransformer):
         return result
 
     def leave_For(self, original_node: cst.For, updated_node: cst.For) -> cst.For:
-        return updated_node.with_changes(iter=self._pages_of(updated_node.iter))
+        updated_node = updated_node.with_changes(iter=self._pages_of(updated_node.iter))
+        kind = self._record_kind(updated_node.iter)
+        if kind is None:
+            return updated_node
+        converted = _record_loop(updated_node, updated_node.target, kind)
+        if converted is None:
+            return updated_node
+        self._withdraw(TEXT_RECORD_MESSAGES[kind])
+        assert isinstance(converted, cst.For)  # noqa: S101 - the loop stays a loop.
+        return converted
+
+    def leave_ListComp(self, original_node: cst.ListComp, updated_node: cst.ListComp) -> cst.BaseExpression:
+        return self._record_comprehension(updated_node)
+
+    def leave_SetComp(self, original_node: cst.SetComp, updated_node: cst.SetComp) -> cst.BaseExpression:
+        return self._record_comprehension(updated_node)
+
+    def leave_DictComp(self, original_node: cst.DictComp, updated_node: cst.DictComp) -> cst.BaseExpression:
+        return self._record_comprehension(updated_node)
+
+    def leave_GeneratorExp(self, original_node: cst.GeneratorExp, updated_node: cst.GeneratorExp) -> cst.BaseExpression:
+        return self._record_comprehension(updated_node)
+
+    def _record_kind(self, iterable: cst.BaseExpression) -> str | None:
+        """Return ``words`` or ``blocks`` for an iterable that a ``get_text`` rewrite just produced."""
+        code = _code(iterable)
+        for kind, suffix in (("words", ".words()"), ("blocks", ".layout().blocks")):
+            if code.endswith(suffix) and TEXT_RECORD_MESSAGES[kind] in self._todos[-1]:
+                return kind
+        return None
+
+    def _record_comprehension(self, node: _Comprehension) -> _Comprehension:
+        """Read the fields of word and block records where a comprehension indexed pymupdf's tuples."""
+        for_: cst.CompFor | None = node.for_in
+        while for_ is not None:
+            kind = self._record_kind(for_.iter)
+            if kind is not None:
+                converted = _record_loop(node, for_.target, kind)
+                if converted is not None:
+                    self._withdraw(TEXT_RECORD_MESSAGES[kind])
+                    return cast("_Comprehension", converted)
+            for_ = for_.inner_for_in
+        return node
 
     def leave_CompFor(self, original_node: cst.CompFor, updated_node: cst.CompFor) -> cst.CompFor:
         return updated_node.with_changes(iter=self._pages_of(updated_node.iter))

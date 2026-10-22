@@ -22,7 +22,7 @@ ASSETS = Path(__file__).parent / "assets" / "real_world"
 
 def _extract_document(data: bytes) -> str:
     with pylopdf.open(data) as doc:
-        return "".join(doc.pages[index].get_text() for index in range(len(doc.pages)))
+        return "".join(doc.pages[index].text() for index in range(len(doc.pages)))
 
 
 def _timed_extract_pair(data: bytes, *, parallel: bool) -> tuple[float, tuple[str, str]]:

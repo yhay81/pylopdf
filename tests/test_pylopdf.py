@@ -139,42 +139,42 @@ def test_metadata_text_boundary_roundtrip(one_page_pdf: bytes) -> None:
 
 def test_get_page_text(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
-    assert "Page two" in doc.pages[1].get_text()
+    assert "Page two" in doc.pages[1].text()
 
 
 def test_get_page_text_out_of_range(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
     with pytest.raises(IndexError):
-        doc.pages[1].get_text()
+        doc.pages[1].text()
 
 
 def test_get_text_batches_every_page(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
-    expected = "".join(doc.pages[pno].get_text() for pno in range(len(doc.pages)))
-    assert doc.get_text() == expected
+    expected = "".join(doc.pages[pno].text() for pno in range(len(doc.pages)))
+    assert doc.text() == expected
     assert "Page one" in expected
     assert "Page three" in expected
 
 
 def test_get_text_page_selection(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
-    reordered = doc.pages[2].get_text() + doc.pages[0].get_text() + doc.pages[2].get_text()
-    assert doc.get_text([2, 0, 2]) == reordered
-    assert doc.get_text([-1]) == doc.pages[2].get_text()
-    assert doc.get_text([]) == ""
+    reordered = doc.pages[2].text() + doc.pages[0].text() + doc.pages[2].text()
+    assert doc.text([2, 0, 2]) == reordered
+    assert doc.text([-1]) == doc.pages[2].text()
+    assert doc.text([]) == ""
 
 
 def test_get_text_out_of_range(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
     with pytest.raises(IndexError):
-        doc.get_text([1])
+        doc.text([1])
 
 
 def test_get_text_rejects_oversized_batch(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
-    assert doc.get_text([0] * 4096) == doc.pages[0].get_text() * 4096
+    assert doc.text([0] * 4096) == doc.pages[0].text() * 4096
     with pytest.raises(pylopdf.LimitError, match="cannot contain more than 4096 entries") as caught:
-        doc.get_text([0] * 4097)
+        doc.text([0] * 4097)
     assert caught.value.code == "page_entry_count"
 
 
@@ -182,21 +182,21 @@ def test_get_text_on_closed_document(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
     doc.close()
     with pytest.raises(pylopdf.DocumentClosedError):
-        doc.get_text()
+        doc.text()
 
 
 def test_delete_page(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
     del doc.pages[0]
     assert len(doc.pages) == 2
-    assert "Page one" not in doc.pages[0].get_text()
+    assert "Page one" not in doc.pages[0].text()
 
 
 def test_delete_pages(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
     doc.pages.select(index for index in range(len(doc.pages)) if index not in {0, 2})
     assert len(doc.pages) == 1
-    assert "Page two" in doc.pages[0].get_text()
+    assert "Page two" in doc.pages[0].text()
 
 
 def test_empty_page_lists(one_page_pdf: bytes) -> None:
@@ -204,7 +204,7 @@ def test_empty_page_lists(one_page_pdf: bytes) -> None:
     page = doc.pages[0]
     del doc.pages[:0]
     assert len(doc.pages) == 1
-    assert "Hello PDF" in page.get_text()
+    assert "Hello PDF" in page.text()
     doc.pages.select([])
     assert len(doc.pages) == 0
 
@@ -224,7 +224,7 @@ def test_insert_pdf(tmp_path: Path, one_page_pdf: bytes, three_page_pdf: bytes) 
     doc.save(out)
     reopened = pylopdf.open(out)
     assert len(reopened.pages) == 4
-    assert "Page three" in reopened.pages[3].get_text()
+    assert "Page three" in reopened.pages[3].text()
 
 
 def test_save_atomically_replaces_an_existing_file(tmp_path: Path, one_page_pdf: bytes) -> None:
@@ -286,19 +286,19 @@ def test_split_workflow(three_page_pdf: bytes) -> None:
     part = pylopdf.open(three_page_pdf)
     del part.pages[0:2]
     assert len(part.pages) == 1
-    assert "Page three" in part.pages[0].get_text()
+    assert "Page three" in part.pages[0].text()
 
 
 def test_select_reorder(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
     doc.pages.select([2, 0])
     assert len(doc.pages) == 2
-    assert "Page three" in doc.pages[0].get_text()
-    assert "Page one" in doc.pages[1].get_text()
+    assert "Page three" in doc.pages[0].text()
+    assert "Page one" in doc.pages[1].text()
     # The structure survives save and reload.
     reloaded = pylopdf.open(doc.to_bytes())
     assert len(reloaded.pages) == 2
-    assert "Page three" in reloaded.pages[0].get_text()
+    assert "Page three" in reloaded.pages[0].text()
 
 
 def test_select_duplicates_pages(three_page_pdf: bytes) -> None:
@@ -306,12 +306,12 @@ def test_select_duplicates_pages(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
     doc.pages.select([0, 0, 1])
     assert len(doc.pages) == 3
-    assert "Page one" in doc.pages[0].get_text()
-    assert "Page one" in doc.pages[1].get_text()
-    assert "Page two" in doc.pages[2].get_text()
+    assert "Page one" in doc.pages[0].text()
+    assert "Page one" in doc.pages[1].text()
+    assert "Page two" in doc.pages[2].text()
     reloaded = pylopdf.open(doc.to_bytes())
     assert len(reloaded.pages) == 3
-    assert "Page one" in reloaded.pages[1].get_text()
+    assert "Page one" in reloaded.pages[1].text()
     assert reloaded.pages[0].get_pixmap(alpha=True).tobytes() == reloaded.pages[1].get_pixmap(alpha=True).tobytes()
 
 
@@ -341,7 +341,7 @@ def test_structural_page_iterables_stop_at_small_document_floor(
         method(entries())
     assert caught.value.code == "page_entry_count"
     assert consumed == 4097
-    assert "Hello PDF" in page.get_text()
+    assert "Hello PDF" in page.text()
 
 
 def test_insert_pdf_accepts_ranges_beyond_the_batch_floor(one_page_pdf: bytes) -> None:
@@ -350,7 +350,7 @@ def test_insert_pdf_accepts_ranges_beyond_the_batch_floor(one_page_pdf: bytes) -
 
     target.pages.insert(0, source.pages)
     assert len(target.pages) == 4098
-    assert "Hello PDF" in target.pages[4097].get_text()
+    assert "Hello PDF" in target.pages[4097].text()
 
 
 def test_extending_a_document_with_its_own_pages_copies_them(three_page_pdf: bytes) -> None:
@@ -361,7 +361,7 @@ def test_extending_a_document_with_its_own_pages_copies_them(three_page_pdf: byt
 
     assert [page.xref for page in doc.pages[:3]] == xrefs
     assert not {page.xref for page in doc.pages[3:]} & set(xrefs)
-    assert [page.get_text() for page in doc.pages[3:]] == [page.get_text() for page in doc.pages[:3]]
+    assert [page.text() for page in doc.pages[3:]] == [page.text() for page in doc.pages[:3]]
 
 
 def test_tobytes(one_page_pdf: bytes) -> None:
@@ -788,7 +788,7 @@ def test_save_options_roundtrip(tmp_path: Path, three_page_pdf: bytes) -> None:
     doc.save(out, object_streams=True)
     reopened = pylopdf.open(out)
     assert len(reopened.pages) == 3
-    assert "Page two" in reopened.pages[1].get_text()
+    assert "Page two" in reopened.pages[1].text()
     # Object streams require PDF 1.5+, so the version is raised.
     assert reopened.metadata["format"] == "PDF 1.5"
 
@@ -809,7 +809,7 @@ def test_multi_document_merge() -> None:
         merged.pages.extend(pylopdf.open(build_pdf([text])).pages)
     assert len(merged.pages) == 3
     reloaded = pylopdf.open(merged.to_bytes())
-    assert "Second" in reloaded.pages[1].get_text()
+    assert "Second" in reloaded.pages[1].text()
 
 
 def test_inherited_page_parent_cycle_does_not_hang(one_page_pdf: bytes) -> None:
@@ -822,6 +822,6 @@ def test_inherited_page_parent_cycle_does_not_hang(one_page_pdf: bytes) -> None:
     raw = one_page_pdf.replace(b"/Parent 2 0 R", b"/Parent 4 0 R")
     doc = pylopdf.open(raw)
     assert len(doc.pages) == 1
-    assert isinstance(doc.pages[0].get_text(), str)
+    assert isinstance(doc.pages[0].text(), str)
     with pytest.raises(ValueError, match="reference cycle"):
         _ = doc.pages[0].mediabox

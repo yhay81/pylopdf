@@ -78,19 +78,6 @@ class Access(enum.IntEnum):
     OWNER = 2
 
 
-class Word(NamedTuple):
-    """One ``get_text("words")`` item, in pymupdf's tuple order."""
-
-    x0: float
-    y0: float
-    x1: float
-    y1: float
-    word: str
-    block_no: int
-    line_no: int
-    word_no: int
-
-
 class OutlineEntry(NamedTuple):
     """One outline (bookmark) item of :meth:`Document.get_outline`.
 
@@ -102,21 +89,6 @@ class OutlineEntry(NamedTuple):
     page: int
 
 
-class Block(NamedTuple):
-    """One ``get_text("blocks")`` item, in pymupdf's tuple order.
-
-    ``block_type`` is 0 for text, as in pymupdf.
-    """
-
-    x0: float
-    y0: float
-    x1: float
-    y1: float
-    text: str
-    block_no: int
-    block_type: int
-
-
 #: Clockwise correction applied to rendered OCR input.
 OcrRotation: TypeAlias = Literal[0, 90, 180, 270]
 #: Script or locale used to select an optional bundled generation font.
@@ -125,98 +97,6 @@ FontLanguage: TypeAlias = Literal["ar", "he", "hi", "ja", "ko", "th", "zh-CN", "
 CjkFontLanguage: TypeAlias = Literal["ja", "ko", "zh-CN", "zh-TW"]
 #: One vector command: a line or a cubic Bézier in display coordinates.
 DrawingItem: TypeAlias = tuple[Literal["l"], Point, Point] | tuple[Literal["c"], Point, Point, Point, Point]
-
-
-class TextSpan(TypedDict):
-    """One styled text run in :class:`TextLine`."""
-
-    bbox: tuple[float, float, float, float]
-    origin: tuple[float, float]
-    size: float
-    font: str
-    flags: int
-    text: str
-
-
-class TextLine(TypedDict):
-    """One positioned line in :class:`TextBlock`."""
-
-    bbox: tuple[float, float, float, float]
-    wmode: int
-    dir: tuple[float, float]
-    spans: list[TextSpan]
-
-
-class TextBlock(TypedDict):
-    """One text block returned by ``get_text("dict")``."""
-
-    number: int
-    type: int
-    bbox: tuple[float, float, float, float]
-    lines: list[TextLine]
-
-
-class TextPageDict(TypedDict):
-    """Nested positioned layout returned by ``get_text("dict")``."""
-
-    width: float
-    height: float
-    blocks: list[TextBlock]
-
-
-class TextChar(TypedDict):
-    """One positioned Unicode glyph returned by ``get_text("rawdict")``.
-
-    ``c`` preserves the glyph's complete Unicode mapping, which can contain
-    several characters. ``origin`` is its baseline point. ``bbox`` uses the
-    existing advance and font-size approximation, not the glyph's outline.
-    Both geometries use rotation-resolved, top-left-origin display coordinates.
-    """
-
-    c: str
-    bbox: tuple[float, float, float, float]
-    origin: tuple[float, float]
-
-
-class RawTextSpan(TypedDict):
-    """One styled glyph run, with ``chars`` replacing :class:`TextSpan` text."""
-
-    bbox: tuple[float, float, float, float]
-    origin: tuple[float, float]
-    size: float
-    font: str
-    flags: int
-    chars: list[TextChar]
-
-
-class RawTextLine(TypedDict):
-    """One positioned line with the same direction heuristics as :class:`TextLine`."""
-
-    bbox: tuple[float, float, float, float]
-    wmode: int
-    dir: tuple[float, float]
-    spans: list[RawTextSpan]
-
-
-class RawTextBlock(TypedDict):
-    """One text-only block returned by ``get_text("rawdict")``."""
-
-    number: int
-    type: int
-    bbox: tuple[float, float, float, float]
-    lines: list[RawTextLine]
-
-
-class RawTextPageDict(TypedDict):
-    """Nested glyph layout returned by ``get_text("rawdict")``.
-
-    Geometry is in display points, with page rotation and CropBox offsets
-    resolved. Reading order follows the existing extraction heuristics.
-    """
-
-    width: float
-    height: float
-    blocks: list[RawTextBlock]
 
 
 class ImageItem(NamedTuple):
@@ -474,22 +354,11 @@ class OcrWord(TypedDict):
 
 # The package re-exports these names; reprs, pickles, and documentation name it.
 for _public in (
-    Word,
     OutlineEntry,
-    Block,
     LinkKind,
     TextAlign,
     Permissions,
     Access,
-    TextSpan,
-    TextLine,
-    TextBlock,
-    TextPageDict,
-    TextChar,
-    RawTextSpan,
-    RawTextLine,
-    RawTextBlock,
-    RawTextPageDict,
     ImageItem,
     ImageItemFull,
     ImageInfo,

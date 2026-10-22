@@ -96,7 +96,7 @@ bytes:
 import pylopdf
 
 with pylopdf.open(pdf_bytes, limits=pylopdf.DocumentLimits.web()) as doc:
-    text = doc.pages[0].get_text() if doc.pages else ""
+    text = doc.pages[0].text() if doc.pages else ""
     output = doc.to_bytes()
 ```
 

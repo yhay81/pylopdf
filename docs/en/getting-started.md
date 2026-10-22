@@ -91,10 +91,10 @@ with pylopdf.open("input.pdf") as doc:
         print(page.index, page.rect)
 
     page = doc.pages[0]
-    text = page.get_text()                 # plain text
-    words = page.get_text("words")         # (x0, y0, x1, y1, word, block, line, word_no)
-    layout = page.get_text("dict")         # blocks → lines → spans with bbox, size, font
-    hits = page.search_for("total")        # case-insensitive; a list of Rect
+    text = page.text()                     # plain text
+    words = page.words()                   # Word records with text, bbox, block, line, index
+    layout = page.layout()                 # blocks → lines → spans with bbox, size, font
+    hits = page.search("total")            # case-insensitive; a list of Rect
     tables = page.find_tables()
 ```
 
@@ -147,10 +147,10 @@ with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterh
     page.show_pdf_page(page.rect, letterhead)       # page 0 of another PDF, kept as vectors
     page.draw_line((36, 340), (400, 340), width=0.5, dashes="[3 2] 0")
 
-    hits = page.search_for("important")
+    hits = page.search("important")
     if hits:
         page.add_highlight_annot(hits)
-    for rect in page.search_for("Example")[:1]:
+    for rect in page.search("Example")[:1]:
         page.insert_link({"kind": pylopdf.LINK_URI, "from": rect, "uri": "https://example.com/"})
     doc.save("annotated.pdf")
 ```
@@ -204,7 +204,7 @@ with pylopdf.open("form.pdf") as doc:
     doc.save("filled.pdf")
 
 with pylopdf.open("input.pdf") as doc:
-    md = doc.to_markdown()                    # headings, lists, and tables
+    md = doc.markdown()                       # headings, lists, and tables
 ```
 
 [Offline OCR](ocr.md) covers OCR in detail, including how to add text

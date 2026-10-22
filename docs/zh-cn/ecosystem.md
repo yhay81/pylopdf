@@ -47,7 +47,7 @@ for page in doc.pages:
     page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
 ```
 
-印章仍然是真实的文本：之后`page.get_text()`能够找到`社外秘`。
+印章仍然是真实的文本：之后`page.text()`能够找到`社外秘`。
 
 ## 用pyHanko进行数字签名 { #signatures }
 
@@ -71,7 +71,7 @@ signed_pdf: bytes = out.getvalue()
 
 ## 使用其他OCR引擎 { #ocr }
 
-pylopdf有[内置OCR](ocr.md)。如果想改用Tesseract或云服务等其他引擎，请将其识别出的单词以`(x0, y0, x1, y1, text)`的形式传给`Page.insert_ocr_text_layer(words)`。pylopdf会把它们添加为不可见的文本层，使扫描件可被搜索，并让`to_markdown()`能够读取，同时几乎不增加文件大小。
+pylopdf有[内置OCR](ocr.md)。如果想改用Tesseract或云服务等其他引擎，请将其识别出的单词以`(x0, y0, x1, y1, text)`的形式传给`Page.insert_ocr_text_layer(words)`。pylopdf会把它们添加为不可见的文本层，使扫描件可被搜索，并让`markdown()`能够读取，同时几乎不增加文件大小。
 
 ```python
 import pylopdf

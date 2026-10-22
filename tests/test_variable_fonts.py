@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import struct
 from pathlib import Path
+from typing import Any
 
 import pytest
 from conftest import build_raw_pdf
@@ -67,14 +68,14 @@ def _new_page(width: float = 400, height: float = 200) -> tuple[pylopdf.Document
     return doc, doc.pages.new((width, height))
 
 
-def _spans(page: pylopdf.Page) -> list[pylopdf.TextSpan]:
-    return [span for block in page.get_text("dict")["blocks"] for line in block["lines"] for span in line["spans"]]
+def _spans(page: pylopdf.Page) -> list[dict[str, Any]]:
+    return [span for block in page.layout().to_dict()["blocks"] for line in block["lines"] for span in line["spans"]]
 
 
-def _chars(page: pylopdf.Page) -> list[pylopdf.TextChar]:
+def _chars(page: pylopdf.Page) -> list[dict[str, Any]]:
     return [
         char
-        for block in page.get_text("rawdict")["blocks"]
+        for block in page.layout(chars=True).to_dict()["blocks"]
         for line in block["lines"]
         for span in line["spans"]
         for char in span["chars"]
@@ -161,7 +162,7 @@ def test_hebrew_generation_embeds_the_regular_instance() -> None:
     assert [widths[char] for char in SHALOM] == pytest.approx([advance / 10 for advance in SHALOM_ADVANCES[400]])
     reopened = pylopdf.open(doc.to_bytes())
     assert {span["font"] for span in _spans(reopened.pages[0])} == {"NotoSansHebrew-Regular"}
-    assert reopened.pages[0].get_text().count(HEBREW) == 3
+    assert reopened.pages[0].text().count(HEBREW) == 3
 
 
 def test_font_language_selects_the_regular_hebrew_instance() -> None:
@@ -326,7 +327,7 @@ def test_a_bold_instance_measures_and_draws_the_same_width(
     regular_page.insert_text((x, 80), text, font=regular, fontsize=size)
     assert _ink(page) > 1.2 * _ink(regular_page)
     reopened = pylopdf.open(doc.to_bytes())
-    assert reopened.pages[0].get_text().strip() == text
+    assert reopened.pages[0].text().strip() == text
 
 
 @pytest.mark.parametrize("source", SOURCES)
@@ -353,7 +354,7 @@ def test_textbox_lays_out_a_bold_instance_with_its_advances(source: str) -> None
     # minus the descender, plus one more descender.
     line_height = bold.ascender - bold.descender
     assert spare == pytest.approx(rect[3] - rect[1] - (line_height - bold.descender) * 16, abs=1e-6)
-    line = page.get_text("dict")["blocks"][0]["lines"][0]
+    line = page.layout().to_dict()["blocks"][0]["lines"][0]
     assert line["bbox"][0] == pytest.approx(rect[2] - bold.text_length(HEBREW, 16), abs=1e-2)
     assert line["bbox"][2] == pytest.approx(rect[2], abs=1e-2)
 
@@ -511,7 +512,7 @@ def test_form_appearances_draw_a_bold_instance_with_its_advances(source: str) ->
     assert all(span["flags"] & BOLD_FLAG for span in spans)
     # Both values fit at the 12-point size that auto-fitting starts from.
     assert [span["size"] for span in spans] == pytest.approx([12.0] * len(spans))
-    lines = [line for block in page.get_text("dict")["blocks"] for line in block["lines"]]
+    lines = [line for block in page.layout().to_dict()["blocks"] for line in block["lines"]]
     first_name, _code, second_name = sorted(lines, key=lambda line: line["bbox"][1])
     for name in (first_name, second_name):
         assert name["bbox"][0] == pytest.approx(278 - bold.text_length(HEBREW, 12), abs=1e-3)

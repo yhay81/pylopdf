@@ -41,5 +41,5 @@ def test_rotated_font_spans_preserve_word_gaps(
     )
     with pylopdf.open(data) as document:
         expected = "i l" if gap else "il"
-        assert document.pages[0].get_text() == expected + "\n"
-        assert document.to_markdown() == expected
+        assert document.pages[0].text() == expected + "\n"
+        assert document.markdown() == expected

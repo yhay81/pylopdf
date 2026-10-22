@@ -252,10 +252,10 @@ def test_apply_ocr_adds_searchable_invisible_text(ocr_engine: pylopdf.OcrEngine)
     words = target.pages[0].apply_ocr(dpi=150, engine=ocr_engine, tile_size=512, overlap=64)
 
     assert [word["text"] for word in words] == ["Search 456"]
-    assert target.pages[0].search_for("Search 456")
+    assert target.pages[0].search("Search 456")
     assert target.pages[0].get_pixmap(background=(255, 255, 255), alpha=True).samples == before
     reopened = pylopdf.open(target.to_bytes())
-    assert reopened.pages[0].search_for("Search 456")
+    assert reopened.pages[0].search("Search 456")
     assert reopened.pages[0].get_pixmap(background=(255, 255, 255), alpha=True).samples == before
 
 
@@ -281,7 +281,7 @@ def test_apply_ocr_clip_handles_mixed_content(ocr_engine: pylopdf.OcrEngine) -> 
 
     assert [word["text"] for word in words] == ["Region 789"]
     assert words[0]["bbox"].y0 > 70
-    assert target.pages[0].search_for("Region 789")
+    assert target.pages[0].search("Region 789")
     assert target.pages[0].get_pixmap(background=(255, 255, 255), alpha=True).samples == before
 
 
@@ -315,21 +315,21 @@ def test_apply_ocr_corrects_rotated_scan_without_rotating_page(
     )
 
     assert [word["text"] for word in words] == ["First line 111", "Second line 222"]
-    assert target.pages[0].get_text() == "First line 111\nSecond line 222\n"
+    assert target.pages[0].text() == "First line 111\nSecond line 222\n"
     for word in words:
         if page_rotation in (90, 270):
             assert word["bbox"].height > word["bbox"].width
         else:
             assert word["bbox"].width > word["bbox"].height
-        hits = target.pages[0].search_for(word["text"])
+        hits = target.pages[0].search(word["text"])
         assert len(hits) == 1
         assert tuple(hits[0]) == pytest.approx(tuple(word["bbox"]), abs=0.2)
     assert target.pages[0].rotation == page_rotation
     assert target.pages[0].get_pixmap(background=(255, 255, 255), alpha=True).samples == before
     reopened = pylopdf.open(target.to_bytes())
-    assert reopened.pages[0].get_text() == "First line 111\nSecond line 222\n"
-    assert reopened.pages[0].search_for("First line 111")
-    assert reopened.pages[0].search_for("Second line 222")
+    assert reopened.pages[0].text() == "First line 111\nSecond line 222\n"
+    assert reopened.pages[0].search("First line 111")
+    assert reopened.pages[0].search("Second line 222")
     assert reopened.pages[0].rotation == page_rotation
     assert reopened.pages[0].get_pixmap(background=(255, 255, 255), alpha=True).samples == before
 

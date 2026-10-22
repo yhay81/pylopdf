@@ -15,9 +15,9 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Literal, TypeGuard, cast, overload
+from typing import TYPE_CHECKING, Literal, TypeGuard, cast
 
-from pylopdf import _fonts, _markdown
+from pylopdf import _fonts, _markdown, _text
 from pylopdf._attachments import Attachments
 from pylopdf._errors import DocumentClosedError, EncryptedDocumentError, PylopdfWarning
 from pylopdf._fonts import (
@@ -53,10 +53,8 @@ from pylopdf._tables import (
 )
 from pylopdf._types import (
     Access,
-    Block,
     OutlineEntry,
     Permissions,
-    Word,
 )
 from pylopdf.pylopdf_core import LimitError, PasswordError, PdfError, _Document
 
@@ -66,7 +64,7 @@ if sys.platform == "win32":
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
     from types import TracebackType
-    from typing import Self
+    from typing import Any, Self
 
     from pylopdf._fonts import Font
     from pylopdf._geometry import Matrix
@@ -83,8 +81,6 @@ if TYPE_CHECKING:
         MetadataUpdate,
         PageLabelInfo,
         PageLabelSpec,
-        RawTextPageDict,
-        TextPageDict,
     )
 
 
@@ -798,7 +794,7 @@ class Document:
         self._ensure_open()
         return self._doc.has_annotation_kind(links=False)
 
-    def to_markdown(
+    def markdown(
         self,
         pages: Iterable[int] | None = None,
         *,
@@ -811,7 +807,7 @@ class Document:
         is body text, and larger sizes map in descending order to
         ``#`` through ``####``. Wrapped CJK lines join without spaces. Leading
         bullets and ``1.``/``1)`` forms normalize to Markdown lists. Scanned PDFs
-        work after adding a layer with :meth:`Page.insert_ocr_text_layer`.
+        work after adding a text layer with :meth:`Page.apply_ocr`.
         Multicolumn text follows deterministic whitespace gutters.
         Conservatively detected vertical CJK columns follow top-to-bottom,
         right-to-left reading order; ruby and mixed-orientation typography are
@@ -839,7 +835,7 @@ class Document:
         # page tree for every entry, keeping whole-document conversion linear.
         size_counts: Counter[float] = Counter()
         for page_number in page_numbers:
-            layout = self._page_layout(page_number, "dict")
+            layout = _text.text_page_dict(*self._page_layout(page_number))
             page = Page(self, page_number - 1)
             tables = [] if table_strategy is None else _markdown_page_tables(page, table_strategy)
             bboxes = [(table.bbox.x0, table.bbox.y0, table.bbox.x1, table.bbox.y1) for table in tables]
@@ -849,7 +845,8 @@ class Document:
         rendered: list[str] = []
         output_bytes = 0
         for page_number in page_numbers:
-            layout = self._page_layout(page_number, "dict")
+            width, height, blocks = self._page_layout(page_number)
+            layout = _text.text_page_dict(width, height, blocks)
             page = Page(self, page_number - 1)
             tables = [] if table_strategy is None else _markdown_page_tables(page, table_strategy)
             separator_bytes = 2 if rendered else 0
@@ -860,7 +857,7 @@ class Document:
                 max_size=max_size,
                 remaining_size=page_budget,
             )
-            words = self._page_layout(page_number, "words") if tables else None
+            words = _text.text_words(blocks) if tables else None
             page_markdown = _bounded_markdown_page_output(
                 layout,
                 levels,
@@ -1124,8 +1121,8 @@ class Document:
         claim = self._doc.pdfa_claim(max_size)
         return None if claim is None else (int(claim[0]), claim[1])
 
-    def get_text(self, pages: Iterable[int] | None = None) -> str:
-        """Extract plain text from the given pages in one batched call.
+    def text(self, pages: Iterable[int] | None = None) -> str:
+        """Return the plain text of the given pages in one batched call.
 
         ``pages`` is a sequence of zero-based page numbers extracted in the
         given order; ``None`` means every page, negative values count from the
@@ -1134,8 +1131,8 @@ class Document:
         :class:`LimitError` with code ``page_entry_count``. Pages are processed
         in chunks of 4,096 entries, each sharing one interpreter font cache, so
         a font reused across pages is parsed once per chunk rather than once
-        per page; the returned text equals joining single-page
-        :meth:`Page.get_text` output in the same order.
+        per page; the returned text equals joining :meth:`Page.text` of each
+        page in the same order.
         """
         count = self._page_count()
         page_numbers = list(range(1, count + 1)) if pages is None else self._page_entries(pages, "pages", count)
@@ -1143,134 +1140,24 @@ class Document:
         self._emit_warnings()
         return text
 
-    @overload
-    def _page_text(self, pno: int, option: Literal["text"] = "text") -> str: ...
-    @overload
-    def _page_text(self, pno: int, option: Literal["words"]) -> list[Word]: ...
-    @overload
-    def _page_text(self, pno: int, option: Literal["blocks"]) -> list[Block]: ...
-    @overload
-    def _page_text(self, pno: int, option: Literal["dict"]) -> TextPageDict: ...
-    @overload
-    def _page_text(self, pno: int, option: Literal["rawdict"]) -> RawTextPageDict: ...
-    def _page_text(
-        self, pno: int, option: str = "text"
-    ) -> str | list[Word] | list[Block] | TextPageDict | RawTextPageDict:
-        """Extract text from zero-based page ``pno`` for :meth:`Page.get_text`."""
-        if option == "text":
-            text = self._doc.extract_text([self._lopdf_page_number(pno)])
-            self._emit_warnings()
-            return text
-        if option == "rawdict":
-            return self._get_page_rawdict(pno)
-        return self._page_layout(self._lopdf_page_number(pno), option)
+    def _page_text(self, pno: int) -> str:
+        """Return the text of zero-based page ``pno`` for :meth:`Page.text`."""
+        text = self._doc.extract_text([self._lopdf_page_number(pno)])
+        self._emit_warnings(stacklevel=4)
+        return text
 
-    @overload
-    def _page_layout(self, page_number: int, option: Literal["words"]) -> list[Word]: ...
-    @overload
-    def _page_layout(self, page_number: int, option: Literal["dict"]) -> TextPageDict: ...
-    @overload
-    def _page_layout(self, page_number: int, option: str) -> list[Word] | list[Block] | TextPageDict: ...
-    def _page_layout(self, page_number: int, option: str) -> list[Word] | list[Block] | TextPageDict:
-        """Build words, blocks, or dict layout for a validated one-based page."""
-        width, height, blocks = self._doc.extract_layout(page_number)
+    def _page_layout(self, page_number: int) -> tuple[float, float, list[Any]]:
+        """Return the core's layout of a validated one-based page."""
+        layout = self._doc.extract_layout(page_number)
         # Attribute warnings to the public caller rather than this helper.
         self._emit_warnings(stacklevel=4)
-        if option == "words":
-            words: list[Word] = []
-            for bno, (_, lines) in enumerate(blocks):
-                for lno, (_, _, line_words, _, _) in enumerate(lines):
-                    words.extend(
-                        Word(x0, y0, x1, y1, text, bno, lno, wno)
-                        for wno, ((x0, y0, x1, y1), text) in enumerate(line_words)
-                    )
-            return words
-        if option == "blocks":
-            return [
-                Block(
-                    x0,
-                    y0,
-                    x1,
-                    y1,
-                    "\n".join(" ".join(text for _, text in line_words) for _, _, line_words, _, _ in lines),
-                    bno,
-                    0,
-                )
-                for bno, ((x0, y0, x1, y1), lines) in enumerate(blocks)
-            ]
-        if option == "dict":
-            return {
-                "width": width,
-                "height": height,
-                "blocks": [
-                    {
-                        "number": bno,
-                        "type": 0,
-                        "bbox": bbox,
-                        "lines": [
-                            {
-                                "bbox": line_bbox,
-                                "wmode": writing_mode,
-                                "dir": direction,
-                                "spans": [
-                                    {
-                                        "bbox": span_bbox,
-                                        "origin": origin,
-                                        "size": size,
-                                        "font": font,
-                                        "flags": flags,
-                                        "text": text,
-                                    }
-                                    for span_bbox, text, size, origin, font, flags in spans
-                                ],
-                            }
-                            for line_bbox, spans, _, direction, writing_mode in lines
-                        ],
-                    }
-                    for bno, (bbox, lines) in enumerate(blocks)
-                ],
-            }
-        msg = f"option must be one of 'text' / 'words' / 'blocks' / 'dict' / 'rawdict': {option!r}"
-        raise ValueError(msg)
+        return layout
 
-    def _get_page_rawdict(self, pno: int) -> RawTextPageDict:
-        """Materialize glyph mappings only for an explicitly requested raw layout."""
-        width, height, blocks = self._doc.extract_raw_layout(self._lopdf_page_number(pno))
-        self._emit_warnings()
-        return {
-            "width": width,
-            "height": height,
-            "blocks": [
-                {
-                    "number": bno,
-                    "type": 0,
-                    "bbox": bbox,
-                    "lines": [
-                        {
-                            "bbox": line_bbox,
-                            "wmode": writing_mode,
-                            "dir": direction,
-                            "spans": [
-                                {
-                                    "bbox": span_bbox,
-                                    "origin": origin,
-                                    "size": size,
-                                    "font": font,
-                                    "flags": flags,
-                                    "chars": [
-                                        {"c": text, "bbox": char_bbox, "origin": char_origin}
-                                        for text, char_bbox, char_origin in chars
-                                    ],
-                                }
-                                for span_bbox, chars, size, origin, font, flags in spans
-                            ],
-                        }
-                        for line_bbox, spans, direction, writing_mode in lines
-                    ],
-                }
-                for bno, (bbox, lines) in enumerate(blocks)
-            ],
-        }
+    def _page_raw_layout(self, page_number: int) -> tuple[float, float, list[Any]]:
+        """Return the core's layout with glyphs of a validated one-based page."""
+        layout = self._doc.extract_raw_layout(page_number)
+        self._emit_warnings(stacklevel=4)
+        return layout
 
     def get_outline(self) -> list[OutlineEntry]:
         """Return the outline (bookmarks) as :class:`OutlineEntry` items.

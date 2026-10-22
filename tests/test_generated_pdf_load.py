@@ -206,8 +206,8 @@ def test_generated_imports_parse_on_the_calling_thread() -> None:
         form_output = doc.to_bytes()
     assert _Document.generated_pdf_loads() == (sequential + 7, fallback, mismatched)
     with pylopdf.open(output) as reopened:
-        assert "日本語テキスト" in reopened.pages[0].get_text()
-        assert "回転したページ" in reopened.pages[1].get_text()
+        assert "日本語テキスト" in reopened.pages[0].text()
+        assert "回転したページ" in reopened.pages[1].text()
     with pylopdf.open(form_output) as reopened:
         values = {field["name"]: field["value"] for field in reopened.get_form_fields()}
     assert values["code"] == "日本"

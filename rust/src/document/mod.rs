@@ -733,11 +733,10 @@ impl _Document {
         extraction::extract_layout(self, py, page_number)
     }
 
-    /// Return raw glyph layout for a one-based page.
+    /// Return the layout of a one-based page with every span's glyphs.
     ///
-    /// Return `(width, height, blocks)`, where block=`(bbox, lines)`,
-    /// line=`(bbox, spans, direction, writing mode)`,
-    /// span=`(bbox, chars, size, origin, font, flags)`, and
+    /// Return the blocks of [`Self::extract_layout`], except that a span is
+    /// `(bbox, (text, chars), size, origin, font, flags)` with
     /// char=`(whole Unicode mapping, bbox, baseline origin)`.
     #[allow(clippy::type_complexity)]
     fn extract_raw_layout(

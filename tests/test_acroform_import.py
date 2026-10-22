@@ -154,7 +154,7 @@ def test_insert_pdf_after_existing_pages_registers_f1040_fields(one_page_pdf: by
     assert len(dst.pages) == 3
     assert len(dst.get_form_fields()) == 199
     assert len(dst.pages[0].annots(types=[pylopdf.PDF_ANNOT_WIDGET])) == 128
-    assert "Hello PDF" in dst.pages[2].get_text()
+    assert "Hello PDF" in dst.pages[2].text()
 
 
 def test_inserting_f1040_twice_renames_the_second_form() -> None:
@@ -637,7 +637,7 @@ def test_partial_import_refuses_field_trees_beyond_the_read_limits(
     with pytest.raises(pylopdf.PdfError, match=message):
         dst.pages.extend(src.pages[0:1])
     assert dst.to_bytes() == before
-    assert "Hello PDF" in page.get_text()
+    assert "Hello PDF" in page.text()
 
 
 @pytest.mark.parametrize(

@@ -144,15 +144,23 @@ the concept and API overview.
   text run once, so a fill-and-stroke run counts once, as it does in
   `Page.content()`. It collects glyph Unicode and positions, then assembles
   lines (`LINE_TOLERANCE`), words (`WORD_GAP`), and blocks (`BLOCK_GAP`).
-  `get_text("words"/"blocks"/"dict"/"rawdict")` and `search_for` share the same glyph
-  collection through a bounded, generation-invalidated `TextPage` cache.
-  The v0.14.0 `rawdict` option exposes one `chars` entry per retained glyph,
-  with its complete Unicode `c`, the shared approximate bbox, and actual baseline
-  origin. Do not split multi-character mappings or invent positioned spaces.
-  Raw materialization must reuse dict grouping and existing text/glyph admission,
-  without retaining additional data in the cache or allocating raw output for
-  other extraction options.
-  `search_for` caps the UTF-8 search text at 4,096 bytes before PyO3 copying and
+  `Page.words()`, `Page.layout()`, and `Page.search()` share the same glyph
+  collection through a bounded, generation-invalidated `TextPage` cache, and
+  `src/pylopdf/_text.py` builds their records from the core's layout tuples.
+  `layout(chars=True)` gives every span one `Char` per retained glyph, with
+  its complete Unicode text, the shared approximate bbox, and actual baseline
+  origin, from one core call (`extract_raw_layout`) whose spans carry their
+  text and their glyphs. Do not split multi-character mappings or invent
+  positioned spaces. Raw materialization must reuse layout grouping and
+  existing text/glyph admission, without retaining additional data in the
+  cache or allocating raw output for other extraction options. `Line.text`
+  joins the line's words with spaces, because spans hold no space between
+  them. Building the records dominates: about 1.8 µs per glyph against 0.2 µs
+  for the dictionaries of 0.15's `rawdict`, so `_text.py` skips the
+  constructor checks of `Rect` and `Point` for finite core values and fills
+  each `Char` through its slot descriptors; the other records use their
+  constructors.
+  `search` caps the UTF-8 search text at 4,096 bytes before PyO3 copying and
   defaults returned geometry to 4,096 hits. Direct Rust calls repeat both
   checks, `max_hits=None` explicitly opts trusted result sets out, and
   failures use `search_input_size` or `search_hit_count` without returning a
@@ -195,7 +203,7 @@ the concept and API overview.
   repeated page numbers cannot amplify a bounded interpretation without bound.
   Admission keeps running text and glyph totals beside the per-page maps, so
   whole-document batches do not rescan every interpreted page.
-  `Document.get_text(pages=None)` is the public batched entry. Each chunk of
+  `Document.text(pages=None)` is the public batched entry. Each chunk of
   at most 4,096 page entries shares one hayro `InterpreterCache`, so a font
   reused by several pages parses once per chunk while whole-document calls
   never retain every parsed font; single-page interpretation keeps one
@@ -270,7 +278,7 @@ the concept and API overview.
   the cached full-page interpretation cost. `TableDiagnostics.confidence` is a
   deterministic ranking heuristic, not a probability. Text diagnostics retain
   em-normalized alignment error, minimum gutter, and row-gap variation.
-  `Document.to_markdown()` inserts complete bordered tables by default and
+  `Document.markdown()` inserts complete bordered tables by default and
   accepts `table_strategy="text"` for conservative non-overlapping borderless
   candidates or `None` to disable table conversion. Document conversion
   covers every page by default, shares the explicit page-entry bound below,
@@ -283,7 +291,7 @@ the concept and API overview.
   logical text direction on right-angle rotations. Merged spans expand from the
   internal anchor map rather than guessing from adjacent empty slots. Document
   conversion passes each table the remaining aggregate Markdown budget before
-  page assembly. Direct `Table.to_markdown` calls preflight exact escaped UTF-8
+  page assembly. Direct `Table.markdown` calls preflight exact escaped UTF-8
   size, including merged-cell expansion, and default to the same 64 MiB limit.
   Page headings, paragraphs, lists, and tables are charged as retained entries;
   paragraph and consecutive-list assembly must remain linear rather than using
@@ -1301,8 +1309,8 @@ the concept and API overview.
   `__pylopdf_hint__`, so they never enter the public API snapshot.
 - Page batches validate entries against one page-count snapshot instead of
   re-walking the page tree per entry. `pages=None` and complete page-sequence
-  imports cover every page whatever the page count. Explicit `get_text`,
-  `to_markdown`, `render_pages`, `Pages.select`, and `Pages.insert`/`extend`
+  imports cover every page whatever the page count. Explicit `Document.text`,
+  `Document.markdown`, `render_pages`, `Pages.select`, and `Pages.insert`/`extend`
   entries may repeat pages up to the larger of the page count (of the source
   document, for an import) and 4,096; materialization stops at the first
   entry beyond that bound with `LimitError.code == "page_entry_count"`, so

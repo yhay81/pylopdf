@@ -1,4 +1,4 @@
-"""Build Markdown from ``get_text("dict")`` layout data.
+"""Build Markdown from the core's page layout data.
 
 Initial rules:
 
@@ -7,7 +7,7 @@ Initial rules:
 - Wrapped lines join without a space between characters in scripts that do not
   normally delimit words with spaces.
 - Adjacent spans of one line are separated by a space when the gap between
-  them exceeds the extractor's word gap, as in ``get_text``.
+  them exceeds the extractor's word gap, as in ``Page.text()``.
 - Leading bullets such as ・, •, and ● plus ``1.``/``1)`` normalize to lists.
 - Span flags derived from embedded-font weight and italic metadata become
   emphasis markers in body text. Heading text remains plain to avoid combining
@@ -30,7 +30,8 @@ from typing import TYPE_CHECKING, Literal
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from pylopdf import TextLine, TextPageDict, TextSpan, Word
+    from pylopdf._text import TextLine, TextPageDict, TextSpan
+    from pylopdf._text import TextWord as Word
 
 _BBox = tuple[float, float, float, float]
 _MarkdownTable = tuple[_BBox, str]

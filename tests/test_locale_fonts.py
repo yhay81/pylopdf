@@ -81,7 +81,7 @@ def text_field_pdf() -> bytes:
 def page_fonts(page: pylopdf.Page) -> list[str]:
     """Return the font name of every extracted span in reading order."""
     return [
-        span["font"] for block in page.get_text("dict")["blocks"] for line in block["lines"] for span in line["spans"]
+        span["font"] for block in page.layout().to_dict()["blocks"] for line in block["lines"] for span in line["spans"]
     ]
 
 
@@ -404,7 +404,7 @@ def test_locale_fallback_matches_adobe_character_collection(
     doc.set_fallback_font(LOCALE_SANS[font_language], font_language=font_language)
 
     assert doc.pages[0].get_pixmap(alpha=True).tobytes() != blank_png
-    assert doc.pages[0].get_text().strip() == text
+    assert doc.pages[0].text().strip() == text
 
 
 @pytest.mark.parametrize("wrong_language", ["ja", "ko", "zh-TW"])
@@ -431,4 +431,4 @@ def test_nonembedded_cjk_extract_text() -> None:
     """
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
     doc.set_fallback_font(None)
-    assert "こんにちは日本語" in doc.pages[0].get_text()
+    assert "こんにちは日本語" in doc.pages[0].text()

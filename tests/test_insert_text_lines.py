@@ -38,7 +38,7 @@ def _page() -> pylopdf.Page:
 def _spans(page: pylopdf.Page) -> list[tuple[float, str]]:
     return [
         (span["origin"][1], span["text"])
-        for block in page.get_text("dict")["blocks"]
+        for block in page.layout().to_dict()["blocks"]
         for line in block["lines"]
         for span in line["spans"]
     ]

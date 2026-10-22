@@ -90,7 +90,7 @@ def _keeps_original_bytes(data: bytes) -> bool:
     """
     limits = pylopdf.DocumentLimits(max_interpretation_size=len(data) - 1)
     try:
-        pylopdf.open(data, limits=limits).get_text()
+        pylopdf.open(data, limits=limits).text()
     except pylopdf.LimitError as error:
         return "rendering and extraction source is" in str(error)
     return False
@@ -99,7 +99,7 @@ def _keeps_original_bytes(data: bytes) -> bool:
 def _page_views(doc: pylopdf.Document) -> list[tuple[str, str]]:
     return [
         (
-            doc.pages[index].get_text(),
+            doc.pages[index].text(),
             hashlib.sha256(
                 doc.pages[index].get_pixmap(matrix=pylopdf.Matrix(0.25, 0.25), alpha=True).samples
             ).hexdigest(),
@@ -224,7 +224,7 @@ def test_form_with_a_bare_keyword_survives_edits_and_saves() -> None:
         doc.pages[0].insert_text((20, 30 + 20 * index), f"STAMP {index}")
     saved = doc.to_bytes()
     assert re.search(rb"/Type null\s*/Subtype\s*/Form", saved)
-    assert sorted(pylopdf.open(saved).pages[0].get_text().splitlines()) == [
+    assert sorted(pylopdf.open(saved).pages[0].text().splitlines()) == [
         "FORM TEXT",
         "PAGE TEXT",
         "STAMP 0",
@@ -410,7 +410,7 @@ def test_deeply_nested_object_that_lopdf_skips_never_reaches_hayro(tmp_path: Pat
             )
         )
     )
-    script = "import sys, pylopdf; print(pylopdf.open(sys.argv[1]).pages[0].get_text(), end='')"
+    script = "import sys, pylopdf; print(pylopdf.open(sys.argv[1]).pages[0].text(), end='')"
 
     completed = subprocess.run(  # noqa: S603  # Run this interpreter on a fixture written above.
         [sys.executable, "-c", script, str(path)],
@@ -454,7 +454,7 @@ def test_unreachable_object_stream_debris_is_dropped_with_its_numbers() -> None:
     saved = doc.to_bytes()
     assert b"Debris" not in saved
     assert max(int(number) for number in re.findall(rb"(\d+) 0 obj", saved)) < 20
-    assert sorted(pylopdf.open(saved).pages[0].get_text().splitlines()) == ["STAMP", "TARGET PAGE"]
+    assert sorted(pylopdf.open(saved).pages[0].text().splitlines()) == ["STAMP", "TARGET PAGE"]
 
 
 # The page draws `(abc)`, which a font that maps those codes to other glyphs extracts as `xyz`.
@@ -657,14 +657,14 @@ def test_walker_pages_render_under_an_interpretation_limit() -> None:
     limits = pylopdf.DocumentLimits(max_interpretation_size=1024 * 1024)
     doc = pylopdf.open(data, limits=limits)
 
-    assert [doc.pages[index].get_text().splitlines() for index in range(2)] == [["PAGE ONE"], ["PAGE TWO"]]
+    assert [doc.pages[index].text().splitlines() for index in range(2)] == [["PAGE ONE"], ["PAGE TWO"]]
     assert doc.render_pages(alpha=True)[1] == doc.pages[1].get_pixmap(alpha=True).tobytes()
 
 
 def test_walker_pages_render_without_changing_the_saved_tree() -> None:
     doc = pylopdf.open(_pdf(_two_page_tree("4 0 R 8 0 R 6 0 R", {8: "42"})))
 
-    assert doc.pages[1].get_text().splitlines() == ["PAGE TWO"]
+    assert doc.pages[1].text().splitlines() == ["PAGE TWO"]
     assert re.search(rb"/Kids\s*\[4 0 R 8 0 R 6 0 R\]", doc.to_bytes())
 
 

@@ -1,4 +1,4 @@
-"""Tests for Document.to_markdown and Page.to_markdown."""
+"""Tests for Document.markdown and Page.markdown."""
 
 from __future__ import annotations
 
@@ -146,7 +146,7 @@ def test_heading_detected_by_size() -> None:
             ]
         )
     )
-    md = doc.to_markdown()
+    md = doc.markdown()
     assert md.startswith("# Big Title")
     # Join two body lines with a space inside one paragraph.
     assert "Body line one body line two" in md
@@ -165,7 +165,7 @@ def test_two_heading_levels() -> None:
             ]
         )
     )
-    md = doc.to_markdown()
+    md = doc.markdown()
     assert "# Title" in md
     assert "## Section" in md
     assert "### " not in md
@@ -173,7 +173,7 @@ def test_two_heading_levels() -> None:
 
 def test_uniform_size_has_no_headings() -> None:
     doc = pylopdf.open(_layout_pdf([[(12, 720, "Only body"), (12, 706, "same size")]]))
-    assert "#" not in doc.to_markdown()
+    assert "#" not in doc.markdown()
 
 
 def test_bullets_and_numbers_normalize() -> None:
@@ -189,7 +189,7 @@ def test_bullets_and_numbers_normalize() -> None:
             ]
         )
     )
-    md = doc.to_markdown()
+    md = doc.markdown()
     assert "- first item\n- second item" in md  # Adjacent items form one list.
     assert "1. numbered" in md
 
@@ -199,7 +199,7 @@ def test_dict_spans_have_font_and_flags_keys() -> None:
     # Hayro exposes no metadata for Standard 14 Type1 substitutes, so the
     # current contract is flags=0 and an empty font name.
     doc = pylopdf.open(_layout_pdf([[(12, 720, "Standard font words", "F2")]]))
-    span = doc.pages[0].get_text("dict")["blocks"][0]["lines"][0]["spans"][0]
+    span = doc.pages[0].layout().to_dict()["blocks"][0]["lines"][0]["spans"][0]
     assert span["flags"] == 0
     assert span["font"] == ""
 
@@ -215,7 +215,7 @@ def test_cjk_lines_join_without_space() -> None:
             (50, 66, 200, 80, "空白なしで繋がる"),
         ]
     )
-    md = doc.to_markdown()
+    md = doc.markdown()
     assert "日本語の折り返しは空白なしで繋がる" in md
 
 
@@ -238,7 +238,7 @@ def test_no_space_scripts_join_wrapped_lines_without_ascii_gap(first: str, secon
         ]
     )
 
-    markdown = doc.to_markdown()
+    markdown = doc.markdown()
 
     assert first + second in markdown
     assert first + " " + second not in markdown
@@ -253,7 +253,7 @@ def test_latin_lines_join_with_space() -> None:
             (50, 66, 200, 80, "join spaced"),
         ]
     )
-    assert "Latin lines join spaced" in doc.to_markdown()
+    assert "Latin lines join spaced" in doc.markdown()
 
 
 def test_word_gap_between_font_spans_becomes_a_space() -> None:
@@ -277,10 +277,10 @@ def test_word_gap_between_font_spans_becomes_a_space() -> None:
             }
         )
     )
-    spans = doc.pages[0].get_text("dict")["blocks"][0]["lines"][0]["spans"]
-    assert [span["text"] for span in spans] == ["Regular", "Bold"]
+    spans = doc.pages[0].layout().blocks[0].lines[0].spans
+    assert [span.text for span in spans] == ["Regular", "Bold"]
     # The font change inside "Bolder" has no gap, so it stays one word.
-    assert doc.to_markdown() == "Regular Bold\n\nBolder"
+    assert doc.markdown() == "Regular Bold\n\nBolder"
 
 
 @pytest.mark.parametrize(("last_x", "expected"), [(52, "a\u0301b"), (58, "a\u0301 b")])
@@ -289,8 +289,8 @@ def test_combining_mark_span_keeps_its_base_for_following_word_gap(last_x: int, 
         f"BT /F1 20 Tf 40 140 Td (a) Tj /F2 10 Tf 1 0 0 1 40 140 Tm (A) Tj /F1 20 Tf 1 0 0 1 {last_x} 140 Tm (b) Tj ET"
     )
     doc = pylopdf.open(_unicode_font_spans_pdf(stream, {"A": "\u0301"}))
-    assert doc.pages[0].get_text() == expected + "\n"
-    assert doc.to_markdown() == expected
+    assert doc.pages[0].text() == expected + "\n"
+    assert doc.markdown() == expected
 
 
 @pytest.mark.parametrize(("first", "second", "separator"), [("日", "本", " "), ("Ａ", "Ｂ", " "), ("ก", "ข", "")])
@@ -299,8 +299,8 @@ def test_font_span_word_gaps_follow_extractor_script_rules(first: str, second: s
     stream = f"BT /F1 20 Tf 40 140 Td [(A) -300] TJ /{font} 20 Tf (B) Tj ET"
     doc = pylopdf.open(_unicode_font_spans_pdf(stream, {"A": first, "B": second}))
     expected = first + separator + second
-    assert doc.pages[0].get_text() == expected + "\n"
-    assert doc.to_markdown() == expected
+    assert doc.pages[0].text() == expected + "\n"
+    assert doc.markdown() == expected
 
 
 def test_page_to_markdown_and_page_selection() -> None:
@@ -312,9 +312,9 @@ def test_page_to_markdown_and_page_selection() -> None:
             ]
         )
     )
-    assert doc.pages[1].to_markdown() == "Second page"
-    assert doc.to_markdown(pages=[1, 0]) == "Second page\n\nFirst page"
-    full = doc.to_markdown()
+    assert doc.pages[1].markdown() == "Second page"
+    assert doc.markdown(pages=[1, 0]) == "Second page\n\nFirst page"
+    full = doc.markdown()
     assert "First page" in full
     assert "Second page" in full
 
@@ -325,15 +325,15 @@ def test_markdown_bounds_utf8_output_without_partial_result() -> None:
     doc.pages.new((300, 200))
     doc.pages[0].insert_ocr_text_layer([(20, 20, 200, 40, "First page")])
     doc.pages[1].insert_ocr_text_layer([(20, 20, 200, 40, "日本語の二ページ目")])
-    expected = doc.to_markdown(max_size=None)
+    expected = doc.markdown(max_size=None)
     exact_size = len(expected.encode())
-    expected_page = doc.pages[1].to_markdown(max_size=None)
+    expected_page = doc.pages[1].markdown(max_size=None)
 
     with pytest.raises(pylopdf.LimitError) as caught:
-        doc.to_markdown(max_size=exact_size - 1)
+        doc.markdown(max_size=exact_size - 1)
     assert caught.value.code == "markdown_output_size"
-    assert doc.to_markdown(max_size=exact_size) == expected
-    assert doc.pages[1].to_markdown(max_size=len(expected_page.encode())) == expected_page
+    assert doc.markdown(max_size=exact_size) == expected
+    assert doc.pages[1].markdown(max_size=len(expected_page.encode())) == expected_page
 
 
 def test_markdown_bounds_page_entries_before_final_join(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -344,18 +344,18 @@ def test_markdown_bounds_page_entries_before_final_join(monkeypatch: pytest.Monk
 
     monkeypatch.setattr("pylopdf._markdown._join_entries", fail_final_join)
     with pytest.raises(pylopdf.LimitError) as caught:
-        doc.to_markdown(max_size=4)
+        doc.markdown(max_size=4)
     assert caught.value.code == "markdown_output_size"
 
 
 def test_markdown_table_and_prose_share_exact_page_budget() -> None:
     doc = pylopdf.open(_table_pdf())
-    expected = doc.to_markdown(max_size=None)
+    expected = doc.markdown(max_size=None)
     exact_size = len(expected.encode())
 
-    assert doc.to_markdown(max_size=exact_size) == expected
+    assert doc.markdown(max_size=exact_size) == expected
     with pytest.raises(pylopdf.LimitError) as caught:
-        doc.to_markdown(max_size=exact_size - 1)
+        doc.markdown(max_size=exact_size - 1)
     assert caught.value.code == "markdown_output_size"
 
 
@@ -372,12 +372,12 @@ def test_markdown_headings_lists_and_paragraphs_share_exact_budget() -> None:
             ]
         )
     )
-    expected = doc.to_markdown(max_size=None)
+    expected = doc.markdown(max_size=None)
     exact_size = len(expected.encode())
 
-    assert doc.to_markdown(max_size=exact_size) == expected
+    assert doc.markdown(max_size=exact_size) == expected
     with pytest.raises(pylopdf.LimitError):
-        doc.to_markdown(max_size=exact_size - 1)
+        doc.markdown(max_size=exact_size - 1)
 
 
 def test_markdown_bounds_page_iterable_before_interpretation() -> None:
@@ -391,7 +391,7 @@ def test_markdown_bounds_page_iterable_before_interpretation() -> None:
             yield 0
 
     with pytest.raises(pylopdf.LimitError, match="4096 entries") as caught:
-        doc.to_markdown(pages=pages())
+        doc.markdown(pages=pages())
     assert caught.value.code == "page_entry_count"
     assert consumed == 4097
 
@@ -400,26 +400,26 @@ def test_markdown_bounds_page_iterable_before_interpretation() -> None:
 def test_markdown_rejects_non_integer_size_limits(max_size: object) -> None:
     doc = pylopdf.open(_layout_pdf([[(12, 720, "Page")]]))
     with pytest.raises(TypeError, match="max_size"):
-        doc.to_markdown(max_size=max_size)  # ty: ignore[invalid-argument-type]
+        doc.markdown(max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize("max_size", [0, -1])
 def test_markdown_rejects_non_positive_size_limits(max_size: int) -> None:
     doc = pylopdf.open(_layout_pdf([[(12, 720, "Page")]]))
     with pytest.raises(ValueError, match="max_size"):
-        doc.to_markdown(max_size=max_size)
+        doc.markdown(max_size=max_size)
 
 
 def test_empty_document() -> None:
     doc = pylopdf.Document()
     doc.pages.new()
-    assert doc.to_markdown() == ""
+    assert doc.markdown() == ""
 
 
 def test_bordered_table_is_inserted_without_duplicate_cell_text() -> None:
     doc = pylopdf.open(_table_pdf())
 
-    markdown = doc.to_markdown()
+    markdown = doc.markdown()
 
     table = "| Name | Value |\n| --- | --- |\n| Alpha | 42 |\n| Beta | 7 |"
     assert table in markdown
@@ -431,7 +431,7 @@ def test_bordered_table_is_inserted_without_duplicate_cell_text() -> None:
 def test_table_conversion_can_be_disabled() -> None:
     doc = pylopdf.open(_table_pdf())
 
-    markdown = doc.pages[0].to_markdown(table_strategy=None)
+    markdown = doc.pages[0].markdown(table_strategy=None)
 
     assert "| --- |" not in markdown
     assert "Name" in markdown
@@ -441,8 +441,8 @@ def test_table_conversion_can_be_disabled() -> None:
 def test_borderless_table_conversion_is_explicit() -> None:
     doc = pylopdf.open(_table_pdf(bordered=False))
 
-    default = doc.to_markdown()
-    with_text_tables = doc.to_markdown(table_strategy="text")
+    default = doc.markdown()
+    with_text_tables = doc.markdown(table_strategy="text")
 
     assert "| --- |" not in default
     assert "| Name | Value |\n| --- | --- |\n| Alpha | 42 |\n| Beta | 7 |" in with_text_tables
@@ -452,7 +452,7 @@ def test_borderless_table_conversion_is_explicit() -> None:
 def test_text_strategy_prefers_overlapping_bordered_table() -> None:
     doc = pylopdf.open(_table_pdf())
 
-    markdown = doc.to_markdown(table_strategy="text")
+    markdown = doc.markdown(table_strategy="text")
 
     assert markdown.count("| --- | --- |") == 1
     assert markdown.count("Alpha") == 1
@@ -463,7 +463,7 @@ def test_table_markdown_preserves_page_reading_order(rotation: int) -> None:
     doc = pylopdf.open(_table_pdf())
     doc.pages[0].set_rotation(rotation)
 
-    markdown = doc.pages[0].to_markdown()
+    markdown = doc.pages[0].markdown()
 
     assert markdown.index("# Section") < markdown.index("| Name | Value |") < markdown.index("After table")
     assert markdown.count("Alpha") == 1
@@ -472,7 +472,7 @@ def test_table_markdown_preserves_page_reading_order(rotation: int) -> None:
 def test_table_text_does_not_influence_heading_size_inference() -> None:
     doc = pylopdf.open(_table_pdf(table_font_size=24))
 
-    markdown = doc.to_markdown()
+    markdown = doc.markdown()
 
     assert markdown.startswith("# Section")
 
@@ -482,7 +482,7 @@ def test_empty_bordered_table_uses_geometric_reading_order(rotation: int) -> Non
     doc = pylopdf.open(_table_pdf(include_cells=False))
     doc.pages[0].set_rotation(rotation)
 
-    markdown = doc.to_markdown()
+    markdown = doc.markdown()
 
     table = "|  |  |\n| --- | --- |\n|  |  |\n|  |  |"
     assert markdown.index("Body text") < markdown.index(table) < markdown.index("After table")
@@ -492,4 +492,4 @@ def test_empty_bordered_table_uses_geometric_reading_order(rotation: int) -> Non
 def test_markdown_rejects_unknown_table_strategy(table_strategy: object) -> None:
     doc = pylopdf.open(_table_pdf())
     with pytest.raises(ValueError, match="table_strategy"):
-        doc.to_markdown(table_strategy=table_strategy)  # ty: ignore[invalid-argument-type]
+        doc.markdown(table_strategy=table_strategy)  # ty: ignore[invalid-argument-type]

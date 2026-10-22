@@ -12,7 +12,9 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from pylopdf._page import Page
-    from pylopdf._types import Rect, TextPageDict, Word
+    from pylopdf._text import TextPageDict
+    from pylopdf._text import TextWord as Word
+    from pylopdf._types import Rect
 
 
 def _markdown_output_limit_error(max_size: int) -> LimitError:
@@ -86,7 +88,7 @@ class Table:
             for offset in range(0, len(self._values), self.col_count)
         ]
 
-    def to_markdown(
+    def markdown(
         self,
         *,
         fill_empty: bool = True,

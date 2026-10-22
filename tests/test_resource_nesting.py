@@ -619,7 +619,7 @@ def test_directly_nested_spaces_are_a_chain_too(depth: int) -> None:
     """Spaces nested inside one another cost as many levels as spaces that reference each other."""
     doc = pylopdf.open(CASES["pattern-resource"](depth))
 
-    assert _refusal(doc.pages[0].get_text).code == CODE
+    assert _refusal(doc.pages[0].text).code == CODE
     assert _refusal(doc.pages[0].get_pixmap).code == CODE
 
 
@@ -631,7 +631,7 @@ def test_a_page_too_deep_for_hayro_to_read_is_refused_as_such(depth: int) -> Non
     """
     doc = pylopdf.open(CASES["pattern-resource"](depth))
 
-    assert _refusal(doc.pages[0].get_text).code == "object_depth"
+    assert _refusal(doc.pages[0].text).code == "object_depth"
     assert _refusal(doc.pages[0].get_pixmap).code == "object_depth"
 
 
@@ -784,11 +784,11 @@ def test_every_scope_that_lists_resources_is_checked(
 ) -> None:
     """Every place that resources can live leads the walk to the deep structure, drawn with or not."""
     refused = pylopdf.open(builder(structure, entry, REFUSED[structure], scope))
-    assert _refusal(refused.pages[0].get_text).code == CODE
+    assert _refusal(refused.pages[0].text).code == CODE
     assert _refusal(refused.pages[0].get_pixmap).code == CODE
 
     accepted = pylopdf.open(builder(structure, entry, ACCEPTED[structure], scope))
-    assert accepted.pages[0].get_text() is not None
+    assert accepted.pages[0].text() is not None
     assert accepted.pages[0].get_pixmap(alpha=True).width == 300
 
 
@@ -843,21 +843,21 @@ def test_the_limits_are_exact(structure: str) -> None:
         "pattern": "pattern-resource",
     }[structure]
     accepted = pylopdf.open(CASES[case](ACCEPTED[structure], "listed-only"))
-    assert accepted.pages[0].get_text() is not None
+    assert accepted.pages[0].text() is not None
 
     refused = pylopdf.open(CASES[case](REFUSED[structure], "listed-only"))
-    assert _refusal(refused.pages[0].get_text).code == CODE
+    assert _refusal(refused.pages[0].text).code == CODE
 
 
 def test_refusals_name_where_the_structure_is() -> None:
     chain = pylopdf.open(CASES["stitching-shading"](CHAIN_LIMIT + 1))
-    message = str(_refusal(chain.pages[0].get_text))
+    message = str(_refusal(chain.pages[0].text))
     assert "chain of colour spaces and functions that starts at" in message
     assert f"reachable from page 1 is deeper than the {CHAIN_LIMIT}-level limit" in message
 
     program = pylopdf.open(CASES["type4-shading"](BRACE_LIMIT + 1))
     assert "Type 4 function 5 0 R reachable from page 1 nests procedures deeper than the 64-level limit" in str(
-        _refusal(program.pages[0].get_text)
+        _refusal(program.pages[0].text)
     )
 
 
@@ -871,12 +871,12 @@ def test_a_cycle_costs_one_level_per_object_and_is_not_infinite() -> None:
         resources, content = shading(parts, ring(parts, length), 3)
         doc = pylopdf.open(page_scope(parts, resources, content))
         assert doc.pages[0].get_pixmap(alpha=True).width == 300
-        assert doc.pages[0].get_text() is not None
+        assert doc.pages[0].text() is not None
 
     parts = Parts()
     resources, content = shading(parts, ring(parts, CHAIN_LIMIT + 1), 3)
     doc = pylopdf.open(page_scope(parts, resources, content))
-    assert _refusal(doc.pages[0].get_text).code == CODE
+    assert _refusal(doc.pages[0].text).code == CODE
 
 
 def test_a_colour_space_that_names_itself_renders() -> None:
@@ -940,9 +940,9 @@ def test_roots_that_share_a_cycle_are_measured_alike_in_any_order(
 
     for page in order:
         if page in refused:
-            assert _refusal(doc.pages[page].get_text).code == CODE
+            assert _refusal(doc.pages[page].text).code == CODE
         else:
-            assert doc.pages[page].get_text() is not None
+            assert doc.pages[page].text() is not None
 
 
 # --- what the walk must not repeat -------------------------------------------------------------------------------
@@ -1049,7 +1049,7 @@ def test_an_object_that_many_entries_name_is_read_once(name: str) -> None:
     doc = pylopdf.open(page_scope(parts, resources, "0 0 m"))
 
     started = time.perf_counter()
-    assert doc.pages[0].get_text() is not None
+    assert doc.pages[0].text() is not None
     # Reading the object for every entry takes seconds to tens of seconds; reading it once takes milliseconds.
     assert time.perf_counter() - started < 1.5
 
@@ -1073,7 +1073,7 @@ def test_shared_sub_graphs_are_measured_once() -> None:
     doc = pylopdf.open(data)
 
     started = time.perf_counter()
-    assert doc.pages[0].get_text() is not None
+    assert doc.pages[0].text() is not None
     assert time.perf_counter() - started < 5
 
     # Deeper than the limit and shared: refused at once.
@@ -1089,7 +1089,7 @@ def test_shared_sub_graphs_are_measured_once() -> None:
         else:
             parts.objects[number] = TYPE2
     deep = pylopdf.open(page_scope(parts, f"/Shading << /Sh1 << {SHADING}/Function {first} 0 R >> >> ", "0 0 m"))
-    assert _refusal(deep.get_text).code == CODE
+    assert _refusal(deep.text).code == CODE
 
 
 # --- what the content walk must not repeat -------------------------------------------------------------------------
@@ -1263,7 +1263,7 @@ def test_a_content_object_that_many_entries_name_is_read_once(name: str) -> None
     doc = pylopdf.open(SHARED_CONTENT[name](Parts()))
 
     started = time.perf_counter()
-    assert doc.pages[0].get_text() is not None
+    assert doc.pages[0].text() is not None
     # Parsing the object for every entry takes seconds to tens of seconds; parsing it once takes milliseconds.
     assert time.perf_counter() - started < 1.5
 
@@ -1322,7 +1322,7 @@ def test_a_value_that_many_streams_name_is_read_once(name: str) -> None:
     doc = pylopdf.open(SHARED_VALUES[name](Parts()))
 
     started = time.perf_counter()
-    assert doc.pages[0].get_text() is not None
+    assert doc.pages[0].text() is not None
     # Reading the value for every stream takes seconds to tens of seconds; reading it once takes milliseconds.
     assert time.perf_counter() - started < 1.5
 
@@ -1344,7 +1344,7 @@ def test_a_subtype_behind_a_reference_makes_every_stream_that_names_it_a_form() 
     name = parts.add("/Form")
     doc = pylopdf.open(_nested_forms(parts, f"{name} 0 R", _arrays(2 * LIMIT)))
 
-    assert _refusal(doc.get_text).code == "content_nesting_depth"
+    assert _refusal(doc.text).code == "content_nesting_depth"
 
 
 def test_a_subtype_behind_a_reference_leaves_every_other_stream_an_image() -> None:
@@ -1358,7 +1358,7 @@ def test_a_subtype_behind_a_reference_leaves_every_other_stream_an_image() -> No
     form = parts.add(_stream("q /Im1 Do Q", FORM + f"/Resources << /XObject << /Im1 {deep} 0 R >> >> "))
     doc = pylopdf.open(page_scope(parts, f"/XObject << /Im0 {plain} 0 R /Fm0 {form} 0 R >> ", "0 0 m"))
 
-    assert _refusal(doc.get_text).code == CODE
+    assert _refusal(doc.text).code == CODE
 
 
 def _nested_functions(parts: Parts, function_type: str, program: str) -> bytes:
@@ -1383,7 +1383,7 @@ def test_a_function_type_behind_a_reference_makes_every_stream_that_names_it_a_p
     number = parts.add("4")
     doc = pylopdf.open(_nested_functions(parts, f"{number} 0 R", _too_deep_program()))
 
-    assert _refusal(doc.get_text).code == CODE
+    assert _refusal(doc.text).code == CODE
 
 
 def test_a_function_type_behind_a_reference_leaves_every_other_stream_no_program() -> None:
@@ -1393,7 +1393,7 @@ def test_a_function_type_behind_a_reference_leaves_every_other_stream_no_program
     through_reference = pylopdf.open(_nested_functions(parts, f"{number} 0 R", _too_deep_program()))
     direct = pylopdf.open(_nested_functions(Parts(), "0", _too_deep_program()))
 
-    assert through_reference.pages[0].get_text() == direct.pages[0].get_text()
+    assert through_reference.pages[0].text() == direct.pages[0].text()
 
 
 def _image_and_pattern(depth: int) -> bytes:
@@ -1422,7 +1422,7 @@ def test_a_stream_that_is_a_pattern_and_an_image_is_measured_as_an_image() -> No
     assert accepted.pages[0].get_pixmap(alpha=True).width == 300
 
     refused = pylopdf.open(_image_and_pattern(REFUSED["indexed"]))
-    assert _refusal(refused.get_text).code == CODE
+    assert _refusal(refused.text).code == CODE
     assert _refusal(refused.pages[0].get_pixmap).code == CODE
 
 
@@ -1460,9 +1460,9 @@ def test_an_indirect_functions_array_is_a_level_of_its_own(levels: int) -> None:
 
     # Seven levels are 15 nodes with the Type 2 function at the end, eight are 17.
     if levels >= CHAIN_LIMIT // 2:
-        assert _refusal(doc.pages[0].get_text).code == CODE
+        assert _refusal(doc.pages[0].text).code == CODE
     else:
-        assert doc.pages[0].get_text() is not None
+        assert doc.pages[0].text() is not None
 
 
 def test_a_chain_through_indirect_functions_arrays_is_refused_without_crashing(tmp_path: Path) -> None:
@@ -1481,7 +1481,7 @@ def test_one_object_in_two_roles_is_measured_in_both() -> None:
 
     doc = pylopdf.open(page_scope(parts, resources, content))
 
-    assert _refusal(doc.pages[0].get_text).code == CODE
+    assert _refusal(doc.pages[0].text).code == CODE
 
 
 def test_dictionaries_listed_as_both_colour_spaces_and_shadings_are_checked_in_both() -> None:
@@ -1491,7 +1491,7 @@ def test_dictionaries_listed_as_both_colour_spaces_and_shadings_are_checked_in_b
     both = parts.add(f"<< /Cs1 {deep} /Sh1 {shading_object} 0 R >>")
     data = page_scope(parts, f"/ColorSpace {both} 0 R /Shading {both} 0 R ", "0 0 m")
 
-    assert _refusal(pylopdf.open(data).get_text).code == CODE
+    assert _refusal(pylopdf.open(data).text).code == CODE
 
 
 def test_every_listed_resource_counts_even_when_unused() -> None:
@@ -1499,7 +1499,7 @@ def test_every_listed_resource_counts_even_when_unused() -> None:
     resources, _ = colour_resource(parts, indexed_chain(parts, CHAIN_LIMIT + 1), 1)
     doc = pylopdf.open(page_scope(parts, resources, "0 0 m"))
 
-    assert _refusal(doc.pages[0].get_text).code == CODE
+    assert _refusal(doc.pages[0].text).code == CODE
 
 
 def test_refusal_is_per_page() -> None:
@@ -1522,13 +1522,13 @@ def test_refusal_is_per_page() -> None:
         )
     )
 
-    assert doc.pages[0].get_text().strip() == "PAGE TEXT"
-    assert _refusal(doc.pages[1].get_text).code == CODE
-    assert doc.pages[0].get_text().strip() == "PAGE TEXT"
+    assert doc.pages[0].text().strip() == "PAGE TEXT"
+    assert _refusal(doc.pages[1].text).code == CODE
+    assert doc.pages[0].text().strip() == "PAGE TEXT"
     assert doc.render_pages([0], alpha=True)
     assert _refusal(doc.render_pages).code == CODE
-    assert _refusal(doc.get_text).code == CODE
-    assert "PAGE TEXT" in doc.get_text(pages=[0])
+    assert _refusal(doc.text).code == CODE
+    assert "PAGE TEXT" in doc.text(pages=[0])
 
 
 def test_edits_drop_the_clearance_of_the_previous_snapshot() -> None:
@@ -1538,17 +1538,17 @@ def test_edits_drop_the_clearance_of_the_previous_snapshot() -> None:
     parts = Parts()
     resources, content = colour_resource(parts, indexed_chain(parts, 3), 1)
     doc = pylopdf.open(page_scope(parts, resources, content))
-    assert doc.pages[0].get_text() is not None
+    assert doc.pages[0].text() is not None
 
     doc.pages.extend(deep.pages)
     assert len(doc.pages) == 2
-    assert doc.pages[0].get_text() is not None
-    assert _refusal(doc.pages[1].get_text).code == CODE
-    assert _refusal(doc.pages[1].get_text).code == CODE
+    assert doc.pages[0].text() is not None
+    assert _refusal(doc.pages[1].text).code == CODE
+    assert _refusal(doc.pages[1].text).code == CODE
 
     del doc.pages[1:2]
-    assert doc.pages[0].get_text() is not None
-    assert doc.get_text() is not None
+    assert doc.pages[0].text() is not None
+    assert doc.text() is not None
 
 
 def test_real_world_pages_pass_the_check() -> None:
@@ -1562,6 +1562,6 @@ def test_real_world_pages_pass_the_check() -> None:
         "pdfium-links-highlights-annots.pdf",
     ):
         doc = pylopdf.open(root / name)
-        assert doc.get_text() is not None
+        assert doc.text() is not None
         assert doc.render_pages([0], alpha=True)
         doc.rewrite_images(quality=75)

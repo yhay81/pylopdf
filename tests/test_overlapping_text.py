@@ -20,14 +20,14 @@ def _new_page() -> tuple[pylopdf.Document, pylopdf.Page]:
 
 
 def _dict_line_texts(page: pylopdf.Page) -> list[str]:
-    layout = page.get_text("dict")
+    layout = page.layout().to_dict()
     return ["".join(span["text"] for span in line["spans"]) for block in layout["blocks"] for line in block["lines"]]
 
 
 def _word_line_texts(page: pylopdf.Page) -> list[str]:
     lines: defaultdict[tuple[int, int], list[str]] = defaultdict(list)
-    for *_, text, block_no, line_no, _word_no in page.get_text("words"):
-        lines[(block_no, line_no)].append(text)
+    for word in page.words():
+        lines[(word.block, word.line)].append(word.text)
     return [" ".join(words) for words in lines.values()]
 
 
@@ -37,15 +37,15 @@ def _assert_text_views(
 ) -> None:
     page = doc.pages[0]
     expected_text = "".join(f"{line}\n" for line in expected_lines)
-    assert page.get_text("text") == expected_text
-    assert doc.pages[0].get_text() == expected_text
+    assert page.text() == expected_text
+    assert doc.pages[0].text() == expected_text
     assert _dict_line_texts(page) == expected_lines
     assert _word_line_texts(page) == expected_lines
 
-    block_lines = [line for block in page.get_text("blocks") for line in block[4].splitlines()]
+    block_lines = [line for block in page.layout().blocks for line in block.text.splitlines()]
     assert block_lines == expected_lines
 
-    markdown = page.to_markdown()
+    markdown = page.markdown()
     for text in set(expected_lines):
         assert markdown.count(text) == expected_lines.count(text)
 
@@ -72,11 +72,11 @@ def test_exact_overprint_preserves_each_complete_paint_run(
             page.insert_text((30, 80), text, fontsize=20, fontfile=fontfile)
 
     _assert_text_views(doc, [text, text])
-    hits = page.search_for(text)
+    hits = page.search(text)
     assert len(hits) == 2
     assert hits[0] == hits[1]
 
-    lines = page.get_text("dict")["blocks"][0]["lines"]
+    lines = page.layout().to_dict()["blocks"][0]["lines"]
     assert lines[0]["bbox"] == pytest.approx(lines[1]["bbox"])
 
 
@@ -88,8 +88,8 @@ def test_same_origin_distinct_strings_are_not_interleaved_or_deleted() -> None:
         page.insert_text((30, 80), text, fontsize=20)
 
     _assert_text_views(doc, expected)
-    assert len(page.search_for(expected[0])) == 1
-    assert len(page.search_for(expected[1])) == 1
+    assert len(page.search(expected[0])) == 1
+    assert len(page.search(expected[1])) == 1
 
 
 def test_partial_overlap_keeps_source_order_layers() -> None:
@@ -99,8 +99,8 @@ def test_partial_overlap_keeps_source_order_layers() -> None:
     page.insert_text((80, 80), "Right overlap", fontsize=20)
 
     _assert_text_views(doc, ["Left overlap", "Right overlap"])
-    assert len(page.search_for("Left overlap")) == 1
-    assert len(page.search_for("Right overlap")) == 1
+    assert len(page.search("Left overlap")) == 1
+    assert len(page.search("Right overlap")) == 1
 
 
 def test_chained_partial_overlaps_do_not_rejoin_an_earlier_layer() -> None:
@@ -130,7 +130,7 @@ def test_slightly_offset_overprint_preserves_bboxes_and_search() -> None:
     page.insert_text((30.5, 80.5), text, fontsize=20)
 
     _assert_text_views(doc, [text, text])
-    hits = page.search_for(text)
+    hits = page.search(text)
     assert len(hits) == 2
     assert hits[0].x0 == pytest.approx(30.0)
     assert hits[1].x0 == pytest.approx(30.5)

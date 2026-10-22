@@ -98,7 +98,7 @@ def _snapshot(doc: pylopdf.Document) -> tuple[int, list[tuple[object, ...]], lis
         for page in views
     ]
     toc = doc.get_outline()
-    texts = [page.get_text().strip() for page in views]
+    texts = [page.text().strip() for page in views]
     pages: list[tuple[object, ...]] = [
         (width, rotation, rect, text, annots, links)
         for (width, rotation, rect, annots, links), text in zip(facts, texts, strict=True)
@@ -383,7 +383,7 @@ def _aliased_pdf(name: str) -> bytes:
 def _text_outcome(page: pylopdf.Page) -> str:
     """Return a page's text or its error, so malformed files compare either way."""
     try:
-        return page.get_text().strip()
+        return page.text().strip()
     except pylopdf.PdfError as error:
         return f"{type(error).__name__}: {error}"
 
@@ -494,7 +494,7 @@ def test_an_import_into_a_missing_kid_number_matches_a_fresh_walk() -> None:
     fresh = pylopdf.open(target.to_bytes())
     assert _snapshot(target) == _snapshot(fresh)
     assert len(fresh.pages) == 1
-    assert sorted(fresh.pages[0].get_text().split()) == ["Source", "Target"]
+    assert sorted(fresh.pages[0].text().split()) == ["Source", "Target"]
 
 
 def _indirect_annots_pdf(pages: int) -> bytes:
@@ -565,7 +565,7 @@ def test_editing_every_page_keeps_the_page_index(edit: str) -> None:
     fresh = pylopdf.open(doc.to_bytes())
     assert len(fresh.pages) == TIMED_PAGES
     for number in (0, TIMED_PAGES // 2, TIMED_PAGES - 1):
-        assert fresh.pages[number].get_text() == doc.pages[number].get_text()
+        assert fresh.pages[number].text() == doc.pages[number].text()
         assert [(a.type, a.rect) for a in fresh.pages[number].annots()] == [
             (a.type, a.rect) for a in doc.pages[number].annots()
         ]

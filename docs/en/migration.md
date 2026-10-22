@@ -6,13 +6,12 @@ description: Port pymupdf code to pylopdf with the migration tool, a name-by-nam
 # Migrating from pymupdf
 
 pylopdf aims to do everything pymupdf can do with PDF files, through an API
-of its own. Many names are the same as pymupdf's today, and so are the data
-shapes that most code depends on, such as `"words"` tuples, the `"dict"`
-structure, and `search_for()` returning rectangles. It is not a drop-in
-replacement: it opens **PDF files only** (not XPS, EPUB, or images), changes a
-few behaviors on purpose, and its next release redesigns the API, which the
-migration tool follows as each part lands. Documents and their pages already
-use the new API: `pylopdf.open(source)` and `doc.pages`. This page lists what
+of its own. It is not a drop-in replacement: it opens **PDF files only** (not
+XPS, EPUB, or images), changes a few behaviors on purpose, and its next release
+redesigns the API, which the migration tool follows as each part lands.
+Documents and their pages, saving, and reading text already use the new API:
+`pylopdf.open(source)`, `doc.pages`, `doc.save()`, `page.text()`, and
+`page.layout()`. This page lists what
 carries over, what differs, and what to use instead of the parts pylopdf does
 not implement yet.
 
@@ -87,10 +86,13 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 
 | pymupdf | pylopdf | Notes |
 |---|---|---|
-| `page.get_text()` | Same | Options `text`, `words`, `blocks`, `dict`, `rawdict`; no `html` or `xml` |
-| `page.search_for(text)` | Same | Returns rectangles; no `quads=`; at most 4,096 results unless `max_hits=` is raised |
+| `page.get_text()`, `get_text("text")` | `page.text()` | |
+| `page.get_text("words")` | `page.words()` | `Word` records with `text`, `bbox`, `block`, `line`, and `index` instead of tuples |
+| `page.get_text("blocks")` | `page.layout().blocks` | `Block` records with `text`, `bbox`, and `lines` instead of tuples |
+| `page.get_text("dict")`, `get_text("rawdict")` | `page.layout().to_dict()`, `page.layout(chars=True).to_dict()` | The same dictionaries; `page.layout()` itself returns records. No `html` or `xml` |
+| `page.search_for(text)` | `page.search(text)` | Returns rectangles; no `quads=`; at most 4,096 results unless `max_hits=` is raised |
 | `page.get_textpage_ocr()` | `page.get_text_ocr()`, `page.apply_ocr()` | Built-in offline OCR; see [Offline OCR](ocr.md) |
-| `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | Built in |
+| `pymupdf4llm.to_markdown(doc)` | `doc.markdown()` | Built in |
 | `page.get_pixmap(matrix=…, dpi=…)` | Same | Only scaling matrices; no `colorspace=` or `annots=` yet; `doc.get_page_pixmap(i)` is `doc.pages[i].get_pixmap()` |
 | `pix.samples`, `width`, `height`, `n`, `alpha`, `stride`, `colorspace`, `save()` | Same | `save()` and `tobytes()` write PNG only |
 | `page.get_svg_image()` | Same | Text is always drawn as paths |
@@ -150,7 +152,7 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
   document are renamed `name+1`, `name+2`, and so on, so copies of one form
   keep separate values.
 - **Tables and Markdown.** `find_tables()` detects tables drawn with lines by
-  default; pass `strategy="text"` for borderless tables. `to_markdown()`
+  default; pass `strategy="text"` for borderless tables. `markdown()`
   places detected tables in reading order and removes their text from the
   surrounding paragraphs.
 
@@ -183,7 +185,7 @@ doc.save("out.pdf", garbage=4, deflate=True)
 import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc.pages[0]
-page.add_highlight_annot(page.search_for("total"))   # takes the whole list
+page.add_highlight_annot(page.search("total"))       # takes the whole list
 page.get_pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
 doc.save("out.pdf", dedupe=True, renumber=True)
 ```

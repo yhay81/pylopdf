@@ -71,10 +71,10 @@ with pylopdf.open("input.pdf") as doc:
         print(page.index, page.rect)
 
     page = doc.pages[0]
-    text = page.get_text()                 # プレーンテキスト
-    words = page.get_text("words")         # (x0, y0, x1, y1, 語, ブロック, 行, 語番号)
-    layout = page.get_text("dict")         # blocks → lines → spans（bbox・size・font付き）
-    hits = page.search_for("total")        # 大文字小文字を区別しない。Rectのリスト
+    text = page.text()                     # プレーンテキスト
+    words = page.words()                   # text・bbox・block・line・index付きのWordレコード
+    layout = page.layout()                 # blocks → lines → spans（bbox・size・font付き）
+    hits = page.search("total")            # 大文字小文字を区別しない。Rectのリスト
     tables = page.find_tables()
 ```
 
@@ -123,10 +123,10 @@ with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterh
     page.show_pdf_page(page.rect, letterhead)       # 別のPDFのページ0をベクタのまま
     page.draw_line((36, 340), (400, 340), width=0.5, dashes="[3 2] 0")
 
-    hits = page.search_for("important")
+    hits = page.search("important")
     if hits:
         page.add_highlight_annot(hits)
-    for rect in page.search_for("Example")[:1]:
+    for rect in page.search("Example")[:1]:
         page.insert_link({"kind": pylopdf.LINK_URI, "from": rect, "uri": "https://example.com/"})
     doc.save("annotated.pdf")
 ```
@@ -176,7 +176,7 @@ with pylopdf.open("form.pdf") as doc:
     doc.save("filled.pdf")
 
 with pylopdf.open("input.pdf") as doc:
-    md = doc.to_markdown()                    # 見出し、リスト、表
+    md = doc.markdown()                       # 見出し、リスト、表
 ```
 
 OCRの詳細は、別のOCRエンジンで認識したテキストを追加する方法も含めて[オフラインOCR](ocr.md)で説明しています。

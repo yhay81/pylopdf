@@ -17,10 +17,10 @@ for entry in [[entry.level, entry.title, entry.page + 1] for entry in doc.get_ou
     assert 1 <= page_number <= len(doc.pages), entry
 
 page = doc.pages[1]
-assert "Chapter 2" in page.get_text()
-hits = page.search_for("brown")
+assert "Chapter 2" in page.text()
+hits = page.search("brown")
 assert len(hits) == 1 and hits[0].width > 0
-words = [word[4] for word in page.get_text("words")]
+words = [word.text for word in page.words()]
 assert words[:2] == ["Chapter", "2"], words
 
 doc.set_metadata({"title": "Report", "author": "Example"})

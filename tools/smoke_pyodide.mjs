@@ -171,7 +171,7 @@ def _pylopdf_process_measurement():
         _pylopdf_measurement_data,
         limits=pylopdf.DocumentLimits.web(),
     ) as document:
-        return len(document.pages[0].get_text())
+        return len(document.pages[0].text())
 `);
 const processFixture = pyodide.globals.get("_pylopdf_process_measurement");
 const firstDocumentStart = performance.now();

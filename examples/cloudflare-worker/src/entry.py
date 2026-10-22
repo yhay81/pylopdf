@@ -46,7 +46,7 @@ class Default(WorkerEntrypoint):
         data = await request.bytes()
         try:
             with pylopdf.open(data, limits=_LIMITS) as document:
-                first_page = document.pages[0].get_text() if document.pages else ""
+                first_page = document.pages[0].text() if document.pages else ""
                 return Response.from_json(
                     {
                         "pages": len(document.pages),

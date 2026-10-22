@@ -32,9 +32,9 @@ def test_get_text_extracts_every_page_across_chunks(large_pdf: bytes) -> None:
     doc = pylopdf.open(large_pdf)
     expected = "".join(f"Page {index}\n" for index in range(LARGE_PAGE_COUNT))
 
-    assert doc.get_text() == expected
-    assert doc.get_text(range(LARGE_PAGE_COUNT)) == expected
-    assert doc.get_text([4199, 4096, 4095, 0]) == "Page 4199\nPage 4096\nPage 4095\nPage 0\n"
+    assert doc.text() == expected
+    assert doc.text(range(LARGE_PAGE_COUNT)) == expected
+    assert doc.text([4199, 4096, 4095, 0]) == "Page 4199\nPage 4096\nPage 4095\nPage 0\n"
 
 
 def test_get_text_output_budget_spans_every_chunk(large_pdf: bytes) -> None:
@@ -45,16 +45,16 @@ def test_get_text_output_budget_spans_every_chunk(large_pdf: bytes) -> None:
     limits = pylopdf.DocumentLimits(max_text_size=budget_entries * len(page_text) // 2)
     doc = pylopdf.open(large_pdf, limits=limits)
 
-    assert doc.get_text([0] * budget_entries) == page_text * budget_entries
+    assert doc.text([0] * budget_entries) == page_text * budget_entries
     with pytest.raises(pylopdf.LimitError) as caught:
-        doc.get_text([0] * LARGE_PAGE_COUNT)
+        doc.text([0] * LARGE_PAGE_COUNT)
     assert caught.value.code == "text_size"
 
 
 def test_to_markdown_converts_every_page(large_pdf: bytes) -> None:
     doc = pylopdf.open(large_pdf)
-    assert doc.to_markdown() == "\n\n".join(f"Page {index}" for index in range(LARGE_PAGE_COUNT))
-    assert doc.to_markdown([4199, 0]) == "Page 4199\n\nPage 0"
+    assert doc.markdown() == "\n\n".join(f"Page {index}" for index in range(LARGE_PAGE_COUNT))
+    assert doc.markdown([4199, 0]) == "Page 4199\n\nPage 0"
 
 
 def test_render_pages_renders_every_page_across_chunks(large_pdf: bytes) -> None:
@@ -76,8 +76,8 @@ def test_select_reorders_every_page(large_pdf: bytes) -> None:
     doc.pages.select(range(LARGE_PAGE_COUNT - 1, -1, -1))
 
     assert len(doc.pages) == LARGE_PAGE_COUNT
-    assert doc.pages[0].get_text() == f"Page {LARGE_PAGE_COUNT - 1}\n"
-    assert doc.pages[LARGE_PAGE_COUNT - 1].get_text() == "Page 0\n"
+    assert doc.pages[0].text() == f"Page {LARGE_PAGE_COUNT - 1}\n"
+    assert doc.pages[LARGE_PAGE_COUNT - 1].text() == "Page 0\n"
 
 
 def test_select_accepts_page_count_duplicates_without_growing(large_pdf: bytes) -> None:
@@ -85,7 +85,7 @@ def test_select_accepts_page_count_duplicates_without_growing(large_pdf: bytes) 
     doc.pages.select([0] * LARGE_PAGE_COUNT)
 
     assert len(doc.pages) == LARGE_PAGE_COUNT
-    assert doc.get_text([LARGE_PAGE_COUNT - 1]) == "Page 0\n"
+    assert doc.text([LARGE_PAGE_COUNT - 1]) == "Page 0\n"
 
 
 def test_delete_pages_accepts_more_than_the_floor(large_pdf: bytes) -> None:
@@ -93,7 +93,7 @@ def test_delete_pages_accepts_more_than_the_floor(large_pdf: bytes) -> None:
     del doc.pages[0:4150]
 
     assert len(doc.pages) == LARGE_PAGE_COUNT - 4_150
-    assert doc.pages[0].get_text() == "Page 4150\n"
+    assert doc.pages[0].text() == "Page 4150\n"
 
 
 def test_insert_pdf_imports_a_complete_large_document(large_pdf: bytes) -> None:
@@ -101,24 +101,24 @@ def test_insert_pdf_imports_a_complete_large_document(large_pdf: bytes) -> None:
     appended = pylopdf.Document()
     appended.pages.extend(source.pages)
     assert len(appended.pages) == LARGE_PAGE_COUNT
-    assert appended.get_text([0, LARGE_PAGE_COUNT - 1]) == f"Page 0\nPage {LARGE_PAGE_COUNT - 1}\n"
+    assert appended.text([0, LARGE_PAGE_COUNT - 1]) == f"Page 0\nPage {LARGE_PAGE_COUNT - 1}\n"
 
     reversed_doc = pylopdf.Document()
     reversed_doc.pages.extend(source.pages[::-1])
     assert len(reversed_doc.pages) == LARGE_PAGE_COUNT
-    assert reversed_doc.pages[0].get_text() == f"Page {LARGE_PAGE_COUNT - 1}\n"
+    assert reversed_doc.pages[0].text() == f"Page {LARGE_PAGE_COUNT - 1}\n"
 
 
 @pytest.mark.parametrize(
     "operation",
     [
-        lambda doc, pages: doc.get_text(pages),
-        lambda doc, pages: doc.to_markdown(pages),
+        lambda doc, pages: doc.text(pages),
+        lambda doc, pages: doc.markdown(pages),
         lambda doc, pages: doc.render_pages(pages, matrix=pylopdf.Matrix(0.05, 0.05), alpha=True),
         lambda doc, pages: doc.pages.select(pages),
         lambda doc, pages: doc.pages.extend(doc.pages[index] for index in pages),
     ],
-    ids=["get_text", "to_markdown", "render_pages", "select", "extend"],
+    ids=["text", "markdown", "render_pages", "select", "extend"],
 )
 def test_explicit_entries_stop_after_the_page_count(
     large_pdf: bytes,
@@ -134,7 +134,7 @@ def test_explicit_entries_stop_after_the_page_count(
     assert caught.value.code == "page_entry_count"
     assert consumed[0] == LARGE_PAGE_COUNT + 1
     assert len(doc.pages) == LARGE_PAGE_COUNT
-    assert page.get_text() == f"Page {LARGE_PAGE_COUNT - 1}\n"
+    assert page.text() == f"Page {LARGE_PAGE_COUNT - 1}\n"
 
 
 def test_core_page_batches_are_bounded_by_the_page_count(large_pdf: bytes) -> None:

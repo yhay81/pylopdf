@@ -222,7 +222,7 @@ def test_commit_refuses_drawing_that_finish_did_not_style() -> None:
     assert doc.to_bytes() == before
     shape.finish(color=(1, 0, 0))
     shape.commit()
-    assert page.get_text().strip() == "text"
+    assert page.text().strip() == "text"
 
 
 def test_text_is_drawn_above_the_paths_of_its_shape(regular: pylopdf.Font) -> None:
@@ -261,7 +261,7 @@ def test_one_commit_embeds_each_font_once(regular: pylopdf.Font) -> None:
             shape.insert_text((250, 30 + 20 * row), f"Standard {row}", fontsize=10)
         shape.insert_textbox((20, 160, 380, 280), "折り返す日本語の文章です。" * 5, font=regular, fontsize=10)
     assert _font_files(doc) == 1
-    words = [word[4] for word in page.get_text("words")]
+    words = [word.text for word in page.words()]
     assert "Standard" in words
     assert "の本文" in words
 
@@ -283,11 +283,11 @@ def test_shapes_use_display_coordinates_on_rotated_pages(rotation: int, regular:
         shape.insert_text((40, 120), "Standard", fontsize=12)
     (drawing,) = page.get_drawings()
     assert drawing["rect"] == pytest.approx((20, 30, 120, 80), abs=0.01)
-    words = {word[4]: word for word in page.get_text("words")}
-    assert words["見出し"][0] == pytest.approx(40, abs=0.5)
-    assert words["Standard"][0] == pytest.approx(40, abs=0.5)
-    assert words["見出し"][1] < 60 < words["見出し"][3]
-    assert words["Standard"][1] < 120 < words["Standard"][3]
+    words = {word.text: word for word in page.words()}
+    assert words["見出し"].bbox.x0 == pytest.approx(40, abs=0.5)
+    assert words["Standard"].bbox.x0 == pytest.approx(40, abs=0.5)
+    assert words["見出し"].bbox.y0 < 60 < words["見出し"].bbox.y1
+    assert words["Standard"].bbox.y0 < 120 < words["Standard"].bbox.y1
     assert (width, height) == ((400, 300) if rotation in (0, 180) else (300, 400))
 
 
@@ -386,7 +386,7 @@ def test_insert_text_places_lines_as_page_insert_text_does(fontname: str, regula
     assert shape.insert_text((20, 120), ["日本語", "二行目"], font=regular, fontsize=14) == 2
     assert shape.insert_text((20, 180), "") == 0
     shape.commit()
-    assert page.get_text("words") == expected.get_text("words")
+    assert page.words() == expected.words()
 
 
 def test_insert_textbox_wraps_as_page_insert_textbox_does(regular: pylopdf.Font) -> None:
@@ -401,7 +401,7 @@ def test_insert_textbox_wraps_as_page_insert_textbox_does(regular: pylopdf.Font)
         pytest.approx(expected_jp)
     )
     shape.commit()
-    assert page.get_text("words") == expected.get_text("words")
+    assert page.words() == expected.words()
 
 
 def test_an_overflowing_textbox_adds_nothing() -> None:
@@ -432,7 +432,7 @@ def test_measured_width_equals_the_drawn_width(regular: pylopdf.Font) -> None:
         shape.insert_text((20, 100), text, font=regular, fontsize=18)
     chars = [
         char
-        for block in page.get_text("rawdict")["blocks"]
+        for block in page.layout(chars=True).to_dict()["blocks"]
         for line in block["lines"]
         for span in line["spans"]
         for char in span["chars"]
@@ -585,7 +585,7 @@ def test_installed_fonts_are_selected_for_unicode_text() -> None:
     with page.new_shape() as shape:
         shape.insert_text((20, 50), "日本語の見出し", fontsize=14)
         shape.insert_text((20, 80), "二行目の本文", fontsize=12)
-    assert [word[4] for word in page.get_text("words")] == ["日本語の見出し", "二行目の本文"]
+    assert [word.text for word in page.words()] == ["日本語の見出し", "二行目の本文"]
     assert _font_files(doc) == 1
 
 
@@ -605,7 +605,7 @@ def test_weight_instances_of_one_variable_face_keep_their_names() -> None:
         shape.insert_text((20, 180), "עולם", font=bold, fontsize=20)
         shape.insert_text((20, 220), "שלום", font=thin, fontsize=20)
         shape.insert_text((20, 260), "עולם", font=regular, fontsize=20)
-    spans = [span for block in page.get_text("dict")["blocks"] for line in block["lines"] for span in line["spans"]]
+    spans = [span for block in page.layout().to_dict()["blocks"] for line in block["lines"] for span in line["spans"]]
     by_line = {round(span["origin"][1]): span["font"] for span in spans if span["text"].strip() != "Standard"}
     assert by_line == {
         60: "NotoSansHebrew-Regular",
@@ -620,7 +620,7 @@ def test_weight_instances_of_one_variable_face_keep_their_names() -> None:
     # as Page.insert_text draws it, and a new commit embeds it again.
     with page.new_shape() as automatic:
         automatic.insert_text((200, 60), "עולם", fontsize=20)
-    spans = [span for block in page.get_text("dict")["blocks"] for line in block["lines"] for span in line["spans"]]
+    spans = [span for block in page.layout().to_dict()["blocks"] for line in block["lines"] for span in line["spans"]]
     assert {span["font"] for span in spans if span["origin"][0] >= 200} == {"NotoSansHebrew-Regular"}
     assert _font_files(doc) == 4
 
@@ -678,7 +678,7 @@ def test_report_pages_with_measured_labels_and_photo_marks(regular: pylopdf.Font
             assert spare > 0
         chars = [
             char
-            for block in page.get_text("rawdict")["blocks"]
+            for block in page.layout(chars=True).to_dict()["blocks"]
             for line in block["lines"]
             for span in line["spans"]
             for char in span["chars"]
@@ -709,4 +709,4 @@ def test_report_pages_with_measured_labels_and_photo_marks(regular: pylopdf.Font
     assert red == green == blue < 250
     saved = pylopdf.open(doc.to_bytes())
     assert len(saved.pages) == 3
-    assert "現地調査報告書" in saved.pages[0].get_text()
+    assert "現地調査報告書" in saved.pages[0].text()

@@ -315,8 +315,8 @@ def test_insert_pdf_reversed_range_remaps_internal_link() -> None:
 
     assert target.pages[2].get_links()[0]["page"] == 1
     assert target.pages[2].get_links()[0]["to"] == pylopdf.Point(5, 5)
-    assert "Before" in target.pages[0].get_text()
-    assert "After" in target.pages[3].get_text()
+    assert "Before" in target.pages[0].text()
+    assert "After" in target.pages[3].text()
 
 
 def test_insert_pdf_reversed_range_remaps_integer_destination() -> None:
@@ -390,7 +390,7 @@ def test_insert_pdf_named_destination_limit_is_atomic(target_shape: str) -> None
     assert target.to_bytes() == before
     assert source.to_bytes() == source_before
     if page is not None:
-        assert "Unchanged" in page.get_text()
+        assert "Unchanged" in page.text()
 
 
 @pytest.mark.parametrize("target_shape", ["populated", "empty", "missing_pages"])
@@ -453,7 +453,7 @@ def test_insert_pdf_refusal_preserves_original_interpretation_fast_path() -> Non
     assert len(pylopdf.open(compressed).to_bytes()) > limit
     target = pylopdf.open(compressed, limits=pylopdf.DocumentLimits(max_interpretation_size=limit))
     page = target.pages[0]
-    original_text = page.get_text()
+    original_text = page.text()
     original_png = page.get_pixmap(alpha=True).tobytes()
     # Serialize without the options that change the document and its snapshot.
     original_bytes = target.to_bytes(compress=False, prune=False)
@@ -468,5 +468,5 @@ def test_insert_pdf_refusal_preserves_original_interpretation_fast_path() -> Non
         target.pages.extend(source.pages)
 
     assert target.to_bytes(compress=False, prune=False) == original_bytes
-    assert page.get_text() == original_text
+    assert page.text() == original_text
     assert page.get_pixmap(alpha=True).tobytes() == original_png

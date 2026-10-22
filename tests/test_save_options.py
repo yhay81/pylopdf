@@ -26,7 +26,7 @@ def _object_body(data: bytes, number: int) -> bytes:
 
 
 def _signature(doc: pylopdf.Document) -> list[tuple[str, bytes]]:
-    return [(page.get_text(), page.get_pixmap(dpi=24, alpha=True).samples) for page in doc.pages]
+    return [(page.text(), page.get_pixmap(dpi=24, alpha=True).samples) for page in doc.pages]
 
 
 def _twice_imported() -> pylopdf.Document:
@@ -101,7 +101,7 @@ def test_saving_compresses_and_prunes_by_default() -> None:
 def test_a_save_that_changes_nothing_keeps_the_original_bytes() -> None:
     # This file has no unreachable object and no stream that Flate makes smaller.
     doc = pylopdf.open(REAL_WORLD / "senate-expenditures.pdf")
-    doc.pages[0].get_text()
+    doc.pages[0].text()
     assert doc._doc.snapshot_source() == "original"  # noqa: SLF001
 
     doc.to_bytes()
@@ -114,7 +114,7 @@ def test_a_save_that_changes_nothing_keeps_the_original_bytes() -> None:
 def test_saving_again_keeps_the_snapshot() -> None:
     doc = pylopdf.open(REAL_WORLD / "usrguide.pdf")
     doc.to_bytes()
-    doc.pages[0].get_text()
+    doc.pages[0].text()
     source = doc._doc.snapshot_source()  # noqa: SLF001
     assert source != "none"
 
@@ -265,7 +265,7 @@ def test_drawing_after_compaction_isolates_page_content_once() -> None:
     compacted.pages[0].insert_text((50, 80), "Two")
 
     assert contents_entries(compacted) == contents_entries(plain)
-    assert compacted.pages[0].get_text() == plain.pages[0].get_text()
+    assert compacted.pages[0].text() == plain.pages[0].text()
 
 
 def test_images_placed_after_merging_save_and_merge_again() -> None:
@@ -313,7 +313,7 @@ def test_object_streams_pack_objects_into_object_streams(tmp_path: Path, method:
     assert b"/ObjStm" in data
     assert b"/ObjStm" not in doc.to_bytes()
     reopened = pylopdf.open(data)
-    assert [page.get_text().strip() for page in reopened.pages] == ["Compact"] * 3
+    assert [page.text().strip() for page in reopened.pages] == ["Compact"] * 3
 
 
 def _fix_offsets(raw: bytes) -> bytes:

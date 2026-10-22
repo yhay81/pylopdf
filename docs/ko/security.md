@@ -83,9 +83,9 @@ limits = pylopdf.DocumentLimits(
 |---|---|---|
 | `Document.to_bytes()` | 출력 512 MiB | `max_size` |
 | `Document.render_pages()` | PNG 출력 합계 512 MiB | `max_size` |
-| `to_markdown()`, `Table.to_markdown()` | 출력 64 MiB | `max_size` |
+| `markdown()`, `Table.markdown()` | 출력 64 MiB | `max_size` |
 | `Pixmap.tobytes()`, `Page.get_svg_image()` | 출력 64 MiB | `max_size` |
-| `Page.search_for()` | 결과 4,096개 | `max_hits` |
+| `Page.search()` | 결과 4,096개 | `max_hits` |
 | `Page.content()` | 글리프, 경로와 클립의 세그먼트, 항목을 합쳐 262,144개 | `max_elements` |
 | `Page.insert_text()`, `insert_textbox()` | 텍스트 1 MiB와 4,096줄 | `max_text_size` |
 | 그리기, 폼, `Font`에 전달하는 글꼴 입력 | 글꼴당 64 MiB | `max_font_size` |
@@ -96,7 +96,7 @@ limits = pylopdf.DocumentLimits(
 | `Document.get_pdfa_claim()`, `get_xml_metadata()`, `set_xml_metadata()` | XMP 메타데이터 1 MiB | `max_size` |
 | `OcrEngine()` | 모델 파일 64 MiB | `max_model_size` |
 
-일부 제한은 고정되어 있습니다. 렌더링은 페이지당 6,400만 픽셀로 제한됩니다. 비밀번호는 PDF 2.0의 최대치인 UTF-8 127바이트까지입니다. `doc.pages.select()`, `insert()`, `extend()`, `get_text()`, `to_markdown()`, `render_pages()`에 전달하는 페이지 목록은 페이지 수와 4,096 중 큰 값까지의 항목을 담을 수 있습니다. 목차, 페이지 레이블, 폼 필드, 주석, 첨부 파일 목록에는 큰 실제 문서에 맞춘 넉넉한 고정 제한이 있습니다.
+일부 제한은 고정되어 있습니다. 렌더링은 페이지당 6,400만 픽셀로 제한됩니다. 비밀번호는 PDF 2.0의 최대치인 UTF-8 127바이트까지입니다. `doc.pages.select()`, `insert()`, `extend()`, `doc.text()`, `doc.markdown()`, `render_pages()`에 전달하는 페이지 목록은 페이지 수와 4,096 중 큰 값까지의 항목을 담을 수 있습니다. 목차, 페이지 레이블, 폼 필드, 주석, 첨부 파일 목록에는 큰 실제 문서에 맞춘 넉넉한 고정 제한이 있습니다.
 
 거부된 호출은 문서를 변경하기 전에 예외를 발생시키며, 부분 결과를 반환하지 않습니다.
 

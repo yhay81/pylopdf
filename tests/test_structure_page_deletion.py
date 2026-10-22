@@ -124,7 +124,7 @@ def test_deleting_a_page_removes_its_structure_content(edit: str) -> None:
     assert objects[32] == b"<</Limits[(pa)(span)]/Names[(pa) 12 0 R(pc) 18 0 R]>>"
 
     reopened = pylopdf.open(saved)
-    texts = [page.get_text() for page in reopened.pages]
+    texts = [page.text() for page in reopened.pages]
     assert "Beta" not in "".join(texts)
     assert "Gamma 0" in texts[-1]
 

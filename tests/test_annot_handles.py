@@ -94,7 +94,7 @@ def test_handles_go_stale() -> None:
 def test_add_highlight_annot_returns_its_annot() -> None:
     doc = pylopdf.open(build_pdf(["Highlight me"]))
     page = doc.pages[0]
-    hit = page.search_for("Highlight")[0]
+    hit = page.search("Highlight")[0]
 
     annot = page.add_highlight_annot(hit, content="note")
 

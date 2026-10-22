@@ -83,9 +83,9 @@ limits = pylopdf.DocumentLimits(
 |---|---|---|
 | `Document.to_bytes()` | 出力512 MiB | `max_size` |
 | `Document.render_pages()` | PNG出力の合計512 MiB | `max_size` |
-| `to_markdown()`, `Table.to_markdown()` | 出力64 MiB | `max_size` |
+| `markdown()`, `Table.markdown()` | 出力64 MiB | `max_size` |
 | `Pixmap.tobytes()`, `Page.get_svg_image()` | 出力64 MiB | `max_size` |
-| `Page.search_for()` | 結果4,096件 | `max_hits` |
+| `Page.search()` | 結果4,096件 | `max_hits` |
 | `Page.content()` | グリフ、パスとクリップのセグメント、項目で合わせて262,144 | `max_elements` |
 | `Page.insert_text()`, `insert_textbox()` | テキスト1 MiBと4,096行 | `max_text_size` |
 | 描画、フォーム、`Font`へのフォント入力 | フォント1つあたり64 MiB | `max_font_size` |
@@ -96,7 +96,7 @@ limits = pylopdf.DocumentLimits(
 | `Document.get_pdfa_claim()`, `get_xml_metadata()`, `set_xml_metadata()` | XMPメタデータ1 MiB | `max_size` |
 | `OcrEngine()` | モデルファイル64 MiB | `max_model_size` |
 
-いくつかの上限は固定です。レンダリングは1ページあたり6,400万画素までです。パスワードはPDF 2.0の上限であるUTF-8で127バイトまでです。`doc.pages.select()`、`insert()`、`extend()`、`get_text()`、`to_markdown()`、`render_pages()`に渡すページのリストは、ページ数と4,096のうち大きい方の項目数まで持てます。しおり、ページラベル、フォームフィールド、注釈、添付ファイルの一覧には、実際の大きな文書に合わせた余裕のある固定の上限があります。
+いくつかの上限は固定です。レンダリングは1ページあたり6,400万画素までです。パスワードはPDF 2.0の上限であるUTF-8で127バイトまでです。`doc.pages.select()`、`insert()`、`extend()`、`doc.text()`、`doc.markdown()`、`render_pages()`に渡すページのリストは、ページ数と4,096のうち大きい方の項目数まで持てます。しおり、ページラベル、フォームフィールド、注釈、添付ファイルの一覧には、実際の大きな文書に合わせた余裕のある固定の上限があります。
 
 拒否された呼び出しは文書を変更する前に例外を送出し、部分的な結果を返すことはありません。
 

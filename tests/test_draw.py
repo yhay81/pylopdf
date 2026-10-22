@@ -354,7 +354,7 @@ def test_drawing_detaches_shared_resources_from_other_pages() -> None:
 def test_drawing_accepts_exact_page_inheritance_depth_boundary() -> None:
     doc = _page_parent_chain_doc(62)
     doc.pages[0].insert_text((10, 20), "Text")
-    assert "Text" in doc.pages[0].get_text()
+    assert "Text" in doc.pages[0].text()
 
 
 @pytest.mark.parametrize(
@@ -798,7 +798,7 @@ def test_show_pdf_page_overlays_vector_text() -> None:
     page = doc.pages[0]
     page.show_pdf_page((50, 50, 550, 700), stamp)
     # Text remains vector/extractable after conversion to a Form XObject.
-    assert "STAMPTEXT" in page.get_text()
+    assert "STAMPTEXT" in page.text()
 
 
 def test_show_pdf_page_draws_at_rect() -> None:
@@ -873,8 +873,8 @@ def test_show_pdf_page_accepts_negative_pno() -> None:
     doc.pages.new()
     page = doc.pages[0]
     page.show_pdf_page((50, 50, 550, 700), stamp, pno=-1)
-    assert "LAST" in page.get_text()
-    assert "FIRST" not in page.get_text()
+    assert "LAST" in page.text()
+    assert "FIRST" not in page.text()
 
 
 def test_show_pdf_page_underlay_draws_below() -> None:
@@ -894,9 +894,9 @@ def test_insert_text_is_extractable_at_position() -> None:
     doc.pages.new()  # A4-like page also verifies drawing without Resources.
     page = doc.pages[0]
     page.insert_text((50, 100), "Confidential", fontsize=12)
-    words = page.get_text("words")
-    assert [w[4] for w in words] == ["Confidential"]
-    x0, y0, _, y1 = words[0][:4]
+    words = page.words()
+    assert [w.text for w in words] == ["Confidential"]
+    x0, y0, _, y1 = words[0].bbox
     assert abs(x0 - 50) < 2  # Baseline left equals the requested x.
     assert y0 < 100 < y1  # Requested baseline y lies inside the bbox.
 
@@ -906,8 +906,8 @@ def test_insert_text_multiline_stacks_downward() -> None:
     doc.pages.new()
     page = doc.pages[0]
     page.insert_text((50, 100), "First\nSecond", fontsize=10)
-    words = {w[4]: w for w in page.get_text("words")}
-    assert words["Second"][1] > words["First"][1]  # Second line is lower.
+    words = {w.text: w for w in page.words()}
+    assert words["Second"].bbox.y0 > words["First"].bbox.y0  # Second line is lower.
 
 
 def test_insert_text_on_rotated_page_reads_upright() -> None:
@@ -919,11 +919,11 @@ def test_insert_text_on_rotated_page_reads_upright() -> None:
     pix = page.get_pixmap(background=WHITE, alpha=True)
     assert (pix.width, pix.height) == (200, 100)  # Rendering uses display space.
     # Extraction/search share rendering's rotation-resolved display space.
-    words = page.get_text("words")
-    assert [w[4] for w in words] == ["Rotated"]
-    assert abs(words[0][0] - 20) < 2  # Requested display x.
-    assert words[0][1] < 50 < words[0][3]  # Baseline display y lies in bbox.
-    assert page.search_for("Rotated")
+    words = page.words()
+    assert [w.text for w in words] == ["Rotated"]
+    assert abs(words[0].bbox.x0 - 20) < 2  # Requested display x.
+    assert words[0].bbox.y0 < 50 < words[0].bbox.y1  # Baseline display y lies in bbox.
+    assert page.search("Rotated")
 
 
 def test_insert_text_subset_embeds_unicode_font() -> None:
@@ -937,14 +937,14 @@ def test_insert_text_subset_embeds_unicode_font() -> None:
         fontname="private-resource-name-is-ignored",
     )
 
-    assert page.get_text().strip() == "日本語テキスト"
-    assert page.search_for("日本語")
+    assert page.text().strip() == "日本語テキスト"
+    assert page.search("日本語")
     # The 4.5 MB source is subset to the glyphs used by this one-page Form.
     saved = doc.to_bytes()
     assert len(saved) < 50_000
     reopened = pylopdf.open(saved)
-    assert reopened.pages[0].get_text().strip() == "日本語テキスト"
-    assert reopened.pages[0].search_for("テキスト")
+    assert reopened.pages[0].text().strip() == "日本語テキスト"
+    assert reopened.pages[0].search("テキスト")
 
 
 def test_insert_text_auto_embeds_optional_jp_font() -> None:
@@ -955,8 +955,8 @@ def test_insert_text_auto_embeds_optional_jp_font() -> None:
     page.insert_text((20, 60), "日本語", fontsize=24)
     page.insert_text((20, 100), "明朝体", fontsize=24, fontname="tiro")
 
-    assert page.get_text().splitlines() == ["日本語", "明朝体"]
-    spans = [span for block in page.get_text("dict")["blocks"] for line in block["lines"] for span in line["spans"]]
+    assert page.text().splitlines() == ["日本語", "明朝体"]
+    spans = [span for block in page.layout().to_dict()["blocks"] for line in block["lines"] for span in line["spans"]]
     assert spans[0]["font"].startswith("NotoSansJP")
     assert spans[1]["font"].startswith("NotoSerifJP")
     assert len(doc.to_bytes()) < 100_000
@@ -987,9 +987,9 @@ def test_insert_text_optional_font_conformance(
     saved = doc.to_bytes()
     assert len(saved) < 100_000
     reopened = pylopdf.open(saved)
-    assert reopened.pages[0].get_text().strip() == text
-    assert reopened.pages[0].search_for(text)
-    span = reopened.pages[0].get_text("dict")["blocks"][0]["lines"][0]["spans"][0]
+    assert reopened.pages[0].text().strip() == text
+    assert reopened.pages[0].search(text)
+    span = reopened.pages[0].layout().to_dict()["blocks"][0]["lines"][0]["spans"][0]
     assert span["font"].startswith(font_prefix)
 
 
@@ -1008,7 +1008,7 @@ def test_insert_text_detects_unambiguous_script_provider(text: str, font_prefix:
     doc = _new_page_doc(300, 150)
     doc.pages[0].insert_text((20, 60), text, fontsize=24)
 
-    span = doc.pages[0].get_text("dict")["blocks"][0]["lines"][0]["spans"][0]
+    span = doc.pages[0].layout().to_dict()["blocks"][0]["lines"][0]["spans"][0]
     assert span["font"].startswith(font_prefix)
 
 
@@ -1021,7 +1021,7 @@ def test_insert_text_disambiguates_han_provider() -> None:
     doc.pages[0].insert_text((20, 100), "简体中文", fontsize=20, font_language="zh-CN")
 
     spans = [
-        span for block in doc.pages[0].get_text("dict")["blocks"] for line in block["lines"] for span in line["spans"]
+        span for block in doc.pages[0].layout().to_dict()["blocks"] for line in block["lines"] for span in line["spans"]
     ]
     assert spans[0]["font"].startswith("NotoSansKR")
     assert spans[1]["font"].startswith("NotoSansSC")
@@ -1050,11 +1050,11 @@ def test_insert_text_embedded_fontbuffer_multiline_and_rotation() -> None:
         color=(0.8, 0.1, 0.2),
     )
 
-    words = {word[4]: word for word in page.get_text("words")}
+    words = {word.text: word for word in page.words()}
     assert set(words) == {"一行目", "二行目"}
-    assert abs(words["一行目"][0] - 30) < 2
-    assert words["一行目"][1] < 55 < words["一行目"][3]
-    assert words["二行目"][1] > words["一行目"][1]
+    assert abs(words["一行目"].bbox.x0 - 30) < 2
+    assert words["一行目"].bbox.y0 < 55 < words["一行目"].bbox.y1
+    assert words["二行目"].bbox.y0 > words["一行目"].bbox.y0
     assert page.get_pixmap(alpha=True).width == 300
 
 
@@ -1115,7 +1115,7 @@ def test_insert_textbox_wraps_aligns_and_reports_spare_height() -> None:
     spare = page.insert_textbox(rect, "one two three four five six", fontsize=10, align=pylopdf.TEXT_ALIGN_RIGHT)
 
     assert spare > 0
-    lines = page.get_text("dict")["blocks"][0]["lines"]
+    lines = page.layout().to_dict()["blocks"][0]["lines"]
     assert len(lines) == 2
     assert " ".join(span["text"] for span in lines[0]["spans"]) == "one two three four five"
     assert lines[0]["bbox"][2] == pytest.approx(rect[2], abs=0.1)
@@ -1131,7 +1131,7 @@ def test_insert_textbox_justifies_only_soft_wrapped_lines() -> None:
 
     page.insert_textbox(rect, "one two three four five six", fontsize=10, align=pylopdf.TEXT_ALIGN_JUSTIFY)
 
-    lines = page.get_text("dict")["blocks"][0]["lines"]
+    lines = page.layout().to_dict()["blocks"][0]["lines"]
     assert lines[0]["bbox"][0] == pytest.approx(rect[0], abs=0.1)
     assert lines[0]["bbox"][2] == pytest.approx(rect[2], abs=0.1)
     assert lines[1]["bbox"][0] == pytest.approx(rect[0], abs=0.1)
@@ -1146,10 +1146,10 @@ def test_insert_textbox_overflow_is_non_drawing_and_empty_text_is_free() -> None
     spare = page.insert_textbox((10, 10, 110, 15), "one two three four", fontsize=10)
 
     assert spare < 0
-    assert page.get_text() == ""
+    assert page.text() == ""
     assert page.get_pixmap(background=WHITE, alpha=True).samples == before
     assert page.insert_textbox((10, 10, 110, 25), "", fontsize=10) == 15
-    assert page.get_text() == ""
+    assert page.text() == ""
 
 
 def test_insert_textbox_auto_embeds_optional_jp_font_and_survives_rotation() -> None:
@@ -1169,13 +1169,13 @@ def test_insert_textbox_auto_embeds_optional_jp_font_and_survives_rotation() -> 
 
     assert spare > 0
     # pymupdf's default line height for Noto Sans JP sets each line in its own block.
-    lines = [line for block in page.get_text("dict")["blocks"] for line in block["lines"]]
+    lines = [line for block in page.layout().to_dict()["blocks"] for line in block["lines"]]
     assert len(lines) >= 3
     assert "".join(span["text"] for line in lines for span in line["spans"]) == "日本語の文章を空白なしで折り返します。"
     assert all(rect[0] <= line["bbox"][0] < line["bbox"][2] <= rect[2] + 0.1 for line in lines)
     assert all(rect[1] <= line["bbox"][1] < line["bbox"][3] <= rect[3] for line in lines)
     reopened = pylopdf.open(doc.to_bytes())
-    assert reopened.pages[0].get_text().replace("\n", "") == "日本語の文章を空白なしで折り返します。"
+    assert reopened.pages[0].text().replace("\n", "") == "日本語の文章を空白なしで折り返します。"
 
 
 def test_insert_textbox_tabs_custom_leading_and_bad_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1183,7 +1183,7 @@ def test_insert_textbox_tabs_custom_leading_and_bad_arguments(monkeypatch: pytes
     page = doc.pages[0]
     first = page.insert_textbox((10, 10, 150, 80), "a\tb\nc", fontsize=10, expandtabs=4, lineheight=1.0)
     assert first > 0
-    assert page.get_text().splitlines() == ["a   b", "c"]
+    assert page.text().splitlines() == ["a   b", "c"]
 
     with pytest.raises(ValueError, match="align"):
         page.insert_textbox((10, 10, 100, 80), "x", align=4)
@@ -1236,7 +1236,7 @@ def test_insert_text_survives_save_roundtrip() -> None:
     doc.pages.new()
     doc.pages[0].insert_text((72, 72), "Persistent")
     reopened = pylopdf.open(doc.to_bytes())
-    assert "Persistent" in reopened.pages[0].get_text()
+    assert "Persistent" in reopened.pages[0].text()
 
 
 def test_insert_text_standard14_escapes_binary_and_delimiters() -> None:
@@ -1256,7 +1256,7 @@ def test_insert_text_page_numbering_recipe() -> None:
     for i, page in enumerate(doc.pages):
         page.insert_text((page.rect.width - 90, page.rect.height - 30), f"Page {i + 1} / 3", fontsize=9)
     for i in range(3):
-        assert f"Page {i + 1} / 3" in doc.pages[i].get_text()
+        assert f"Page {i + 1} / 3" in doc.pages[i].text()
 
 
 def test_insert_text_rejects_unicode_without_optional_or_explicit_font(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1309,7 +1309,7 @@ def test_insert_text_bounds_fontbuffer_before_core_copy() -> None:
 
     assert caught.value.code == "font_input_size"
     assert doc.complexity == before
-    assert doc.pages[0].get_text() == ""
+    assert doc.pages[0].text() == ""
 
 
 def test_insert_text_reads_fontfile_through_bounded_core_path() -> None:
@@ -1324,7 +1324,7 @@ def test_insert_text_reads_fontfile_through_bounded_core_path() -> None:
     assert doc.complexity == before
 
     doc.pages[0].insert_text((10, 20), "A", fontfile=NOTO_SANS_JP, max_font_size=font_size)
-    assert "A" in doc.pages[0].get_text()
+    assert "A" in doc.pages[0].text()
 
 
 def test_insert_text_bounds_auto_selected_cjk_font() -> None:
@@ -1374,11 +1374,11 @@ def test_insert_text_bounds_utf8_input_atomically() -> None:
 
     assert caught.value.code == "text_input_size"
     assert doc.complexity == before
-    assert doc.pages[0].get_text() == ""
+    assert doc.pages[0].text() == ""
 
     doc.pages[0].insert_text((10, 20), "é", max_text_size=2)
     doc.pages[0].insert_text((10, 40), "unbounded", max_text_size=None)
-    assert doc.pages[0].get_text().splitlines() == ["é", "unbounded"]
+    assert doc.pages[0].text().splitlines() == ["é", "unbounded"]
 
 
 @pytest.mark.parametrize("method", ["insert_text", "insert_textbox"])
@@ -1400,7 +1400,7 @@ def test_generated_text_bounds_physical_lines_atomically(method: str) -> None:
 
     assert caught.value.code == "text_line_count"
     assert doc.complexity == before
-    assert doc.pages[0].get_text() == ""
+    assert doc.pages[0].text() == ""
 
 
 def test_generated_text_line_limit_boundary_and_opt_out_do_not_draw_on_overflow() -> None:
@@ -1425,7 +1425,7 @@ def test_insert_textbox_bounds_soft_wrapped_lines_atomically() -> None:
 
     assert caught.value.code == "text_line_count"
     assert doc.complexity == before
-    assert doc.pages[0].get_text() == ""
+    assert doc.pages[0].text() == ""
 
 
 def test_insert_textbox_bounds_expanded_tabs_before_allocation() -> None:
@@ -1458,7 +1458,7 @@ def test_insert_textbox_bounds_expanded_tabs_before_allocation() -> None:
         )
         > 0
     )
-    assert accepted.pages[0].get_text().strip() == "a   b"
+    assert accepted.pages[0].text().strip() == "a   b"
 
 
 def test_insert_textbox_wide_single_line_preserves_content() -> None:
@@ -1478,14 +1478,14 @@ def test_insert_textbox_dense_break_indexes_preserve_content() -> None:
     spare = doc.pages[0].insert_textbox((10, 10, 210, 2_490), text, fontsize=10, max_text_size=len(text))
 
     assert spare > 0
-    assert doc.pages[0].get_text().split() == ["a"] * 2_048
+    assert doc.pages[0].text().split() == ["a"] * 2_048
 
 
 def test_replace_text_replaces_and_counts() -> None:
     doc = pylopdf.open(build_pdf(["Hello PDF"]))
     page = doc.pages[0]
     assert page.replace_text("PDF", "Cat") == 1
-    text = page.get_text()
+    text = page.text()
     assert "Hello Cat" in text
     assert "PDF" not in text
 
@@ -1493,12 +1493,12 @@ def test_replace_text_replaces_and_counts() -> None:
 def test_replace_text_returns_zero_when_absent() -> None:
     doc = pylopdf.open(build_pdf(["Hello PDF"]))
     page = doc.pages[0]
-    assert "Hello PDF" in page.get_text()
+    assert "Hello PDF" in page.text()
     before = doc.to_bytes()
 
     assert page.replace_text("XYZ", "abc") == 0
     assert doc.to_bytes() == before
-    assert "Hello PDF" in page.get_text()
+    assert "Hello PDF" in page.text()
 
 
 def test_replace_text_requires_needle() -> None:
@@ -1512,8 +1512,8 @@ def test_replace_text_detaches_shared_page_contents() -> None:
     doc.pages.extend(doc.pages[0])
 
     assert doc.pages[0].replace_text("PDF", "Cat") == 1
-    assert "Hello Cat" in doc.pages[0].get_text()
-    assert "Hello PDF" in doc.pages[1].get_text()
+    assert "Hello Cat" in doc.pages[0].text()
+    assert "Hello PDF" in doc.pages[1].text()
 
 
 def test_replace_text_validates_input_without_mutation() -> None:
@@ -1569,7 +1569,7 @@ def test_replace_text_allows_exact_input_boundary_and_linear_fallback() -> None:
 
     fallback = pylopdf.open(build_pdf(["Hello PDF"]))
     assert fallback.pages[0].replace_text("PDF", "🦀", default_char="!") == 1
-    assert "Hello !" in fallback.pages[0].get_text()
+    assert "Hello !" in fallback.pages[0].text()
 
 
 @pytest.mark.parametrize("max_size", [0, -1, True, 1.5])

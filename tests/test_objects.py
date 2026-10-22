@@ -101,13 +101,13 @@ def test_dictionary_writes_take_effect_immediately() -> None:
 
 def test_writes_invalidate_cached_text_and_rendering() -> None:
     doc = _two_pages()
-    assert doc.pages[0].get_text().strip() == "first"
+    assert doc.pages[0].text().strip() == "first"
     contents = doc.pages[0].obj["Contents"]
     assert isinstance(contents, Stream)
 
     contents.write(b"BT /F1 12 Tf 72 720 Td (replaced) Tj ET")
 
-    assert doc.pages[0].get_text().strip() == "replaced"
+    assert doc.pages[0].text().strip() == "replaced"
     assert contents["Filter"] == "FlateDecode"
     assert contents.read() == b"BT /F1 12 Tf 72 720 Td (replaced) Tj ET"
     assert zlib.decompress(contents.read(decode=False)) == contents.read()
@@ -122,7 +122,7 @@ def test_stream_write_without_a_filter_stores_the_data() -> None:
     assert "Filter" not in contents
     assert contents["Length"] == len(b"BT /F1 12 Tf 72 720 Td (plain) Tj ET")
     assert contents.read(decode=False) == contents.read()
-    assert pylopdf.open(doc.to_bytes()).pages[0].get_text().strip() == "plain"
+    assert pylopdf.open(doc.to_bytes()).pages[0].text().strip() == "plain"
 
 
 def test_stream_read_is_bounded() -> None:
@@ -159,12 +159,12 @@ def test_add_builds_a_new_page_from_raw_objects() -> None:
     doc.pages[0].obj["Resources"] = {"Font": {"F9": doc.objects[font]}}
     doc.pages[0].obj["Contents"] = doc.objects[content]
 
-    assert doc.pages[0].get_text().strip() == "raw"
+    assert doc.pages[0].text().strip() == "raw"
     # An indirect handle stored inside a container is a reference.
     assert doc.pages[0].obj["Resources"]["Font"]["F9"].xref == font
     saved = doc.to_bytes()
     assert b"/F9 " + str(font).encode() + b" 0 R" in saved
-    assert pylopdf.open(saved).pages[0].get_text().strip() == "raw"
+    assert pylopdf.open(saved).pages[0].text().strip() == "raw"
 
 
 def test_assigning_a_handle_at_top_level_copies_it() -> None:
@@ -268,8 +268,8 @@ def test_reordering_kids_invalidates_pages() -> None:
     kids[0], kids[1] = kids[1], kids[0]
 
     with pytest.raises(pylopdf.StalePageError):
-        page.get_text()
-    assert doc.pages[0].get_text().strip() == "second"
+        page.text()
+    assert doc.pages[0].text().strip() == "second"
 
 
 def test_writes_that_keep_the_page_order_keep_pages() -> None:
@@ -279,7 +279,7 @@ def test_writes_that_keep_the_page_order_keep_pages() -> None:
     doc.catalog["PageLayout"] = Name("TwoColumnLeft")
     doc.objects.add({"Unused": True})
 
-    assert page.get_text().strip() == "second"
+    assert page.text().strip() == "second"
 
 
 def test_handles_go_stale_when_objects_are_renumbered() -> None:

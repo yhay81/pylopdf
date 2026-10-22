@@ -19,7 +19,7 @@ def _doc(count: int = 6) -> pylopdf.Document:
 
 
 def _texts(doc: pylopdf.Document) -> list[str]:
-    return [page.get_text().strip() for page in doc.pages]
+    return [page.text().strip() for page in doc.pages]
 
 
 def _numbers(doc: pylopdf.Document) -> list[int]:
@@ -81,7 +81,7 @@ def test_structural_edits_make_earlier_views_stale() -> None:
     assert page not in doc.pages
     assert page != doc.pages[0]
     with pytest.raises(pylopdf.StalePageError, match=r"doc\.pages\[1\]"):
-        page.get_text()
+        page.text()
 
 
 def test_changing_the_pages_during_iteration_raises() -> None:
@@ -124,7 +124,7 @@ def test_deleting_no_pages_changes_nothing() -> None:
     del doc.pages[1:1]
 
     assert doc.to_bytes() == before
-    assert page.get_text().strip() == "Page 0"
+    assert page.text().strip() == "Page 0"
 
 
 @pytest.mark.parametrize(("index", "error"), [(6, IndexError), (-7, IndexError), (1.0, TypeError)])
@@ -184,10 +184,10 @@ def test_a_copy_is_independent_of_the_original() -> None:
 
     assert doc.pages[0].xref == xref
     assert doc.pages[1].xref != xref
-    assert "Only on the copy" not in doc.pages[0].get_text()
+    assert "Only on the copy" not in doc.pages[0].text()
     assert doc.pages[0].rotation == 0
     reopened = pylopdf.open(doc.to_bytes())
-    assert "Only on the copy" in reopened.pages[1].get_text()
+    assert "Only on the copy" in reopened.pages[1].text()
 
 
 def test_insert_imports_pages_of_another_document_in_any_order() -> None:

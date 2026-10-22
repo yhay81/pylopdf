@@ -5,6 +5,7 @@ from __future__ import annotations
 import struct
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -51,10 +52,10 @@ def _new_page(width: float = 400, height: float = 200) -> tuple[pylopdf.Document
     return doc, doc.pages.new((width, height))
 
 
-def _chars(page: pylopdf.Page) -> list[pylopdf.TextChar]:
+def _chars(page: pylopdf.Page) -> list[dict[str, Any]]:
     return [
         char
-        for block in page.get_text("rawdict")["blocks"]
+        for block in page.layout(chars=True).to_dict()["blocks"]
         for line in block["lines"]
         for span in line["spans"]
         for char in span["chars"]
@@ -115,7 +116,7 @@ def test_text_length_equals_the_drawn_advance(regular: pylopdf.Font) -> None:
     following = chars[offsets.index(len(prefix))]
     assert following["origin"][0] == pytest.approx(x + regular.text_length(prefix, size), abs=1e-2)
     reopened = pylopdf.open(doc.to_bytes())
-    assert reopened.pages[0].get_text().strip() == MIXED_LINE
+    assert reopened.pages[0].text().strip() == MIXED_LINE
 
 
 def test_text_length_matches_textbox_layout(regular: pylopdf.Font) -> None:
@@ -128,7 +129,7 @@ def test_text_length_matches_textbox_layout(regular: pylopdf.Font) -> None:
     # minus the descender, plus one more descender.
     line_height = regular.ascender - regular.descender
     assert spare == pytest.approx(rect[3] - rect[1] - (line_height - regular.descender) * 16, abs=1e-6)
-    line = page.get_text("dict")["blocks"][0]["lines"][0]
+    line = page.layout().to_dict()["blocks"][0]["lines"][0]
     assert line["bbox"][0] == pytest.approx(rect[2] - regular.text_length("見出しAVATAR", 16), abs=1e-2)
     assert line["bbox"][2] == pytest.approx(rect[2], abs=1e-2)
 
@@ -208,7 +209,7 @@ def test_one_font_draws_on_several_documents_and_threads(regular: pylopdf.Font) 
         _doc, page = _new_page()
         text = f"見出し{index}"
         page.insert_text((10, 40), text, font=regular, fontsize=12)
-        return regular.text_length(text, 12), page.get_text().strip()
+        return regular.text_length(text, 12), page.text().strip()
 
     with ThreadPoolExecutor(max_workers=4) as executor:
         results = list(executor.map(draw, range(8)))
@@ -344,7 +345,7 @@ def test_font_parameter_rejects_other_font_sources(regular: pylopdf.Font) -> Non
             page.insert_textbox((10, 10, 100, 80), "x", font=regular, **extra)  # ty: ignore[invalid-argument-type]
     with pytest.raises(TypeError, match=r"pylopdf\.Font"):
         page.insert_text((10, 40), "x", font="helv")  # ty: ignore[invalid-argument-type]
-    assert page.get_text() == ""
+    assert page.text() == ""
 
 
 def test_textbox_with_font_keeps_its_no_draw_boundaries(regular: pylopdf.Font) -> None:

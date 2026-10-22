@@ -27,11 +27,11 @@ def _demo_document() -> pylopdf.Document:
     return document
 
 
-def _glyph_markup(char: pylopdf.TextChar, index: int) -> str:
-    x0, y0, x1, y1 = char["bbox"]
-    x, y = char["origin"]
-    label = html.escape(f"{index}: {char['c']}")
-    details = html.escape(f"{char['c']!r}; bbox={char['bbox']}; origin={char['origin']}")
+def _glyph_markup(char: pylopdf.Char, index: int) -> str:
+    x0, y0, x1, y1 = char.bbox
+    x, y = char.origin
+    label = html.escape(f"{index}: {char.text}")
+    details = html.escape(f"{char.text!r}; bbox={tuple(char.bbox)}; origin={tuple(char.origin)}")
     return (
         f'<g class="glyph"><title>{details}</title>'
         f'<rect class="bbox" x="{x0:.4f}" y="{y0:.4f}" '
@@ -41,11 +41,11 @@ def _glyph_markup(char: pylopdf.TextChar, index: int) -> str:
     )
 
 
-def _create_html(layout: pylopdf.RawTextPageDict, png: bytes, source: str) -> str:
-    width, height = layout["width"], layout["height"]
-    spans = [span for block in layout["blocks"] for line in block["lines"] for span in line["spans"]]
-    total = sum(len(span["chars"]) for span in spans)
-    chars = (char for span in spans for char in span["chars"])
+def _create_html(layout: pylopdf.Layout, png: bytes, source: str) -> str:
+    width, height = layout.width, layout.height
+    spans = [span for block in layout.blocks for line in block.lines for span in line.spans]
+    total = sum(len(span.chars) for span in spans)
+    chars = (char for span in spans for char in span.chars)
     marks = [_glyph_markup(char, index) for index, char in enumerate(islice(chars, _MAX_OVERLAY_GLYPHS), start=1)]
     image = base64.b64encode(png).decode("ascii")
     title = html.escape(source)
@@ -113,7 +113,7 @@ def main() -> None:
     document = pylopdf.open(args.pdf, limits=pylopdf.DocumentLimits.web()) if args.pdf is not None else _demo_document()
     with document:
         page = document.pages[args.page]
-        layout = page.get_text("rawdict")
+        layout = page.layout(chars=True)
         png = page.get_pixmap(
             matrix=pylopdf.Matrix(args.scale, args.scale), background=(255, 255, 255), alpha=True
         ).tobytes()

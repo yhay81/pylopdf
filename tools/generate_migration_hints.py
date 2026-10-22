@@ -7,7 +7,9 @@ capability, and the hint or the fact that pylopdf leaves it out for the rest.
 It also maps every name of pylopdf 0.15.0's public API that the API reset
 removed, from ``api/pylopdf-0.15.json`` or, for a pymupdf name, from the
 capability map, and lists those names in ``PYLOPDF_015_REMOVED``, which the
-codemod uses to keep pymupdf hints out of pylopdf programs. AttributeError
+codemod uses to keep pymupdf hints out of pylopdf programs, and the names
+that only pylopdf 0.15 had in ``PYLOPDF_015_ONLY``, which it keeps out of
+pymupdf programs. AttributeError
 messages and ``python -m pylopdf.migrate`` read it. The script also writes
 the replaced-name maps at the end of ``docs/en/llms.txt`` for coding
 assistants. Run it after editing ``api/pymupdf-parity.json``,
@@ -115,6 +117,12 @@ def render(manifest: dict[str, object], release: dict[str, object], public: set[
     lines.append("\n#: Names of pylopdf 0.15.0's public API that pylopdf no longer provides.\n")
     lines.append("PYLOPDF_015_REMOVED: frozenset[str] = frozenset(\n    {\n")
     lines.extend(f"        {json.dumps(name)},\n" for name in _removed_015(release, public))
+    lines.append("    }\n)\n")
+    entries = cast("dict[str, object]", manifest["entries"])
+    replacements = cast("dict[str, object]", release["replacements"])
+    lines.append("\n#: Hinted names that only pylopdf 0.15 had, which pymupdf programs cannot use.\n")
+    lines.append("PYLOPDF_015_ONLY: frozenset[str] = frozenset(\n    {\n")
+    lines.extend(f"        {json.dumps(name)},\n" for name in sorted(set(replacements) - set(entries)))
     lines.append("    }\n)\n")
     return "".join(lines)
 

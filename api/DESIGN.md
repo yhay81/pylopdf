@@ -255,7 +255,7 @@ interpret the page separately and agree with it on the bundled corpus.
 | `page.content(*, clip=None, annotations=True)` → `Content` | The graphics model of section 3. |
 | `page.text(*, clip=None, ...)` → `str` | Reading order. |
 | `page.words(*, clip=None, ...)` → `list[Word]` | `Word(text, bbox, block, line, index)`. |
-| `page.layout(*, clip=None, chars=False, ...)` → `Layout` | Blocks, lines, spans, and, with `chars=True`, characters, as records with provenance; `to_dict()` serializes it. |
+| `page.layout(*, clip=None, chars=False, ...)` → `Layout` | `Block`, `Line`, `Span`, and, with `chars=True`, `Char` records with provenance; `to_dict()` serializes it in pymupdf's dictionary shape. |
 | `page.search(text, *, clip=None, quads=False, max_hits=4096)` → `list[Rect] \| list[Quad]` | |
 | `page.tables(*, strategy="lines", clip=None, ...)` → `list[Table]` | `Table` has `bbox`, `rows`, `cells`, `diagnostics`, `markdown()`, and `to_pandas()`. |
 | `page.markdown(...)`, `doc.markdown(pages=None, *, chunks=False, ...)` | With `chunks=True`, a list of chunks, each with its page and display-space boxes. |

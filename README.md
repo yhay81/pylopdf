@@ -54,11 +54,11 @@ doc = pylopdf.open("input.pdf")
 page = doc.pages[0]
 
 # Extract
-text = page.get_text()                 # plain text
-words = page.get_text("words")         # words with their positions
-hits = page.search_for("invoice")      # rectangles of each match
+text = page.text()                     # plain text
+words = page.words()                   # words with their positions
+hits = page.search("invoice")          # rectangles of each match
 tables = page.find_tables()
-markdown = doc.to_markdown()           # whole document as Markdown
+markdown = doc.markdown()              # whole document as Markdown
 
 # Render
 page.get_pixmap(dpi=150).save("page.png")

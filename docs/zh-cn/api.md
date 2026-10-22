@@ -86,12 +86,12 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 颠倒页面顺序
 
 | 成员 | 用途 |
 |---|---|
-| `get_text(pages=None)` | 将所有页面或列出页面的纯文本合并为一个字符串 |
-| `to_markdown(pages=None, *, table_strategy="lines", max_size=64 MiB)` | 生成包含标题、列表、强调、多栏顺序、CJK竖排和表格的Markdown |
+| `text(pages=None)` | 将所有页面或列出页面的纯文本合并为一个字符串 |
+| `markdown(pages=None, *, table_strategy="lines", max_size=64 MiB)` | 生成包含标题、列表、强调、多栏顺序、CJK竖排和表格的Markdown |
 
 `table_strategy="lines"`转换以框线绘制的表格，`"text"`还会转换对齐明确的无边框表格，`None`则关闭表格转换。
 
-同一行的词间空格遵循`get_text()`的规则，即使字体或样式发生变化也不例外。空格保留在强调标记之外，组合字符与其基础字符保持相连。
+同一行的词间空格遵循`text()`的规则，即使字体或样式发生变化也不例外。空格保留在强调标记之外，组合字符与其基础字符保持相连。
 
 ### 渲染与图像 { #document-rendering }
 
@@ -129,17 +129,19 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 颠倒页面顺序
 
 | 成员 | 用途 |
 |---|---|
-| `get_text(option="text")` | `"text"`、`"words"`、`"blocks"`、`"dict"`或`"rawdict"` |
-| `search_for(text, *, max_hits=4096)` | 不区分大小写的搜索；返回`Rect`列表 |
+| `text()` | 按阅读顺序返回页面的文本 |
+| `words()` | 按阅读顺序返回单词，形式为`Word`记录 |
+| `layout(*, chars=False)` | 以`Layout`返回区块、行和span；参见[带位置的文本](#positioned-text) |
+| `search(text, *, max_hits=4096)` | 不区分大小写的搜索；返回`Rect`列表 |
 | `find_tables(*, clip=None, strategy=None)` | 以`TableFinder`返回表格；参见[表格](#tables) |
-| `to_markdown(*, table_strategy="lines")` | 本页的Markdown |
+| `markdown(*, table_strategy="lines")` | 本页的Markdown |
 | `get_text_ocr(...)`、`apply_ocr(...)`、`insert_ocr_text_layer(words)` | OCR；参见[离线OCR](ocr.md) |
 | `content(*, clip=None, annotations=True)` | 页面绘制的所有文本段、路径和图像；参见[页面内容](#content) |
 | `get_drawings()` | 矢量路径；参见[矢量绘图](#drawings) |
 | `get_links()` | 链接及其目标 |
 | `get_label()` | 页码标签，例如`"iv"` |
 
-`"words"`返回`Word`元组`(x0, y0, x1, y1, word, block, line, word_no)`，`"blocks"`返回`Block`元组，两者的顺序都与pymupdf相同。`"dict"`返回区块、行和span，并附带其边界框、字体、字号和样式标志。`"rawdict"`还会加入每个字形；参见[带位置的文本](#positioned-text)。
+`Word`具有`text`、`bbox`，以及表示其在页面布局中位置的`block`、`line`和`index`：分别是其所在区块的索引、其所在行在该区块中的索引，以及该单词在该行中的索引。
 
 阅读顺序会依据行和分栏确定，包括从右到左的文字以及日文和中文竖排。注音（ruby）、夹注（warichu）以及横竖混排的文字不会被解析。
 
@@ -191,27 +193,30 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 颠倒页面顺序
 
 ## 带位置的文本与字形 { #positioned-text }
 
-`page.get_text("rawdict")`保留`"dict"`的结构，但把每个span的`text`替换为`chars`列表：
+`page.layout()`返回一个`Layout`，其中包含页面的`width`、`height`和`blocks`。每种记录都包含下一层级的记录，所有边界框都位于显示空间中：
 
-| 键 | 含义 |
+| 记录 | 字段 |
 |---|---|
-| `c` | 一个字形的文本；"fi"等连字会保留两个字母 |
-| `bbox` | 近似边界`(x0, y0, x1, y1)` |
-| `origin` | 字形基线的起点`(x, y)` |
+| `Block` | `text`、`bbox`、`lines` |
+| `Line` | `text`、`bbox`、`direction`（基线的单位向量）、`is_vertical`、`spans` |
+| `Span` | `text`、`bbox`、`origin`、`size`、`font`、`is_bold`、`is_italic`、`is_serif`、`is_monospaced`、`chars` |
+| `Char` | `text`、`bbox`、`origin` |
+
+`layout(chars=True)`会把每个span的字形填入其`chars`。`Char`保留一个字形的完整文本，因此"fi"等连字会保留两个字母；其`origin`是字形基线的起点。
 
 ```python
 with pylopdf.open("report.pdf") as doc:
-    layout = doc.pages[0].get_text("rawdict")
-    for block in layout["blocks"]:
-        for line in block["lines"]:
-            for span in line["spans"]:
-                for char in span["chars"]:
-                    print(char["c"], char["bbox"], char["origin"])
+    layout = doc.pages[0].layout(chars=True)
+    for block in layout.blocks:
+        for line in block.lines:
+            for span in line.spans:
+                for char in span.chars:
+                    print(char.text, char.bbox, char.origin)
 ```
 
-边界是根据基线和字号估算的，而不是根据字形轮廓。pylopdf根据间距推断出的空格不会作为条目加入，因此把`c`的值连接起来并不一定与`get_text()`的结果相同。PDF中没有Unicode映射的字形会被跳过，并发出`PylopdfWarning`。
+边界是根据基线和字号估算的，而不是根据字形轮廓。pylopdf根据间距推断出的空格不会作为字符加入，因此把这些字符连接起来并不一定与`text()`的结果相同。PDF中没有Unicode映射的字形会被跳过，并发出`PylopdfWarning`。
 
-该结构与[pymupdf的rawdict](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs)类似，但只返回文本块，不含图像块和矢量块，也不含颜色、不透明度或额外的字体度量。[叠加示例](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)将字形边界和起点绘制为HTML预览。
+`layout.to_dict()`返回可用于JSON的普通字典，其形状与[pymupdf的dict相同，带字符的布局则与其rawdict相同](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs)。它只包含文本块，不含图像块和矢量块，也不含颜色、不透明度或额外的字体度量。[叠加示例](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)将字形边界和起点绘制为HTML预览。
 
 ## 页面内容 { #content }
 
@@ -343,7 +348,7 @@ Path("report.pdf").write_bytes(builder.to_bytes())
 
 `page.find_tables()`查找以框线绘制的表格，包括合并单元格。`strategy="text"`在行和列对齐明确时还能检测无边框表格；它不是默认选项，因为对齐的多栏正文可能看起来像表格。`clip=`只保留完全位于某个矩形内的表格。
 
-返回结果为`TableFinder`，其`tables`为`Table`对象，带有`bbox`、`row_count`、`col_count`、`cells`、`extract()`（按行返回单元格文本，被合并单元格覆盖的单元格为`None`）和`to_markdown()`。`Table.confidence`是用于给候选结果排序的0–1分数，并非概率；`Table.diagnostics`给出其依据。
+返回结果为`TableFinder`，其`tables`为`Table`对象，带有`bbox`、`row_count`、`col_count`、`cells`、`extract()`（按行返回单元格文本，被合并单元格覆盖的单元格为`None`）和`markdown()`。`Table.confidence`是用于给候选结果排序的0–1分数，并非概率；`Table.diagnostics`给出其依据。
 
 ## 文本与字体 { #fonts }
 
@@ -503,7 +508,7 @@ original = position / transform      # Point(x=10.0, y=20.0)
 ```python
 from pylopdf import Matrix
 
-hits = page.search_for("Total")
+hits = page.search("Total")
 area = hits[0] | hits[-1]                    # 覆盖第一个和最后一个结果
 inside = [hit for hit in hits if hit in page.rect]
 box = area * Matrix(1, 0, 0, 1, 0, 20)        # 向下移动20点
@@ -557,7 +562,7 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 
 常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）和`AnnotFlags`（`PDF_ANNOT_IS_*`）。`Access`的成员是`USER`和`OWNER`，`Encryption`描述如何加密保存的文件。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
 
-API返回的字典都是普通的`dict`对象，并通过`TextPageDict`、`RawTextPageDict`、`DrawingInfo`、`ImageInfo`、`LinkInfo`、`FormFieldInfo`、`DocumentMetadata`和`OcrWord`等`TypedDict`类向类型检查器描述。`Word`、`Block`、`ImageItem`和`OutlineEntry`等元组都是具名元组。
+文本结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`和`Layout`等不可变的数据类（frozen dataclass）。API返回的其他字典都是普通的`dict`对象，并通过`DrawingInfo`、`ImageInfo`、`LinkInfo`、`FormFieldInfo`、`DocumentMetadata`和`OcrWord`等`TypedDict`类向类型检查器描述；`ImageItem`和`OutlineEntry`是具名元组。
 
 ## 异常与警告 { #exceptions }
 

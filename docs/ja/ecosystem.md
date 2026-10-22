@@ -47,7 +47,7 @@ for page in doc.pages:
     page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
 ```
 
-スタンプは本物のテキストのままなので、後から`page.get_text()`で`社外秘`が見つかります。
+スタンプは本物のテキストのままなので、後から`page.text()`で`社外秘`が見つかります。
 
 ## pyHankoで電子署名する { #signatures }
 
@@ -71,7 +71,7 @@ signed_pdf: bytes = out.getvalue()
 
 ## ほかのエンジンでOCRする { #ocr }
 
-pylopdfには[組み込みのOCR](ocr.md)があります。代わりにTesseractやクラウドサービスなど別のエンジンを使う場合は、その単語を`(x0, y0, x1, y1, text)`として`Page.insert_ocr_text_layer(words)`に渡してください。pylopdfはそれを不可視のテキスト層として追加します。これでスキャンが検索可能になり、`to_markdown()`でも読み取れるようになり、ファイルサイズもほとんど増えません。
+pylopdfには[組み込みのOCR](ocr.md)があります。代わりにTesseractやクラウドサービスなど別のエンジンを使う場合は、その単語を`(x0, y0, x1, y1, text)`として`Page.insert_ocr_text_layer(words)`に渡してください。pylopdfはそれを不可視のテキスト層として追加します。これでスキャンが検索可能になり、`markdown()`でも読み取れるようになり、ファイルサイズもほとんど増えません。
 
 ```python
 import pylopdf

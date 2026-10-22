@@ -97,7 +97,7 @@ def test_a_renderer_panic_raises_pdf_error(case: str) -> None:
     with pytest.raises(pylopdf.PdfError, match=MESSAGE) as caught:
         doc.pages[0].get_pixmap(alpha=True)
     assert "copy_from_slice" in str(caught.value)
-    assert "PAGE TEXT" in doc.pages[0].get_text()
+    assert "PAGE TEXT" in doc.pages[0].text()
 
 
 def test_the_document_stays_usable_after_a_panic() -> None:
@@ -108,7 +108,7 @@ def test_the_document_stays_usable_after_a_panic() -> None:
     with pytest.raises(pylopdf.PdfError, match=MESSAGE):
         doc.pages[0].get_pixmap(alpha=True)
     assert doc.pages[1].get_pixmap(alpha=True).width == 300
-    assert "PAGE TEXT" in doc.pages[0].get_text()
+    assert "PAGE TEXT" in doc.pages[0].text()
     with pytest.raises(pylopdf.PdfError, match=MESSAGE):
         doc.pages[0].get_pixmap(alpha=True).tobytes()
     assert len(doc.render_pages([1, 2], alpha=True, workers=2)) == 2
@@ -130,5 +130,5 @@ def test_a_contained_panic_leaves_edits_in_place() -> None:
     with pytest.raises(pylopdf.PdfError, match=MESSAGE):
         doc.pages[0].get_pixmap(alpha=True)
 
-    assert "ADDED" in doc.pages[1].get_text()
-    assert "ADDED" in pylopdf.open(doc.to_bytes()).pages[1].get_text()
+    assert "ADDED" in doc.pages[1].text()
+    assert "ADDED" in pylopdf.open(doc.to_bytes()).pages[1].text()

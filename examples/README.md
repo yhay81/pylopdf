@@ -2,7 +2,7 @@
 
 ## Glyph positions over a rendered page
 
-`rawdict-overlay.py` uses `get_text("rawdict")`, available since 0.14.0.
+`rawdict-overlay.py` reads every glyph with `page.layout(chars=True)`.
 From a source checkout, run:
 
 ```sh

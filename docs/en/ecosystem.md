@@ -56,7 +56,7 @@ for page in doc.pages:
     page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
 ```
 
-The stamp stays real text: `page.get_text()` finds `社外秘` afterwards.
+The stamp stays real text: `page.text()` finds `社外秘` afterwards.
 
 ## Digital signatures with pyHanko { #signatures }
 
@@ -86,7 +86,7 @@ invalidates the signature. `set_form_field()` refuses to fill signature fields.
 pylopdf has [built-in OCR](ocr.md). To use another engine instead, such as
 Tesseract or a cloud service, pass its words as `(x0, y0, x1, y1, text)` to
 `Page.insert_ocr_text_layer(words)`. pylopdf adds them as an invisible text
-layer, which makes the scan searchable and lets `to_markdown()` read it, while
+layer, which makes the scan searchable and lets `markdown()` read it, while
 adding very little to the file size.
 
 ```python

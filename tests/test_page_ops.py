@@ -18,8 +18,8 @@ def test_insert_pdf_range(three_page_pdf: bytes, one_page_pdf: bytes) -> None:
     src = pylopdf.open(three_page_pdf)
     doc.pages.extend(src.pages[1:3])
     assert len(doc.pages) == 3
-    assert "Page two" in doc.pages[1].get_text()
-    assert "Page three" in doc.pages[2].get_text()
+    assert "Page two" in doc.pages[1].text()
+    assert "Page three" in doc.pages[2].text()
 
 
 def test_insert_pdf_reversed_range(three_page_pdf: bytes) -> None:
@@ -27,8 +27,8 @@ def test_insert_pdf_reversed_range(three_page_pdf: bytes) -> None:
     src = pylopdf.open(three_page_pdf)
     doc.pages.extend(src.pages[0:3][::-1])
     assert len(doc.pages) == 3
-    assert "Page three" in doc.pages[0].get_text()
-    assert "Page one" in doc.pages[2].get_text()
+    assert "Page three" in doc.pages[0].text()
+    assert "Page one" in doc.pages[2].text()
 
 
 def test_insert_pdf_negative_range_follows_pymupdf(three_page_pdf: bytes) -> None:
@@ -36,11 +36,11 @@ def test_insert_pdf_negative_range_follows_pymupdf(three_page_pdf: bytes) -> Non
     doc = pylopdf.Document()
     doc.pages.extend(pylopdf.open(three_page_pdf).pages)
     assert len(doc.pages) == 3
-    assert "Page one" in doc.pages[0].get_text()
+    assert "Page one" in doc.pages[0].text()
     # Both ends clamp to the last source page; a descending range reverses.
     clamped = pylopdf.Document()
     clamped.pages.extend(pylopdf.open(three_page_pdf).pages[1:100][::-1])
-    assert [clamped.pages[index].get_text().strip() for index in range(2)] == ["Page three", "Page two"]
+    assert [clamped.pages[index].text().strip() for index in range(2)] == ["Page three", "Page two"]
 
 
 def test_insert_pdf_start_at(three_page_pdf: bytes, one_page_pdf: bytes) -> None:
@@ -48,26 +48,26 @@ def test_insert_pdf_start_at(three_page_pdf: bytes, one_page_pdf: bytes) -> None
     src = pylopdf.open(one_page_pdf)
     doc.pages.insert(1, src.pages)
     assert len(doc.pages) == 4
-    assert "Page one" in doc.pages[0].get_text()
-    assert "Hello PDF" in doc.pages[1].get_text()
-    assert "Page two" in doc.pages[2].get_text()
+    assert "Page one" in doc.pages[0].text()
+    assert "Hello PDF" in doc.pages[1].text()
+    assert "Page two" in doc.pages[2].text()
     # Preserve page order after save and reload.
     reloaded = pylopdf.open(doc.to_bytes())
-    assert "Hello PDF" in reloaded.pages[1].get_text()
+    assert "Hello PDF" in reloaded.pages[1].text()
 
 
 def test_insert_pdf_start_at_zero_prepends(three_page_pdf: bytes, one_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
     doc.pages.insert(0, pylopdf.open(one_page_pdf).pages)
-    assert "Hello PDF" in doc.pages[0].get_text()
-    assert "Page one" in doc.pages[1].get_text()
+    assert "Hello PDF" in doc.pages[0].text()
+    assert "Page one" in doc.pages[1].text()
 
 
 def test_insert_pdf_start_at_beyond_the_end_appends(three_page_pdf: bytes, one_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
     doc.pages.insert(40, pylopdf.open(one_page_pdf).pages)
     assert len(doc.pages) == 4
-    assert "Hello PDF" in doc.pages[3].get_text()
+    assert "Hello PDF" in doc.pages[3].text()
 
 
 def test_insert_pdf_empty_source_noop(three_page_pdf: bytes) -> None:
@@ -96,7 +96,7 @@ def test_new_page_appends_blank(one_page_pdf: bytes) -> None:
     assert len(doc.pages) == 2
     assert page.index == 1
     assert page.mediabox == pylopdf.Rect(0.0, 0.0, 595.0, 842.0)
-    assert page.get_text() == ""
+    assert page.text() == ""
     assert png_size(doc.pages[1].get_pixmap(alpha=True).tobytes()) == (595, 842)
 
 
@@ -131,8 +131,8 @@ def test_new_page_insert_position_and_size(three_page_pdf: bytes) -> None:
     page = doc.pages.new((300, 400), index=1)
     assert page.index == 1
     assert len(doc.pages) == 4
-    assert doc.pages[1].get_text() == ""
-    assert "Page two" in doc.pages[2].get_text()
+    assert doc.pages[1].text() == ""
+    assert "Page two" in doc.pages[2].text()
     reloaded = pylopdf.open(doc.to_bytes())
     assert len(reloaded.pages) == 4
     assert png_size(reloaded.pages[1].get_pixmap(alpha=True).tobytes()) == (300, 400)
@@ -150,13 +150,13 @@ def test_copy_page_append_and_position(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
     doc.pages.extend(doc.pages[0])
     assert len(doc.pages) == 4
-    assert "Page one" in doc.pages[3].get_text()
+    assert "Page one" in doc.pages[3].text()
     doc.pages.insert(0, doc.pages[2])  # Copy the current Page three to the front.
     assert len(doc.pages) == 5
-    assert "Page three" in doc.pages[0].get_text()
+    assert "Page three" in doc.pages[0].text()
     reloaded = pylopdf.open(doc.to_bytes())
     assert len(reloaded.pages) == 5
-    assert "Page three" in reloaded.pages[0].get_text()
+    assert "Page three" in reloaded.pages[0].text()
     assert reloaded.pages[0].get_pixmap(alpha=True).tobytes() == reloaded.pages[3].get_pixmap(alpha=True).tobytes()
 
 
@@ -196,7 +196,7 @@ def test_native_argument_refusal_keeps_existing_pages(
         operation(doc.pages)
 
     assert doc.to_bytes() == before
-    assert "Page one" in page.get_text()
+    assert "Page one" in page.text()
 
 
 def test_insert_pdf_native_argument_refusal_keeps_existing_pages(
@@ -212,7 +212,7 @@ def test_insert_pdf_native_argument_refusal_keeps_existing_pages(
         doc.pages.insert(0.5, source.pages)  # ty: ignore[invalid-argument-type]
 
     assert doc.to_bytes() == before
-    assert "Page one" in page.get_text()
+    assert "Page one" in page.text()
 
 
 def test_new_page_native_size_refusal_keeps_existing_pages(one_page_pdf: bytes) -> None:
@@ -224,7 +224,7 @@ def test_new_page_native_size_refusal_keeps_existing_pages(one_page_pdf: bytes) 
         doc.pages.new((1e-50, 842))
 
     assert doc.to_bytes() == before
-    assert "Hello PDF" in page.get_text()
+    assert "Hello PDF" in page.text()
 
 
 def _build_cropped_parent_pdf() -> bytes:
@@ -371,7 +371,7 @@ def test_page_edits_inherit_past_attributes_that_name_missing_objects(operation:
         page = current.pages[index]
         assert (page.mediabox, page.cropbox, page.rotation) == geometry
         if operation == "insert_text":
-            assert current.pages[index].get_text().split() == ["Drawn", "MISSING-REFERENCES"]
+            assert current.pages[index].text().split() == ["Drawn", "MISSING-REFERENCES"]
         else:
             assert current.pages[index].get_pixmap(alpha=True).tobytes() == expected_png
 

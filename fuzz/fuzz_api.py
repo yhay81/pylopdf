@@ -36,9 +36,9 @@ def test_one_input(data: bytes) -> None:
         try:
             with pylopdf.open(data, limits=_FUZZ_LIMITS) as doc:
                 for page in doc.pages[:_MAX_PAGES]:
-                    page.get_text("dict")
-                    page.get_text("rawdict")
-                    page.search_for("pdf")
+                    page.layout().to_dict()
+                    page.layout(chars=True).to_dict()
+                    page.search("pdf")
                     page.get_pixmap(dpi=18, alpha=True)
 
                 doc.set_metadata({"producer": "pylopdf fuzz"})
@@ -46,7 +46,7 @@ def test_one_input(data: bytes) -> None:
 
             with pylopdf.open(saved, limits=_FUZZ_LIMITS) as reopened:
                 if reopened.pages:
-                    reopened.pages[0].get_text()
+                    reopened.pages[0].text()
         except pylopdf.PdfError:
             # Invalid or unsupported PDFs are expected. Crashes, panics, and
             # exceptions outside pylopdf's documented error hierarchy are not.

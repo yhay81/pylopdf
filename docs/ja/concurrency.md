@@ -31,7 +31,7 @@ import pylopdf
 
 def extract(path: str) -> str:
     with pylopdf.open(path) as document:
-        return document.to_markdown()
+        return document.markdown()
 
 
 paths = ["a.pdf", "b.pdf", "c.pdf"]

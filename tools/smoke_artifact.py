@@ -64,10 +64,10 @@ def _run_smoke() -> None:
             message="reopened document has the wrong page count",
         )
         _require(
-            condition=_SMOKE_TEXT in reopened.pages[0].get_text(),
+            condition=_SMOKE_TEXT in reopened.pages[0].text(),
             message="text extraction lost inserted text",
         )
-        raw = reopened.pages[0].get_text("rawdict")
+        raw = reopened.pages[0].layout(chars=True).to_dict()
         chars = [
             char
             for block in raw["blocks"]
@@ -96,7 +96,7 @@ def _run_smoke() -> None:
             reopened.save(output)
             with pylopdf.open(output) as saved:
                 _require(
-                    condition=_SMOKE_TEXT in saved.pages[0].get_text(),
+                    condition=_SMOKE_TEXT in saved.pages[0].text(),
                     message="saved file lost inserted text",
                 )
 

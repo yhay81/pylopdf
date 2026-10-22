@@ -39,7 +39,7 @@ class BenchmarkReport:
 
 def _extract(data: bytes) -> str:
     with pylopdf.open(data) as document:
-        return "".join(document.pages[index].get_text() for index in range(len(document.pages)))
+        return "".join(document.pages[index].text() for index in range(len(document.pages)))
 
 
 def _run_once(data: bytes, *, copies: int, workers: int) -> tuple[float, list[str]]:

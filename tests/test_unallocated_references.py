@@ -73,8 +73,8 @@ def test_reference_above_max_id_cannot_draw_an_imported_page() -> None:
     doc.pages.extend(pylopdf.open(build_pdf(["SOURCE CONTENT"])).pages)
 
     for current in _with_reloaded(doc):
-        assert current.pages[0].get_text().split() == ["TARGET", "PAGE"]
-        assert current.pages[1].get_text().split() == ["SOURCE", "CONTENT"]
+        assert current.pages[0].text().split() == ["TARGET", "PAGE"]
+        assert current.pages[1].text().split() == ["SOURCE", "CONTENT"]
 
 
 def test_reference_above_max_id_cannot_repeat_a_stamp() -> None:
@@ -86,7 +86,7 @@ def test_reference_above_max_id_cannot_repeat_a_stamp() -> None:
         doc.pages[0].insert_text((20, 300 + 100 * index), stamp)
 
     for current in _with_reloaded(doc):
-        lines = Counter(current.pages[0].get_text().splitlines())
+        lines = Counter(current.pages[0].text().splitlines())
         assert lines == Counter([*stamps, "TARGET PAGE"])
 
 
@@ -120,7 +120,7 @@ def test_every_allocation_leaves_a_reference_above_max_id_null(operation: str) -
 
     saved = doc.to_bytes()
     assert re.search(rb"/PylopdfProbe\s*null", saved)
-    assert "TARGET PAGE" in pylopdf.open(saved).pages[0].get_text()
+    assert "TARGET PAGE" in pylopdf.open(saved).pages[0].text()
 
 
 def test_only_numbers_above_every_object_become_null() -> None:
@@ -169,7 +169,7 @@ def test_object_above_every_cross_reference_entry_survives_new_objects() -> None
         doc.pages[0].insert_text((20, 300 + 60 * index), stamp)
 
     for current in _with_reloaded(doc):
-        lines = Counter(current.pages[0].get_text().splitlines())
+        lines = Counter(current.pages[0].text().splitlines())
         assert lines == Counter([*stamps, "ABOVE MAX ID", "TARGET PAGE"])
 
 
@@ -201,7 +201,7 @@ def test_encrypted_document_nulls_references_above_max_id_once_decrypted(unlock:
     doc.pages[0].insert_text((20, 300), "STAMP")
 
     for current in _with_reloaded(doc):
-        assert Counter(current.pages[0].get_text().splitlines()) == Counter(["STAMP", "TARGET PAGE"])
+        assert Counter(current.pages[0].text().splitlines()) == Counter(["STAMP", "TARGET PAGE"])
 
 
 @pytest.mark.parametrize("contents", ["[5 0 R 90 0 R]", "90 0 R"], ids=["array-entry", "single-stream"])
@@ -216,7 +216,7 @@ def test_drawing_on_content_that_names_an_unallocated_object_stays_visible(conte
     doc.pages[0].insert_text((20, 300), "STAMP")
 
     for current in _with_reloaded(doc):
-        assert "STAMP" in current.pages[0].get_text().splitlines()
+        assert "STAMP" in current.pages[0].text().splitlines()
 
 
 def test_page_with_an_unallocated_parent_reads_and_edits_as_a_tree_root() -> None:
@@ -230,7 +230,7 @@ def test_page_with_an_unallocated_parent_reads_and_edits_as_a_tree_root() -> Non
 
     for current in _with_reloaded(doc):
         assert current.pages[0].rect == pylopdf.Rect(0, 0, 300, 400)
-        assert "STAMP" in current.pages[0].get_text().splitlines()
+        assert "STAMP" in current.pages[0].text().splitlines()
 
 
 def test_link_annotation_replaces_an_unallocated_annots_array() -> None:
