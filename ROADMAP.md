@@ -745,6 +745,19 @@ manifest entries raise coverage from 45.3% to 47.4%. pymupdf's
 `set_language_tag` (D15), and `Page.language` moves to M6 with tagged-PDF
 structure.
 
+The second M5 slice landed on 2026-10-22: `get_page_numbers`, `is_dirty`,
+and `permissions`, each with pymupdf's meaning. `permissions` follows the
+password that last granted access, as MuPDF does: all flags (`-4`) for an
+unencrypted document or the owner password, otherwise the signed 32-bit
+`/P` value; the values equal pymupdf 1.28.2's for the bundled encrypted
+assets and for AES-256 documents with restricted permissions. `is_dirty`
+counts every edit since opening and, as in pymupdf, survives every save,
+while save options that change the in-memory document do not set it. The
+three entries raise coverage from 47.4% to 47.8%. `is_fast_webaccess` and
+`version_count` remain: both read the original file's cross-reference
+sections and linearization dictionary, which lopdf does not report, and
+MuPDF's counts change when it repairs a file.
+
 ### M6 — Document intelligence
 
 Workstreams A and H. Depends on hayro 0.8 and M1.

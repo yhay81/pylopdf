@@ -474,6 +474,11 @@ impl _Document {
         self.is_repaired
     }
 
+    /// Return the document's revision, which every edit replaces.
+    fn edit_revision(&self) -> u64 {
+        self.revision
+    }
+
     /// Configure a CJK fallback font for rendering.
     ///
     /// `kind` is `sans` (default) or `serif`. `data` contains TTF/OTF/TTC bytes;
@@ -685,6 +690,12 @@ impl _Document {
     /// Describe the encryption the document was loaded with, or None.
     fn encryption_method(&self) -> Option<String> {
         self.encryption_description()
+    }
+
+    /// Return the `/P` value of the encryption the document was loaded with,
+    /// or None.
+    fn encryption_permissions(&self) -> Option<i32> {
+        self.encryption_permission_value()
     }
 
     /// Check a password against the encryption the document was loaded with,

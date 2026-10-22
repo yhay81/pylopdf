@@ -53,14 +53,14 @@ is not supported yet.
 | `doc.get_xml_metadata()`, `set_xml_metadata()`, `del_xml_metadata()` | Same | Reads and writes stop at 1 MiB by default; `max_size=None` lifts the limit |
 | `doc.language`, `set_language(tag)` | `doc.language_tag`, `set_language_tag(tag)` | The complete tag: pymupdf keeps at most three letters, so `zh-TW` and `zh-HK` both become `zh-Hant`; the codemod rewrites `set_language` |
 | `doc.pagemode`, `pagelayout`, `markinfo` and their `set_*` methods, `has_links()`, `has_annots()`, `is_closed`, `is_pdf`, `name` | Same | |
-| `doc.needs_pass`, `authenticate()` | Same | Same return codes |
+| `doc.needs_pass`, `authenticate()`, `permissions`, `is_dirty` | Same | Same return codes and values |
 | `doc.save(garbage=4, deflate=True)` | Same | Pages, annotations, form fields, and layers are never merged by `garbage` |
 | `doc.save(encryption=…, user_pw=…)` | Same | Only `PDF_ENCRYPT_NONE` and `PDF_ENCRYPT_AES_256`; a password without encryption raises instead of being ignored |
 | `doc.select()`, `delete_page()`, `delete_pages()`, `fullcopy_page()`, `new_page()` | Same | Also removes form fields and tagged-PDF structure of deleted pages |
 | `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf never shares one page object between two pages |
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | Same | Imported form fields whose names clash are renamed `name+N`; no `widgets=` or `join_duplicates=` |
 | `doc.get_toc()`, `set_toc(toc)` | `doc.get_outline()`, `set_outline(entries)` | Page numbers start at 0 instead of 1 |
-| `doc.get_page_labels()`, `set_page_labels()`, `page.get_label()` | Same | |
+| `doc.get_page_labels()`, `set_page_labels()`, `get_page_numbers()`, `page.get_label()` | Same | |
 | `doc.embfile_add/names/get/del/upd/info/count` | `doc.attachments` | A mapping: `add(name, data, description=…)`, `list(…)`, `[name].read()`, `del …[name]`, `[name].write(data)`, `len(…)`; `desc=` is `description=` |
 | `doc.xref_*`, `pdf_catalog()`, `pdf_trailer()` | `doc.objects`, `doc.catalog`, `doc.trailer` | Typed Python values instead of PDF syntax; see [Low-level objects](api.md#low-level-objects) |
 

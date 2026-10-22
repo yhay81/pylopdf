@@ -199,6 +199,20 @@ def _format_page_label(style: str, prefix: str, number: int) -> str:
     return prefix + digits
 
 
+def _page_label(labels: Sequence[PageLabelInfo], pno: int) -> str:
+    """Return the label of zero-based page ``pno`` under sorted ``labels``, or empty."""
+    applicable: PageLabelInfo | None = None
+    for label in labels:
+        if label["startpage"] <= pno:
+            applicable = label
+        else:
+            break
+    if applicable is None:
+        return ""
+    number = pno - applicable["startpage"] + applicable["firstpagenum"]
+    return _format_page_label(applicable["style"], applicable["prefix"], number)
+
+
 def _normalized_box(box: Sequence[float]) -> Rect:
     """Return a stored page box with ``x0 <= x1`` and ``y0 <= y1``, as MuPDF reads it."""
     x0, y0, x1, y1 = box
@@ -1694,17 +1708,7 @@ class Page:
 
     def get_label(self) -> str:
         """Return the display label, such as ``"iv"`` or ``"A-2"``, or empty."""
-        pno = self._page_number() - 1
-        applicable: PageLabelInfo | None = None
-        for label in self._document.get_page_labels():
-            if label["startpage"] <= pno:
-                applicable = label
-            else:
-                break
-        if applicable is None:
-            return ""
-        number = pno - applicable["startpage"] + applicable["firstpagenum"]
-        return _format_page_label(applicable["style"], applicable["prefix"], number)
+        return _page_label(self._document.get_page_labels(), self._page_number() - 1)
 
     def annots(self, *, types: Iterable[int] | None = None) -> list[Annot]:
         """Return the page's annotations as read-only :class:`Annot` handles.

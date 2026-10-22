@@ -45,6 +45,8 @@ the document as a context manager, or call `close()`.
 | `metadata` / `set_metadata(m)` | Title, author, and the other Info fields, plus `format` and `encryption`. `set_metadata` removes keys whose value is empty, and `{}` removes all of them |
 | `needs_pass`, `is_encrypted`, `authenticate(password)` | Encryption state; `authenticate` unlocks the document and returns pymupdf's codes: 0 if the password is wrong, otherwise 1, 2, 4, or 6 |
 | `is_repaired` | Whether opening had to repair damaged cross-reference data |
+| `permissions` | The permission flags, as pymupdf reports them: `0` while a password is needed, `-4` (all) for an unencrypted document or after the owner password, else the encryption's `/P` value. Test a flag with `doc.permissions & Permissions.PRINT` |
+| `is_dirty` | Whether the document was edited since it was opened. A new empty document starts edited, and saving does not reset it, as in pymupdf |
 | `is_closed`, `is_pdf`, `name` | Whether the document is closed; always `True`; the `filename` it was opened with, or `None` for a stream, an empty document, or after `close()` |
 | `limits`, `complexity` | The policy the document was opened with, and cheap structural facts (pages, objects, streams) for deciding whether to process it |
 | `save(filename, *, garbage=0, deflate=False, use_objstms=False, encryption=, user_pw=, owner_pw=, permissions=)` | Write the PDF. The file is replaced only after the complete write succeeds |
@@ -69,6 +71,7 @@ streams. `encryption` is `PDF_ENCRYPT_NONE` (the default) or
 | `fullcopy_page(pno, to=-1)` | Insert an independent copy of a page |
 | `get_outline()` / `set_outline(entries)` | Read or replace the table of contents as `OutlineEntry(level, title, page)` items |
 | `get_page_labels()` / `set_page_labels(labels)` | Page label ranges, such as roman numerals for front matter |
+| `get_page_numbers(label, only_one=False)` | The zero-based numbers of the pages labeled `label` |
 
 Deleting or selecting pages also removes the links, outline entries, form
 fields, and tagged-PDF structure that pointed only to the removed pages. It

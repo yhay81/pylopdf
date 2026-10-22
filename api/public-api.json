@@ -1081,6 +1081,29 @@
             "returns": "list[PageLabelInfo]"
           }
         },
+        "get_page_numbers": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "label"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "positional_or_keyword",
+                "name": "only_one"
+              }
+            ],
+            "returns": "list[int]"
+          }
+        },
         "get_page_pixmap": {
           "kind": "method",
           "signature": {
@@ -1268,6 +1291,10 @@
           "kind": "property",
           "returns": "bool"
         },
+        "is_dirty": {
+          "kind": "property",
+          "returns": "bool"
+        },
         "is_encrypted": {
           "kind": "property",
           "returns": "bool"
@@ -1383,6 +1410,10 @@
         "pagemode": {
           "kind": "property",
           "returns": "str"
+        },
+        "permissions": {
+          "kind": "property",
+          "returns": "int"
         },
         "render_pages": {
           "kind": "method",
@@ -8494,6 +8525,29 @@
             "returns": "list[PageLabelInfo]"
           }
         },
+        "get_page_numbers": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "label"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "positional_or_keyword",
+                "name": "only_one"
+              }
+            ],
+            "returns": "list[int]"
+          }
+        },
         "get_page_pixmap": {
           "kind": "method",
           "signature": {
@@ -8681,6 +8735,10 @@
           "kind": "property",
           "returns": "bool"
         },
+        "is_dirty": {
+          "kind": "property",
+          "returns": "bool"
+        },
         "is_encrypted": {
           "kind": "property",
           "returns": "bool"
@@ -8796,6 +8854,10 @@
         "pagemode": {
           "kind": "property",
           "returns": "str"
+        },
+        "permissions": {
+          "kind": "property",
+          "returns": "int"
         },
         "render_pages": {
           "kind": "method",
