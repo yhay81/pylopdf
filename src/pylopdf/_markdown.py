@@ -6,6 +6,8 @@ Initial rules:
   Sufficiently larger sizes map in descending order to heading levels 1–4.
 - Wrapped lines join without a space between characters in scripts that do not
   normally delimit words with spaces.
+- Adjacent spans of one line are separated by a space when the gap between
+  them exceeds the extractor's word gap, as in ``get_text``.
 - Leading bullets such as ・, •, and ● plus ``1.``/``1)`` normalize to lists.
 - Span flags derived from embedded-font weight and italic metadata become
   emphasis markers in body text. Heading text remains plain to avoid combining
@@ -21,10 +23,13 @@ Initial rules:
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import Counter
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from pylopdf import TextLine, TextPageDict, TextSpan, Word
 
 _BBox = tuple[float, float, float, float]
@@ -41,6 +46,9 @@ _SPACED_BULLETS = "・•●○◦▪‣–—-*"
 _TIGHT_BULLETS = "・•●○◦▪‣"
 #: Numbered lists in ``1.`` or ``23)`` form.
 _NUMBERED = re.compile(r"^(\d{1,3})[.)][ 　]+")
+#: Inline gap, relative to font size, above which adjacent spans are separate
+#: words. Matches ``WORD_GAP`` in ``rust/src/extract.rs``.
+_WORD_GAP = 0.15
 _UTF8_ONE_BYTE_MAX = 0x7F
 _UTF8_TWO_BYTE_MAX = 0x7FF
 _UTF8_SURROGATE_MIN = 0xD800
@@ -280,8 +288,47 @@ _ITALIC = 2
 _BOLD = 16
 
 
+def _span_interval(span: TextSpan, direction: tuple[float, float]) -> tuple[float, float]:
+    """Return a span's extent along its line's baseline direction."""
+    x0, y0, x1, y1 = span["bbox"]
+    projections = [x * direction[0] + y * direction[1] for x in (x0, x1) for y in (y0, y1)]
+    return min(projections), max(projections)
+
+
+def _needs_span_gap(previous: TextSpan, span: TextSpan, line: TextLine) -> bool:
+    """Return whether a word gap separates two adjacent spans of one line.
+
+    Spans contain the inferred spaces between their own glyphs only, so this
+    repeats the extractor's symmetric glyph-gap rule at span boundaries.
+    """
+    before = previous["text"]
+    after = span["text"]
+    if line["wmode"] == 1 or not before or not after or before[-1].isspace() or after[0].isspace():
+        return False
+    if _joins_without_space(before[-1]) and _joins_without_space(after[0]):
+        return False
+    if unicodedata.bidirectional(after[0]) == "NSM":
+        return False
+    previous_start, previous_end = _span_interval(previous, line["dir"])
+    start, end = _span_interval(span, line["dir"])
+    gap = start - previous_end if start >= previous_start else previous_start - end
+    return gap > max(previous["size"], span["size"], 1.0) * _WORD_GAP
+
+
+def _join_spans(line: TextLine, render: Callable[[TextSpan], str]) -> str:
+    """Join rendered spans, restoring word gaps that fall between two spans."""
+    parts: list[str] = []
+    previous: TextSpan | None = None
+    for span in line["spans"]:
+        if previous is not None and _needs_span_gap(previous, span, line):
+            parts.append(" ")
+        parts.append(render(span))
+        previous = span
+    return "".join(parts).strip()
+
+
 def _line_text(line: TextLine) -> str:
-    return "".join(span["text"] for span in line["spans"]).strip()
+    return _join_spans(line, lambda span: span["text"])
 
 
 def _span_markdown(span: TextSpan) -> str:
@@ -301,7 +348,7 @@ def _span_markdown(span: TextSpan) -> str:
 
 def _line_markdown(line: TextLine) -> str:
     """Build a body line with bold and italic markers."""
-    return "".join(_span_markdown(span) for span in line["spans"]).strip()
+    return _join_spans(line, _span_markdown)
 
 
 def _line_size(line: TextLine) -> float:

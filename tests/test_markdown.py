@@ -230,6 +230,33 @@ def test_latin_lines_join_with_space() -> None:
     assert "Latin lines join spaced" in doc.to_markdown()
 
 
+def test_word_gap_between_font_spans_becomes_a_space() -> None:
+    # A TJ adjustment of -300 leaves a 0.3 em gap between the spans and no space glyph.
+    stream = (
+        "BT /F1 12 Tf 72 720 Td [(Regular) -300] TJ /F2 12 Tf (Bold) Tj ET\n"
+        "BT /F2 12 Tf 72 600 Td (Bold) Tj /F1 12 Tf (er) Tj ET"
+    )
+    doc = pylopdf.open(
+        build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: (
+                    "<< /Type /Pages /Kids [5 0 R] /Count 1 /MediaBox [0 0 612 792] "
+                    "/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> >>"
+                ),
+                3: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+                4: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
+                5: "<< /Type /Page /Parent 2 0 R /Contents 6 0 R >>",
+                6: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+            }
+        )
+    )
+    spans = doc.pages[0].get_text("dict")["blocks"][0]["lines"][0]["spans"]
+    assert [span["text"] for span in spans] == ["Regular", "Bold"]
+    # The font change inside "Bolder" has no gap, so it stays one word.
+    assert doc.to_markdown() == "Regular Bold\n\nBolder"
+
+
 def test_page_to_markdown_and_page_selection() -> None:
     doc = pylopdf.open(
         _layout_pdf(
