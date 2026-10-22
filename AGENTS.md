@@ -136,9 +136,12 @@ the concept and API overview.
   rebuilds, and drawing therefore materialize the value inherited from the
   original ancestors, or the source default, and the page geometry readers
   inherit past such a value in the same way.
-- Text extraction is implemented as a hayro `Device` in `rust/src/extract.rs`.
-  It collects glyph Unicode and positions, then assembles lines
-  (`LINE_TOLERANCE`), words (`WORD_GAP`), and blocks (`BLOCK_GAP`).
+- Text extraction is a `ContentSink` of the content model's device
+  (`TextCollector` in `rust/src/extract.rs`, fed by `ContentCollector` with
+  items off): it receives every path paint callback and the glyphs of every
+  text run once, so a fill-and-stroke run counts once, as it does in
+  `Page.content()`. It collects glyph Unicode and positions, then assembles
+  lines (`LINE_TOLERANCE`), words (`WORD_GAP`), and blocks (`BLOCK_GAP`).
   `get_text("words"/"blocks"/"dict"/"rawdict")` and `search_for` share the same glyph
   collection through a bounded, generation-invalidated `TextPage` cache.
   The v0.14.0 `rawdict` option exposes one `chars` entry per retained glyph,
@@ -318,8 +321,10 @@ the concept and API overview.
   public command/path tuples materialize only after their aggregate admissions,
   grow fallibly, and return no partial result on allocation refusal.
 - `Page.content()` is the content model (`rust/src/content_model.rs`,
-  `src/pylopdf/_content.py`). `ContentCollector`, one more hayro Device,
-  records each paint callback as a `TextRun`, `Path`, or `Image` in display
+  `src/pylopdf/_content.py`). `ContentCollector`, the hayro Device that text
+  extraction also runs through its `ContentSink` (items off, so no glyph
+  boxes, contexts, or records are built for text alone), records each paint
+  callback as a `TextRun`, `Path`, or `Image` in display
   coordinates, with the item's blend mode, soft mask, and an interned
   graphics context of the clip, transparency-group, and marked-content
   stacks; items painted in one context share one Python context object.

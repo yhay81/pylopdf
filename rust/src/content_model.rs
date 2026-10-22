@@ -1,10 +1,12 @@
 //! The content model: every text run, path, and image that hayro paints on a
 //! page, in paint order and display space.
 //!
-//! `ContentCollector` is a hayro `Device`. It records what each paint callback
-//! receives together with the clips, transparency groups, and marked content
-//! that enclose it, and interns fonts and graphics contexts so that items share
-//! them. Glyph boxes come from the outlines that hayro computes, and from
+//! `ContentCollector` is the one hayro `Device` that reads page content. It
+//! records what each paint callback receives together with the clips,
+//! transparency groups, and marked content that enclose it, and interns fonts
+//! and graphics contexts so that items share them. A `ContentSink` sees the
+//! same paths and glyphs, so text extraction reads what the items show; with
+//! items off, the collector only feeds its sink. Glyph boxes come from the outlines that hayro computes, and from
 //! interpreting Type 3 glyph procedures. One element budget bounds glyphs, path
 //! and clip segments, and items, and every collection grows fallibly, so a
 //! refusal returns no partial result.
@@ -550,6 +552,34 @@ enum Pending {
     Text,
 }
 
+/// What a reader built on the content model receives besides the items.
+///
+/// Every path paint callback reaches `path`. The glyphs of every text run
+/// reach `glyph` once: hayro paints the fill-and-stroke text render mode as a
+/// fill followed by a stroke of the same glyphs, and the stroke that completes
+/// such a fill sends no glyphs again.
+pub(crate) trait ContentSink {
+    /// Receive one glyph with the transform from hayro's 1000-unit glyph space
+    /// to display space.
+    fn glyph(&mut self, glyph: &Glyph<'_>, transform: Affine);
+    /// Receive one path paint callback.
+    fn path(&mut self, path: &BezPath, transform: Affine, mode: &DrawMode);
+    /// Whether the sink refused more input, so that the collector stops
+    /// sending glyphs.
+    fn stopped(&self) -> bool;
+}
+
+/// The sink of `Page.content()`, which reads only the items.
+pub(crate) struct NoSink;
+
+impl ContentSink for NoSink {
+    fn glyph(&mut self, _: &Glyph<'_>, _: Affine) {}
+    fn path(&mut self, _: &BezPath, _: Affine, _: &DrawMode) {}
+    fn stopped(&self) -> bool {
+        false
+    }
+}
+
 /// A glyph outline in hayro's 1000-unit glyph space, and its exact box.
 struct GlyphInk {
     bbox: Rect,
@@ -617,7 +647,10 @@ impl<'a> Device<'a> for InkBounds {
     fn pop_transparency_group(&mut self) {}
 }
 
-struct ContentCollector {
+pub(crate) struct ContentCollector<S> {
+    sink: S,
+    /// Whether to record items, or only to feed the sink.
+    items: bool,
     records: Vec<Record>,
     fonts: Vec<FontTuple>,
     font_indexes: HashMap<u128, u32>,
@@ -632,6 +665,8 @@ struct ContentCollector {
     /// The interned state of the current stacks, or `None` after a change.
     state: Option<u32>,
     pending: Option<Pending>,
+    /// The glyph matrices of the fill run that a stroke may complete.
+    pending_matrices: Vec<f64>,
     outlines: HashMap<u128, Option<GlyphInk>>,
     type3_boxes: HashMap<u128, Option<Rect>>,
     elements: usize,
@@ -639,9 +674,13 @@ struct ContentCollector {
     error: Option<ContentError>,
 }
 
-impl ContentCollector {
-    fn new(max_elements: Option<usize>) -> Self {
+impl<S: ContentSink> ContentCollector<S> {
+    /// A collector that feeds `sink` and, when `items` is set, records items
+    /// within `max_elements`.
+    pub(crate) fn new(sink: S, items: bool, max_elements: Option<usize>) -> Self {
         Self {
+            sink,
+            items,
             records: Vec::new(),
             fonts: Vec::new(),
             font_indexes: HashMap::new(),
@@ -655,6 +694,7 @@ impl ContentCollector {
             mark_stack: Vec::new(),
             state: None,
             pending: None,
+            pending_matrices: Vec::new(),
             outlines: HashMap::new(),
             type3_boxes: HashMap::new(),
             elements: 0,
@@ -842,7 +882,6 @@ impl ContentCollector {
             && pending == Some(Pending::Path)
             && let Some(Record::Path(previous)) = self.records.last_mut()
             && previous.stroke.is_none()
-            && previous.context == context
             && previous.segments.equals(&segments)
         {
             previous.stroke = stroke;
@@ -865,12 +904,66 @@ impl ContentCollector {
         Ok(())
     }
 
+    /// Send a run's glyphs to the sink, unless a stroke completes the fill
+    /// that sent them, and record the run as an item.
     fn record_text<'a>(
         &mut self,
         run: &GlyphRun<'_, 'a>,
         props: &DrawProps<'a>,
         mode: &DrawMode,
         pending: Option<Pending>,
+    ) -> Result<(), ContentError> {
+        let glyphs = run.glyphs();
+        if glyphs.is_empty() {
+            return Ok(());
+        }
+        let is_fill = matches!(mode, DrawMode::Fill(_));
+        // A stroke completes the preceding fill when it draws the same glyphs
+        // at the same places. Equality fails for a transform that is not
+        // finite, so such a run never completes a fill.
+        let completes_fill = matches!(mode, DrawMode::Stroke(_))
+            && pending == Some(Pending::Text)
+            && self.pending_matrices.len() == glyphs.len().saturating_mul(6)
+            && glyphs
+                .iter()
+                .zip(self.pending_matrices.chunks_exact(6))
+                .all(|(glyph, kept)| (props.transform * glyph.transform()).as_coeffs() == kept);
+        if is_fill {
+            // The kept buffer is reused, so steady text allocates nothing here.
+            self.pending_matrices.clear();
+            self.pending_matrices
+                .try_reserve(glyphs.len().saturating_mul(6))
+                .map_err(|error| {
+                    ContentError::Allocation(format!("failed to keep glyph transforms: {error}"))
+                })?;
+        }
+        if !completes_fill {
+            for glyph in glyphs {
+                let transform = props.transform * glyph.transform();
+                if is_fill {
+                    self.pending_matrices
+                        .extend_from_slice(&transform.as_coeffs());
+                }
+                if !self.sink.stopped() {
+                    self.sink.glyph(glyph, transform);
+                }
+            }
+        }
+        if self.items {
+            self.record_text_item(run, props, mode, completes_fill)?;
+        }
+        if is_fill {
+            self.pending = Some(Pending::Text);
+        }
+        Ok(())
+    }
+
+    fn record_text_item<'a>(
+        &mut self,
+        run: &GlyphRun<'_, 'a>,
+        props: &DrawProps<'a>,
+        mode: &DrawMode,
+        completes_fill: bool,
     ) -> Result<(), ContentError> {
         let glyphs = run.glyphs();
         let Some(first) = glyphs.first() else {
@@ -903,18 +996,16 @@ impl ContentCollector {
         {
             return Ok(());
         }
-        let context = self.item_context(props.blend_mode, props.soft_mask.as_ref())?;
-        if render_mode == RENDER_STROKE
-            && pending == Some(Pending::Text)
+        if completes_fill
             && let Some(Record::Text(previous)) = self.records.last_mut()
             && previous.render_mode == RENDER_FILL
-            && previous.context == context
             && previous.matrices == matrices
         {
             previous.render_mode = RENDER_FILL_STROKE;
             previous.stroke = stroke;
             return Ok(());
         }
+        let context = self.item_context(props.blend_mode, props.soft_mask.as_ref())?;
         self.charge(1 + glyphs.len())?;
         let font = match &**first {
             Glyph::Outline(outline) => self.outline_font(outline)?,
@@ -969,11 +1060,7 @@ impl ContentCollector {
             bbox,
             context,
         };
-        push(&mut self.records, Record::Text(record), "content items")?;
-        if render_mode == RENDER_FILL {
-            self.pending = Some(Pending::Text);
-        }
-        Ok(())
+        push(&mut self.records, Record::Text(record), "content items")
     }
 
     fn record_image(
@@ -1105,7 +1192,8 @@ impl ContentCollector {
         Ok(())
     }
 
-    fn finish(self, clip: Option<BBox>) -> Result<PageContent, ContentError> {
+    /// Return the items that meet `clip`, or all of them, and the sink.
+    pub(crate) fn finish(self, clip: Option<BBox>) -> Result<(PageContent, S), ContentError> {
         if let Some(error) = self.error {
             return Err(error);
         }
@@ -1119,14 +1207,15 @@ impl ContentCollector {
             }
             items.push(record.into_item());
         }
-        Ok(PageContent {
+        let content = PageContent {
             items,
             fonts: self.fonts,
             clips: self.clips,
             groups: self.groups,
             marks: self.marks,
             states: self.states,
-        })
+        };
+        Ok((content, self.sink))
     }
 }
 
@@ -1159,9 +1248,13 @@ fn glyph_text(glyph: &Glyph<'_>) -> Result<Option<String>, ContentError> {
     })
 }
 
-impl<'a> Device<'a> for ContentCollector {
+impl<'a, S: ContentSink> Device<'a> for ContentCollector<S> {
     fn draw_path(&mut self, path: &BezPath, props: DrawProps<'a>, mode: &DrawMode) {
         let pending = self.pending.take();
+        self.sink.path(path, props.transform, mode);
+        if !self.items {
+            return;
+        }
         self.run(|this| match mode {
             DrawMode::Fill(rule) => this.record_path(path, &props, Some(*rule), None, None),
             DrawMode::Stroke(stroke) => this.record_path(path, &props, None, Some(stroke), pending),
@@ -1174,7 +1267,9 @@ impl<'a> Device<'a> for ContentCollector {
 
     fn push_clip_path(&mut self, clip: &ClipPath) {
         self.pending = None;
-        self.run(|this| this.push_clip(clip));
+        if self.items {
+            self.run(|this| this.push_clip(clip));
+        }
     }
 
     fn push_transparency_group(
@@ -1184,7 +1279,9 @@ impl<'a> Device<'a> for ContentCollector {
         blend: BlendMode,
     ) {
         self.pending = None;
-        self.run(|this| this.push_group(opacity, mask.as_ref(), blend));
+        if self.items {
+            self.run(|this| this.push_group(opacity, mask.as_ref(), blend));
+        }
     }
 
     fn draw_glyph_run(&mut self, run: &GlyphRun<'_, 'a>, props: DrawProps<'a>, mode: &DrawMode) {
@@ -1194,7 +1291,9 @@ impl<'a> Device<'a> for ContentCollector {
 
     fn draw_image(&mut self, image: Image<'a, '_>, props: ImageDrawProps<'a>) {
         self.pending = None;
-        self.run(|this| this.record_image(&image, &props));
+        if self.items {
+            self.run(|this| this.record_image(&image, &props));
+        }
     }
 
     fn pop_clip(&mut self) {
@@ -1211,7 +1310,9 @@ impl<'a> Device<'a> for ContentCollector {
 
     fn begin_marked_content(&mut self, tag: &[u8], mcid: Option<i32>) {
         self.pending = None;
-        self.run(|this| this.begin_mark(tag, mcid));
+        if self.items {
+            self.run(|this| this.begin_mark(tag, mcid));
+        }
     }
 
     fn end_marked_content(&mut self) {
@@ -1232,7 +1333,7 @@ pub(crate) fn collect_page_content(
 ) -> Result<PageContent, ContentError> {
     let cache = InterpreterCache::new();
     let mut context = extraction_context(pdf, page, &cache, settings);
-    let mut collector = ContentCollector::new(max_elements);
+    let mut collector = ContentCollector::new(NoSink, true, max_elements);
     interpret_page(page, &mut context, &mut collector);
-    collector.finish(clip)
+    collector.finish(clip).map(|(content, NoSink)| content)
 }

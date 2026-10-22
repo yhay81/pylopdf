@@ -177,6 +177,20 @@ def test_text_render_modes_follow_the_painting() -> None:
     assert invisible.glyphs[0].bbox is not None
 
 
+def test_text_painted_with_fill_and_stroke_extracts_once() -> None:
+    page = page_with("BT /F1 12 Tf 10 50 Td 2 Tr (Hello) Tj 0 Tr 0 -20 Td (World) Tj ET")
+    assert page.get_text() == "Hello\nWorld\n"
+    assert [word[4] for word in page.get_text("words")] == ["Hello", "World"]
+    (run, _) = page.content().text_runs
+    assert run.render_mode is TextRenderMode.FILL_STROKE
+
+
+def test_a_stroke_of_other_glyphs_is_read_as_its_own_text() -> None:
+    page = page_with("BT /F1 12 Tf 10 50 Td (Hello) Tj 1 Tr 0 -20 Td (Hello) Tj ET")
+    assert page.get_text() == "Hello\nHello\n"
+    assert [run.render_mode for run in page.content().text_runs] == [TextRenderMode.FILL, TextRenderMode.STROKE]
+
+
 def test_items_carry_clips_blend_modes_and_marked_content() -> None:
     page = page_with(
         "q 10 10 80 80 re W n /GS1 gs /Span << /MCID 7 >> BDC 1 0 0 rg 20 20 30 30 re f EMC Q "
