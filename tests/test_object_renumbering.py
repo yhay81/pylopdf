@@ -6,7 +6,7 @@ import re
 import time
 
 import pytest
-from conftest import build_pdf, build_raw_pdf
+from conftest import build_pdf, build_raw_pdf, outline_entries
 
 import pylopdf
 
@@ -223,13 +223,13 @@ def test_imports_from_a_source_with_tens_of_thousands_of_objects_stay_fast() -> 
 
     lopdf's `renumber_objects_with` scans a list of visited IDs for every
     reference, walks the graph twice when page numbers descend in page order,
-    and rescans the bookmark table that `set_outline` fills once per renumbered
+    and rescans the bookmark table that lopdf's outline builder fills once per renumbered
     object. These two imports from a source of about 64,000 objects took about
     7.7 s locally with it; the generous bound only catches that regression.
     """
     page_count = 30_000
     source = pylopdf.open(_descending_pages_pdf([f"P{index}" for index in range(page_count)]))
-    source.set_outline([(1, f"Entry {index}", index) for index in range(2048)])
+    source.outline = outline_entries([(1, f"Entry {index}", index) for index in range(2048)])
     doc = pylopdf.open(build_pdf(["Target"]))
 
     start = time.perf_counter()

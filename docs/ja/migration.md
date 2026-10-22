@@ -55,8 +55,10 @@ python -m pylopdf.migrate src/
 | `doc.copy_page(pno, to)`, `fullcopy_page(pno, to)` | `doc.pages.insert(to, doc.pages[pno])` | pylopdfは1つのページオブジェクトを2つのページで共有しません |
 | `doc.move_page(pno, to)` | `doc.pages.move(pno, index)` | `index`はページが移動した後の位置です。pymupdfはページ`to`の前に挿入していました |
 | `doc.insert_pdf(docsrc, from_page=a, to_page=b, start_at=i)` | `doc.pages.insert(i, docsrc.pages[a:b + 1])`, `doc.pages.extend(docsrc.pages)` | 取り込んだフォームフィールドの名前が衝突すると`name+N`に改名します。`widgets=`と`join_duplicates=`はありません |
-| `doc.get_toc()`, `set_toc(toc)` | `doc.get_outline()`, `set_outline(entries)` | ページ番号は1始まりではなく0始まり |
-| `doc.get_page_labels()`, `set_page_labels()`, `page.get_label()` | 同じ | |
+| `doc.get_toc()`, `set_toc(toc)` | `doc.outline.entries()`, `doc.outline = entries` | `[level, title, page]`のリストではなく、`destination`が0始まりのページ番号を持つ`Destination`である`OutlineEntry`レコード |
+| `doc.outline`, `item.next`, `item.down` | `doc.outline`, `item.children`, `doc.outline.walk()` | `doc.outline`は最初の項目ではなく、最上位の`OutlineItem`ハンドルの並び |
+| `doc.set_toc_item(i, ...)`, `del_toc_item(i)` | `OutlineItem`の`title`、`destination`、`color`、`bold`、`italic`、`is_open`に代入 | `del_toc_item`は項目を灰色にして行き先を外していました |
+| `doc.get_page_labels()`, `set_page_labels(rules)`, `page.get_label()` | `doc.page_labels`, `page.label` | 辞書ではなく`PageLabelRange(start, style, prefix, first)`レコード |
 | `doc.get_page_numbers(label)` | `doc.pages.labeled(label)` | |
 | `doc.embfile_add/names/get/del/upd/info/count` | `doc.attachments` | マッピングです: `add(name, data, description=…)`、`list(…)`、`[name].read()`、`del …[name]`、`[name].write(data)`、`len(…)`。`desc=`は`description=`になります |
 | `doc.xref_*`, `pdf_catalog()`, `pdf_trailer()` | `doc.objects`, `doc.catalog`, `doc.trailer` | PDF構文ではなく型付きのPythonの値。[低レベルオブジェクト](api.md#low-level-objects)を参照 |

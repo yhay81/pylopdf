@@ -42,6 +42,7 @@ from pylopdf._limits import (
 )
 from pylopdf._objects import Dictionary
 from pylopdf._ocr import OcrEngine, OcrWord, _default_ocr_engine, _validate_ocr_rotation
+from pylopdf._page_labels import _label, _read_page_labels
 from pylopdf._pixmap import Colorspace, _render_background, _render_gray, _render_scale, _validate_bool
 from pylopdf._shape import Shape
 from pylopdf._tables import Table, build_tables
@@ -66,7 +67,7 @@ if TYPE_CHECKING:
     from pylopdf._document import Document
     from pylopdf._fonts import Font
     from pylopdf._text import Layout, Word
-    from pylopdf._types import FontLanguage, LinkInfo, OcrRotation, PageLabelInfo
+    from pylopdf._types import FontLanguage, LinkInfo, OcrRotation
 
 
 _DEFAULT_MAX_TEXT_REPLACEMENT_SIZE = 64 * 1024 * 1024
@@ -162,72 +163,6 @@ def _validate_image_rotation(rotate: int) -> int:
         msg = f"rotate must be a multiple of 90: {rotate!r}"
         raise ValueError(msg)
     return rotate % 360
-
-
-#: Page-label numbering styles (`/S`); an empty value means prefix only.
-_PAGE_LABEL_STYLES = frozenset({"", "D", "R", "r", "A", "a"})
-
-
-def _int_to_roman(n: int) -> str:
-    """Convert a positive integer to uppercase Roman numerals."""
-    pairs = (
-        (1000, "M"),
-        (900, "CM"),
-        (500, "D"),
-        (400, "CD"),
-        (100, "C"),
-        (90, "XC"),
-        (50, "L"),
-        (40, "XL"),
-        (10, "X"),
-        (9, "IX"),
-        (5, "V"),
-        (4, "IV"),
-        (1, "I"),
-    )
-    out = []
-    for value, symbol in pairs:
-        count, n = divmod(n, value)
-        out.append(symbol * count)
-    return "".join(out)
-
-
-def _int_to_letters(n: int) -> str:
-    """Convert a positive integer to PDF's A..Z, AA..ZZ, AAA... form."""
-    letter = chr(ord("A") + (n - 1) % 26)
-    return letter * ((n - 1) // 26 + 1)
-
-
-def _format_page_label(style: str, prefix: str, number: int) -> str:
-    """Build the display label for one page-label rule."""
-    match style:
-        case "D":
-            digits = str(number)
-        case "R":
-            digits = _int_to_roman(number)
-        case "r":
-            digits = _int_to_roman(number).lower()
-        case "A":
-            digits = _int_to_letters(number)
-        case "a":
-            digits = _int_to_letters(number).lower()
-        case _:
-            digits = ""
-    return prefix + digits
-
-
-def _page_label(labels: Sequence[PageLabelInfo], pno: int) -> str:
-    """Return the label of zero-based page ``pno`` under sorted ``labels``, or empty."""
-    applicable: PageLabelInfo | None = None
-    for label in labels:
-        if label["startpage"] <= pno:
-            applicable = label
-        else:
-            break
-    if applicable is None:
-        return ""
-    number = pno - applicable["startpage"] + applicable["firstpagenum"]
-    return _format_page_label(applicable["style"], applicable["prefix"], number)
 
 
 def _normalized_box(box: Sequence[float]) -> Rect:
@@ -1623,9 +1558,10 @@ class Page:
             max_size,
         )
 
-    def get_label(self) -> str:
-        """Return the display label, such as ``"iv"`` or ``"A-2"``, or empty."""
-        return _page_label(self._document.get_page_labels(), self._page_number() - 1)
+    @property
+    def label(self) -> str:
+        """Return the page's label, such as ``"iv"`` or ``"A-2"``, or ``""`` without page labels."""
+        return _label(_read_page_labels(self._document), self._page_number() - 1)
 
     def annots(self, *, types: Iterable[int] | None = None) -> list[Annot]:
         """Return the page's annotations as read-only :class:`Annot` handles.

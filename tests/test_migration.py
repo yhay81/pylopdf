@@ -42,7 +42,7 @@ def test_hints_module_matches_the_manifest() -> None:
 @pytest.mark.parametrize(
     ("owner", "name", "expected"),
     [
-        (pylopdf.Document, "get_toc", "is Document.get_outline in pylopdf. pylopdf's get_outline uses zero-based"),
+        (pylopdf.Document, "get_toc", "is Document.outline in pylopdf. Use doc.outline.entries()"),
         (pylopdf.Document, "embfile_add", "Use doc.attachments.add(name, data"),
         (pylopdf.Document().pages.new, "get_textpage", "Page.get_textpage in the Reading milestone"),
         (lambda: pylopdf.Rect(0, 0, 1, 1), "include_rect", "Use r | other"),
@@ -333,6 +333,23 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ("import fitz\ndoc.set_pagelayout('twocolumnleft')\n", 'doc.page_layout = "TwoColumnLeft"'),
         ("import fitz\ndoc.set_language('zh-TW')\n", "doc.language = 'zh-TW'"),
         ("import fitz\ndoc.set_language(None)\n", "del doc.language"),
+        (
+            "import fitz\ntoc = doc.get_toc()\n",
+            (
+                "toc = [[entry.level, entry.title, -1 if entry.page is None else entry.page + 1] "
+                "for entry in doc.outline.entries()]"
+            ),
+        ),
+        (
+            "import fitz\ndoc.set_toc(toc)\n",
+            (
+                "doc.outline = [pylopdf.OutlineEntry(item[0], item[1], pylopdf.Destination(item[2] - 1) "
+                "if item[2] > 0 else None) for item in toc]"
+            ),
+        ),
+        ("import fitz\ndoc = fitz.open()\nlabel = doc[0].get_label()\n", "label = doc.pages[0].label"),
+        ("import fitz\ndef f(item: fitz.Outline) -> None: ...\n", "def f(item: pylopdf.OutlineItem) -> None: ..."),
+        ("from fitz import Outline\nitem: Outline\n", "from pylopdf import OutlineItem\nitem: OutlineItem"),
     ],
 )
 def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> None:
@@ -384,6 +401,14 @@ def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> N
             'doc.metadata.update({"author": "A", "modified": "D:2026"})',
         ),
         ("import pylopdf\ncreated = doc.metadata['creationDate']\n", 'created = doc.metadata.get("created", "")'),
+        ("import pylopdf\nlabel = page.get_label()\n", "label = page.label"),
+        (
+            "import pylopdf\nlabels = doc.get_page_labels()\n",
+            (
+                'labels = [{"startpage": label.start, "style": label.style or "", "prefix": label.prefix, '
+                '"firstpagenum": label.first} for label in doc.page_labels]'
+            ),
+        ),
     ],
 )
 def test_codemod_migrates_pylopdf_015_programs(migrate_source: Migrate, source: str, expected: str) -> None:
@@ -417,6 +442,28 @@ def test_codemod_preserves_none_passwords(
     with pylopdf.open(data, password=password) as doc:
         assert len(doc.pages) == 1
         assert (doc.encryption_method is not None) is encrypted
+
+
+def test_codemod_migrates_outline_and_page_label_calls(migrate_source: Migrate) -> None:
+    source = (
+        "import fitz\ndoc = fitz.open()\nfor _ in range(4):\n    doc.new_page()\n"
+        "doc.set_toc([[1, 'Start', 1], [2, 'Detail', 3], [1, 'Nowhere', 0]])\n"
+        "toc = doc.get_toc()\n"
+        "doc.set_page_labels([{'startpage': 0, 'style': 'r'}, {'startpage': 2, 'prefix': 'A-', 'style': 'D'}])\n"
+        "rules = doc.get_page_labels()\nlabels = [page.get_label() for page in doc]\n"
+    )
+
+    result = migrate_source(source)
+    namespace: dict[str, object] = {}
+    exec(result.code, namespace)  # noqa: S102 - execute the trusted migration fixture.
+
+    assert result.todos == ()
+    assert namespace["toc"] == [[1, "Start", 1], [2, "Detail", 3], [1, "Nowhere", -1]]
+    assert namespace["rules"] == [
+        {"startpage": 0, "style": "r", "prefix": "", "firstpagenum": 1},
+        {"startpage": 2, "style": "D", "prefix": "A-", "firstpagenum": 1},
+    ]
+    assert namespace["labels"] == ["i", "ii", "A-1", "A-2"]
 
 
 def test_codemod_migrates_a_document_named_pages(migrate_source: Migrate) -> None:
@@ -492,6 +539,10 @@ def test_codemod_marks_probe_results_for_review(migrate_source: Migrate) -> None
             "import pylopdf\ndoc.metadata['title'] = doc.metadata['author']\ndel doc.metadata['subject']\n"
             "doc.page_mode = doc.page_layout = None\ndel doc.xmp\nlanguage = doc.language\n"
         ),
+        (
+            "import pylopdf\nentries = doc.outline.entries()\ndoc.outline = entries\nfirst: pylopdf.Outline\n"
+            "for item in doc.outline.walk():\n    item.title = item.title.upper()\nlabels = doc.page_labels\n"
+        ),
     ],
 )
 def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, source: str) -> None:
@@ -502,11 +553,11 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
 @pytest.mark.parametrize(
     ("source", "hint"),
     [
-        ("import fitz\ntoc = doc.get_toc(False)\n", "get_outline uses zero-based pages"),
+        ("import fitz\ntoc = doc.get_toc(False)\n", "Use doc.outline.entries()"),
         ("import fitz\ndata = doc.embfile_get(0)\n", "doc.attachments[name].read()"),
         ("import fitz\ninfo = doc.embfile_info('a')\n", "Read name, filename, description"),
         ("import fitz\nresult = rect.include_rect(other)\n", "Use r | other"),
-        ("import fitz\ndoc.set_toc(toc, collapse=0)\n", "set_outline uses zero-based pages"),
+        ("import fitz\ndoc.set_toc(toc, collapse=0)\n", "Assign a list of OutlineEntry"),
         ("import fitz\nfrom fitz import Story\n", "Use typst for HTML and CSS pagination"),
         ("import fitz.utils\n", "pylopdf has no fitz.utils module"),
         ("from fitz import Rect\nm.prerotate(90)\n", "pylopdf.Matrix(deg) * m"),

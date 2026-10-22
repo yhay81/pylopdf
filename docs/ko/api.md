@@ -67,8 +67,8 @@ doc.save(
 | `doc.pages.select(indexes)` | 나열한 페이지를 나열한 순서로 유지. 인덱스를 반복하면 페이지를 복제 |
 | `doc.pages.move(index, to)` | 페이지가 인덱스 `to`에 오도록 이동 |
 | `doc.pages.labeled(label)` | 레이블이 `label`인 페이지의 인덱스 |
-| `get_outline()` / `set_outline(entries)` | 목차를 `OutlineEntry(level, title, page)` 항목으로 읽거나 교체 |
-| `get_page_labels()` / `set_page_labels(labels)` | 앞부분을 로마 숫자로 표시하는 등의 페이지 레이블 범위 |
+| `outline` | 목차(북마크)를 `OutlineItem` 핸들의 트리로. [목차와 페이지 레이블](#outline) 참고 |
+| `page_labels` | 앞부분을 로마 숫자로 표시하는 등의 페이지 레이블 범위를 `PageLabelRange` 레코드로 |
 
 ```python
 merged = pylopdf.Document()
@@ -81,7 +81,56 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 순서를 뒤집음
 
 `insert`와 `extend`는 `list.insert`처럼 인덱스 위치를 받으므로, 끝을 넘는 인덱스는 끝에 추가합니다. 한 번의 호출에 전달하는 페이지는 모두 한 문서의 것이어야 하며, 다른 문서의 같은 페이지는 한 번의 호출에 한 번만 넣을 수 있습니다. 다른 문서의 페이지는 링크, 주석, 폼 필드와 함께 가져오며, 이미 쓰이는 필드 이름에는 쓰이지 않은 가장 작은 `+N` 접미사가 붙습니다. 같은 문서에 있는 페이지의 복사본은 새 페이지 객체이며, 둘 중 하나가 편집될 때까지 원본과 콘텐츠 스트림 및 리소스를 공유합니다.
 
-페이지를 추가, 삭제, 재정렬하면 그 전에 가져온 `Page` 뷰는 더 이상 유효하지 않습니다. 그런 뷰를 사용하면 `StalePageError`가 발생하고, 페이지를 변경하면서 `doc.pages`를 반복하면 `RuntimeError`가 발생합니다. 페이지를 삭제하거나 선택하면 삭제된 페이지만 가리키던 링크, 목차 항목, 폼 필드, 태그 PDF 구조도 함께 제거됩니다. 다만 그 페이지 내용의 모든 사본을 제거하지는 않으므로 안전한 민감 정보 삭제(redaction)는 아닙니다.
+페이지를 추가, 삭제, 재정렬하면 그 전에 가져온 `Page` 뷰는 더 이상 유효하지 않습니다. 그런 뷰를 사용하면 `StalePageError`가 발생하고, 페이지를 변경하면서 `doc.pages`를 반복하면 `RuntimeError`가 발생합니다. 페이지를 삭제하거나 선택하면 삭제된 페이지만 가리키던 링크, 폼 필드, 태그 PDF 구조도 함께 제거됩니다. 삭제된 페이지로 이동하던 목차 항목은 pymupdf와 같이 대상 없이 그 자리에 남습니다. 다만 그 페이지 내용의 모든 사본을 제거하지는 않으므로 안전한 민감 정보 삭제(redaction)는 아닙니다.
+
+### 목차와 페이지 레이블 { #outline }
+
+`doc.outline`은 목차(북마크)를 최상위 `OutlineItem` 핸들의 시퀀스로 돌려줍니다. 각 항목의 `children`이 트리의 나머지를 담고, `doc.outline.walk()`는 문서 순서대로 모든 항목을 방문합니다. 항목은 접근할 때마다 문서를 읽으며, 속성에 값을 대입하면 즉시 문서를 편집합니다.
+
+| `OutlineItem` 멤버 | 용도 |
+|---|---|
+| `title` | 뷰어가 표시하는 제목. 대입 가능 |
+| `destination` | 항목이 가리키는 곳. 아래 표의 대상 또는 `None`. 대입 가능 |
+| `page` | `Destination`의 0부터 시작하는 페이지, 그 밖에는 `None` |
+| `level`, `children` | 깊이(최상위 항목은 1)와 자식 항목 |
+| `color`, `bold`, `italic` | 제목의 표시 방식. 투명도가 없는 `Color` 또는 `None`, 그리고 두 플래그. 대입 가능 |
+| `is_open` | 문서를 열 때 자식을 펼칠지 여부. 자식이 있는 항목에 대입 가능 |
+| `xref`, `obj` | 항목의 객체 번호와 [저수준 객체](#low-level-objects)에서의 딕셔너리 |
+| `to_entry()` | 자식을 뺀 항목을 `OutlineEntry`로 반환 |
+
+`OutlineEntry(level, title, destination=None, *, color=None, bold=False, italic=False, is_open=False)` 레코드의 리스트를 대입하면 목차 전체를 교체하고, `del doc.outline`은 목차를 제거합니다. 레벨은 1부터 시작하고 한 항목에서 다음 항목으로 최대 1씩 늘어나며, 한 항목의 자식은 그 뒤에 오는 한 단계 깊은 항목입니다. `doc.outline.entries()`는 현재 목차를 같은 형태로 돌려주므로 리스트로 편집해 다시 대입할 수 있습니다.
+
+```python
+from pylopdf import Destination, OutlineEntry
+
+doc.outline = [
+    OutlineEntry(1, "Chapter 1", Destination(0), bold=True, is_open=True),
+    OutlineEntry(2, "Section 1.1", Destination(1, point=(72, 100))),
+    OutlineEntry(1, "Project site", "https://example.com"),
+]
+for item in doc.outline.walk():
+    if item.page == 1:
+        item.title = item.title.upper()
+```
+
+| 대상 | 이동하는 곳 |
+|---|---|
+| `Destination(page, point=None, zoom=None)` | 이 문서의 0부터 시작하는 페이지. `point`는 표시 좌표에서 보기 영역의 왼쪽 위, `zoom`은 배율이며, 둘 다 없으면 뷰어가 페이지를 창에 맞춥니다 |
+| `str` | URI |
+| `RemoteDestination(file, page=0, name=None)` | 다른 PDF 파일의 페이지 또는 이름 있는 대상 |
+| `Launch(file)` | 뷰어가 연결한 애플리케이션으로 여는 파일 |
+| `NamedAction(name)` | `"NextPage"`, `"FirstPage"` 같은 뷰어 동작 |
+
+이름 있는 대상은 그것이 가리키는 `Destination`으로 읽고, 페이지가 더 이상 없는 대상은 `None`으로 읽습니다. 읽기와 쓰기는 항목 65,536개, 64단계, 제목과 대상 텍스트 16 MiB까지입니다(`LimitError` 코드 `toc_entry_count`, `toc_text_size`, `toc_input_size`).
+
+`doc.page_labels`는 `PageLabelRange(start, style=DECIMAL, prefix="", first=1)` 레코드의 리스트입니다. 각 범위는 0부터 시작하는 `start`부터 다음 범위 직전까지의 페이지에 `prefix`와, `first`부터 센 번호를 `PageLabelStyle`(`DECIMAL`, `UPPER_ROMAN`, `LOWER_ROMAN`, `UPPER_LETTERS`, `LOWER_LETTERS`, 또는 접두사만 쓰는 `None`) 형식으로 붙입니다. 리스트를 대입하면 페이지 순서대로 범위를 교체하며, 첫 범위는 0페이지에서 시작해야 합니다. `[]`를 대입하거나 `del doc.page_labels`를 쓰면 제거됩니다. `page.label`은 한 페이지의 레이블이며 문서에 레이블이 없으면 `""`입니다. `doc.pages.labeled(label)`는 레이블로 페이지를 찾습니다.
+
+```python
+from pylopdf import PageLabelRange, PageLabelStyle
+
+doc.page_labels = [PageLabelRange(0, PageLabelStyle.LOWER_ROMAN), PageLabelRange(4, prefix="A-")]
+print([page.label for page in doc.pages])  # ['i', 'ii', 'iii', 'iv', 'A-1', 'A-2']
+```
 
 ### 텍스트와 Markdown { #document-text }
 
@@ -139,7 +188,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 순서를 뒤집음
 | `ocr(...)`, `apply_ocr(*, words=None, ...)` | OCR, 그리고 그 결과나 다른 엔진의 단어로 만드는 보이지 않는 텍스트 레이어. [오프라인 OCR](ocr.md) 참고 |
 | `content(*, text_runs=True, paths=True, images=True, clip=None, annotations=True)` | 페이지가 그리는 모든 텍스트 런, 경로, 이미지. [페이지 내용](#content) 참고 |
 | `get_links()` | 링크와 그 대상 |
-| `get_label()` | `"iv"` 같은 페이지 레이블 |
+| `label` | `"iv"` 같은 페이지 레이블. [목차와 페이지 레이블](#outline) 참고 |
 
 `Word`는 `text`, `bbox`, 그리고 페이지 레이아웃에서의 위치를 나타내는 `block`, `line`, `index`를 가집니다. 각각 단어가 속한 블록의 인덱스, 그 블록 안에서 줄의 인덱스, 그 줄 안에서 단어의 인덱스입니다.
 
@@ -588,10 +637,11 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [저수준 객체](#low-level-objects) |
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext` 등 내용 타입 | [페이지 내용](#content) |
 | `Colorspace` | [`Pixmap`](#pixmap)의 색 공간. `GRAY`와 `RGB` |
+| `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [목차와 페이지 레이블](#outline) |
 
 상수는 pymupdf의 이름을 유지하며 열거형으로도 묶여 있습니다. `Permissions`(`PDF_PERM_*`), `LinkKind`(`LINK_*`), `TextAlign`(`TEXT_ALIGN_*`), `AnnotType`(`PDF_ANNOT_*`), `AnnotFlags`(`PDF_ANNOT_IS_*`)입니다. `Access`의 멤버는 `USER`와 `OWNER`이고, `Encryption`은 저장하는 파일을 암호화하는 방법을 나타냅니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
 
-텍스트, 표, OCR, 페이지 내용의 결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord`, `Path`, `Image`, `MarkInfo`, `PdfaClaim` 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 반환하는 그 밖의 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `LinkInfo`, `FormFieldInfo` 같은 `TypedDict` 클래스로 기술됩니다. `OutlineEntry`는 네임드 튜플입니다.
+텍스트, 표, OCR, 페이지 내용의 결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord`, `Path`, `Image`, `MarkInfo`, `PdfaClaim`, `OutlineEntry`, `PageLabelRange`, 목차 대상 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 반환하는 그 밖의 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `LinkInfo`, `FormFieldInfo` 같은 `TypedDict` 클래스로 기술됩니다.
 
 ## 예외와 경고 { #exceptions }
 

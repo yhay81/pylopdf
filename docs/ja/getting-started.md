@@ -101,7 +101,10 @@ with pylopdf.open("input.pdf") as doc:
     doc.pages.insert(1, doc.pages[0])      # ページ0のコピーをインデックス1に
     doc.pages.move(0, -1)                  # 最初のページを末尾へ移動
     doc.pages[0].set_rotation(90)
-    doc.set_outline([(1, "Chapter 1", 0), (2, "Section 1.1", 1)])
+    doc.outline = [
+        pylopdf.OutlineEntry(1, "Chapter 1", pylopdf.Destination(0)),
+        pylopdf.OutlineEntry(2, "Section 1.1", pylopdf.Destination(1)),
+    ]
     doc.save("edited.pdf")
 
 with pylopdf.Document() as merged, pylopdf.open("a.pdf") as a, pylopdf.open("b.pdf") as b:

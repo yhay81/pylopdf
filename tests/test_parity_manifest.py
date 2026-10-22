@@ -39,7 +39,7 @@ def test_capability_map_is_classified_and_resolves() -> None:
     [
         ("Document.load_page", {"pylopdf": "Document.no_such_method"}, "is not in api/public-api.json"),
         ("FileNotFoundError", {"pylopdf": "NoSuchBuiltinError"}, "is not in api/public-api.json"),
-        ("Page.get_label", {"pylopdf": "Page.render"}, "instead of the pymupdf name"),
+        ("Document.has_links", {"pylopdf": "Document.has_annots"}, "instead of the pymupdf name"),
         ("Document.journal_undo", {"pylopdf": "Document.undo"}, "only an available entry names a pylopdf symbol"),
         ("Document.journal_undo", {"milestone": "M7"}, "unknown milestone"),
         ("Document.get_outline_xrefs", {"milestone": None}, "a planned entry must name its milestone"),

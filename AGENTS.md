@@ -102,8 +102,9 @@ the concept and API overview.
     `document/{loading,saving,limits,streams,lowlevel}.rs`;
     `src/pylopdf/_objects.py`.
   - Structure: `page_cleanup.rs`, `structure_prune.rs`;
-    `document/{page_tree,navigation,labels,metadata,attachments}.rs`;
-    `src/pylopdf/_attachments.py` and `_metadata.py`.
+    `document/{page_tree,navigation,outline,labels,metadata,attachments}.rs`;
+    `src/pylopdf/_attachments.py`, `_metadata.py`, `_outline.py`,
+    `_page_labels.py`, and `_targets.py`.
   - Content: `content_guard.rs`, `content_scan.rs`, `graph_guard.rs`,
     `postscript_scan.rs`, `read_depth.rs`, and the content model,
     `content_model.rs` and `src/pylopdf/_content.py`.
@@ -1350,7 +1351,7 @@ the concept and API overview.
   grow fallibly. `select` validates and plans all page IDs and duplicate copies
   before cache invalidation or PDF mutation; page-tree rebuilds resolve every
   page and allocate the final Kids array before committing dictionaries.
-- Structural edits (every `Pages` edit and `set_outline`) and saves with
+- Structural edits (every `Pages` edit and outline replacement) and saves with
   `prune=True`, the default, remove unreachable objects with
   `prune_unreachable_objects` in `rust/src/prune.rs`.
   Never call lopdf's `Document::prune_objects`: it records visited IDs in a
@@ -1398,8 +1399,8 @@ the concept and API overview.
   `rust/src/renumber.rs` before any target mutation. Never call lopdf's
   `Document::renumber_objects_with`: it walks the graph with a `Vec` of visited
   IDs, twice when page numbers descend in page order, and rescans the bookmark
-  table that `set_toc` fills once per renumbered object, so it is quadratic in
-  source object count. The replacement keeps lopdf's numbering: objects keep
+  table of lopdf's outline builder once per renumbered object, so it is
+  quadratic in source object count. The replacement keeps lopdf's numbering: objects keep
   their generation and take consecutive numbers in ascending ID order, and page
   objects trade slots so that page-tree order ascends. Unlike lopdf, it
   replaces every reference to a missing object, matched by number and
@@ -1409,8 +1410,8 @@ the concept and API overview.
   walker before renumbering; `renumber_objects` needs it to order page slots
   and rewrites it to the new IDs. A hash map reserved for the object count
   assigns IDs, a fallibly grown stack rewrites references in the trailer and
-  in every object, and lopdf's bookmark table is left alone because only
-  `set_toc` uses it, after clearing it. Refusal raises `PdfError` and may
+  in every object, and lopdf's bookmark table is left alone because pylopdf
+  never fills it; outline writes clear it. Refusal raises `PdfError` and may
   leave the copy partly rewritten.
 - `rust/src/placement_reuse.rs` places an image or page that a document
   already holds again instead of embedding another copy. `insert_image` keys
@@ -1494,7 +1495,7 @@ the concept and API overview.
   cyclic or over-long chain still surfaces. Annotation appends start a new `/Annots`
   array, Info metadata writes replace trailer `/Info`, both page-attribute
   inheritance walks end at such a `/Parent`, Font and XObject registration
-  starts an empty category, `get_outline` returns no entries for such an
+  starts an empty category, `Document.outline` reads no items for such an
   `/Outlines`, attachment writes replace catalog `/Names`, and the
   EmbeddedFiles walker skips such a FileSpec, so attachment rewrites drop it.
   Page cleanup reads such navigation entries as absent. Drawing drops such
@@ -1546,9 +1547,30 @@ the concept and API overview.
   repeated no-op output is deterministic. Preserve the documented mutation
   semantics of `compress`, `prune`, `dedupe`, `renumber`, and the
   PDF-version/xref-mode changes from `object_streams` on output refusal.
-- Outline page numbers in `get_outline` and `set_outline` are zero-based like
-  every other page API; the core's `get_toc` and `set_toc` keep one-based
-  numbers, and only the Python layer converts them.
+- `Document.outline` (`src/pylopdf/_outline.py`, `rust/src/document/outline.rs`)
+  is an `Outline` sequence of top-level `OutlineItem` handles. A handle stores
+  the document, the object epoch, and the item's object ID, reads the item
+  through `outline_item` on every access, and raises `StaleObjectError` once
+  the object is gone or the epoch changed. An item stored as a direct
+  dictionary has no handle: `walk()` leaves it out and `entries()` lists it.
+  Reads share the outline walk described below; `outline_entries` returns
+  every item with its ID, level, title, target, color, flags, and count.
+  Targets (`src/pylopdf/_targets.py`) cross the boundary as `(kind, page,
+  point, zoom, text, name)` tuples whose page is one-based in the core and
+  zero-based in Python, like every other page number; points are display
+  coordinates, and an outline item whose XYZ destination leaves both
+  coordinates null, or whose FitH or FitV destination leaves its one null,
+  reads with no point (`resolve_destination(keep_unset=True)`), where link
+  reads substitute the page's edge. Assigning a list of `OutlineEntry` records validates every entry, its
+  target's page, and the text bounds in Python, and `write_outline` repeats
+  the checks, builds the complete tree with each `/Count` as ISO 32000-2
+  Table 151 defines it (the visible descendants of an open item, their
+  negation for a closed one, and every visible item for the root), then
+  replaces `/Outlines` and prunes the old items. An item edit changes only
+  that item's dictionary, except `is_open`, which plans every `/Count` with
+  `outline_counts` under the read limits before writing any; all of them keep
+  placements. `/F` holds italic (1) and bold (2), and `/C` an RGB color from
+  0 to 1. lopdf's bookmark builder is never used, and writes clear its tables.
 - lopdf automatically decrypts PDFs with an empty user password. Other encrypted
   PDFs require the `password` argument or `unlock()`, which reopens the
   document with a password and returns `Access`; a wrong password raises
@@ -2340,7 +2362,7 @@ the concept and API overview.
   conversion and must name an existing page; anything else is unresolved like
   an unknown page reference. Convert PDF-supplied integers with `try_from`
   rather than truncating `as` casts.
-- TOC reads use pylopdf's iterative outline walk rather than lopdf's recursive
+- Outline reads use pylopdf's iterative walk rather than lopdf's recursive
   parser. They visit indirect cycles once, release the GIL, index named
   destinations once, and reject partial results above 65,536 nodes/entries or
   131,072 edges with `toc_entry_count`, above 16 MiB of source/returned text
@@ -2349,9 +2371,10 @@ the concept and API overview.
   which also charges looked-up destination names to the TOC text budget, so
   every written outline remains readable and editable. Page indexes,
   destination and outline cycle sets, outline stacks, and returned entries grow
-  fallibly. `set_outline` preflights the entry, depth, and source/encoded-title
-  boundaries before PyO3 copying, using `toc_entry_count` and
-  `toc_input_size`; direct Rust calls repeat the entry and text boundaries, then
+  fallibly. Outline replacement preflights the entry, depth, and
+  source/encoded text boundaries before PyO3 copying, using `toc_entry_count`
+  and `toc_input_size`, and item edits apply the text boundary to their title
+  or target; direct Rust calls repeat the entry and text boundaries, then
   prepare entries and the parent stack fallibly before PDF mutation.
 - `Document.metadata` is a `Metadata` mapping (`src/pylopdf/_metadata.py`)
   that reads the Info dictionary on every access and lists the entries
@@ -2378,9 +2401,13 @@ the concept and API overview.
   levels, or 1 MiB of encoded/decoded style and prefix text. Do not return a
   silent depth-truncated list. Traversal stacks, cycle sets, and returned
   entries grow fallibly, and returned ordering uses an in-place sort with
-  explicit value tie-breaks. `set_page_labels` must enforce the same
-  entry/text boundary before PyO3 copying with `page_label_input_size`, repeat
-  it in direct Rust calls, and invalidate caches only after success.
+  explicit value tie-breaks. `Document.page_labels` returns
+  `PageLabelRange` records (`src/pylopdf/_page_labels.py`), which validate
+  their fields on construction, and `Page.label` and `Pages.labeled` compute
+  labels in Python from one read. Assigning ranges must enforce the same
+  entry/text boundary before PyO3 copying with `page_label_input_size`; the
+  core's `set_page_labels` repeats it and invalidates caches only after
+  success.
 - `Document.pdfa_claim` releases the GIL and applies a 1 MiB decoded XMP
   limit to every filter layer; the core's `pdfa_claim(max_size)` takes the
   bound, which `None` lifts, and failures use
@@ -2592,8 +2619,9 @@ the concept and API overview.
   error recovery, lopdf cross-reference recovery reporting, unchanged
   extraction after an edit for a skipped bare-keyword form and a non-page
   page-tree kid, text drawn on content that leaves `q` and `Q` unbalanced, an
-  OCR text layer from another engine's words, and XMP, page-mode,
-  page-layout, and MarkInfo round trips.
+  OCR text layer from another engine's words, XMP, page-mode, page-layout,
+  and MarkInfo round trips, and an edited outline with every kind of target
+  plus page labels.
   Add only small redistributable PDFs listed in
   `tests/assets/real_world/README.md`; non-PDF inputs such as the existing CJK
   font may be supplied from already licensed repository assets. Do not claim

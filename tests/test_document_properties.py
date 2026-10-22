@@ -446,14 +446,12 @@ def test_removed_property_names_raise_migration_hints() -> None:
 
 def _labeled_doc() -> pylopdf.Document:
     doc = pylopdf.open(build_pdf([f"Page {i}" for i in range(8)]))
-    doc.set_page_labels(
-        [
-            {"startpage": 0, "style": "r"},
-            {"startpage": 3, "style": "D"},
-            {"startpage": 5, "style": "A", "prefix": "App-"},
-            {"startpage": 7, "prefix": "X"},
-        ]
-    )
+    doc.page_labels = [
+        pylopdf.PageLabelRange(0, "r"),
+        pylopdf.PageLabelRange(3, "D"),
+        pylopdf.PageLabelRange(5, "A", "App-"),
+        pylopdf.PageLabelRange(7, None, "X"),
+    ]
     return doc
 
 
@@ -465,12 +463,12 @@ def _labeled_doc() -> pylopdf.Document:
 def test_get_page_numbers_matches_page_labels(label: str, numbers: list[int]) -> None:
     doc = _labeled_doc()
     assert doc.pages.labeled(label) == numbers
-    assert all(doc.pages[pno].get_label() == label for pno in numbers)
+    assert all(doc.pages[pno].label == label for pno in numbers)
 
 
 def test_get_page_numbers_finds_every_page_or_only_the_first() -> None:
     doc = pylopdf.open(build_pdf(["a", "b", "c"]))
-    doc.set_page_labels([{"startpage": 0, "prefix": "cover"}])
+    doc.page_labels = [pylopdf.PageLabelRange(0, None, "cover")]
     assert doc.pages.labeled("cover") == [0, 1, 2]
     assert doc.pages.labeled("cover")[:1] == [0]
     assert doc.pages.labeled("cover")[:1] == [0]
@@ -497,7 +495,7 @@ def test_reads_leave_is_dirty_false() -> None:
     page.content()
     page.search("a")
     doc.markdown()
-    doc.get_outline()
+    _ = (doc.outline.entries(), doc.page_labels, page.label)
     _ = (doc.xmp, dict(doc.metadata), doc.page_mode, doc.mark_info, doc.language, doc.pdfa_claim)
     _ = (doc.has_annots(), doc.permissions, doc.version)
     _ = list(doc.objects)

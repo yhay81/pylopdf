@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal
 
 import pytest
-from conftest import build_raw_pdf
+from conftest import build_raw_pdf, outline_tuples
 
 import pylopdf
 
@@ -81,7 +81,13 @@ def test_excluded_page_navigation_is_removed(operation: Literal["delete", "selec
             pylopdf.LINK_GOTOR,
             pylopdf.LINK_GOTO,
         ]
-        assert current.get_outline() == [(2, "Retained child", target), (1, "Retained", target)]
+        # As in pymupdf, an item that led to a removed page stays without a destination.
+        assert outline_tuples(current) == [
+            (1, "Removed", None),
+            (2, "Retained child", target),
+            (1, "Named removed", None),
+            (1, "Retained", target),
+        ]
         assert _EXCLUDED_TEXT not in current.text()
 
 
@@ -110,7 +116,7 @@ def test_removing_every_page_drops_outline_and_destination_references(operation:
     assert _EXCLUDED_TEXT.encode() not in saved
     for current in (doc, pylopdf.open(saved)):
         assert len(current.pages) == 0
-        assert current.get_outline() == []
+        assert outline_tuples(current) == []
 
 
 @pytest.mark.parametrize("operation", ["delete", "select"])

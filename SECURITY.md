@@ -136,8 +136,8 @@ risky. When processing untrusted files:
   above 65,536 entries/nodes or 131,072 edges with `named_destination_count`,
   above 16 MiB of key bytes with `named_destination_text_size`, or above 32
   levels, instead of silently reporting a truncated tree as unresolved.
-  `get_outline()`, `Page.get_links()`, link import in `insert_pdf()`, and the
-  rewrite of the name tree and legacy `/Dests` during page deletion and
+  `Document.outline`, `Page.get_links()`, link import in `Pages.insert()` and
+  `extend()`, and the rewrite of the name tree and legacy `/Dests` during page deletion and
   selection share these limits, so every well-formed tree that resolves can
   also be cleaned and imported. The rewrite copies retained destination values
   within 1,048,576 direct objects (16 per entry) and 16 MiB of text. A
@@ -148,13 +148,16 @@ risky. When processing untrusted files:
   reading every page stays linear. The retained index holds each distinct key
   once within the same entry and key-text limits, and a refused tree is never
   cached.
-- TOC reads use an iterative outline walk, visit reference cycles once, release
+- Outline reads use an iterative walk, visit reference cycles once, release
   the GIL, and reject partial output above 65,536 nodes/entries or 131,072
   edges with `toc_entry_count`, above 16 MiB of source/returned text with
-  `toc_text_size`, or above 64 levels or 32 destination indirections. Writes
-  enforce the entry, depth, and source/encoded-title boundaries before PyO3
-  copying and mutation with `toc_entry_count` and `toc_input_size`, and page
-  deletion/selection shares the outline limits.
+  `toc_text_size`, or above 64 levels or 32 destination indirections.
+  Replacing the outline enforces the entry, depth, and source/encoded text
+  boundaries before PyO3 copying and mutation with `toc_entry_count` and
+  `toc_input_size`. Editing one item applies the same text boundary to its
+  title or target, and opening or closing an item recounts the outline under
+  the read limits before it changes anything. Page deletion/selection shares
+  the outline limits.
 - `Document.metadata` decodes only the nine standard Info entries and rejects
   aggregate source or returned text above 1 MiB; custom dictionary entries are
   not materialized into Python output. `probe()` caps returned standard

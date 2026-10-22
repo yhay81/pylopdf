@@ -69,6 +69,16 @@ def ocr_words(entries: Iterable[tuple[float, float, float, float, str]]) -> Iter
         yield pylopdf.OcrWord(text=text, bbox=pylopdf.Rect(x0, y0, x1, y1), confidence=1.0)
 
 
+def outline_tuples(doc: pylopdf.Document) -> list[tuple[int, str, int | None]]:
+    """Return ``(level, title, page)`` for every outline item, the shape tests compare."""
+    return [(entry.level, entry.title, entry.page) for entry in doc.outline.entries()]
+
+
+def outline_entries(items: Iterable[tuple[int, str, int]]) -> list[pylopdf.OutlineEntry]:
+    """Return outline entries leading to pages from ``(level, title, page)`` tuples."""
+    return [pylopdf.OutlineEntry(level, title, pylopdf.Destination(page)) for level, title, page in items]
+
+
 def build_pdf(page_texts: list[str], page_size: tuple[int, int] = (612, 792)) -> bytes:
     """Build a minimal PDF with one text value per page.
 

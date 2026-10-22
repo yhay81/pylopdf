@@ -45,6 +45,8 @@ MODULE_RENAMES = {
     "EmptyFileError": "MalformedPdfError",
     "peek_metadata": "probe",
 }
+#: pymupdf module attributes that pylopdf names otherwise; pylopdf's own ``Outline`` is the item sequence.
+PYMUPDF_MODULE_RENAMES = {"Outline": "OutlineItem"}
 #: Module constants that became enum members.
 MODULE_MEMBER_RENAMES = {
     "csRGB": "Colorspace.RGB",
@@ -197,17 +199,39 @@ class _Arguments:
 
 
 def _get_toc(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``get_toc()`` to the ``[level, title, page]`` lists it returned, with one-based pages."""
     bound = args.bind(("simple",))
     if bound is None or bound.get("simple", "True") != "True":
         return None
-    return f"[[entry.level, entry.title, entry.page + 1] for entry in {receiver}.get_outline()]"
+    return (
+        "[[entry.level, entry.title, -1 if entry.page is None else entry.page + 1] "
+        f"for entry in {receiver}.outline.entries()]"
+    )
 
 
-def _set_toc(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+def _set_toc(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``set_toc(toc)``, whose pages are one-based, to an assignment of outline entries."""
     bound = args.bind(("toc",))
-    if bound is None or set(bound) != {"toc"}:
+    entry = migrator.class_name("OutlineEntry")
+    destination = migrator.class_name("Destination")
+    if bound is None or set(bound) != {"toc"} or entry is None or destination is None:
         return None
-    return f"{receiver}.set_outline([(entry[0], entry[1], entry[2] - 1) for entry in {bound['toc']}])"
+    return (
+        f"{receiver}.outline = [{entry}(item[0], item[1], {destination}(item[2] - 1) if item[2] > 0 else None) "
+        f"for item in {bound['toc']}]"
+    )
+
+
+def _set_page_labels(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``set_page_labels(labels)`` dictionaries to page-label ranges."""
+    bound = args.bind(("labels",))
+    label_range = migrator.class_name("PageLabelRange")
+    if bound is None or set(bound) != {"labels"} or label_range is None:
+        return None
+    return (
+        f'{receiver}.page_labels = [{label_range}(rule["startpage"], rule.get("style") or None, '
+        f'rule.get("prefix", ""), rule.get("firstpagenum", 1)) for rule in {bound["labels"]}]'
+    )
 
 
 def _no_arguments(template: str) -> Callable[[_Migrator, str, _Arguments], str | None]:
@@ -915,6 +939,10 @@ MARK_INFO_MESSAGE = (
     "doc.mark_info returns a MarkInfo record with marked, user_properties, and suspects, or None; "
     "assign a MarkInfo to replace it."
 )
+OUTLINE_MESSAGE = (
+    "pymupdf's doc.outline is the first top-level item; pylopdf's doc.outline is the sequence of top-level "
+    "OutlineItem handles, whose children replace down and next, and walk() visits every item."
+)
 PDFA_MESSAGE = "doc.pdfa_claim returns a PdfaClaim record with part and conformance, or None, instead of a tuple."
 
 
@@ -1013,7 +1041,11 @@ def _set_catalog_name(prop: str, names: Sequence[str]) -> Callable[[_Migrator, s
 #: Calls rewritten wherever they appear.
 CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "get_toc": _get_toc,
-    "set_toc": _set_toc,
+    "get_page_labels": _no_arguments(
+        '[{{"startpage": label.start, "style": label.style or "", "prefix": label.prefix, '
+        '"firstpagenum": label.first}} for label in {receiver}.page_labels]'
+    ),
+    "get_label": _no_arguments("{receiver}.label"),
     "copy_page": _copy_page,
     "fullcopy_page": _copy_page,
     "move_page": _move_page,
@@ -1202,6 +1234,8 @@ STATEMENT_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] =
     "set_language_tag": _set_language,
     "set_pagemode": _set_catalog_name("page_mode", PAGE_MODE_NAMES),
     "set_pagelayout": _set_catalog_name("page_layout", PAGE_LAYOUT_NAMES),
+    "set_toc": _set_toc,
+    "set_page_labels": _set_page_labels,
 }
 #: Statement rules that assign to their receiver, which must therefore be a name or an attribute.
 ASSIGNING_RULES = frozenset(
@@ -1873,9 +1907,10 @@ class _Migrator(cst.CSTTransformer):
         for alias in updated_node.names:
             name = _code(alias.name)
             local = _code(alias.asname.name) if alias.asname is not None else name
-            if name in MODULE_RENAMES:
+            renames = PYMUPDF_MODULE_RENAMES if module in PYMUPDF_MODULES else {}
+            if name in MODULE_RENAMES or name in renames:
                 self.rewrites += 1
-                renamed = MODULE_RENAMES[name]
+                renamed = MODULE_RENAMES.get(name) or renames[name]
                 alias = alias.with_changes(name=cst.Name(renamed))  # noqa: PLW2901
                 if alias.asname is None:
                     self.renamed[name] = renamed
@@ -2003,6 +2038,9 @@ class _Migrator(cst.CSTTransformer):
         if name in MODULE_RENAMES and not (called and name in MODULE_CALL_RULES):
             self.rewrites += 1
             return updated_node.with_changes(attr=cst.Name(MODULE_RENAMES[name]))
+        if name in PYMUPDF_MODULE_RENAMES and self._scan.pymupdf:
+            self.rewrites += 1
+            return updated_node.with_changes(attr=cst.Name(PYMUPDF_MODULE_RENAMES[name]))
         if name in MODULE_MEMBER_RENAMES:
             self.rewrites += 1
             return cst.parse_expression(f"{_code(updated_node.value)}.{MODULE_MEMBER_RENAMES[name]}")
@@ -2035,6 +2073,9 @@ class _Migrator(cst.CSTTransformer):
             return updated_node.value
         if self._is_table(receiver) and name in TABLE_RENAMES:
             return cst.parse_expression(TABLE_RENAMES[name].format(table=_receiver(updated_node.value)))
+        if name == "outline" and self._scan.pymupdf:
+            self.todo(OUTLINE_MESSAGE)
+            return None
         if name in DOCUMENT_PROPERTY_RENAMES:
             if name == "markinfo":
                 self.todo(MARK_INFO_MESSAGE)

@@ -6,7 +6,7 @@ import time
 from collections.abc import Callable
 
 import pytest
-from conftest import build_pdf, build_raw_pdf
+from conftest import build_pdf, build_raw_pdf, outline_entries, outline_tuples
 
 import pylopdf
 
@@ -86,11 +86,11 @@ def _delete_page(doc: pylopdf.Document, index: int) -> None:
         (lambda doc: doc.pages.select([0]), [b"SECOND-PAGE-CONTENT"]),
         (lambda doc: doc.pages.new(), []),
         (lambda doc: doc.pages.extend(doc.pages[0]), []),
-        (lambda doc: doc.set_outline([(1, "New outline", 0)]), [b"OLD-OUTLINE-TITLE"]),
-        (lambda doc: doc.set_outline([]), [b"OLD-OUTLINE-TITLE"]),
+        (lambda doc: setattr(doc, "outline", outline_entries([(1, "New outline", 0)])), [b"OLD-OUTLINE-TITLE"]),
+        (lambda doc: setattr(doc, "outline", outline_entries([])), [b"OLD-OUTLINE-TITLE"]),
         (lambda doc: doc.pages.extend(pylopdf.open(build_pdf(["Inserted"])).pages), []),
     ],
-    ids=["delete_pages", "select", "new_page", "copy_page", "set_outline", "clear_outline", "insert_pdf"],
+    ids=["delete_pages", "select", "new_page", "copy_page", "outline", "clear_outline", "insert_pdf"],
 )
 def test_structural_edits_drop_unreachable_objects(
     edit: Callable[[pylopdf.Document], object],
@@ -148,7 +148,7 @@ def test_show_pdf_page_moves_only_the_objects_its_form_reaches() -> None:
     # that isolates the page's existing content.
     assert doc.complexity["object_count"] == objects + 5
     assert list(doc.attachments) == []
-    assert [entry.title for entry in doc.get_outline()] == ["OLD-OUTLINE-TITLE"]
+    assert [entry.title for entry in doc.outline.entries()] == ["OLD-OUTLINE-TITLE"]
     assert b"ORPHAN-OBJECT" not in doc.to_bytes()
     assert "SOURCE-PAGE-TEXT" in pylopdf.open(saved).pages[0].text()
 
@@ -165,12 +165,12 @@ def test_structural_edits_on_tens_of_thousands_of_objects_stay_fast() -> None:
     outline = [(1, f"Entry {index}", index) for index in range(4096)]
 
     start = time.perf_counter()
-    doc.set_outline(outline)
+    doc.outline = outline_entries(outline)
     del doc.pages[0:1]
     saved = doc.to_bytes()
     elapsed = time.perf_counter() - start
 
-    assert elapsed < 2.0, f"set_outline, delete_pages, and a garbage save took {elapsed:.2f}s"
+    assert elapsed < 2.0, f"writing the outline, deleting a page, and a pruning save took {elapsed:.2f}s"
     assert len(doc.pages) == page_count - 1
-    assert doc.get_outline()[0] == (1, "Entry 1", 0)
+    assert outline_tuples(doc)[:2] == [(1, "Entry 0", None), (1, "Entry 1", 0)]
     assert len(pylopdf.open(saved).pages) == page_count - 1

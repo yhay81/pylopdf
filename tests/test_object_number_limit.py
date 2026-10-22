@@ -16,7 +16,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf, drawn_images, ocr_words
+from conftest import build_pdf, drawn_images, ocr_words, outline_entries
 
 import pylopdf
 
@@ -137,7 +137,7 @@ _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
     "show_pdf_page": lambda doc: doc.pages[0].show_pdf_page((0, 0, 100, 100), pylopdf.open(build_pdf(["Source"])), 0),
     "new_page": lambda doc: doc.pages.new(),
     "copy_page": lambda doc: doc.pages.extend(doc.pages[0]),
-    "set_outline": lambda doc: doc.set_outline([(1, "Start", 0)]),
+    "outline": lambda doc: setattr(doc, "outline", outline_entries([(1, "Start", 0)])),
     "set_metadata": lambda doc: doc.metadata.update({"title": "Edited"}),
     "attachments.add": lambda doc: doc.attachments.add(f"note{len(doc.attachments)}.txt", b"note"),
 }

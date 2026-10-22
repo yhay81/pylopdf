@@ -55,8 +55,10 @@ python -m pylopdf.migrate src/
 | `doc.copy_page(pno, to)`、`fullcopy_page(pno, to)` | `doc.pages.insert(to, doc.pages[pno])` | pylopdf从不让两个页面共享同一个页面对象 |
 | `doc.move_page(pno, to)` | `doc.pages.move(pno, index)` | `index`是页面最终所在的位置；pymupdf则是插入到第`to`页之前 |
 | `doc.insert_pdf(docsrc, from_page=a, to_page=b, start_at=i)` | `doc.pages.insert(i, docsrc.pages[a:b + 1])`、`doc.pages.extend(docsrc.pages)` | 名称冲突的导入表单字段会被重命名为`name+N`；没有`widgets=`和`join_duplicates=` |
-| `doc.get_toc()`、`set_toc(toc)` | `doc.get_outline()`、`set_outline(entries)` | 页码从0开始，而不是从1开始 |
-| `doc.get_page_labels()`、`set_page_labels()`、`page.get_label()` | 相同 | |
+| `doc.get_toc()`、`set_toc(toc)` | `doc.outline.entries()`、`doc.outline = entries` | 使用`OutlineEntry`记录，其`destination`是页码从0开始的`Destination`，而不是`[level, title, page]`列表 |
+| `doc.outline`、`item.next`、`item.down` | `doc.outline`、`item.children`、`doc.outline.walk()` | `doc.outline`是顶层`OutlineItem`句柄的序列，而不是第一个条目 |
+| `doc.set_toc_item(i, ...)`、`del_toc_item(i)` | 为`OutlineItem`的`title`、`destination`、`color`、`bold`、`italic`或`is_open`赋值 | `del_toc_item`会将条目变灰并移除其目标 |
+| `doc.get_page_labels()`、`set_page_labels(rules)`、`page.get_label()` | `doc.page_labels`、`page.label` | 使用`PageLabelRange(start, style, prefix, first)`记录而不是字典 |
 | `doc.get_page_numbers(label)` | `doc.pages.labeled(label)` | |
 | `doc.embfile_add/names/get/del/upd/info/count` | `doc.attachments` | 一个映射：`add(name, data, description=…)`、`list(…)`、`[name].read()`、`del …[name]`、`[name].write(data)`、`len(…)`；`desc=`改为`description=` |
 | `doc.xref_*`、`pdf_catalog()`、`pdf_trailer()` | `doc.objects`、`doc.catalog`、`doc.trailer` | 使用带类型的Python值而非PDF语法；参见[底层对象](api.md#low-level-objects) |

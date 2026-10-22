@@ -225,10 +225,11 @@ def test_document_text_input_limits_are_repeated_in_core(one_page_pdf: bytes) ->
     encoded_oversized = "é" * (512 * 1024)
     # TOC titles share a larger 16 MiB budget sized for large manuals.
     encoded_toc_oversized = "é" * (8 * 1024 * 1024)
+    NO_TARGET = ("none", None, None, None, None, None)  # noqa: N806 - a constant tuple of the core's form.
 
     calls = [
         ("metadata_input_size", lambda: doc.set_metadata("Title", encoded_oversized)),
-        ("toc_input_size", lambda: doc.set_toc([(1, encoded_toc_oversized, 1)])),
+        ("toc_input_size", lambda: doc.write_outline([(1, encoded_toc_oversized, NO_TARGET, None, 0, False)])),
         ("page_label_input_size", lambda: doc.set_page_labels([(0, None, encoded_oversized, 1)])),
     ]
     for code, call in calls:

@@ -67,8 +67,8 @@ doc.save(
 | `doc.pages.select(indexes)` | 指定したページを指定した順に残します。同じインデックスを繰り返すとページを複製します |
 | `doc.pages.move(index, to)` | ページを移動し、インデックス`to`の位置に置きます |
 | `doc.pages.labeled(label)` | ラベルが`label`のページのインデックス |
-| `get_outline()` / `set_outline(entries)` | 目次（しおり）を`OutlineEntry(level, title, page)`の項目として読み取り・置換 |
-| `get_page_labels()` / `set_page_labels(labels)` | 前付けのローマ数字のようなページラベルの範囲 |
+| `outline` | しおり（アウトライン）を`OutlineItem`ハンドルの木として。[しおりとページラベル](#outline)を参照 |
+| `page_labels` | 前付けのローマ数字のようなページラベルの範囲を`PageLabelRange`レコードとして |
 
 ```python
 merged = pylopdf.Document()
@@ -81,7 +81,56 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 順序を逆にす�
 
 `insert`と`extend`は`list.insert`と同じようにインデックスの位置を受け取るので、末尾を超えるインデックスを指定すると末尾に追加します。1回の呼び出しで渡すページはすべて1つの文書のもので、別の文書のページは1回の呼び出しにつき各ページ1度までです。別の文書のページは、リンク、注釈、フォームフィールドとともに取り込みます。すでに使われているフィールド名には、使われていない最小の`+N`の接尾辞を付けます。同じ文書のページのコピーは新しいページオブジェクトで、どちらかが編集されるまでは元のページとコンテンツストリームとリソースを共有します。
 
-ページを追加・削除・並べ替えると、それ以前の`Page`ビューは古くなります。古いビューを使うと`StalePageError`を送出し、ページを変更しながら`doc.pages`をイテレーションすると`RuntimeError`を送出します。ページを削除・選択すると、削除したページだけを指していたリンク、しおりの項目、フォームフィールド、タグ付きPDFの構造も削除します。ただし、そのページの内容のコピーをすべて消すわけではないので、安全な墨消しにはなりません。
+ページを追加・削除・並べ替えると、それ以前の`Page`ビューは古くなります。古いビューを使うと`StalePageError`を送出し、ページを変更しながら`doc.pages`をイテレーションすると`RuntimeError`を送出します。ページを削除・選択すると、削除したページだけを指していたリンク、フォームフィールド、タグ付きPDFの構造も削除します。削除したページへ移動するしおりの項目は、pymupdfと同じく行き先のない項目としてその場に残ります。ただし、そのページの内容のコピーをすべて消すわけではないので、安全な墨消しにはなりません。
+
+### しおりとページラベル { #outline }
+
+`doc.outline`は、しおり（アウトライン）を最上位の`OutlineItem`ハンドルの並びとして返します。各項目の`children`が木の残りを持ち、`doc.outline.walk()`は文書の順序ですべての項目をたどります。項目はアクセスのたびに文書を読み、プロパティに代入するとその場で文書を編集します。
+
+| `OutlineItem`のメンバー | 用途 |
+|---|---|
+| `title` | ビューアーに表示するタイトル。代入できます |
+| `destination` | 項目の行き先。下の表の行き先か`None`。代入できます |
+| `page` | `Destination`の0始まりのページ。それ以外は`None` |
+| `level`, `children` | 深さ（最上位の項目は1）と子の項目 |
+| `color`, `bold`, `italic` | タイトルの表示。透明度のない`Color`か`None`と、2つのフラグ。代入できます |
+| `is_open` | 文書を開いたときに子を表示するかどうか。子を持つ項目に代入できます |
+| `xref`, `obj` | 項目のオブジェクト番号と、[低レベルオブジェクト](#low-level-objects)での辞書 |
+| `to_entry()` | 子を除いた項目を`OutlineEntry`として返す |
+
+`OutlineEntry(level, title, destination=None, *, color=None, bold=False, italic=False, is_open=False)`レコードのリストを代入するとしおり全体を置き換え、`del doc.outline`で削除します。レベルは1から始まり、次の項目へ進むごとに最大1ずつ増えます。項目の子は、その後に続く1つ深いレベルの項目です。`doc.outline.entries()`は現在のしおりを同じ形で返すので、リストとして編集して代入し直せます。
+
+```python
+from pylopdf import Destination, OutlineEntry
+
+doc.outline = [
+    OutlineEntry(1, "Chapter 1", Destination(0), bold=True, is_open=True),
+    OutlineEntry(2, "Section 1.1", Destination(1, point=(72, 100))),
+    OutlineEntry(1, "Project site", "https://example.com"),
+]
+for item in doc.outline.walk():
+    if item.page == 1:
+        item.title = item.title.upper()
+```
+
+| 行き先 | 移動先 |
+|---|---|
+| `Destination(page, point=None, zoom=None)` | この文書の0始まりのページ。`point`は表示座標での表示範囲の左上、`zoom`は倍率です。どちらもなければ、ビューアーはページをウィンドウに合わせます |
+| `str` | URI |
+| `RemoteDestination(file, page=0, name=None)` | 別のPDFファイルのページ、または名前付き行き先 |
+| `Launch(file)` | ビューアーが関連付けたアプリケーションで開くファイル |
+| `NamedAction(name)` | `"NextPage"`や`"FirstPage"`などのビューアーの操作 |
+
+名前付き行き先は、それが指す`Destination`として読み取り、ページがもう存在しない行き先は`None`として読み取ります。読み書きは、65,536項目、64レベル、タイトルと行き先の文字列で16 MiBまでです（`LimitError`のコードは`toc_entry_count`、`toc_text_size`、`toc_input_size`）。
+
+`doc.page_labels`は`PageLabelRange(start, style=DECIMAL, prefix="", first=1)`レコードのリストです。各範囲は、0始まりの`start`から次の範囲の手前までのページに、`prefix`と、`first`から数えた番号を`PageLabelStyle`（`DECIMAL`、`UPPER_ROMAN`、`LOWER_ROMAN`、`UPPER_LETTERS`、`LOWER_LETTERS`、または接頭辞だけの`None`）の形式で付けます。リストを代入するとページ順に範囲を置き換えます。最初の範囲はページ0から始まる必要があり、`[]`の代入か`del doc.page_labels`で削除します。`page.label`は1ページのラベルで、文書にラベルがなければ`""`です。`doc.pages.labeled(label)`はラベルからページを探します。
+
+```python
+from pylopdf import PageLabelRange, PageLabelStyle
+
+doc.page_labels = [PageLabelRange(0, PageLabelStyle.LOWER_ROMAN), PageLabelRange(4, prefix="A-")]
+print([page.label for page in doc.pages])  # ['i', 'ii', 'iii', 'iv', 'A-1', 'A-2']
+```
 
 ### テキストとMarkdown { #document-text }
 
@@ -139,7 +188,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 順序を逆にす�
 | `ocr(...)`, `apply_ocr(*, words=None, ...)` | OCRと、その結果またはほかのエンジンの単語から作る不可視のテキスト層。[オフラインOCR](ocr.md)を参照 |
 | `content(*, text_runs=True, paths=True, images=True, clip=None, annotations=True)` | ページが描くすべてのテキストラン、パス、画像。[ページの内容](#content)を参照 |
 | `get_links()` | リンクとそのリンク先 |
-| `get_label()` | `"iv"`のようなページラベル |
+| `label` | `"iv"`のようなページラベル。[しおりとページラベル](#outline)を参照 |
 
 `Word`は`text`と`bbox`に加えて、ページのレイアウト内での位置を示す`block`、`line`、`index`を持ちます。それぞれ、属するブロックのインデックス、そのブロック内での行のインデックス、その行内での語のインデックスです。
 
@@ -588,10 +637,11 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [低レベルオブジェクト](#low-level-objects) |
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`ほかの内容の型 | [ページの内容](#content) |
 | `Colorspace` | [`Pixmap`](#pixmap)の色空間。`GRAY`と`RGB` |
+| `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [しおりとページラベル](#outline) |
 
 定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）、`AnnotFlags`（`PDF_ANNOT_IS_*`）です。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
 
-テキスト、表、OCR、ページの内容の結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`などの変更できないデータクラス（frozen dataclass）です。APIが返すそのほかの辞書はただの`dict`で、型チェッカー向けに`LinkInfo`、`FormFieldInfo`などの`TypedDict`クラスで記述しています。`OutlineEntry`は名前付きタプルです。
+テキスト、表、OCR、ページの内容の結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`、しおりの行き先などの変更できないデータクラス（frozen dataclass）です。APIが返すそのほかの辞書はただの`dict`で、型チェッカー向けに`LinkInfo`、`FormFieldInfo`などの`TypedDict`クラスで記述しています。
 
 ## 例外と警告 { #exceptions }
 

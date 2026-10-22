@@ -9,10 +9,10 @@ for number in range(3):
     page.insert_text((40, 90), "The quick brown fox", fontsize=11)
 
 toc = [[1, "Chapter 1", 1], [2, "Details", 2], [1, "Chapter 3", 3]]
-doc.set_outline([(entry[0], entry[1], entry[2] - 1) for entry in toc])
-assert [[entry.level, entry.title, entry.page + 1] for entry in doc.get_outline()] == toc
+doc.outline = [pylopdf.OutlineEntry(item[0], item[1], pylopdf.Destination(item[2] - 1) if item[2] > 0 else None) for item in toc]
+assert [[entry.level, entry.title, -1 if entry.page is None else entry.page + 1] for entry in doc.outline.entries()] == toc
 
-for entry in [[entry.level, entry.title, entry.page + 1] for entry in doc.get_outline()]:
+for entry in [[entry.level, entry.title, -1 if entry.page is None else entry.page + 1] for entry in doc.outline.entries()]:
     level, title, page_number = entry
     assert 1 <= page_number <= len(doc.pages), entry
 
@@ -26,5 +26,5 @@ assert words[:2] == ["Chapter", "2"], words
 doc.metadata.update({"title": "Report", "author": "Example"})
 reopened = pylopdf.open(doc.to_bytes())
 assert reopened.metadata.get("title", "") == "Report"
-assert [[entry.level, entry.title, entry.page + 1] for entry in reopened.get_outline()][1] == [2, "Details", 2]
+assert [[entry.level, entry.title, -1 if entry.page is None else entry.page + 1] for entry in reopened.outline.entries()][1] == [2, "Details", 2]
 print("text_report ok")
