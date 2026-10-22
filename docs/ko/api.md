@@ -30,17 +30,29 @@ pylopdf.Document(*, limits=None)
 |---|---|
 | `pages` | 페이지. [페이지](#document-pages) 참고 |
 | `metadata` / `set_metadata(m)` | 제목, 작성자 등 Info 필드와 `format`, `encryption`. `set_metadata`는 값이 빈 키를 삭제하고, `{}`이면 모두 삭제 |
-| `needs_password`, `is_encrypted`, `authenticate(password)` | 암호화 상태. `authenticate`는 문서 잠금을 해제하고 pymupdf와 같은 코드를 반환: 비밀번호가 틀리면 0, 그렇지 않으면 1, 2, 4, 6 |
+| `needs_password`, `unlock(password)` | 문서가 잠겨 있는지 여부와 잠금 해제. `unlock`은 `Access.USER` 또는 `Access.OWNER`를 반환하고, 비밀번호가 틀리면 `PasswordError`를 발생시킴 |
 | `is_repaired` | 열 때 손상된 cross-reference 데이터를 복구했는지 여부 |
-| `permissions` | pymupdf와 같은 방식으로 보고하는 권한 플래그. 비밀번호가 필요한 동안은 `0`, 암호화되지 않은 문서이거나 소유자 비밀번호로 연 뒤에는 `-4`(모두), 그 밖에는 암호화의 `/P` 값. 플래그는 `doc.permissions & Permissions.PRINT`로 확인 |
+| `permissions` | 문서가 허용하는 작업을 나타내는 `Permissions` 플래그. 잠겨 있는 동안은 없음, 암호화되지 않은 문서이거나 소유자 비밀번호로 연 뒤에는 `Permissions.ALL`, 그 밖에는 암호화가 허용하는 플래그. 플래그는 `Permissions.PRINT in doc.permissions`로 확인 |
 | `is_dirty` | 연 뒤에 문서를 편집했는지 여부. pymupdf와 마찬가지로 새로 만든 빈 문서는 처음부터 편집된 상태이며, 저장해도 초기화되지 않음 |
 | `is_closed`, `path` | 문서가 닫혔는지 여부와, 문서를 연 파일의 `pathlib.Path`. bytes에서 연 문서와 빈 문서는 `None` |
 | `limits`, `complexity` | 문서를 열 때 사용한 정책과, 처리 여부를 판단하기 위한 저비용 구조 정보(페이지, 객체, 스트림) |
-| `save(filename, *, garbage=0, deflate=False, use_objstms=False, encryption=, user_pw=, owner_pw=, permissions=)` | PDF를 기록. 쓰기가 완전히 성공한 뒤에만 파일을 교체 |
-| `tobytes(..., max_size=512 MiB)` | 같은 출력을 `bytes`로 |
+| `save(path, /, *, compress=True, prune=True, dedupe=False, renumber=False, object_streams=False, encryption=None)` | PDF를 기록. 쓰기가 완전히 성공한 뒤에만 파일을 교체 |
+| `to_bytes(..., max_size=512 MiB)` | 같은 출력을 `bytes`로 |
 | `close()` | 문서를 해제. `with`가 대신 호출 |
 
-`garbage`는 pymupdf의 단계를 따릅니다. 1은 사용하지 않는 객체를 제거하고, 2는 남은 객체의 번호도 다시 매기며, 3과 4는 중복된 객체와 스트림도 병합합니다. `deflate`는 스트림을 압축하고, `use_objstms`는 객체를 압축된 객체 스트림에 묶습니다. `encryption`은 `PDF_ENCRYPT_NONE`(기본값) 또는 `PDF_ENCRYPT_AES_256`이며, AES-256 없이 비밀번호를 전달하면 예외가 발생합니다.
+기본적으로 저장은 Flate로 작아지는 스트림을 압축하고, 아무것도 참조하지 않는 객체를 제거합니다. `compress=False`와 `prune=False`는 이들을 그대로 둡니다. `dedupe=True`는 중복된 객체와 스트림을 병합하고, `renumber=True`는 남은 객체에 연속된 번호를 다시 매기며, `object_streams=True`는 객체를 압축된 객체 스트림에 묶습니다. 이 옵션들은 출력뿐 아니라 문서 자체를 바꿉니다. 암호화하려면 `encryption=Encryption(user_password=..., owner_password=..., permissions=...)`를 전달하세요. AES-256 암호화로 기록하며, 소유자 비밀번호는 기본적으로 사용자 비밀번호와 같고, 메모리의 문서는 암호화되지 않은 채로 남습니다.
+
+```python
+doc.save("out.pdf", dedupe=True, object_streams=True)
+doc.save(
+    "locked.pdf",
+    encryption=pylopdf.Encryption(
+        user_password="secret",
+        owner_password="owner-secret",
+        permissions=pylopdf.Permissions.PRINT,
+    ),
+)
+```
 
 ### 페이지 { #document-pages }
 
@@ -105,7 +117,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 순서를 뒤집음
 | `has_links()`, `has_annots()` | 어느 페이지에 링크가 있는지, 또는 링크나 폼 위젯이 아닌 주석이 있는지 여부 |
 | `objects`, `trailer`, `catalog` | PDF 객체에 직접 접근. [저수준 객체](#low-level-objects) 참고 |
 
-`language_tag`는 pymupdf의 `language`를 대신합니다. `language`는 태그를 최대 세 글자까지만 유지하므로 `zh-TW`와 `zh-HK`가 모두 `zh-Hant`로 읽힙니다. XMP는 `deflate=True`에서도 압축하지 않고 기록하므로, 파일에서 XMP를 찾는 도구도 계속 찾을 수 있습니다.
+`language_tag`는 pymupdf의 `language`를 대신합니다. `language`는 태그를 최대 세 글자까지만 유지하므로 `zh-TW`와 `zh-HK`가 모두 `zh-Hant`로 읽힙니다. XMP는 저장할 때 스트림을 압축하더라도 압축하지 않고 기록하므로, 파일에서 XMP를 찾는 도구도 계속 찾을 수 있습니다.
 
 ## Page { #page }
 
@@ -450,7 +462,7 @@ doc.objects[content].read()                     # 디코딩된 스트림 데이�
 | array, dictionary | `Array`(변경 가능한 시퀀스), `Dictionary`(변경 가능한 매핑) |
 | stream | `Stream`, `read(*, decode=True)`와 `write(data, *, filter="FlateDecode")`를 가진 딕셔너리 |
 
-변경은 즉시 적용됩니다. 없는 객체에 대한 참조는 `None`으로 읽힙니다. 핸들을 다른 객체 안에 저장하면 그 객체에 대한 참조가 저장됩니다. 객체가 제거되거나, `save(garbage=2)` 이상이 객체 번호를 다시 매기면 핸들은 `StaleObjectError`를 발생시킵니다. pylopdf는 편집 내용이 PDF로서 타당한지 검사하지 않습니다.
+변경은 즉시 적용됩니다. 없는 객체에 대한 참조는 `None`으로 읽힙니다. 핸들을 다른 객체 안에 저장하면 그 객체에 대한 참조가 저장됩니다. 객체가 제거되거나, `save(renumber=True)`가 객체 번호를 다시 매기면 핸들은 `StaleObjectError`를 발생시킵니다. pylopdf는 편집 내용이 PDF로서 타당한지 검사하지 않습니다.
 
 ## 기하 { #geometry-types }
 
@@ -530,7 +542,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 | 이름 | 용도 |
 |---|---|
 | `open(source, /, *, password=None, limits=None)` | 문서를 엶. [Document](#document) 참고 |
-| `probe(source, /, *, password=None, max_file_size=None)` | 문서를 불러오지 않고 읽은 `Probe` 레코드. `page_count`, `version`, `is_encrypted`, `is_repaired`, `metadata`(`title`, `author`, `subject`, `keywords`, `creator`, `producer`, `created`, `modified` 중 있는 것)를 가짐 |
+| `probe(source, /, *, password=None, max_file_size=None)` | 문서를 불러오지 않고 읽은 `Probe` 레코드. `page_count`, `version`, `needs_password`, `is_repaired`, `metadata`(`title`, `author`, `subject`, `keywords`, `creator`, `producer`, `created`, `modified` 중 있는 것)를 가짐 |
 | `DocumentLimits`, `DocumentLimits.web()` | 신뢰할 수 없는 입력을 위한 리소스 제한. [보안](security.md#untrusted-pdfs) 참고 |
 | `OcrEngine` | 재사용 가능한 OCR 엔진. [오프라인 OCR](ocr.md) 참고 |
 | `Canvas`, `PathBuilder`, `TextFit` | [캔버스](#canvas) 참고 |
@@ -541,7 +553,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext` 등 내용 타입 | [페이지 내용](#content) |
 | `Colorspace`, `csRGB`, `csGRAY`, `csCMYK` | pymupdf의 장치 색 공간 |
 
-상수는 pymupdf의 이름을 유지하며 열거형으로도 묶여 있습니다. `Permissions`(`PDF_PERM_*`), `EncryptionMethod`(`PDF_ENCRYPT_*`), `LinkKind`(`LINK_*`), `TextAlign`(`TEXT_ALIGN_*`), `AnnotType`(`PDF_ANNOT_*`), `AnnotFlags`(`PDF_ANNOT_IS_*`)입니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
+상수는 pymupdf의 이름을 유지하며 열거형으로도 묶여 있습니다. `Permissions`(`PDF_PERM_*`), `LinkKind`(`LINK_*`), `TextAlign`(`TEXT_ALIGN_*`), `AnnotType`(`PDF_ANNOT_*`), `AnnotFlags`(`PDF_ANNOT_IS_*`)입니다. `Access`의 멤버는 `USER`와 `OWNER`이고, `Encryption`은 저장하는 파일을 암호화하는 방법을 나타냅니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
 
 API가 반환하는 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `TextPageDict`, `RawTextPageDict`, `DrawingInfo`, `ImageInfo`, `LinkInfo`, `FormFieldInfo`, `DocumentMetadata`, `OcrWord` 같은 `TypedDict` 클래스로 기술됩니다. `Word`, `Block`, `ImageItem`, `OutlineEntry` 같은 튜플은 네임드 튜플입니다.
 
@@ -551,8 +563,8 @@ API가 반환하는 딕셔너리는 일반 `dict` 객체이며, 타입 검사기
 |---|---|
 | `PdfError` | pylopdf 오류의 기본 클래스. `ValueError`의 하위 클래스 |
 | `MalformedPdfError` | 입력이 읽을 수 있는 PDF가 아님. 빈 입력도 포함 |
-| `PasswordError` | 주어진 비밀번호로 복호화하지 못함 |
-| `EncryptedDocumentError` | 먼저 `authenticate()`로 문서 잠금을 해제해야 함 |
+| `PasswordError` | 비밀번호가 사용자 비밀번호와도 소유자 비밀번호와도 일치하지 않음 |
+| `EncryptedDocumentError` | 먼저 `unlock()`으로 문서 잠금을 해제해야 함 |
 | `LimitError` | [크기 또는 리소스 제한](security.md#error-codes)에 도달함. `.code`가 어느 제한인지 알려 줌 |
 | `DocumentClosedError` | 문서가 닫혔음 |
 | `StalePageError` | 페이지가 추가, 삭제, 재정렬되기 전에 가져온 `Page`임 |

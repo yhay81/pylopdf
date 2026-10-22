@@ -102,7 +102,7 @@ def test_imported_pages_take_ascending_object_numbers_in_page_order() -> None:
     for index, expected in enumerate(["Target", "First", "Second", "Third"]):
         assert expected in texts[index]
     assert "Added after import" in texts[1]
-    saved = doc.tobytes()
+    saved = doc.to_bytes()
     imported = _kids_numbers(saved)[1:4]
     assert imported == sorted(imported)
     reloaded = pylopdf.open(saved)
@@ -146,8 +146,8 @@ def test_imports_the_page_the_source_reports_when_a_missing_kid_shares_a_new_num
     stamped.pages[0].show_pdf_page((0, 0, 100, 100), source, 0)
 
     assert len(inserted.pages) == 3
-    assert "Reported page" in pylopdf.open(inserted.tobytes()).pages[2].get_text()
-    stamp_text = pylopdf.open(stamped.tobytes()).pages[0].get_text()
+    assert "Reported page" in pylopdf.open(inserted.to_bytes()).pages[2].get_text()
+    stamp_text = pylopdf.open(stamped.to_bytes()).pages[0].get_text()
     assert "Reported page" in stamp_text
     assert "Orphan page" not in stamp_text
 
@@ -165,7 +165,7 @@ def test_missing_source_reference_cannot_draw_a_target_page(*, free_entry: bool)
 
     target.pages.extend(source.pages)
 
-    for doc in (target, pylopdf.open(target.tobytes())):
+    for doc in (target, pylopdf.open(target.to_bytes())):
         assert doc.pages[2].get_text().split() == ["Source", "text"]
         assert "TARGET PAGE TWO" in doc.pages[1].get_text()
 
@@ -196,7 +196,7 @@ def test_missing_source_resource_cannot_name_a_target_xobject(operation: str) ->
         target.pages[0].show_pdf_page(target.pages[0].rect, source, 0)
         texts = {0: ["TARGET", "FORM", "Source", "text"]}
 
-    for doc in (target, pylopdf.open(target.tobytes())):
+    for doc in (target, pylopdf.open(target.to_bytes())):
         assert {index: doc.pages[index].get_text().split() for index in texts} == texts
 
 
@@ -213,7 +213,7 @@ def test_missing_source_reference_cannot_name_an_object_added_later() -> None:
     stamp = pylopdf.open(build_pdf(["Stamp"]))
     target.pages[0].show_pdf_page(pylopdf.Rect(0, 396, 612, 792), stamp, 0)
 
-    for doc in (target, pylopdf.open(target.tobytes())):
+    for doc in (target, pylopdf.open(target.to_bytes())):
         assert doc.pages[0].get_text().split() == ["Target", "Stamp"]
         assert doc.pages[1].get_text().split() == ["Source", "text"]
 

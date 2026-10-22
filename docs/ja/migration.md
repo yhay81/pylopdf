@@ -41,9 +41,13 @@ python -m pylopdf.migrate src/
 | `doc.language`, `set_language(tag)` | `doc.language_tag`, `set_language_tag(tag)` | 完全なタグを扱います。pymupdfは3文字までしか保持しないため、`zh-TW`と`zh-HK`はどちらも`zh-Hant`になります。移行ツールは`set_language`を書き換えます |
 | `doc.pagemode`, `pagelayout`, `markinfo`とその`set_*`メソッド, `has_links()`, `has_annots()`, `is_closed` | 同じ | |
 | `doc.name` | `doc.path` | `pathlib.Path`。bytesから開いた文書や新しく作った空の文書では`None`。すべての文書がPDFなので、`is_pdf`はなくなりました |
-| `doc.needs_pass`, `authenticate()`, `permissions`, `is_dirty` | `doc.needs_password`。ほかは同じ | 戻り値と値も同じ |
-| `doc.save(garbage=4, deflate=True)` | 同じ | `garbage`がページ、注釈、フォームフィールド、レイヤーを統合することはありません |
-| `doc.save(encryption=…, user_pw=…)` | 同じ | `PDF_ENCRYPT_NONE`と`PDF_ENCRYPT_AES_256`のみ。暗号化なしでパスワードを渡すと、無視せずに例外になります |
+| `doc.needs_pass`, `doc.is_encrypted` | `doc.needs_password` | 文書を復号するまでTrue |
+| `doc.authenticate(password)` | `doc.unlock(password)` | `Access.USER`か`Access.OWNER`を返します。パスワードが違えば、0を返す代わりに`PasswordError`を送出します |
+| `doc.permissions`, `is_dirty` | 同じ | `permissions`は`Permissions`フラグの値です。`-4`の代わりに`Permissions.ALL`になります |
+| `doc.save(garbage=4, deflate=True)` | `doc.save(dedupe=True, renumber=True)` | 保存は既定でストリームを圧縮し、使われていないオブジェクトを削除します。`garbage=0`は`prune=False`に、`deflate=False`は`compress=False`になります。ページ、注釈、フォームフィールド、レイヤーが統合されることはありません |
+| `doc.save(encryption=PDF_ENCRYPT_AES_256, user_pw=…, owner_pw=…, permissions=…)` | `doc.save(encryption=Encryption(user_password=…, owner_password=…, permissions=…))` | AES-256のみ |
+| `doc.tobytes(...)`, `doc.write(...)` | `doc.to_bytes(...)` | `save()`と同じオプション |
+| `doc.save(use_objstms=True)` | `doc.save(object_streams=True)` | |
 | `doc.select(indexes)` | `doc.pages.select(indexes)` | 残さなかったページのフォームフィールドとタグ付きPDFの構造も削除します |
 | `doc.delete_page(i)`, `delete_pages(a, b)` | `del doc.pages[i]`, `del doc.pages[a:b + 1]` | 削除するページをリストで指定していた場合は、残りのページを`doc.pages.select(...)`で残してください |
 | `doc.new_page(pno, width=, height=)` | `doc.pages.new((width, height), index=pno)` | `index`を指定しなければ末尾に追加します |
@@ -137,5 +141,5 @@ doc = pylopdf.open("in.pdf")
 page = doc.pages[0]
 page.add_highlight_annot(page.search_for("total"))   # リスト全体を受け取る
 page.get_pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
-doc.save("out.pdf", garbage=4, deflate=True)
+doc.save("out.pdf", dedupe=True, renumber=True)
 ```

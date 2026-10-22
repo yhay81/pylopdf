@@ -134,7 +134,7 @@ def test_metadata_text_boundary_roundtrip(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
     doc.set_metadata({"title": title})
     assert doc.metadata["title"] == title
-    assert pylopdf.open(doc.tobytes()).metadata["title"] == title
+    assert pylopdf.open(doc.to_bytes()).metadata["title"] == title
 
 
 def test_get_page_text(three_page_pdf: bytes) -> None:
@@ -296,7 +296,7 @@ def test_select_reorder(three_page_pdf: bytes) -> None:
     assert "Page three" in doc.pages[0].get_text()
     assert "Page one" in doc.pages[1].get_text()
     # The structure survives save and reload.
-    reloaded = pylopdf.open(doc.tobytes())
+    reloaded = pylopdf.open(doc.to_bytes())
     assert len(reloaded.pages) == 2
     assert "Page three" in reloaded.pages[0].get_text()
 
@@ -309,7 +309,7 @@ def test_select_duplicates_pages(three_page_pdf: bytes) -> None:
     assert "Page one" in doc.pages[0].get_text()
     assert "Page one" in doc.pages[1].get_text()
     assert "Page two" in doc.pages[2].get_text()
-    reloaded = pylopdf.open(doc.tobytes())
+    reloaded = pylopdf.open(doc.to_bytes())
     assert len(reloaded.pages) == 3
     assert "Page one" in reloaded.pages[1].get_text()
     assert reloaded.pages[0].get_pixmap(alpha=True).tobytes() == reloaded.pages[1].get_pixmap(alpha=True).tobytes()
@@ -366,18 +366,18 @@ def test_extending_a_document_with_its_own_pages_copies_them(three_page_pdf: byt
 
 def test_tobytes(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
-    data = doc.tobytes()
+    data = doc.to_bytes()
     assert isinstance(data, bytes)
     assert data.startswith(b"%PDF-")
 
 
 def test_tobytes_output_limit_exact_boundary(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
-    expected = doc.tobytes(max_size=None)
+    expected = doc.to_bytes(max_size=None)
 
-    assert doc.tobytes(max_size=len(expected)) == expected
+    assert doc.to_bytes(max_size=len(expected)) == expected
     with pytest.raises(pylopdf.LimitError) as caught:
-        doc.tobytes(max_size=len(expected) - 1)
+        doc.to_bytes(max_size=len(expected) - 1)
     assert caught.value.code == "pdf_output_size"
 
 
@@ -385,13 +385,13 @@ def test_tobytes_output_limit_exact_boundary(one_page_pdf: bytes) -> None:
 def test_tobytes_validates_output_limit(one_page_pdf: bytes, max_size: object) -> None:
     doc = pylopdf.open(one_page_pdf)
     with pytest.raises((TypeError, ValueError), match="max_size"):
-        doc.tobytes(max_size=max_size)  # ty: ignore[invalid-argument-type]
+        doc.to_bytes(max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 def test_tobytes_bounds_object_stream_output(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
     with pytest.raises(pylopdf.LimitError) as caught:
-        doc.tobytes(use_objstms=True, max_size=16)
+        doc.to_bytes(object_streams=True, max_size=16)
     assert caught.value.code == "pdf_output_size"
 
 
@@ -422,7 +422,7 @@ def test_broken_pdf_raises_pdf_error(data: bytes) -> None:
 def test_probe_stream(three_page_pdf: bytes) -> None:
     meta = pylopdf.probe(three_page_pdf)
     assert meta.page_count == 3
-    assert meta.is_encrypted is False
+    assert meta.needs_password is False
     assert meta.is_repaired is False
     assert meta.version == "1.4"
 
@@ -469,11 +469,11 @@ def test_probe_reports_metadata_by_pylopdf_names() -> None:
     data.pages.new()
     data.set_metadata({"title": "Report", "author": "Ann", "creationDate": "D:20260101000000Z"})
 
-    probe = pylopdf.probe(data.tobytes())
+    probe = pylopdf.probe(data.to_bytes())
 
     assert probe.metadata == {"title": "Report", "author": "Ann", "created": "D:20260101000000Z"}
     assert probe == pylopdf.Probe(
-        page_count=1, version=probe.version, is_encrypted=False, is_repaired=False, metadata=probe.metadata
+        page_count=1, version=probe.version, needs_password=False, is_repaired=False, metadata=probe.metadata
     )
     with pytest.raises(TypeError):
         probe.metadata["title"] = "Changed"  # ty: ignore[invalid-assignment]
@@ -510,7 +510,7 @@ def test_closed_document_repr(one_page_pdf: bytes) -> None:
 def test_unicode_metadata(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
     doc.set_metadata({"title": "日本語タイトル", "author": "山田 太郎"})
-    reloaded = pylopdf.open(doc.tobytes())
+    reloaded = pylopdf.open(doc.to_bytes())
     assert reloaded.metadata["title"] == "日本語タイトル"
     assert reloaded.metadata["author"] == "山田 太郎"
 
@@ -785,7 +785,7 @@ def test_render_page_background_wrong_length(one_page_pdf: bytes) -> None:
 def test_save_options_roundtrip(tmp_path: Path, three_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
     out = tmp_path / "optimized.pdf"
-    doc.save(out, garbage=True, deflate=True, use_objstms=True)
+    doc.save(out, object_streams=True)
     reopened = pylopdf.open(out)
     assert len(reopened.pages) == 3
     assert "Page two" in reopened.pages[1].get_text()
@@ -793,11 +793,11 @@ def test_save_options_roundtrip(tmp_path: Path, three_page_pdf: bytes) -> None:
     assert reopened.metadata["format"] == "PDF 1.5"
 
 
-def test_tobytes_use_objstms_render_consistent(three_page_pdf: bytes) -> None:
+def test_to_bytes_with_object_streams_renders_consistently(three_page_pdf: bytes) -> None:
     """Rendering survives document mutation during object-stream saving."""
     doc = pylopdf.open(three_page_pdf)
     before = doc.pages[0].get_pixmap(alpha=True).tobytes()
-    data = doc.tobytes(use_objstms=True)
+    data = doc.to_bytes(object_streams=True)
     assert doc.pages[0].get_pixmap(alpha=True).tobytes() == before
     assert pylopdf.open(data).pages[0].get_pixmap(alpha=True).tobytes() == before
 
@@ -808,7 +808,7 @@ def test_multi_document_merge() -> None:
     for text in ["First", "Second", "Third"]:
         merged.pages.extend(pylopdf.open(build_pdf([text])).pages)
     assert len(merged.pages) == 3
-    reloaded = pylopdf.open(merged.tobytes())
+    reloaded = pylopdf.open(merged.to_bytes())
     assert "Second" in reloaded.pages[1].get_text()
 
 

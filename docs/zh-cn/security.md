@@ -81,7 +81,7 @@ limits = pylopdf.DocumentLimits(
 
 | 方法 | 默认上限 | 关键字参数 |
 |---|---|---|
-| `Document.tobytes()` | 输出512 MiB | `max_size` |
+| `Document.to_bytes()` | 输出512 MiB | `max_size` |
 | `Document.render_pages()` | PNG输出合计512 MiB | `max_size` |
 | `to_markdown()`、`Table.to_markdown()` | 输出64 MiB | `max_size` |
 | `Pixmap.tobytes()`、`Page.get_svg_image()` | 输出64 MiB | `max_size` |

@@ -48,18 +48,20 @@ with pylopdf.open("input.pdf") as doc:     # pylopdf.open(pdf_bytes)도 가능
     print(doc.metadata["title"])
     doc.set_metadata({"title": "Report", "author": "Alice"})
 
-    doc.save("out.pdf")
-    data = doc.tobytes()                   # 같은 PDF를 bytes로
-    doc.save("small.pdf", garbage=3, deflate=True, use_objstms=True)
+    doc.save("out.pdf")                    # 압축하고 사용하지 않는 객체는 제외
+    data = doc.to_bytes()                  # 같은 PDF를 bytes로
+    doc.save("small.pdf", dedupe=True, object_streams=True)
     doc.save(
         "locked.pdf",
-        encryption=pylopdf.PDF_ENCRYPT_AES_256,
-        user_pw="secret",
-        permissions=pylopdf.PDF_PERM_PRINT,
+        encryption=pylopdf.Encryption(
+            user_password="secret",
+            owner_password="owner-secret",
+            permissions=pylopdf.Permissions.PRINT,
+        ),
     )
 ```
 
-- **암호화된 파일:** 열 때 `password=`를 전달하거나, 연 뒤에 `doc.authenticate(password)`를 호출합니다.
+- **암호화된 파일:** 열 때 `password=`를 전달하거나, 연 뒤에 `doc.unlock(password)`를 호출합니다. 그래야 하는지는 `doc.needs_password`로 알 수 있습니다.
 - **메타데이터만 읽기:** `pylopdf.probe(path)`는 문서 전체를 불러오지 않고 페이지 수, 버전, 메타데이터를 읽습니다. 대규모 파일 모음을 조사할 때 유용합니다.
 - **손상된 파일:** 파일을 열기 위해 손상된 부분을 복구해야 했다면 pylopdf는 `PylopdfWarning`을 내고 `doc.is_repaired`를 설정합니다. 저장하면 정상적인 파일로 기록됩니다.
 

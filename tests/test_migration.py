@@ -202,6 +202,36 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ("import fitz\nm.invert(src)\n", "m = ~src"),
         ("import fitz\nm.preshear(1, 2)\n", "m = pylopdf.Matrix(1, 2, 1) * m"),
         ("import fitz\ntry:\n    pass\nexcept fitz.FileNotFoundError:\n    pass\n", "except FileNotFoundError:"),
+        (
+            "import fitz\ndoc.save('out.pdf', garbage=4, deflate=True)\n",
+            "doc.save('out.pdf', dedupe=True, renumber=True)",
+        ),
+        (
+            "import fitz\ndoc.save('out.pdf', garbage=2, deflate=False)\n",
+            "doc.save('out.pdf', renumber=True, compress=False)",
+        ),
+        (
+            "import fitz\ndoc.save('out.pdf', garbage=0, use_objstms=1)\n",
+            "doc.save('out.pdf', prune=False, object_streams=True)",
+        ),
+        ("import fitz\ndoc.save('out.pdf', incremental=False, deflate_images=True)\n", "doc.save('out.pdf')"),
+        (
+            "import fitz\ndoc.save(path, encryption=fitz.PDF_ENCRYPT_AES_256, user_pw='u', owner_pw='o')\n",
+            "doc.save(path, encryption=pylopdf.Encryption(user_password='u', owner_password='o'))",
+        ),
+        (
+            "import fitz as f\ndoc.save(path, encryption=f.PDF_ENCRYPT_AES_256, permissions=f.PDF_PERM_PRINT)\n",
+            "doc.save(path, encryption=f.Encryption(permissions=f.PDF_PERM_PRINT))",
+        ),
+        (
+            "import fitz\npix.save('a.png', output='png')\ndata = pix.tobytes('png')\n",
+            "pix.save('a.png', output='png')\ndata = pix.tobytes('png')",
+        ),
+        ("import fitz\ndoc.save(path, encryption=fitz.PDF_ENCRYPT_NONE, owner_pw='o')\n", "doc.save(path)"),
+        ("import fitz\ndata = doc.tobytes(garbage=3)\n", "data = doc.to_bytes(dedupe=True, renumber=True)"),
+        ("import fitz\ndoc = fitz.open()\ndata = doc.write()\n", "data = doc.to_bytes()"),
+        ("import fitz\ndoc.authenticate(password)\n", "doc.unlock(password)"),
+        ("import fitz\nlocked = doc.is_encrypted\n", "locked = doc.needs_password"),
     ],
 )
 def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> None:
@@ -230,12 +260,86 @@ def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> N
             "import pylopdf\nwith pylopdf.open(path) as doc:\n    doc.fullcopy_page(0)\n",
             "doc.pages.extend(doc.pages[0])",
         ),
+        (
+            "import pylopdf\ndoc.save(path, garbage=1, object_streams=True, user_pw='u')\n",
+            "doc.save(path, object_streams=True, encryption=pylopdf.Encryption(user_password='u'))",
+        ),
+        (
+            "import pylopdf\ndoc = pylopdf.open(path)\ndata = doc.tobytes(max_size=None)\n",
+            "data = doc.to_bytes(max_size=None)",
+        ),
     ],
 )
 def test_codemod_migrates_pylopdf_015_programs(migrate_source: Migrate, source: str, expected: str) -> None:
     result = migrate_source(source)
     assert expected in result.code
     assert result.todos == ()
+
+
+@pytest.mark.parametrize(
+    ("package", "arguments", "password", "encrypted"),
+    [
+        ("pylopdf", "user_pw=None", None, False),
+        ("pylopdf", "user_pw=None, owner_pw=None", None, False),
+        ("pylopdf", "user_pw=None, owner_pw='owner'", "owner", True),
+        ("pylopdf", "user_pw='user', owner_pw=None", "user", True),
+        ("fitz", "encryption=fitz.PDF_ENCRYPT_AES_256, user_pw=None, owner_pw='owner'", "owner", True),
+    ],
+)
+def test_codemod_preserves_none_passwords(
+    migrate_source: Migrate, package: str, arguments: str, password: str | None, *, encrypted: bool
+) -> None:
+    source = f"import {package}\ndoc = {package}.open()\ndoc.new_page()\ndata = doc.tobytes({arguments})\n"
+
+    result = migrate_source(source)
+    namespace: dict[str, object] = {}
+    exec(result.code, namespace)  # noqa: S102 - execute the trusted migration fixture.
+    data = namespace["data"]
+
+    assert result.todos == ()
+    assert isinstance(data, bytes)
+    with pylopdf.open(data, password=password) as doc:
+        assert len(doc.pages) == 1
+        assert (doc.metadata["encryption"] is not None) is encrypted
+
+
+def test_codemod_migrates_a_document_named_pages(migrate_source: Migrate) -> None:
+    source = (
+        "import fitz\npages = fitz.open()\npages.new_page(width=100, height=200)\n"
+        "pages.new_page(width=300, height=400)\npages.select([1])\n"
+    )
+
+    result = migrate_source(source)
+    namespace: dict[str, object] = {}
+    exec(result.code, namespace)  # noqa: S102 - execute the trusted migration fixture.
+    doc = namespace["pages"]
+
+    assert result.todos == ()
+    assert isinstance(doc, pylopdf.Document)
+    assert len(doc.pages) == 1
+    assert doc.pages[0].rect == pylopdf.Rect(0, 0, 300, 400)
+
+
+@pytest.mark.parametrize(
+    ("imports", "factory"),
+    [
+        ("import fitz", "fitz.Document()"),
+        ("import fitz as pdf", "pdf.open(stream=source_pdf)"),
+        ("from fitz import open", "open(stream=source_pdf)"),
+        ("from fitz import Document as Pdf", "Pdf()"),
+        ("import pylopdf", "pylopdf.Document()"),
+    ],
+)
+def test_codemod_migrates_inline_document_serialization(migrate_source: Migrate, imports: str, factory: str) -> None:
+    source = f"{imports}\ndata = {factory}.tobytes()\n"
+
+    result = migrate_source(source)
+    namespace: dict[str, object] = {"source_pdf": pylopdf.Document().to_bytes()}
+    exec(result.code, namespace)  # noqa: S102 - execute the trusted migration fixture.
+
+    assert result.todos == ()
+    assert isinstance(namespace["data"], bytes)
+    assert migrate_source(result.code).code == result.code
 
 
 def test_codemod_marks_probe_results_for_review(migrate_source: Migrate) -> None:
@@ -257,6 +361,12 @@ def test_codemod_marks_probe_results_for_review(migrate_source: Migrate) -> None
         "import pylopdf\nbuilder = pylopdf.create()\nn = builder.page_count\n",
         # Calls that already use doc.pages stay as they are.
         "import pylopdf\ndoc = pylopdf.open(path)\ndoc.pages.select([0])\nfor page in doc.pages:\n    pass\n",
+        # Saving with the current options, and another class's save and tobytes, stay as they are.
+        "import pylopdf\ndoc.save(path, compress=False, encryption=pylopdf.Encryption(user_password='u'))\n",
+        "import pylopdf\npixmap.save(path)\npixmap.save(path, 'png')\ndata = pixmap.tobytes()\n",
+        "import pylopdf\ndoc.save(path, encryption=pylopdf.Encryption(user_password='u'))\n",
+        "import pylopdf\ndoc.save(path, encryption=None)\ndata = pixmap.tobytes(max_size=None)\n",
+        "import pylopdf\npages = doc.pages\npages.select([0])\n",
     ],
 )
 def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, source: str) -> None:
@@ -275,6 +385,11 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import fitz\nfrom fitz import Story\n", "Use typst for HTML and CSS pagination"),
         ("import fitz.utils\n", "pylopdf has no fitz.utils module"),
         ("from fitz import Rect\nm.prerotate(90)\n", "pylopdf.Matrix(deg) * m"),
+        ("import fitz\ndoc.save(path, garbage=4, clean=True)\n", "pylopdf writes AES-256 encryption only"),
+        ("import fitz\ndoc.save(path, encryption=fitz.PDF_ENCRYPT_RC4_128)\n", "encryption=Encryption("),
+        ("import fitz\ndoc.save(path, encryption=method)\n", "encryption=Encryption("),
+        ("import fitz\ndata = doc.tobytes(encryption=method)\n", "encryption=Encryption("),
+        ("import fitz\nif not doc.authenticate(password):\n    pass\n", "raises PasswordError for a wrong password"),
     ],
 )
 def test_codemod_marks_what_it_cannot_rewrite(migrate_source: Migrate, source: str, hint: str) -> None:

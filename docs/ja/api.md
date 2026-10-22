@@ -30,17 +30,29 @@ pylopdf.Document(*, limits=None)
 |---|---|
 | `pages` | ページ。[ページ](#document-pages)を参照 |
 | `metadata` / `set_metadata(m)` | タイトル・作成者などのInfo項目と、`format`・`encryption`。`set_metadata`は値が空のキーを削除し、`{}`ですべて削除します |
-| `needs_password`, `is_encrypted`, `authenticate(password)` | 暗号化の状態。`authenticate`は文書を復号し、pymupdfと同じ値を返します。パスワードが違えば0、それ以外は1、2、4、6のいずれか |
+| `needs_password`, `unlock(password)` | 文書がロックされているかどうかと、その復号。`unlock`は`Access.USER`か`Access.OWNER`を返し、パスワードが違えば`PasswordError`を送出します |
 | `is_repaired` | 開く際に壊れた相互参照データを修復したかどうか |
-| `permissions` | pymupdfと同じ形式の権限フラグ。パスワードが必要な間は`0`、暗号化されていない文書やオーナーパスワードで開いた後は`-4`（すべて）、それ以外は暗号化の`/P`の値です。フラグは`doc.permissions & Permissions.PRINT`で調べます |
+| `permissions` | 文書が許可する操作を表す`Permissions`フラグ。ロックされている間は何もなく、暗号化されていない文書やオーナーパスワードで開いた後は`Permissions.ALL`、それ以外は暗号化が許可するフラグです。フラグは`Permissions.PRINT in doc.permissions`で調べます |
 | `is_dirty` | 開いてから文書を編集したかどうか。pymupdfと同じく、新しい空の文書は最初から編集済みで、保存してもリセットされません |
 | `is_closed`, `path` | 文書が閉じられているかどうかと、開いたファイルを表す`pathlib.Path`。bytesから開いた文書と空の文書では`None` |
 | `limits`, `complexity` | 文書を開いたときのポリシーと、処理するかどうかを判断するための軽量な構造情報（ページ、オブジェクト、ストリーム） |
-| `save(filename, *, garbage=0, deflate=False, use_objstms=False, encryption=, user_pw=, owner_pw=, permissions=)` | PDFを書き出します。ファイルは書き込みがすべて成功してから置き換えます |
-| `tobytes(..., max_size=512 MiB)` | 同じ出力を`bytes`で |
+| `save(path, /, *, compress=True, prune=True, dedupe=False, renumber=False, object_streams=False, encryption=None)` | PDFを書き出します。ファイルは書き込みがすべて成功してから置き換えます |
+| `to_bytes(..., max_size=512 MiB)` | 同じ出力を`bytes`で |
 | `close()` | 文書を解放します。`with`を使えば自動で行います |
 
-`garbage`はpymupdfと同じレベルを取ります。1は使われていないオブジェクトを削除し、2はさらに残りを番号付けし直し、3と4はさらに重複するオブジェクトとストリームを統合します。`deflate`はストリームを圧縮し、`use_objstms`はオブジェクトを圧縮オブジェクトストリームにまとめます。`encryption`は`PDF_ENCRYPT_NONE`（既定）か`PDF_ENCRYPT_AES_256`です。AES-256を指定せずにパスワードを渡すと例外になります。
+保存は既定で、Flateで小さくなるストリームを圧縮し、どこからも参照されていないオブジェクトを削除します。`compress=False`と`prune=False`を指定すると、それらをそのまま残します。`dedupe=True`は重複するオブジェクトとストリームを統合し、`renumber=True`は残ったオブジェクトに連番を振り直し、`object_streams=True`はオブジェクトを圧縮オブジェクトストリームにまとめます。これらのオプションは出力だけでなく文書そのものを変更します。暗号化するには`encryption=Encryption(user_password=..., owner_password=..., permissions=...)`を渡します。AES-256で暗号化して書き出し、オーナーパスワードを省略するとユーザーパスワードと同じになります。メモリ上の文書は暗号化されないままです。
+
+```python
+doc.save("out.pdf", dedupe=True, object_streams=True)
+doc.save(
+    "locked.pdf",
+    encryption=pylopdf.Encryption(
+        user_password="secret",
+        owner_password="owner-secret",
+        permissions=pylopdf.Permissions.PRINT,
+    ),
+)
+```
 
 ### ページ { #document-pages }
 
@@ -105,7 +117,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 順序を逆にす�
 | `has_links()`, `has_annots()` | いずれかのページにリンクがあるか、リンクとフォームウィジェット以外の注釈があるか |
 | `objects`, `trailer`, `catalog` | PDFオブジェクトへの直接アクセス。[低レベルオブジェクト](#low-level-objects)を参照 |
 
-`language_tag`はpymupdfの`language`に代わるものです。`language`はタグを3文字までしか保持しないため、`zh-TW`と`zh-HK`はどちらも`zh-Hant`として読まれます。XMPを書き込むと、`deflate=True`でもパケットは圧縮されないので、ファイルの中からXMPを探すツールでも見つけられます。
+`language_tag`はpymupdfの`language`に代わるものです。`language`はタグを3文字までしか保持しないため、`zh-TW`と`zh-HK`はどちらも`zh-Hant`として読まれます。XMPを書き込むと、保存時にストリームを圧縮してもパケットは圧縮されないので、ファイルの中からXMPを探すツールでも見つけられます。
 
 ## Page { #page }
 
@@ -450,7 +462,7 @@ doc.objects[content].read()                     # デコード済みのストリ
 | 配列、辞書 | `Array`（変更可能なシーケンス）、`Dictionary`（変更可能なマッピング） |
 | ストリーム | `Stream`。`read(*, decode=True)`と`write(data, *, filter="FlateDecode")`を持つ辞書 |
 
-変更はすぐに反映されます。存在しないオブジェクトへの参照は`None`として読めます。ハンドルを別のオブジェクトの中に格納すると、そのオブジェクトへの参照が格納されます。ハンドルは、オブジェクトが削除された後や、`save(garbage=2)`以上でオブジェクトの番号が付け直された後には`StaleObjectError`を送出します。pylopdfは、編集結果がPDFとして意味をなすかどうかを検査しません。
+変更はすぐに反映されます。存在しないオブジェクトへの参照は`None`として読めます。ハンドルを別のオブジェクトの中に格納すると、そのオブジェクトへの参照が格納されます。ハンドルは、オブジェクトが削除された後や、`save(renumber=True)`でオブジェクトの番号が付け直された後には`StaleObjectError`を送出します。pylopdfは、編集結果がPDFとして意味をなすかどうかを検査しません。
 
 ## 幾何型 { #geometry-types }
 
@@ -530,7 +542,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | 名前 | 用途 |
 |---|---|
 | `open(source, /, *, password=None, limits=None)` | 文書を開きます。[Document](#document)を参照 |
-| `probe(source, /, *, password=None, max_file_size=None)` | 文書を読み込まずに読み取った、`page_count`、`version`、`is_encrypted`、`is_repaired`、`metadata`（`title`、`author`、`subject`、`keywords`、`creator`、`producer`、`created`、`modified`のうち存在するもの）を持つ`Probe`レコード |
+| `probe(source, /, *, password=None, max_file_size=None)` | 文書を読み込まずに読み取った、`page_count`、`version`、`needs_password`、`is_repaired`、`metadata`（`title`、`author`、`subject`、`keywords`、`creator`、`producer`、`created`、`modified`のうち存在するもの）を持つ`Probe`レコード |
 | `DocumentLimits`, `DocumentLimits.web()` | 信頼できない入力向けの資源の上限。[セキュリティ](security.md#untrusted-pdfs)を参照 |
 | `OcrEngine` | 再利用できるOCRエンジン。[オフラインOCR](ocr.md)を参照 |
 | `Canvas`, `PathBuilder`, `TextFit` | [キャンバス](#canvas)を参照 |
@@ -541,7 +553,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`ほかの内容の型 | [ページの内容](#content) |
 | `Colorspace`, `csRGB`, `csGRAY`, `csCMYK` | pymupdfと同じデバイス色空間 |
 
-定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`EncryptionMethod`（`PDF_ENCRYPT_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）、`AnnotFlags`（`PDF_ANNOT_IS_*`）です。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
+定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）、`AnnotFlags`（`PDF_ANNOT_IS_*`）です。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
 
 APIが返す辞書はただの`dict`で、型チェッカー向けに`TextPageDict`、`RawTextPageDict`、`DrawingInfo`、`ImageInfo`、`LinkInfo`、`FormFieldInfo`、`DocumentMetadata`、`OcrWord`などの`TypedDict`クラスで記述しています。`Word`、`Block`、`ImageItem`、`OutlineEntry`などのタプルは名前付きタプルです。
 
@@ -551,8 +563,8 @@ APIが返す辞書はただの`dict`で、型チェッカー向けに`TextPageDi
 |---|---|
 | `PdfError` | pylopdfのエラーの基底クラス。`ValueError`のサブクラス |
 | `MalformedPdfError` | 入力が読めるPDFではない（空の入力を含む） |
-| `PasswordError` | 指定したパスワードで復号できなかった |
-| `EncryptedDocumentError` | 先に`authenticate()`で文書を復号する必要がある |
+| `PasswordError` | パスワードがユーザーパスワードともオーナーパスワードとも一致しない |
+| `EncryptedDocumentError` | 先に`unlock()`で文書を復号する必要がある |
 | `LimitError` | [サイズや資源の上限](security.md#error-codes)に達した。どの上限かは`.code`でわかります |
 | `DocumentClosedError` | 文書が閉じられている |
 | `StalePageError` | ページの追加・削除・並べ替えの前に取得した`Page`を使った |

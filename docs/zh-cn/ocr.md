@@ -40,7 +40,7 @@ engine = pylopdf.OcrEngine()
 with pylopdf.open("scan.pdf") as doc:
     for page in doc.pages:
         page.apply_ocr(engine=engine)
-    doc.save("searchable.pdf", garbage=3, deflate=True, use_objstms=True)
+    doc.save("searchable.pdf", dedupe=True, object_streams=True)
 ```
 
 `apply_ocr()`不会改变页面的外观。它会跳过已有文本的页面，因此同一脚本运行两次也不会重复添加文本。对于既有排版文字又有扫描图像的页面，请用`clip=(x0, y0, x1, y1)`框出扫描区域：此时只有该区域内的文本才算作已有文本。如需无论如何都添加OCR文本，请传入`skip_existing=False`。

@@ -352,8 +352,13 @@ def _move_page(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     return f"{receiver}.pages.move({index}, {destination})"
 
 
-def _select(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
-    if receiver.endswith(".pages") or len(args.positional) != 1 or args.keywords:
+def _select(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    # A receiver named pages can already be Pages, unless it is a known document.
+    if (
+        (receiver.rsplit(".", 1)[-1] == "pages" and not migrator.is_document(receiver))
+        or len(args.positional) != 1
+        or args.keywords
+    ):
         return None
     return f"{receiver}.pages.select({args.positional[0]})"
 
@@ -401,6 +406,192 @@ def _pages_call(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     return f"{receiver}.pages[{':'.join('' if part == 'None' else part for part in parts)}]"
 
 
+#: pymupdf's ``Document.tobytes`` parameters in order; ``save`` adds ``filename``,
+#: ``incremental``, and ``preserve_metadata``, and pylopdf 0.15 took
+#: ``object_streams`` as a keyword.
+TOBYTES_PARAMETERS = (
+    "garbage",
+    "clean",
+    "deflate",
+    "deflate_images",
+    "deflate_fonts",
+    "ascii",
+    "expand",
+    "linear",
+    "no_new_id",
+    "appearance",
+    "pretty",
+    "encryption",
+    "permissions",
+    "owner_pw",
+    "user_pw",
+    "use_objstms",
+    "compression_effort",
+)
+SAVE_PARAMETERS = (
+    "filename",
+    *TOBYTES_PARAMETERS[:6],
+    "incremental",
+    *TOBYTES_PARAMETERS[6:15],
+    "preserve_metadata",
+    *TOBYTES_PARAMETERS[15:],
+)
+#: Save options of pymupdf that pylopdf leaves out; their default values change nothing.
+_UNSUPPORTED_SAVE_OPTIONS = ("clean", "incremental", "ascii", "expand", "linear", "no_new_id", "appearance", "pretty")
+_FALSE = frozenset({"False", "0", "None"})
+_TRUE = frozenset({"True", "1"})
+SAVE_MESSAGE = (
+    "save() and to_bytes() take compress, prune, dedupe, renumber, object_streams, and "
+    "encryption=Encryption(user_password=..., owner_password=..., permissions=...); "
+    "pylopdf writes AES-256 encryption only and has no clean, incremental, linear, or ascii option."
+)
+UNLOCK_MESSAGE = (
+    "unlock() returns Access.USER or Access.OWNER and raises PasswordError for a wrong password, "
+    "where authenticate() returned 0, 1, 2, 4, or 6."
+)
+
+
+#: pymupdf's ``PDF_ENCRYPT_*`` values by their member names.
+ENCRYPTION_METHODS = {0: "KEEP", 1: "NONE", 2: "RC4_40", 3: "RC4_128", 4: "AES_128", 5: "AES_256", 6: "UNKNOWN"}
+
+
+def _encryption_method(text: str) -> str | None:
+    """Return the method that an ``encryption=`` argument names in pymupdf's terms, or None for another value.
+
+    ``fitz.PDF_ENCRYPT_AES_256``, ``EncryptionMethod.AES_256``, and ``5`` all
+    name ``AES_256``; an ``Encryption(...)`` value or ``None`` names none.
+    """
+    parts = text.split(".")
+    if parts[-1].startswith("PDF_ENCRYPT_"):
+        return parts[-1].removeprefix("PDF_ENCRYPT_")
+    if len(parts) > 1 and parts[-2] == "EncryptionMethod":
+        return parts[-1]
+    value = _int_literal(text)
+    return None if value is None else ENCRYPTION_METHODS.get(value, "UNKNOWN")
+
+
+def _encryption_option(migrator: _Migrator, bound: dict[str, str]) -> str | None:
+    """Return the ``encryption=`` option, ``""`` for none, or ``None`` when it cannot be migrated.
+
+    pymupdf encrypts only with ``encryption=PDF_ENCRYPT_AES_256`` and ignores
+    the passwords otherwise; pylopdf 0.15 encrypted whenever a password was
+    given. An unrecognized value can already use pylopdf's ``Encryption``
+    API; a pymupdf module needs a manual review of such a value.
+    """
+    passwords = {"user_pw", "owner_pw", "permissions"} & set(bound)
+    value = bound.get("encryption")
+    method = None if value is None else _encryption_method(value)
+    if value is not None and method is None:
+        return None if passwords or migrator.pymupdf() else f"encryption={value}"
+    if method is None:
+        encrypts = not migrator.pymupdf() and any(bound.get(key, "None") != "None" for key in ("user_pw", "owner_pw"))
+    elif method in {"AES_256", "NONE"}:
+        encrypts = method == "AES_256"
+    else:
+        return None
+    if not encrypts:
+        return ""
+    name = migrator.class_name("Encryption")
+    if name is None:
+        return None
+    fields = (("user_pw", "user_password"), ("owner_pw", "owner_password"), ("permissions", "permissions"))
+    arguments = [
+        f"{field}={bound[key]}"
+        for key, field in fields
+        if key in bound and not (key in {"user_pw", "owner_pw"} and bound[key] == "None")
+    ]
+    return f"encryption={name}({', '.join(arguments)})"
+
+
+#: The save options of each of pymupdf's cumulative garbage levels, which pylopdf 0.15 took too.
+GARBAGE_LEVELS = {
+    0: ["prune=False"],
+    1: [],
+    2: ["renumber=True"],
+    3: ["dedupe=True", "renumber=True"],
+    4: ["dedupe=True", "renumber=True"],
+}
+
+
+def _object_options(bound: dict[str, str]) -> list[str] | None:
+    """Translate ``garbage``, ``deflate``, and the object-stream option, or return None."""
+    options = []
+    if "garbage" in bound:
+        level = {"False": 0, "True": 1}.get(bound["garbage"], _int_literal(bound["garbage"]))
+        if level not in GARBAGE_LEVELS:
+            return None
+        options.extend(GARBAGE_LEVELS[level])
+    deflate = bound.get("deflate", "True")
+    if deflate not in _FALSE | _TRUE:
+        return None
+    if deflate in _FALSE:
+        options.append("compress=False")
+    if "use_objstms" in bound and "object_streams" in bound:
+        return None
+    object_streams = bound.get("use_objstms", bound.get("object_streams", "False"))
+    if object_streams not in _FALSE | _TRUE:
+        return None
+    if object_streams in _TRUE:
+        options.append("object_streams=True")
+    return options
+
+
+def _save_options(migrator: _Migrator, bound: dict[str, str]) -> list[str] | None:
+    """Translate pymupdf's and pylopdf 0.15's save options, or return None when one cannot be migrated.
+
+    An option that the call gives keeps its effect, and an omitted one takes
+    pylopdf's default: ``garbage=0`` becomes ``prune=False``, while a call
+    without ``garbage`` prunes.
+    """
+    ignored = all(bound.get(key, "False") in _FALSE | _TRUE for key in ("deflate_images", "deflate_fonts"))
+    unsupported = any(bound.get(key, "False") not in _FALSE for key in _UNSUPPORTED_SAVE_OPTIONS)
+    options = _object_options(bound)
+    encryption = _encryption_option(migrator, bound)
+    if not ignored or unsupported or bound.get("preserve_metadata", "1") not in _TRUE:
+        return None
+    if options is None or encryption is None:
+        return None
+    return [*options, encryption] if encryption else options
+
+
+def _save(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    bound = args.bind((*SAVE_PARAMETERS, "object_streams"))
+    if bound is None or "filename" not in bound or (len(args.positional) > 1 and not migrator.is_document(receiver)):
+        # Another class's save, such as Pixmap.save(filename, output), which keeps its own rules.
+        return None
+    options = _save_options(migrator, bound)
+    if options is None:
+        migrator.todo(SAVE_MESSAGE)
+        return None
+    return f"{receiver}.save({', '.join([bound['filename'], *options])})"
+
+
+def _tobytes(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    bound = args.bind((*TOBYTES_PARAMETERS, "object_streams", "max_size"))
+    if bound is None or not (set(args.keywords) - {"max_size"} or migrator.is_document(receiver)):
+        # Another class's tobytes, such as Pixmap.tobytes(output), which keeps its own rules.
+        return None
+    options = _save_options(migrator, bound)
+    if options is None:
+        migrator.todo(SAVE_MESSAGE)
+        return None
+    if "max_size" in bound:
+        options.append(f"max_size={bound['max_size']}")
+    return f"{receiver}.to_bytes({', '.join(options)})"
+
+
+def _unlock(note: bool) -> Callable[[_Migrator, str, _Arguments], str | None]:  # noqa: FBT001 - a rule factory.
+    def rule(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+        bound = args.bind(("password",))
+        if bound is None or set(bound) != {"password"}:
+            return None
+        if note:
+            migrator.todo(UNLOCK_MESSAGE)
+        return f"{receiver}.unlock({bound['password']})"
+
+    return rule
+
+
 #: Calls rewritten wherever they appear.
 CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "get_toc": _get_toc,
@@ -431,6 +622,10 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "xref_stream_raw": _one_argument("xref", "{receiver}.objects[{value}].read(decode=False)"),
     "update_stream": _update_stream,
     "set_language": _one_argument("language", "{receiver}.set_language_tag({value})"),
+    "save": _save,
+    "tobytes": _tobytes,
+    "write": _tobytes,
+    "authenticate": _unlock(note=True),
 }
 
 
@@ -564,6 +759,7 @@ STATEMENT_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] =
     "embfile_del": _embfile_del,
     "delete_page": _delete_page,
     "delete_pages": _delete_pages,
+    "authenticate": _unlock(note=False),
 }
 #: Statement rules that assign to their receiver, which must therefore be a name or an attribute.
 ASSIGNING_RULES = frozenset(
@@ -575,7 +771,7 @@ ASSIGNING_RULES = frozenset(
 #: Page properties that the API reset renamed, rewritten on names bound only to pages.
 PAGE_RENAMES = {"number": "index", "parent": "document"}
 PROBE_MESSAGE = (
-    "probe() returns a Probe record with page_count, version, is_encrypted, is_repaired, and metadata, "
+    "probe() returns a Probe record with page_count, version, needs_password, is_repaired, and metadata, "
     "whose keys are title, author, subject, keywords, creator, producer, created, and modified."
 )
 
@@ -826,6 +1022,8 @@ class _Migrator(cst.CSTTransformer):
         self._attribute_names: set[int] = set()
         self._call_functions: set[int] = set()
         self._statement_calls: set[int] = set()
+        #: Module attributes that an enclosing call's rule replaces, which need no hint of their own.
+        self._consumed: set[int] = set()
 
     # Hint comments ------------------------------------------------------
 
@@ -849,12 +1047,34 @@ class _Migrator(cst.CSTTransformer):
         """Return how this module names the package, or None."""
         return min(self.module_names) if self.module_names else None
 
+    def class_name(self, name: str) -> str | None:
+        """Return how this module can name the package's class ``name``, or None."""
+        if name in self.imported:
+            return name
+        module = self.module_name()
+        return None if module is None else f"{module}.{name}"
+
     def matrix_name(self) -> str | None:
         """Return how this module can name ``pylopdf.Matrix``, or None."""
-        if "Matrix" in self.imported:
-            return "Matrix"
-        module = self.module_name()
-        return None if module is None else f"{module}.Matrix"
+        return self.class_name("Matrix")
+
+    def pymupdf(self) -> bool:
+        """Return whether the module imports pymupdf rather than pylopdf 0.15."""
+        return self._scan.pymupdf
+
+    def is_document(self, receiver: str) -> bool:
+        """Return whether ``receiver`` is a known document name or document factory call."""
+        if receiver in self._documents:
+            return True
+        expression = cst.parse_expression(receiver)
+        if isinstance(expression, cst.Name):
+            return expression.value in self._documents
+        if not isinstance(expression, cst.Call):
+            return False
+        function = expression.func
+        if isinstance(function, cst.Attribute) and isinstance(function.value, cst.Name):
+            return function.value.value in self.module_names and function.attr.value in DOCUMENT_FACTORIES
+        return isinstance(function, cst.Name) and self._scan.imported.get(function.value) in DOCUMENT_FACTORIES
 
     def _member_todo(self, name: str) -> None:
         if not self._scan.pymupdf and name not in _removed_015_members():
@@ -1001,6 +1221,11 @@ class _Migrator(cst.CSTTransformer):
 
     def visit_Call(self, node: cst.Call) -> None:
         self._call_functions.add(id(node.func))
+        if isinstance(node.func, cst.Attribute) and node.func.attr.value in {"save", "tobytes", "write"}:
+            # The save rules turn a PDF_ENCRYPT_* argument into Encryption(...), or mark the call.
+            self._consumed.update(
+                id(arg.value) for arg in node.args if arg.keyword and arg.keyword.value == "encryption"
+            )
 
     def leave_Name(self, original_node: cst.Name, updated_node: cst.Name) -> cst.Name:
         if id(original_node) not in self._attribute_names and updated_node.value in self.renamed:
@@ -1010,23 +1235,11 @@ class _Migrator(cst.CSTTransformer):
     def leave_Subscript(self, original_node: cst.Subscript, updated_node: cst.Subscript) -> cst.Subscript:
         return updated_node.with_changes(value=self._pages_of(updated_node.value))
 
-    def leave_Attribute(  # noqa: PLR0911 - one return per kind of attribute.
-        self, original_node: cst.Attribute, updated_node: cst.Attribute
-    ) -> cst.BaseExpression:
+    def leave_Attribute(self, original_node: cst.Attribute, updated_node: cst.Attribute) -> cst.BaseExpression:
         name = updated_node.attr.value
         called = id(original_node) in self._call_functions
         if isinstance(original_node.value, cst.Name) and original_node.value.value in self._scan.modules:
-            if name in MODULE_TO_BUILTIN:
-                self.rewrites += 1
-                return cst.Name(MODULE_TO_BUILTIN[name])
-            if called and name in MODULE_CALL_RULES:
-                return updated_node
-            if name in MODULE_RENAMES:
-                self.rewrites += 1
-                return updated_node.with_changes(attr=cst.Name(MODULE_RENAMES[name]))
-            if not hasattr(pylopdf, name) and not (name.startswith("__") and name.endswith("__")):
-                self.todo(migration_hint(name) or f"pylopdf does not provide pymupdf's {name}.")
-            return updated_node
+            return self._module_attribute(original_node, updated_node, called=called)
         if not called:
             replacement = self._attribute_rule(original_node, updated_node)
             if replacement is not None:
@@ -1039,6 +1252,26 @@ class _Migrator(cst.CSTTransformer):
         self._member_todo(name)
         return updated_node
 
+    def _module_attribute(
+        self, original_node: cst.Attribute, updated_node: cst.Attribute, *, called: bool
+    ) -> cst.BaseExpression:
+        """Rewrite a module attribute, such as ``fitz.FileDataError``, or mark one that pylopdf lacks."""
+        name = updated_node.attr.value
+        if name in MODULE_TO_BUILTIN:
+            self.rewrites += 1
+            return cst.Name(MODULE_TO_BUILTIN[name])
+        if name in MODULE_RENAMES and not (called and name in MODULE_CALL_RULES):
+            self.rewrites += 1
+            return updated_node.with_changes(attr=cst.Name(MODULE_RENAMES[name]))
+        if (
+            not (called and name in MODULE_CALL_RULES)
+            and id(original_node) not in self._consumed
+            and not hasattr(pylopdf, name)
+            and not (name.startswith("__") and name.endswith("__"))
+        ):
+            self.todo(migration_hint(name) or f"pylopdf does not provide pymupdf's {name}.")
+        return updated_node
+
     def _attribute_rule(self, original_node: cst.Attribute, updated_node: cst.Attribute) -> cst.BaseExpression | None:
         """Rewrite a renamed property that is read rather than called."""
         name = original_node.attr.value
@@ -1048,7 +1281,7 @@ class _Migrator(cst.CSTTransformer):
             or (isinstance(receiver, cst.Call) and self._scan.member(receiver.func) in OTHER_FACTORIES)
         ):
             return cst.parse_expression(f"len({_receiver(updated_node.value)}.pages)")
-        if name == "needs_pass":
+        if name in {"needs_pass", "is_encrypted"}:
             return updated_node.with_changes(attr=cst.Name("needs_password"))
         if isinstance(receiver, cst.Name) and receiver.value in self._pages and name in PAGE_RENAMES:
             return updated_node.with_changes(attr=cst.Name(PAGE_RENAMES[name]))
@@ -1090,7 +1323,7 @@ class _Migrator(cst.CSTTransformer):
     def _method_call(self, function: cst.Attribute, updated_node: cst.Call) -> cst.BaseExpression:
         """Rewrite a method call by the method's name."""
         name = function.attr.value
-        if name in STATEMENT_RULES and (self._scan.pymupdf or name not in ASSIGNING_RULES):
+        if name in STATEMENT_RULES and name not in CALL_RULES and (self._scan.pymupdf or name not in ASSIGNING_RULES):
             self._member_todo(name)
             return updated_node
         rule = CALL_RULES.get(name)

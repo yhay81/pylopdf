@@ -63,7 +63,7 @@ def _sparse_pdf(objects: dict[int, str | bytes], size: int) -> bytes:
 
 
 def _with_reloaded(doc: pylopdf.Document) -> tuple[pylopdf.Document, pylopdf.Document]:
-    return doc, pylopdf.open(doc.tobytes())
+    return doc, pylopdf.open(doc.to_bytes())
 
 
 def test_reference_above_max_id_cannot_draw_an_imported_page() -> None:
@@ -118,7 +118,7 @@ def test_every_allocation_leaves_a_reference_above_max_id_null(operation: str) -
 
     _ALLOCATIONS[operation](doc)
 
-    saved = doc.tobytes()
+    saved = doc.to_bytes()
     assert re.search(rb"/PylopdfProbe\s*null", saved)
     assert "TARGET PAGE" in pylopdf.open(saved).pages[0].get_text()
 
@@ -134,7 +134,7 @@ def test_only_numbers_above_every_object_become_null() -> None:
     objects[7] = _stream("SEVEN", 200)
     doc = pylopdf.open(_sparse_pdf(objects, 10))
 
-    saved = doc.tobytes()
+    saved = doc.to_bytes()
 
     assert re.search(rb"/Contents\s*\[5 0 R 6 0 R 7 0 R 7 1 R null null null null\]", saved)
     assert re.search(rb"/Size 8\b", saved)
@@ -182,8 +182,8 @@ def test_encrypted_document_nulls_references_above_max_id_once_decrypted(unlock:
     """
     objects = _target_objects("[5 0 R 6 0 R]", catalog="/PylopdfProbe 6 0 R")
     objects[6] = _stream("PLACEHOLDER", 200)
-    encrypted = pylopdf.open(build_raw_pdf(objects)).tobytes(
-        encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="user", owner_pw="owner"
+    encrypted = pylopdf.open(build_raw_pdf(objects)).to_bytes(
+        encryption=pylopdf.Encryption(user_password="user", owner_password="owner")
     )
     patched = encrypted.replace(b"/Contents[5 0 R 6 0 R]", b"/Contents[5 0 R 9 0 R]").replace(
         b"/PylopdfProbe 6 0 R", b"/PylopdfProbe 9 0 R"
@@ -194,9 +194,9 @@ def test_encrypted_document_nulls_references_above_max_id_once_decrypted(unlock:
     else:
         doc = pylopdf.open(patched)
         assert doc.needs_password
-        assert doc.authenticate("user") == 2
+        assert doc.unlock("user") is pylopdf.Access.USER
 
-    assert re.search(rb"/PylopdfProbe\s*null", doc.tobytes())
+    assert re.search(rb"/PylopdfProbe\s*null", doc.to_bytes())
     doc.pages.extend(pylopdf.open(build_pdf(["SOURCE CONTENT"])).pages)
     doc.pages[0].insert_text((20, 300), "STAMP")
 

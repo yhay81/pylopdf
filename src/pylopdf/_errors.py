@@ -19,7 +19,7 @@ class DocumentClosedError(PdfError):
 
 
 class EncryptedDocumentError(PdfError):
-    """An operation on an undecrypted PDF; provide a password or authenticate."""
+    """An operation on a locked PDF; provide a password or call :meth:`Document.unlock`."""
 
 
 class MalformedPdfError(PdfError):

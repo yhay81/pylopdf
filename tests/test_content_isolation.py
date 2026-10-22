@@ -194,7 +194,7 @@ def test_drawing_counts_graphics_states_as_hayro_parses_them(contents: tuple[byt
 
     _assert_text_at(page, "Probe", (20, 40))
     assert _inserted_image_bbox(page) == pytest.approx((120, 30, 160, 70), abs=0.5)
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     _assert_text_at(reopened.pages[0], "Probe", (20, 40))
 
 
@@ -216,7 +216,7 @@ def test_drawing_again_after_saving_keeps_the_initial_graphics_state() -> None:
     doc = _page(OPEN_SCALE)
     doc.pages[0].insert_text((20, 40), "First", fontsize=10)
 
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     reopened.pages[0].insert_text((20, 70), "Second", fontsize=10)
 
     _assert_text_at(reopened.pages[0], "First", (20, 40))

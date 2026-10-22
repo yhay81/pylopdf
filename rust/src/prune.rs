@@ -17,12 +17,17 @@ use crate::document::PdfError;
 /// each reached object once and an explicit stack replaces recursion.
 /// Allocation refusal raises `PdfError` before any object is removed.
 pub(crate) fn prune_unreachable_objects(doc: &mut Document) -> PyResult<()> {
-    let roots = doc.trailer.iter().map(|(_, value)| value);
-    let reachable = reachable_object_ids(doc, roots, |_| true)?;
+    let reachable = trailer_reachable_object_ids(doc)?;
     if reachable.len() < doc.objects.len() {
         doc.objects.retain(|id, _| reachable.contains(id));
     }
     Ok(())
+}
+
+/// Collect the IDs of the existing objects that the trailer reaches, the
+/// objects that [`prune_unreachable_objects`] keeps.
+pub(crate) fn trailer_reachable_object_ids(doc: &Document) -> PyResult<HashSet<ObjectId>> {
+    reachable_object_ids(doc, doc.trailer.iter().map(|(_, value)| value), |_| true)
 }
 
 /// Collect the IDs of existing objects reachable from `roots`.

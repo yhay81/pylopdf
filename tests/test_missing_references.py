@@ -72,12 +72,12 @@ def _pdf(  # noqa: PLR0913 - each keyword places one fixture value.
 
 
 def _with_reloaded(doc: pylopdf.Document) -> tuple[pylopdf.Document, pylopdf.Document]:
-    return doc, pylopdf.open(doc.tobytes())
+    return doc, pylopdf.open(doc.to_bytes())
 
 
 def test_missing_number_below_the_highest_object_stays_a_reference() -> None:
     """Only numbers above every object load as null, so 7 reaches readers."""
-    saved = pylopdf.open(_pdf(page="/Annots 7 0 R")).tobytes()
+    saved = pylopdf.open(_pdf(page="/Annots 7 0 R")).to_bytes()
 
     assert re.search(rb"/Annots\s*7 0 R", saved)
 

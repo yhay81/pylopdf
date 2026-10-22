@@ -81,7 +81,7 @@ limits = pylopdf.DocumentLimits(
 
 | メソッド | 既定の上限 | キーワード |
 |---|---|---|
-| `Document.tobytes()` | 出力512 MiB | `max_size` |
+| `Document.to_bytes()` | 出力512 MiB | `max_size` |
 | `Document.render_pages()` | PNG出力の合計512 MiB | `max_size` |
 | `to_markdown()`, `Table.to_markdown()` | 出力64 MiB | `max_size` |
 | `Pixmap.tobytes()`, `Page.get_svg_image()` | 出力64 MiB | `max_size` |

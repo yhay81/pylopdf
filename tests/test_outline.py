@@ -36,7 +36,7 @@ def test_toc_roundtrip(three_page_pdf: bytes) -> None:
     assert all(isinstance(entry, pylopdf.OutlineEntry) for entry in entries)
     assert entries[1].page == 1
     # Preserve entries after save/reload; CJK titles use UTF-16BE.
-    reloaded = pylopdf.open(doc.tobytes())
+    reloaded = pylopdf.open(doc.to_bytes())
     assert reloaded.get_outline() == outline
 
 
@@ -44,7 +44,7 @@ def test_toc_deep_nesting(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
     outline = [(1, "A", 0), (2, "B", 0), (3, "C", 1), (1, "D", 2)]
     doc.set_outline(outline)
-    reloaded = pylopdf.open(doc.tobytes())
+    reloaded = pylopdf.open(doc.to_bytes())
     assert reloaded.get_outline() == outline
 
 
@@ -53,7 +53,7 @@ def test_set_outline_replaces_existing(three_page_pdf: bytes) -> None:
     doc.set_outline([(1, "old", 0), (1, "old2", 1)])
     doc.set_outline([pylopdf.OutlineEntry(1, "new", 2)])
     assert doc.get_outline() == [(1, "new", 2)]
-    assert pylopdf.open(doc.tobytes()).get_outline() == [(1, "new", 2)]
+    assert pylopdf.open(doc.to_bytes()).get_outline() == [(1, "new", 2)]
 
 
 def test_set_outline_empty_removes(three_page_pdf: bytes) -> None:
@@ -61,7 +61,7 @@ def test_set_outline_empty_removes(three_page_pdf: bytes) -> None:
     doc.set_outline([(1, "A", 0)])
     doc.set_outline([])
     assert doc.get_outline() == []
-    assert pylopdf.open(doc.tobytes()).get_outline() == []
+    assert pylopdf.open(doc.to_bytes()).get_outline() == []
 
 
 def test_outline_replaces_the_one_based_toc_methods() -> None:

@@ -844,8 +844,8 @@ class Page:
         bytes or Pixmap samples, places the image XObject and soft mask of that
         placement again, whatever the rectangle and rotation, instead of
         embedding another copy. :meth:`Document.rewrite_images`,
-        :meth:`replace_text`, :meth:`Document.set_form_field`, and
-        ``deflate=True`` saves end this sharing, so the next placement embeds
+        :meth:`replace_text`, :meth:`Document.set_form_field`, and saves
+        that compress a stream end this sharing, so the next placement embeds
         the input again. A reopened document shares only its new placements.
         The returned xref is that of the shared XObject when the input was
         placed again, as pymupdf returns the xref of a reused image.

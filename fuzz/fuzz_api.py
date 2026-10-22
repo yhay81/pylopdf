@@ -42,7 +42,7 @@ def test_one_input(data: bytes) -> None:
                     page.get_pixmap(dpi=18, alpha=True)
 
                 doc.set_metadata({"producer": "pylopdf fuzz"})
-                saved = doc.tobytes(garbage=True, deflate=True, use_objstms=True)
+                saved = doc.to_bytes(dedupe=True, renumber=True, object_streams=True)
 
             with pylopdf.open(saved, limits=_FUZZ_LIMITS) as reopened:
                 if reopened.pages:

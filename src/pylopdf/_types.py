@@ -43,10 +43,11 @@ TEXT_ALIGN_JUSTIFY = TextAlign.JUSTIFY
 
 
 class Permissions(enum.IntFlag):
-    """Encrypted-PDF permission flags combined with ``|`` for ``save``.
+    """What an encrypted document permits the user password, combined with ``|``.
 
-    The members are pymupdf's ``PDF_PERM_*`` values, the ``/P`` bit positions
-    of the PDF specification. ``ALL`` combines every member.
+    :attr:`Document.permissions` reports them and ``Encryption(permissions=)``
+    sets them. The values are the ``/P`` bits of ISO 32000-2 Table 22, and
+    ``ALL`` combines every member.
     """
 
     PRINT = 1 << 2
@@ -70,28 +71,11 @@ PDF_PERM_ASSEMBLE = Permissions.ASSEMBLE
 PDF_PERM_PRINT_HQ = Permissions.PRINT_HQ
 
 
-class EncryptionMethod(enum.IntEnum):
-    """Encryption methods for ``save(encryption=)``.
+class Access(enum.IntEnum):
+    """What a password opened: the user's restricted access, or the owner's full access."""
 
-    The members are pymupdf's ``PDF_ENCRYPT_*`` values.
-    """
-
-    KEEP = 0
-    NONE = 1
-    RC4_40 = 2
-    RC4_128 = 3
-    AES_128 = 4
-    AES_256 = 5
-    UNKNOWN = 6
-
-
-PDF_ENCRYPT_KEEP = EncryptionMethod.KEEP
-PDF_ENCRYPT_NONE = EncryptionMethod.NONE
-PDF_ENCRYPT_RC4_40 = EncryptionMethod.RC4_40
-PDF_ENCRYPT_RC4_128 = EncryptionMethod.RC4_128
-PDF_ENCRYPT_AES_128 = EncryptionMethod.AES_128
-PDF_ENCRYPT_AES_256 = EncryptionMethod.AES_256
-PDF_ENCRYPT_UNKNOWN = EncryptionMethod.UNKNOWN
+    USER = 1
+    OWNER = 2
 
 
 class Word(NamedTuple):
@@ -496,7 +480,7 @@ for _public in (
     LinkKind,
     TextAlign,
     Permissions,
-    EncryptionMethod,
+    Access,
     TextSpan,
     TextLine,
     TextBlock,

@@ -382,7 +382,7 @@ def test_interpretation_budget_bounds_original_and_edited_snapshots(tmp_path: Pa
 
     baseline = pylopdf.Document()
     baseline.pages.new()
-    snapshot_size = len(baseline.tobytes(max_size=None))
+    snapshot_size = len(baseline.to_bytes(max_size=None))
 
     exact_edited = pylopdf.Document(limits=pylopdf.DocumentLimits(max_interpretation_size=snapshot_size))
     exact_edited.pages.new()
@@ -405,12 +405,12 @@ def test_empty_get_text_batch_skips_interpretation_snapshot() -> None:
     assert _error_code(error.value) == "interpretation_size"
 
 
-def test_limits_revalidate_after_authentication() -> None:
+def test_limits_revalidate_after_unlocking() -> None:
     encrypted = (Path(__file__).parent / "assets" / "encrypted" / "user-aes-256.pdf").read_bytes()
     doc = pylopdf.open(encrypted, limits=pylopdf.DocumentLimits(max_pages=1))
-    assert doc.is_encrypted
+    assert doc.needs_password
     with pytest.raises(pylopdf.LimitError) as pages:
-        doc.authenticate("userpw")
+        doc.unlock("userpw")
     assert _error_code(pages.value) == "page_count"
 
 

@@ -44,7 +44,7 @@ def test_garbage_save_keeps_exactly_the_objects_reachable_from_the_trailer() -> 
     doc = pylopdf.open(_reachability_pdf())
     assert doc.complexity["object_count"] == 14
 
-    saved = doc.tobytes(garbage=True)
+    saved = doc.to_bytes()
 
     for kept in (b"KEPT-NESTED", b"KEPT-STREAM-DICTIONARY", b"KEPT-INFO"):
         assert kept in saved
@@ -100,7 +100,7 @@ def test_structural_edits_drop_unreachable_objects(
 
     edit(doc)
 
-    saved = doc.tobytes()
+    saved = doc.to_bytes()
     assert b"KEPT-PAGE-CONTENT" in saved
     for marker in [b"ORPHAN-OBJECT", *dropped]:
         assert marker not in saved
@@ -130,15 +130,15 @@ def test_show_pdf_page_moves_only_the_objects_its_form_reaches() -> None:
 
     The source page's own content stream, annotations, outline, attachments,
     and orphans stay behind. Placement no longer sweeps the target either:
-    objects it already could not reach stay until a ``garbage=True`` save, as
-    after every other drawing edit.
+    objects it already could not reach stay until a pruning save, as after
+    every other drawing edit.
     """
     doc = pylopdf.open(_structural_edit_pdf())
     objects = doc.complexity["object_count"]
 
     doc.pages[0].show_pdf_page((0, 0, 50, 50), _source_with_unreachable_objects())
 
-    saved = doc.tobytes()
+    saved = doc.to_bytes(prune=False)
     # The Form copies the source content, and its resources keep the font.
     for kept in (b"SOURCE-PAGE-TEXT", b"KEPT-SOURCE-FONT", b"KEPT-PAGE-CONTENT", b"ORPHAN-OBJECT"):
         assert kept in saved
@@ -149,7 +149,7 @@ def test_show_pdf_page_moves_only_the_objects_its_form_reaches() -> None:
     assert doc.complexity["object_count"] == objects + 5
     assert list(doc.attachments) == []
     assert [entry.title for entry in doc.get_outline()] == ["OLD-OUTLINE-TITLE"]
-    assert b"ORPHAN-OBJECT" not in doc.tobytes(garbage=True)
+    assert b"ORPHAN-OBJECT" not in doc.to_bytes()
     assert "SOURCE-PAGE-TEXT" in pylopdf.open(saved).pages[0].get_text()
 
 
@@ -167,7 +167,7 @@ def test_structural_edits_on_tens_of_thousands_of_objects_stay_fast() -> None:
     start = time.perf_counter()
     doc.set_outline(outline)
     del doc.pages[0:1]
-    saved = doc.tobytes(garbage=True)
+    saved = doc.to_bytes()
     elapsed = time.perf_counter() - start
 
     assert elapsed < 2.0, f"set_outline, delete_pages, and a garbage save took {elapsed:.2f}s"

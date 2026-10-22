@@ -43,21 +43,37 @@ untrusted input. Use the document as a context manager, or call `close()`.
 |---|---|
 | `pages` | The pages; see [Pages](#document-pages) |
 | `metadata` / `set_metadata(m)` | Title, author, and the other Info fields, plus `format` and `encryption`. `set_metadata` removes keys whose value is empty, and `{}` removes all of them |
-| `needs_password`, `is_encrypted`, `authenticate(password)` | Encryption state; `authenticate` unlocks the document and returns pymupdf's codes: 0 if the password is wrong, otherwise 1, 2, 4, or 6 |
+| `needs_password`, `unlock(password)` | Whether the document is locked, and unlock it: `unlock` returns `Access.USER` or `Access.OWNER` and raises `PasswordError` for a wrong password |
 | `is_repaired` | Whether opening had to repair damaged cross-reference data |
-| `permissions` | The permission flags, as pymupdf reports them: `0` while a password is needed, `-4` (all) for an unencrypted document or after the owner password, else the encryption's `/P` value. Test a flag with `doc.permissions & Permissions.PRINT` |
+| `permissions` | What the document permits, as `Permissions` flags: none while it is locked, `Permissions.ALL` for an unencrypted document or after the owner password, else the flags the encryption grants. Test one with `Permissions.PRINT in doc.permissions` |
 | `is_dirty` | Whether the document was edited since it was opened. A new empty document starts edited, and saving does not reset it, as in pymupdf |
 | `is_closed`, `path` | Whether the document is closed, and the file it was opened from as a `pathlib.Path`, or `None` for bytes and an empty document |
 | `limits`, `complexity` | The policy the document was opened with, and cheap structural facts (pages, objects, streams) for deciding whether to process it |
-| `save(filename, *, garbage=0, deflate=False, use_objstms=False, encryption=, user_pw=, owner_pw=, permissions=)` | Write the PDF. The file is replaced only after the complete write succeeds |
-| `tobytes(..., max_size=512 MiB)` | The same output as `bytes` |
+| `save(path, /, *, compress=True, prune=True, dedupe=False, renumber=False, object_streams=False, encryption=None)` | Write the PDF. The file is replaced only after the complete write succeeds |
+| `to_bytes(..., max_size=512 MiB)` | The same output as `bytes` |
 | `close()` | Release the document; `with` does this for you |
 
-`garbage` takes pymupdf's levels: 1 removes unused objects, 2 also renumbers
-the rest, and 3 and 4 also merge duplicate objects and streams. `deflate`
-compresses streams, and `use_objstms` packs objects into compressed object
-streams. `encryption` is `PDF_ENCRYPT_NONE` (the default) or
-`PDF_ENCRYPT_AES_256`; passing a password without AES-256 raises.
+By default, saving compresses the streams that Flate makes smaller and
+removes the objects that nothing references; `compress=False` and
+`prune=False` keep them as they are. `dedupe=True` merges duplicate objects
+and streams, `renumber=True` numbers the remaining objects consecutively, and
+`object_streams=True` packs objects into compressed object streams. These
+options change the document itself, not only the output. To encrypt, pass
+`encryption=Encryption(user_password=..., owner_password=...,
+permissions=...)`, which writes AES-256 encryption; the owner password
+defaults to the user password, and the document in memory stays unencrypted.
+
+```python
+doc.save("out.pdf", dedupe=True, object_streams=True)
+doc.save(
+    "locked.pdf",
+    encryption=pylopdf.Encryption(
+        user_password="secret",
+        owner_password="owner-secret",
+        permissions=pylopdf.Permissions.PRINT,
+    ),
+)
+```
 
 ### Pages { #document-pages }
 
@@ -143,8 +159,8 @@ encoding would not be smaller, and returns statistics.
 
 `language_tag` replaces pymupdf's `language`, which keeps at most three
 letters of the tag, so `zh-TW` and `zh-HK` both read as `zh-Hant`. Writing XMP
-leaves the packet uncompressed even with `deflate=True`, so tools that search
-files for it still find it.
+leaves the packet uncompressed even when saving compresses streams, so tools
+that search files for it still find it.
 
 ## Page { #page }
 
@@ -640,8 +656,8 @@ doc.objects[content].read()                     # decoded stream data
 Changes apply immediately. A reference to a missing object reads as `None`.
 Storing a handle inside another object stores a reference to it. Handles raise
 `StaleObjectError` once their object is removed, or after
-`save(garbage=2)` or higher renumbers objects. pylopdf does not check that
-your edits make sense as PDF.
+`save(renumber=True)` renumbers objects. pylopdf does not check that your edits
+make sense as PDF.
 
 ## Geometry { #geometry-types }
 
@@ -733,7 +749,7 @@ a rectangle lies inside a quad tests all four corners.
 | Name | Purpose |
 |---|---|
 | `open(source, /, *, password=None, limits=None)` | Open a document; see [Document](#document) |
-| `probe(source, /, *, password=None, max_file_size=None)` | A `Probe` record with `page_count`, `version`, `is_encrypted`, `is_repaired`, and `metadata` (`title`, `author`, `subject`, `keywords`, `creator`, `producer`, `created`, and `modified` when present), read without loading the document |
+| `probe(source, /, *, password=None, max_file_size=None)` | A `Probe` record with `page_count`, `version`, `needs_password`, `is_repaired`, and `metadata` (`title`, `author`, `subject`, `keywords`, `creator`, `producer`, `created`, and `modified` when present), read without loading the document |
 | `DocumentLimits`, `DocumentLimits.web()` | Resource limits for untrusted input; see [Security](security.md#untrusted-pdfs) |
 | `OcrEngine` | A reusable OCR engine; see [Offline OCR](ocr.md) |
 | `Canvas`, `PathBuilder`, `TextFit` | See [Canvas](#canvas) |
@@ -745,11 +761,12 @@ a rectangle lies inside a quad tests all four corners.
 | `Colorspace`, `csRGB`, `csGRAY`, `csCMYK` | pymupdf's device color spaces |
 
 Constants keep pymupdf's names and are also grouped in enums:
-`Permissions` (`PDF_PERM_*`), `EncryptionMethod` (`PDF_ENCRYPT_*`), `LinkKind`
-(`LINK_*`), `TextAlign` (`TEXT_ALIGN_*`), `AnnotType` (`PDF_ANNOT_*`), and
-`AnnotFlags` (`PDF_ANNOT_IS_*`). The content model's enums are `BlendMode`,
-`FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`,
-`SoftMaskType`, and `ImageMask`.
+`Permissions` (`PDF_PERM_*`), `LinkKind` (`LINK_*`), `TextAlign`
+(`TEXT_ALIGN_*`), `AnnotType` (`PDF_ANNOT_*`), and `AnnotFlags`
+(`PDF_ANNOT_IS_*`). `Access` has the members `USER` and `OWNER`, and
+`Encryption` describes how to encrypt a saved file. The content model's enums
+are `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`,
+`ShadingType`, `SoftMaskType`, and `ImageMask`.
 
 Dictionaries returned by the API are plain `dict` objects, described for type
 checkers by `TypedDict` classes such as `TextPageDict`, `RawTextPageDict`,
@@ -763,8 +780,8 @@ are named tuples.
 |---|---|
 | `PdfError` | The base class for pylopdf errors; a subclass of `ValueError` |
 | `MalformedPdfError` | The input is not a readable PDF, including empty input |
-| `PasswordError` | Decryption with the given password failed |
-| `EncryptedDocumentError` | The document must be unlocked with `authenticate()` first |
+| `PasswordError` | The password matches neither the user nor the owner password |
+| `EncryptedDocumentError` | The document must be unlocked with `unlock()` first |
 | `LimitError` | A [size or resource limit](security.md#error-codes) was reached; `.code` says which |
 | `DocumentClosedError` | The document was closed |
 | `StalePageError` | A `Page` was fetched before pages were added, removed, or reordered |

@@ -53,19 +53,22 @@ with pylopdf.open("input.pdf") as doc:     # or pylopdf.open(pdf_bytes)
     print(doc.metadata["title"])
     doc.set_metadata({"title": "Report", "author": "Alice"})
 
-    doc.save("out.pdf")
-    data = doc.tobytes()                   # the same PDF as bytes
-    doc.save("small.pdf", garbage=3, deflate=True, use_objstms=True)
+    doc.save("out.pdf")                    # compressed, without unused objects
+    data = doc.to_bytes()                  # the same PDF as bytes
+    doc.save("small.pdf", dedupe=True, object_streams=True)
     doc.save(
         "locked.pdf",
-        encryption=pylopdf.PDF_ENCRYPT_AES_256,
-        user_pw="secret",
-        permissions=pylopdf.PDF_PERM_PRINT,
+        encryption=pylopdf.Encryption(
+            user_password="secret",
+            owner_password="owner-secret",
+            permissions=pylopdf.Permissions.PRINT,
+        ),
     )
 ```
 
 - **Encrypted files:** pass `password=` when opening, or call
-  `doc.authenticate(password)` afterwards.
+  `doc.unlock(password)` afterwards; `doc.needs_password` tells whether you
+  have to.
 - **Metadata only:** `pylopdf.probe(path)` reads the page count, version, and
   metadata without loading the whole document, which is useful when scanning
   large collections.

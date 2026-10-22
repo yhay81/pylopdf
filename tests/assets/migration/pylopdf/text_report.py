@@ -24,7 +24,7 @@ words = [word[4] for word in page.get_text("words")]
 assert words[:2] == ["Chapter", "2"], words
 
 doc.set_metadata({"title": "Report", "author": "Example"})
-reopened = pylopdf.open(doc.tobytes())
+reopened = pylopdf.open(doc.to_bytes())
 assert reopened.metadata["title"] == "Report"
 assert [[entry.level, entry.title, entry.page + 1] for entry in reopened.get_outline()][1] == [2, "Details", 2]
 print("text_report ok")

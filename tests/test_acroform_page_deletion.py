@@ -43,7 +43,7 @@ def test_deleting_the_second_page_removes_its_widgets_and_fields(edit: str) -> N
 
     expected = {name: TWO_PAGE_FIELDS[name] for name in ("choice", "person.first", "person.note", "total", "hidden")}
     assert _fields(doc) == expected
-    saved = doc.tobytes(garbage=True)
+    saved = doc.to_bytes()
     objects = _objects(saved)
     assert len(_page_numbers(objects)) == 1
     assert len(re.findall(rb"/Subtype/Widget", saved)) == 3
@@ -71,7 +71,7 @@ def test_deleting_the_first_page_points_remaining_widgets_at_their_page(edit: st
 
     expected = {name: TWO_PAGE_FIELDS[name] for name in ("choice", "person.last", "person.note", "hidden")}
     assert _fields(doc) == expected
-    saved = doc.tobytes(garbage=True)
+    saved = doc.to_bytes()
     objects = _objects(saved)
     (page_number,) = _page_numbers(objects)
     assert EXCLUDED_APPEARANCE.encode() not in saved
@@ -93,14 +93,14 @@ def test_selecting_every_page_keeps_the_form(order: list[int]) -> None:
     doc = pylopdf.open(_two_page_form())
     doc.pages.select(order)
     assert _fields(doc) == TWO_PAGE_FIELDS
-    assert _fields(pylopdf.open(doc.tobytes(garbage=True))) == TWO_PAGE_FIELDS
+    assert _fields(pylopdf.open(doc.to_bytes())) == TWO_PAGE_FIELDS
 
 
 def test_selecting_no_page_keeps_only_widgetless_fields() -> None:
     doc = pylopdf.open(_two_page_form())
     doc.pages.select([])
     assert _fields(doc) == {"hidden": TWO_PAGE_FIELDS["hidden"]}
-    saved = doc.tobytes(garbage=True)
+    saved = doc.to_bytes()
     assert b"/Subtype/Widget" not in saved
     assert re.search(rb"/CO\[\s*\]", _acroform(_objects(saved)))
 
@@ -135,7 +135,7 @@ def test_f1040_keeps_the_fields_of_its_remaining_page() -> None:
 
     del doc.pages[1:2]
     assert doc.get_form_fields() == first_page
-    reopened = pylopdf.open(doc.tobytes(garbage=True))
+    reopened = pylopdf.open(doc.to_bytes())
     assert reopened.get_form_fields() == first_page
     reopened.set_form_field(first_page[0]["name"], "x" if first_page[0]["type"] == "text" else "Off")
 
@@ -145,7 +145,7 @@ def test_documents_without_a_form_delete_pages_unchanged(one_page_pdf: bytes) ->
     doc.pages.new()
     del doc.pages[1:2]
     assert doc.get_form_fields() == []
-    assert b"/AcroForm" not in doc.tobytes()
+    assert b"/AcroForm" not in doc.to_bytes()
 
 
 @pytest.mark.parametrize(
@@ -157,7 +157,7 @@ def test_documents_without_a_form_delete_pages_unchanged(one_page_pdf: bytes) ->
 def test_deletion_refuses_field_trees_beyond_the_read_limits(source: bytes, message: str, edit: str) -> None:
     doc = pylopdf.open(source)
     page = doc.pages[0]
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     def delete() -> None:
         del doc.pages[1]
@@ -165,7 +165,7 @@ def test_deletion_refuses_field_trees_beyond_the_read_limits(source: bytes, mess
     action = delete if edit == "delete" else (lambda: doc.pages.select([0]))
     with pytest.raises(pylopdf.PdfError, match=message):
         action()
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
     assert len(doc.pages) == 2
     assert page.rect.width == 100
 

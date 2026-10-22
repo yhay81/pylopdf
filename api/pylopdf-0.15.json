@@ -18,7 +18,7 @@
     "MetadataProbe.author": {"pylopdf": "Probe.metadata", "hint": "Read probe.metadata[\"author\"]."},
     "MetadataProbe.creationDate": {"pylopdf": "Probe.metadata", "hint": "Read probe.metadata[\"created\"]."},
     "MetadataProbe.creator": {"pylopdf": "Probe.metadata", "hint": "Read probe.metadata[\"creator\"]."},
-    "MetadataProbe.encrypted": {"pylopdf": "Probe.is_encrypted", "hint": "Read probe.is_encrypted."},
+    "MetadataProbe.encrypted": {"pylopdf": "Probe.needs_password", "hint": "Read probe.needs_password."},
     "MetadataProbe.format": {"pylopdf": "Probe.version", "hint": "Read probe.version, such as \"1.7\"."},
     "MetadataProbe.keywords": {"pylopdf": "Probe.metadata", "hint": "Read probe.metadata[\"keywords\"]."},
     "MetadataProbe.modDate": {"pylopdf": "Probe.metadata", "hint": "Read probe.metadata[\"modified\"]."},
@@ -42,7 +42,7 @@
     "TextPage.height": {"pylopdf": "TextPageDict.height", "hint": "Read get_text(\"dict\")[\"height\"]."},
     "TextPage.width": {"pylopdf": "TextPageDict.width", "hint": "Read get_text(\"dict\")[\"width\"]."},
     "WordEntry": {"pylopdf": "Word", "hint": "get_text(\"words\") returns Word records."},
-    "peek_metadata": {"pylopdf": "probe", "hint": "probe(source) takes a path or bytes and returns a Probe record with page_count, version, is_encrypted, is_repaired, and metadata."}
+    "peek_metadata": {"pylopdf": "probe", "hint": "probe(source) takes a path or bytes and returns a Probe record with page_count, version, needs_password, is_repaired, and metadata."}
   },
   "symbols": [
     "AnnotationInfo",

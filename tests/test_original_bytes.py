@@ -114,7 +114,7 @@ def _consistent_page_texts(data: bytes) -> list[list[str]]:
     unedited = _page_views(doc)
     doc.set_metadata({"title": "Edited"})
     assert _page_views(doc) == unedited
-    assert _page_views(pylopdf.open(doc.tobytes())) == unedited
+    assert _page_views(pylopdf.open(doc.to_bytes())) == unedited
     return [text.splitlines() for text, _ in unedited]
 
 
@@ -174,7 +174,7 @@ def test_unreachable_object_under_a_mismatched_header_is_dropped() -> None:
 
     assert _keeps_original_bytes(data)
     doc = pylopdf.open(data)
-    assert b"UNREACHED" not in doc.tobytes()
+    assert b"UNREACHED" not in doc.to_bytes()
     assert _consistent_page_texts(data) == [["TARGET PAGE"]]
 
 
@@ -222,7 +222,7 @@ def test_form_with_a_bare_keyword_survives_edits_and_saves() -> None:
     doc = pylopdf.open(data)
     for index in range(3):
         doc.pages[0].insert_text((20, 30 + 20 * index), f"STAMP {index}")
-    saved = doc.tobytes()
+    saved = doc.to_bytes()
     assert re.search(rb"/Type null\s*/Subtype\s*/Form", saved)
     assert sorted(pylopdf.open(saved).pages[0].get_text().splitlines()) == [
         "FORM TEXT",
@@ -273,7 +273,7 @@ def test_skipped_stream_is_recovered(body: str, saved_entries: bytes) -> None:
     )
 
     assert _consistent_page_texts(data) == [["RECOVERED"]]
-    saved = pylopdf.open(data).tobytes()
+    saved = pylopdf.open(data).to_bytes()
     assert re.search(saved_entries, saved), saved
     assert saved.count(b"RECOVERED") == 1
 
@@ -282,7 +282,7 @@ def test_unreachable_recovered_object_keeps_original_bytes() -> None:
     data = _pdf(_one_page("5 0 R", {5: _stream("TARGET PAGE"), 6: "<< /Type Unused >>"}))
 
     assert _keeps_original_bytes(data)
-    assert re.search(rb"6 0 obj\s*<</Type null>>", pylopdf.open(data).tobytes())
+    assert re.search(rb"6 0 obj\s*<</Type null>>", pylopdf.open(data).to_bytes(prune=False))
 
 
 CONTENT = "BT /F1 20 Tf 20 100 Td (NO USABLE LENGTH) Tj ET"
@@ -315,7 +315,7 @@ def test_stream_without_a_usable_length_keeps_the_data_that_hayro_reads(
 
     assert _keeps_original_bytes(data)
     assert _consistent_page_texts(data) == [["NO USABLE LENGTH"]]
-    saved = pylopdf.open(data).tobytes()
+    saved = pylopdf.open(data).to_bytes()
     assert saved.count(b"NO USABLE LENGTH") == 1
     assert re.search(rb"<</Length \d+>>stream\n", saved)
 
@@ -368,7 +368,7 @@ def test_stream_with_an_entry_pointing_into_its_data_is_recovered(declared: int)
 
     assert not _keeps_original_bytes(data)
     assert _consistent_page_texts(data) == [["NO USABLE LENGTH"]]
-    saved = pylopdf.open(data).tobytes()
+    saved = pylopdf.open(data).to_bytes()
     assert saved.count(b"NO USABLE LENGTH") == 1
     assert b"NEXT OBJECT" not in saved
 
@@ -451,7 +451,7 @@ def test_unreachable_object_stream_debris_is_dropped_with_its_numbers() -> None:
     assert _keeps_original_bytes(data)
     doc = pylopdf.open(data)
     doc.pages[0].insert_text((20, 40), "STAMP")
-    saved = doc.tobytes()
+    saved = doc.to_bytes()
     assert b"Debris" not in saved
     assert max(int(number) for number in re.findall(rb"(\d+) 0 obj", saved)) < 20
     assert sorted(pylopdf.open(saved).pages[0].get_text().splitlines()) == ["STAMP", "TARGET PAGE"]
@@ -665,7 +665,7 @@ def test_walker_pages_render_without_changing_the_saved_tree() -> None:
     doc = pylopdf.open(_pdf(_two_page_tree("4 0 R 8 0 R 6 0 R", {8: "42"})))
 
     assert doc.pages[1].get_text().splitlines() == ["PAGE TWO"]
-    assert re.search(rb"/Kids\s*\[4 0 R 8 0 R 6 0 R\]", doc.tobytes())
+    assert re.search(rb"/Kids\s*\[4 0 R 8 0 R 6 0 R\]", doc.to_bytes())
 
 
 def test_rendered_walker_pages_keep_inherited_attributes() -> None:

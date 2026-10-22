@@ -197,13 +197,13 @@ def test_generated_imports_parse_on_the_calling_thread() -> None:
             align=pylopdf.TEXT_ALIGN_JUSTIFY,
         )
         doc.pages[1].insert_text((40, 60), "回転したページ", fontsize=20, fontfile=NOTO_SANS_JP, color=(0.2, 0.4, 0.6))
-        output = doc.tobytes()
+        output = doc.to_bytes()
     with pylopdf.open(_form_pdf()) as doc:
         doc.set_form_field("name", "山田 太郎", fontfile=NOTO_SANS_JP)
         doc.set_form_field("notes", "一行目\n二行目の長い説明文", fontfile=NOTO_SANS_JP)
         doc.set_form_field("code", "日本", fontfile=NOTO_SANS_JP)
         doc.set_form_field("level", "上級", fontfile=NOTO_SANS_JP)
-        form_output = doc.tobytes()
+        form_output = doc.to_bytes()
     assert _Document.generated_pdf_loads() == (sequential + 7, fallback, mismatched)
     with pylopdf.open(output) as reopened:
         assert "日本語テキスト" in reopened.pages[0].get_text()

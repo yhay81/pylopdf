@@ -80,7 +80,7 @@ def test_ocr_layer_does_not_need_fallback_fonts() -> None:
 def test_ocr_layer_survives_save_roundtrip() -> None:
     doc = _blank_page_doc()
     doc.pages[0].insert_ocr_text_layer([(50, 50, 150, 70, "Persistent"), (50, 80, 150, 100, "残存")])
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     text = reopened.pages[0].get_text()
     assert "Persistent" in text
     assert "残存" in text
@@ -181,7 +181,7 @@ def test_ocr_layer_rejects_empty() -> None:
 
 def test_ocr_layer_bounds_generator_words_before_full_materialization() -> None:
     doc = pylopdf.open(build_pdf(["Hello"]))
-    before = doc.tobytes()
+    before = doc.to_bytes()
     consumed = 0
 
     def words() -> Iterator[tuple[int, int, int, int, str]]:
@@ -193,24 +193,24 @@ def test_ocr_layer_bounds_generator_words_before_full_materialization() -> None:
     with pytest.raises(ValueError, match="4096 non-empty entries"):
         doc.pages[0].insert_ocr_text_layer(words())
     assert consumed == 4097
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 def test_ocr_layer_bounds_utf8_text_before_mutation() -> None:
     doc = pylopdf.open(build_pdf(["Hello"]))
-    before = doc.tobytes()
+    before = doc.to_bytes()
 
     with pytest.raises(ValueError, match="1048576 UTF-8 bytes"):
         doc.pages[0].insert_ocr_text_layer([(10, 10, 50, 20, "é" * (512 * 1024 + 1))])
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
 
 
 def test_ocr_layer_bounds_distinct_cids_before_mutation() -> None:
     doc = pylopdf.open(build_pdf(["Hello"]))
-    before = doc.tobytes()
+    before = doc.to_bytes()
     text = "".join(chr(codepoint) for codepoint in range(1, 0x11000) if not 0xD800 <= codepoint <= 0xDFFF)
     text = text[:65_535]
 
     with pytest.raises(pylopdf.PdfError, match="65,534 per call"):
         doc.pages[0].insert_ocr_text_layer([(10, 10, 290, 20, text)])
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before

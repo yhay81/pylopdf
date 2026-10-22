@@ -1316,8 +1316,9 @@ the concept and API overview.
   grow fallibly. `select` validates and plans all page IDs and duplicate copies
   before cache invalidation or PDF mutation; page-tree rebuilds resolve every
   page and allocate the final Kids array before committing dictionaries.
-- Structural edits (every `Pages` edit and `set_outline`) and `garbage=True` saves remove unreachable
-  objects with `prune_unreachable_objects` in `rust/src/prune.rs`.
+- Structural edits (every `Pages` edit and `set_outline`) and saves with
+  `prune=True`, the default, remove unreachable objects with
+  `prune_unreachable_objects` in `rust/src/prune.rs`.
   Never call lopdf's `Document::prune_objects`: it records visited IDs in a
   `Vec` and scans it for every reference and every object, which is quadratic
   in object count. The replacement keeps lopdf's semantics, following
@@ -1333,11 +1334,12 @@ the concept and API overview.
   source objects that `reachable_object_ids` reaches from the Form dictionary,
   with source Catalog, Pages, and Page objects treated as absent. A placement
   therefore costs time in its source rather than in every target object, and
-  objects the target already could not reach stay until a garbage save, as
+  objects the target already could not reach stay until a pruning save, as
   after every other drawing edit.
-- `garbage=` levels 2–4 run in `rust/src/garbage.rs` from
-  `_Document.collect_garbage`, in pymupdf's cumulative order: merge (3 and
-  4), prune unreachable objects (1), then compact numbering (2). Merging is
+- The `dedupe` and `renumber` save options run in `rust/src/garbage.rs` from
+  `_Document.collect_garbage(dedupe, prune, renumber)`, in this order: merge
+  identical objects and streams, prune unreachable objects, then compact
+  numbering; `dedupe` needs `prune`, which removes the duplicates. Merging is
   hash-consing over the reference graph's strongly connected components,
   computed by an iterative Tarjan walk from ascending IDs, so children are
   classified before their referrers: an object's hash and its equality check
@@ -1354,9 +1356,9 @@ the concept and API overview.
   to missing objects into null, because their numbers would otherwise name a
   renumbered object. Both reserve their rewrite stack from a container count
   before the first change, so neither returns an error after mutating.
-  Levels 2–4 change object IDs and therefore forget placements and remap
-  `isolated_content_pages`; level 1 keeps placements. Add any new per-owner
-  structure to the identity lists before it can be merged.
+  Merging and renumbering change object IDs and therefore forget placements
+  and remap `isolated_content_pages`; pruning alone keeps placements. Add any
+  new per-owner structure to the identity lists before it can be merged.
 - Page imports (`merge_pages`), `show_pdf_page`, and generated text and form appearances
   renumber their disposable source copy with `renumber_objects` in
   `rust/src/renumber.rs` before any target mutation. Never call lopdf's
@@ -1384,7 +1386,7 @@ the concept and API overview.
   document's revision and one-based page. Every `_Document` takes a
   process-unique revision at construction and a new one on every edit, so a
   Form is reused only while its source is unchanged and never for another
-  document, including the one that `authenticate` or a reopen creates. A hit
+  document, including the one that `unlock` or a reopen creates. A hit
   places the remembered XObject without parsing the input or cloning the
   source. Before a hit, the remembered image, soft mask, or Form stream must
   still exist with its subtype and content length: pruning is the only change
@@ -1396,9 +1398,11 @@ the concept and API overview.
   dictionary, or navigation structures (outlines, name trees, annotations); or
   remove unreachable objects call `invalidate_hayro_pdf_keeping_placements`:
   drawing, annotations, page geometry, structural edits, outline, label,
-  attachment, and metadata edits, `prune_objects` for `garbage=True`, and
-  object-stream saves. `compress`, `decompress`, `rewrite_images`,
-  `replace_text`, and `set_form_field` forget. Both replace the revision.
+  attachment, and metadata edits, pruning saves, and object-stream saves.
+  `compress` forgets when it compresses a stream and otherwise changes
+  nothing, so saving a compressed document again keeps every cache;
+  `decompress`, `rewrite_images`, `replace_text`, and `set_form_field`
+  forget. Both replace the revision.
   Classify a new editing method before giving it the keeping variant. A
   same-document `show_pdf_page` re-keys its Form under the revision of its own
   edit unless it placed the source page on itself, so consecutive placements
@@ -1411,7 +1415,7 @@ the concept and API overview.
   Forms. `tests/test_placement_reuse.py` pins each of these behaviors.
 - lopdf numbers new objects above `Document::max_id`, so a loaded reference to
   a higher number would resolve to whatever a later import or edit adds.
-  `_Document.load` and `load_bytes`, which `authenticate` reuses, therefore
+  `_Document.load` and `load_bytes`, which `unlock` reuses, therefore
   call `normalize_object_numbers` in `rust/src/unallocated.rs` before
   structural validation. It raises `max_id` over the highest loaded object,
   then replaces every reference to a higher number, of any generation, with
@@ -1476,10 +1480,11 @@ the concept and API overview.
   `LopdfErrorChain` so limit and decoder details stay in messages.
 - Encryption during `save` operates on a clone, so the in-memory document always
   remains plaintext. Python generates the key with `os.urandom(32)`. Open,
-  authenticate, fast metadata probe, and AES-256 save passwords stop at the PDF
-  2.0 boundary of 127 UTF-8 bytes before PyO3 copying or KDF work. Direct Rust
-  entry points repeat the check, failures use `password_input_size`, and save
-  validation must precede save-option mutation, cloning, or output creation.
+  unlock, fast metadata probe, and `Encryption` passwords stop at the PDF 2.0
+  boundary of 127 UTF-8 bytes before PyO3 copying or KDF work; `Encryption`
+  checks its passwords on construction. Direct Rust entry points repeat the
+  check, failures use `password_input_size`, and save validation must precede
+  save-option mutation, cloning, or output creation.
 - Public `Document.save` must securely create a same-directory sibling, stream
   every normal, object/xref-stream, or encrypted output there, and replace the
   requested path only after the core writer succeeds. Map creation/replacement
@@ -1496,7 +1501,7 @@ the concept and API overview.
   failure modes can remove the original. Python normalizes extended-length
   Windows paths before any output I/O and clears only a failed temporary's
   read-only attribute for cleanup; never clear it on the requested target.
-- `Document.tobytes` defaults to a 512 MiB serialized PDF output boundary.
+- `Document.to_bytes` defaults to a 512 MiB serialized PDF output boundary.
   Normal, object/xref-stream, and encrypted core paths must all write through
   `BoundedPdfOutput`, which refuses the write crossing the limit before Python
   bytes conversion, grows retained output fallibly, and raises stable code
@@ -1505,15 +1510,17 @@ the concept and API overview.
   output boundary. Restore lopdf's temporary xref/object-stream `max_id` and
   trailer writes after every successful or failed byte/file serialization so
   repeated no-op output is deterministic. Preserve the documented mutation
-  semantics of `garbage`, `deflate`, and the PDF-version/xref-mode changes from
-  `use_objstms` on output refusal.
+  semantics of `compress`, `prune`, `dedupe`, `renumber`, and the
+  PDF-version/xref-mode changes from `object_streams` on output refusal.
 - Outline page numbers in `get_outline` and `set_outline` are zero-based like
   every other page API; the core's `get_toc` and `set_toc` keep one-based
   numbers, and only the Python layer converts them.
 - lopdf automatically decrypts PDFs with an empty user password. Other encrypted
-  PDFs require the `password` argument or `authenticate()`, which reopens the
-  document with a password. `_ensure_open` must check `is_encrypted` because an
-  undecrypted document otherwise appears to have zero pages.
+  PDFs require the `password` argument or `unlock()`, which reopens the
+  document with a password and returns `Access`; a wrong password raises
+  `PasswordError`. `needs_password` reads the core's `is_encrypted`, and
+  `_ensure_open` must check it because an undecrypted document otherwise
+  appears to have zero pages.
 - Lenient opening relies on lopdf 0.45 cross-reference recovery
   (`rust/src/recovery.rs`). lopdf moves a `startxref`, `/Prev`, or `/XRefStm`
   offset that misses by at most 64 bytes to the nearest `xref` keyword, and
@@ -2345,7 +2352,7 @@ the concept and API overview.
   return UTF-8 text with replacement up to the first NUL; writes rewrite a
   referenced stream in place without its filters, or add a
   `/Type /Metadata /Subtype /XML` stream, and mark it `allows_compression =
-  false` so `deflate=True` keeps the packet readable. Writes stop above 1 MiB
+  false` so compressing saves keep the packet readable. Writes stop above 1 MiB
   of encoded input with `xmp_metadata_input_size` in Python and Rust, so
   written XMP stays readable under the read default. Rewriting an existing
   stream forgets placements, because `/Metadata` may name any stream; adding
@@ -2359,14 +2366,14 @@ the concept and API overview.
   cannot tell `zh-TW` from `zh-HK`. They read and write the complete BCP 47
   tag, which Python and `is_language_tag` in Rust both check for shape
   (subtags of one to eight ASCII letters or digits, at most 256 bytes).
-  `permissions` follows MuPDF: 0 while a password is needed, -4 for an
-  unencrypted document or after the owner password (the Python
-  `_access_code` of the last successful authentication), else the loaded
-  `/P` truncated to 32 bits as MuPDF does. `is_dirty` compares
-  `_Document.edit_revision()`, the placement-reuse revision that every
-  edit replaces, with the revision at opening; `save` and `tobytes`
-  restore a clean revision after their save options edit the document,
-  and nothing else resets it, as in pymupdf.
+  `permissions` returns `Permissions` flags as MuPDF decides them: none
+  while the document is locked, `Permissions.ALL` for an unencrypted
+  document or after the owner password (the Python `_access` of the last
+  successful unlock), else the loaded `/P` masked to the defined flags.
+  `is_dirty` compares `_Document.edit_revision()`, the placement-reuse
+  revision that every edit replaces, with the revision at opening; `save`
+  and `to_bytes` restore a clean revision after their save options edit the
+  document, and nothing else resets it, as in pymupdf.
 - The low-level object model (`rust/src/document/lowlevel.rs`,
   `src/pylopdf/_objects.py`) exposes the lopdf graph through
   `Document.objects`, `trailer`, `catalog`, and `Page.obj`. A handle is a
@@ -2381,8 +2388,8 @@ the concept and API overview.
   `object_value_depth`. Every write calls `invalidate_hayro_pdf`, clears
   `isolated_content_pages`, and compares the page order before and after
   with a page-tree walk, returning whether it changed so Python bumps the
-  page generation. Python bumps `_object_epoch` when `garbage=2` and higher
-  renumber objects and when `authenticate` reopens the document, which makes
+  page generation. Python bumps `_object_epoch` when `renumber=True`
+  renumbers objects and when `unlock` reopens the document, which makes
   older handles raise `StaleObjectError`; a removed object or a broken path
   raises it from Rust. `Stream.read` uses the strict bounded decoder with a
   64 MiB default (`stream_data_size`). A new operation that renumbers or
@@ -2633,8 +2640,8 @@ the concept and API overview.
 - lopdf 0.45 decrypts on load with the empty password whenever it matches the
   user or the owner password, and removes `/Encrypt`. MuPDF refuses an empty
   owner password unless the user password is empty too, so pylopdf opens such
-  a document without a password where pymupdf asks for one. `authenticate`
-  follows MuPDF's codes by rebuilding the Encrypt dictionary from
+  a document without a password where pymupdf asks for one. `unlock`
+  follows MuPDF's decision by rebuilding the Encrypt dictionary from
   `encryption_state.encode()` (`original_password_matches`), and
   `metadata["encryption"]` describes it the same way. lopdf's fast metadata
   reader also drops `/Trapped`, so `probe` omits `trapped`.

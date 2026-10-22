@@ -40,7 +40,7 @@ engine = pylopdf.OcrEngine()
 with pylopdf.open("scan.pdf") as doc:
     for page in doc.pages:
         page.apply_ocr(engine=engine)
-    doc.save("searchable.pdf", garbage=3, deflate=True, use_objstms=True)
+    doc.save("searchable.pdf", dedupe=True, object_streams=True)
 ```
 
 `apply_ocr()`은 페이지의 겉모습을 바꾸지 않습니다. 이미 텍스트가 있는 페이지는 건너뛰므로, 같은 스크립트를 두 번 실행해도 텍스트가 두 번 추가되지 않습니다. 입력된 텍스트와 스캔 이미지가 섞인 페이지에서는 스캔 영역을 둘러싸는 `clip=(x0, y0, x1, y1)`을 전달하세요. 그러면 그 영역 안의 텍스트만 기존 텍스트로 간주합니다. 기존 텍스트와 관계없이 OCR 텍스트를 추가하려면 `skip_existing=False`를 전달합니다.

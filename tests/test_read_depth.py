@@ -164,6 +164,6 @@ def test_the_saved_document_keeps_the_deep_entries() -> None:
     doc = pylopdf.open(_document(["", deep], catalog=deep))
     assert _refusal(doc.pages[1].get_text).code == CODE
 
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     assert reopened.complexity["max_object_depth"] > READ_DEPTH
     assert _refusal(reopened.pages[1].get_text).code == CODE

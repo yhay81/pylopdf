@@ -55,7 +55,7 @@ def _run_smoke() -> None:
     doc = pylopdf.Document()
     page = doc.pages.new((200, 200))
     page.insert_text((20, 40), _SMOKE_TEXT)
-    data = doc.tobytes()
+    data = doc.to_bytes()
     doc.close()
 
     with pylopdf.open(data) as reopened:

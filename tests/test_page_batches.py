@@ -173,7 +173,7 @@ def test_large_manual_toc_round_trips_through_page_edits(large_pdf: bytes) -> No
 
     assert len(outline) > 4_096
     assert doc.get_outline() == outline
-    assert pylopdf.open(doc.tobytes()).get_outline() == outline
+    assert pylopdf.open(doc.to_bytes()).get_outline() == outline
 
     del doc.pages[: LARGE_PAGE_COUNT // 2]
     retained = [(level, title, page - LARGE_PAGE_COUNT // 2) for level, title, page in outline[LARGE_PAGE_COUNT:]]

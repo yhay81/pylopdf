@@ -77,7 +77,7 @@ def test_set_mediabox_removes_the_other_page_boxes() -> None:
     assert page.rect == pylopdf.Rect(0, 0, 200, 300)
     for key in ("CropBox", "BleedBox", "TrimBox", "ArtBox"):
         assert key not in page.obj
-    reopened = pylopdf.open(page.document.tobytes()).pages[0]
+    reopened = pylopdf.open(page.document.to_bytes()).pages[0]
     assert reopened.cropbox == reopened.mediabox == pylopdf.Rect(0, 0, 200, 300)
 
 

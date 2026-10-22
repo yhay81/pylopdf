@@ -34,7 +34,7 @@ def test_insert_image_returns_the_image_xref(tmp_path: Path) -> None:
     pixmap_xref = page.insert_image((120, 120, 220, 220), pixmap=pixmap)
     assert pixmap_xref != xref
     assert doc.objects[pixmap_xref]["Subtype"] == "Image"
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     assert len(drawn_images(reopened.pages[0])) == 4
 
 
@@ -50,7 +50,7 @@ def test_show_pdf_page_returns_the_form_xref() -> None:
     assert target.pages[1].show_pdf_page((0, 0, 200, 100), source) == xref
     self_xref = target.pages[1].show_pdf_page((0, 100, 200, 200), target, 0)
     assert target.objects[self_xref]["Subtype"] == "Form"
-    assert "Stamp" in pylopdf.open(target.tobytes()).pages[1].get_text()
+    assert "Stamp" in pylopdf.open(target.to_bytes()).pages[1].get_text()
 
 
 def test_base14_tables_match_pymupdf() -> None:
@@ -99,7 +99,7 @@ def test_full_standard_14_names_draw_like_their_aliases(fontname: str, base_font
     shape.insert_text((40, 200), "Shaped", fontname=fontname)
     shape.commit()
 
-    data = doc.tobytes()
+    data = doc.to_bytes()
     assert f"/BaseFont/{base_font}".encode() in data
     text = pylopdf.open(data).pages[0].get_text()
     assert all(word in text for word in ("Named", "Boxed", "Shaped"))

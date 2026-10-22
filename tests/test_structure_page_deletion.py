@@ -110,7 +110,7 @@ def _delete_page_b(edit: str) -> pylopdf.Document:
 
 @pytest.mark.parametrize("edit", ["delete", "select", "select-repeated"])
 def test_deleting_a_page_removes_its_structure_content(edit: str) -> None:
-    saved = _delete_page_b(edit).tobytes(garbage=True)
+    saved = _delete_page_b(edit).to_bytes()
     objects = _objects(saved)
 
     for number in (4, 7, 13, 15, 17, 21, 22, 23, 25, 26):
@@ -132,7 +132,7 @@ def test_deleting_a_page_removes_its_structure_content(edit: str) -> None:
 def test_deleting_every_page_but_one_keeps_the_root() -> None:
     doc = pylopdf.open(_tagged_pdf())
     doc.pages.select([2])
-    objects = _objects(doc.tobytes(garbage=True))
+    objects = _objects(doc.to_bytes())
 
     _assert_references_resolve(objects)
     assert objects[11] == b"<</S/Document/P 10 0 R/K[18 0 R]>>"
@@ -148,8 +148,8 @@ def test_a_document_without_dropped_structure_saves_unchanged() -> None:
     reordered.pages.select([2, 1, 0])
     untouched = pylopdf.open(data)
     untouched.pages.select([0, 1, 2])
-    reordered_objects = _objects(reordered.tobytes(garbage=True))
-    untouched_objects = _objects(untouched.tobytes(garbage=True))
+    reordered_objects = _objects(reordered.to_bytes())
+    untouched_objects = _objects(untouched.to_bytes())
 
     for number in (10, 11, 13, 14, 15, 30, 32):
         assert reordered_objects[number] == untouched_objects[number]
@@ -165,12 +165,12 @@ def _tagged_with(replacements: Mapping[int, bytes | str], extra: Mapping[int, by
 
 def _assert_refused(data: bytes, code: str = "structure_tree_count") -> None:
     doc = pylopdf.open(data)
-    before = doc.tobytes()
+    before = doc.to_bytes()
     with pytest.raises(pylopdf.LimitError) as caught:
         del doc.pages[1:2]
     assert caught.value.code == code
     assert len(doc.pages) == 3
-    assert doc.tobytes() == before
+    assert doc.to_bytes() == before
     with pytest.raises(pylopdf.LimitError):
         doc.pages.select([0])
     assert len(doc.pages) == 3
@@ -194,7 +194,7 @@ def test_a_structure_tree_deeper_than_256_elements_is_refused() -> None:
 
     doc = pylopdf.open(_tagged_with(replacements, _element_chain(first, 254)))
     del doc.pages[1:2]
-    objects = _objects(doc.tobytes(garbage=True))
+    objects = _objects(doc.to_bytes())
     assert first not in objects
     assert _references(_kids(objects[11])) == [12]
 
@@ -211,7 +211,7 @@ def test_a_parent_tree_deeper_than_32_levels_is_refused() -> None:
     extra[first + depth - 1] = "<< /Nums [0 12 0 R 1 13 0 R] >>"
     doc = pylopdf.open(_tagged_with(replacements, extra))
     del doc.pages[1:2]
-    objects = _objects(doc.tobytes(garbage=True))
+    objects = _objects(doc.to_bytes())
     assert _references(objects[first + depth - 1]) == [12]
 
 
@@ -222,7 +222,7 @@ def test_a_cyclic_structure_tree_is_walked_once() -> None:
     }
     doc = pylopdf.open(_tagged_with(replacements, {}))
     del doc.pages[1:2]
-    objects = _objects(doc.tobytes(garbage=True))
+    objects = _objects(doc.to_bytes())
 
     _assert_references_resolve(objects)
     assert len(doc.pages) == 2
@@ -234,7 +234,7 @@ def test_a_reference_cycle_in_kids_reads_as_absent() -> None:
     replacements = {14: "<< /S /Sect /P 11 0 R /Pg 3 0 R /K [1 33 0 R << /Type /MCR /Pg 4 0 R /MCID 2 >> 17 0 R] >>"}
     doc = pylopdf.open(_tagged_with(replacements, extra))
     del doc.pages[1:2]
-    objects = _objects(doc.tobytes(garbage=True))
+    objects = _objects(doc.to_bytes())
     assert 4 not in objects
     assert _references(_kids(objects[14])) == [33]
 
@@ -250,7 +250,7 @@ def test_direct_elements_are_edited_in_place() -> None:
     }
     doc = pylopdf.open(_tagged_with(replacements, {}))
     del doc.pages[1:2]
-    objects = _objects(doc.tobytes(garbage=True))
+    objects = _objects(doc.to_bytes())
 
     _assert_references_resolve(objects)
     assert objects[11] == b"<</S/Document/P 10 0 R/K[12 0 R<</S/Div/K[<</Type/MCR/Pg 3 0 R/MCID 3>>]>> 18 0 R]>>"
@@ -261,7 +261,7 @@ def test_elements_that_only_the_lookup_trees_name_are_walked() -> None:
     replacements = {11: "<< /S /Document /P 10 0 R /K [12 0 R 18 0 R] >>"}
     doc = pylopdf.open(_tagged_with(replacements, {}))
     del doc.pages[1:2]
-    objects = _objects(doc.tobytes(garbage=True))
+    objects = _objects(doc.to_bytes())
 
     _assert_references_resolve(objects)
     assert {4, 13, 15, 17, 21, 23, 25, 26}.isdisjoint(objects)
@@ -277,7 +277,7 @@ def test_remaining_elements_lose_references_to_removed_elements() -> None:
     }
     doc = pylopdf.open(_tagged_with(replacements, {}))
     del doc.pages[1:2]
-    objects = _objects(doc.tobytes(garbage=True))
+    objects = _objects(doc.to_bytes())
 
     _assert_references_resolve(objects)
     assert {4, 13, 17, 23}.isdisjoint(objects)
@@ -294,7 +294,7 @@ def test_links_that_navigation_cleanup_removes_leave_the_structure_tree() -> Non
     doc = pylopdf.open(_tagged_with(replacements, {}))
     del doc.pages[1:2]
     assert doc.pages[0].get_links() == []
-    objects = _objects(doc.tobytes(garbage=True))
+    objects = _objects(doc.to_bytes())
 
     _assert_references_resolve(objects)
     assert {4, 20}.isdisjoint(objects)

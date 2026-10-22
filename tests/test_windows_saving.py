@@ -148,9 +148,9 @@ def output(request: pytest.FixtureRequest, one_page_pdf: bytes) -> Iterator[tupl
         if request.param == "png":
             yield "png", doc.pages[0].get_pixmap(alpha=True).save
         elif request.param == "object-streams":
-            yield "pdf", lambda path: doc.save(path, use_objstms=True)
+            yield "pdf", lambda path: doc.save(path, object_streams=True)
         elif request.param == "encrypted":
-            yield "pdf", lambda path: doc.save(path, encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="test-password")
+            yield "pdf", lambda path: doc.save(path, encryption=pylopdf.Encryption(user_password="test-password"))
         else:
             yield "pdf", doc.save
 
@@ -161,7 +161,7 @@ def _assert_output(path: Path, kind: str) -> None:
     else:
         with pylopdf.open(path) as doc:
             if doc.needs_password:
-                assert doc.authenticate("test-password")
+                doc.unlock("test-password")
             assert "Hello PDF" in doc.get_text()
 
 

@@ -216,10 +216,10 @@ interpret the page separately and agree with it on the bundled corpus.
 | `pylopdf.open(source, /, *, password=None, limits=None)` → `Document` | `source` is a path, `bytes`, `bytearray`, or `memoryview`. |
 | `pylopdf.Document(*, limits=None)` | An empty document; `limits` sets the budgets for the pages it receives. |
 | `pylopdf.probe(source, /, *, password=None, max_file_size=None)` → `Probe` | A record of `page_count`, `version`, `is_encrypted`, `is_repaired`, and `metadata` (the Info entries present, by the names `doc.metadata` uses) without a full load. |
-| `doc.save(path, /, *, compress, prune, dedupe=False, renumber=False, object_streams=False, encryption=None, incremental=False)` | Each option is a boolean named after its effect; the defaults of `compress` and `prune` are an [open question](#15-open-questions). `encryption` takes an `Encryption(user_password=..., owner_password=..., permissions=..., method="aes-256")` value; `None` writes plaintext. Saving over the open file replaces it atomically. |
+| `doc.save(path, /, *, compress=True, prune=True, dedupe=False, renumber=False, object_streams=False, encryption=None, incremental=False)` | Each option is a boolean named after its effect. `compress` and `prune` default to true, as qpdf and pikepdf write files; the four that change objects change the document itself, and handles to removed or renumbered objects go stale. `encryption` takes an `Encryption(user_password=..., owner_password=..., permissions=..., method="aes-256")` value; `None` writes plaintext. Saving over the open file replaces it atomically. `incremental` comes with Persistence. |
 | `doc.to_bytes(*, ..., max_size=...)` | The options of `save`. |
-| `doc.unlock(password)` → `Access` | `Access.USER` or `Access.OWNER`; a wrong password raises `PasswordError`. |
-| `doc.needs_password`, `is_encrypted`, `is_repaired`, `is_dirty`, `is_closed`, `permissions` | `permissions` is a `Permissions` flag value. |
+| `doc.unlock(password)` → `Access` | `Access.USER` or `Access.OWNER`; a wrong password raises `PasswordError`, and an unencrypted document grants `Access.OWNER`. |
+| `doc.needs_password`, `is_repaired`, `is_dirty`, `is_closed`, `permissions` | `needs_password` is true until `unlock` succeeds; `permissions` is a `Permissions` flag value. |
 | `doc.path` | The file the document came from, or `None`. |
 | `doc.limits`, `doc.complexity`, `doc.pdfa_claim` | |
 | `doc.fallback_fonts` | An assignable mapping from a CJK language to the `Font` that renders text set in non-embedded fonts of that language. |
@@ -427,7 +427,7 @@ hint.
 | `render_pages(pages, ...)` | `doc.render(pages=None, ...)` |
 | `save(filename, *, garbage, deflate, use_objstms, encryption, user_pw, owner_pw, permissions)`, `tobytes(...)` | `save(path, /, *, compress, prune, dedupe, renumber, object_streams, encryption=Encryption(...))`, `to_bytes(...)` |
 | `authenticate(password)` → `int` | `unlock(password)` → `Access` |
-| `needs_pass`, `name`, `is_pdf` | `needs_password`, `path`; `is_pdf` goes |
+| `needs_pass`, `is_encrypted`, `name`, `is_pdf` | `needs_password`, `path`; `is_pdf` goes |
 | `has_links()`, `has_annots()` | `any(page.links for page in doc.pages)` and the same for annotations |
 | `metadata` and `set_metadata(m)` | `doc.metadata` as a live mapping |
 | `get_xml_metadata()`, `set_xml_metadata()`, `del_xml_metadata()` | `doc.xmp` |
@@ -470,8 +470,5 @@ section 11, `attachments`, `limits`, `complexity`, `DocumentLimits`,
 
 - How `doc.metadata` represents dates: `datetime` where the string parses,
   and the raw string otherwise, or always the raw string.
-- Whether `save()` prunes unreachable objects and compresses streams by
-  default. Both make smaller files without changing what a viewer shows, but
-  pruning makes handles to unreachable objects stale.
 - Which parts of the HTML and CSS subset for text boxes parley covers, and
   which need pylopdf's own code.

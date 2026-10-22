@@ -63,32 +63,30 @@ def test_open_rejects_other_sources() -> None:
         pylopdf.open(42)  # ty: ignore[invalid-argument-type]
 
 
-def test_authenticate_unencrypted_document_returns_one() -> None:
-    assert pylopdf.open(build_pdf(["Plain"])).authenticate("anything") == 1
+def test_unlocking_an_unencrypted_document_grants_owner_access() -> None:
+    assert pylopdf.open(build_pdf(["Plain"])).unlock("anything") is pylopdf.Access.OWNER
 
 
-def test_authenticate_checks_a_document_opened_with_an_empty_user_password() -> None:
+def test_unlock_checks_a_document_opened_with_an_empty_user_password() -> None:
     doc = pylopdf.open(ENCRYPTED / "owneronly-aes-256.pdf")
 
     assert not doc.needs_password
-    assert not doc.is_encrypted
-    assert doc.authenticate("") == 2
-    assert doc.authenticate("ownerpw") == 4
-    assert doc.authenticate("wrong") == 0
+    assert doc.unlock("") is pylopdf.Access.USER
+    assert doc.unlock("ownerpw") is pylopdf.Access.OWNER
+    with pytest.raises(pylopdf.PasswordError):
+        doc.unlock("wrong")
     assert len(doc.pages) >= 1
 
 
-def test_authenticate_refuses_an_empty_owner_password_alone() -> None:
-    data = pylopdf.open(build_pdf(["Locked"])).tobytes(
-        encryption=pylopdf.PDF_ENCRYPT_AES_256,
-        user_pw="user",
-        owner_pw="",
-    )
+def test_unlock_refuses_an_empty_owner_password_alone() -> None:
+    encryption = pylopdf.Encryption(user_password="user", owner_password="")
+    data = pylopdf.open(build_pdf(["Locked"])).to_bytes(encryption=encryption)
     # lopdf opens a document whose owner password is empty without a password.
     doc = pylopdf.open(data)
 
-    assert doc.authenticate("") == 0
-    assert doc.authenticate("user") == 2
+    with pytest.raises(pylopdf.PasswordError):
+        doc.unlock("")
+    assert doc.unlock("user") is pylopdf.Access.USER
     assert doc.pages[0].get_text().strip() == "Locked"
 
 
@@ -152,7 +150,7 @@ def test_set_metadata_writes_trapped_as_a_name() -> None:
     doc.set_metadata({"trapped": "True", "title": "Trapped"})
 
     assert doc.metadata["trapped"] == "True"
-    data = doc.tobytes()
+    data = doc.to_bytes()
     assert b"/Trapped/True" in data
     assert pylopdf.open(data).metadata["trapped"] == "True"
     doc.set_metadata({"trapped": "maybe"})
@@ -188,9 +186,9 @@ def test_set_metadata_empty_dictionary_removes_info() -> None:
 
     assert doc.trailer.get("Info") is None
     assert doc.metadata["title"] == ""
-    reopened = pylopdf.open(doc.tobytes(garbage=1))
+    reopened = pylopdf.open(doc.to_bytes())
     assert reopened.metadata["title"] == ""
-    assert b"Report" not in doc.tobytes(garbage=1)
+    assert b"Report" not in doc.to_bytes()
 
 
 def test_set_metadata_rejects_unknown_keys_and_non_dicts() -> None:

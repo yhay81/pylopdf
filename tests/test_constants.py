@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import enum
-from pathlib import Path
 
 import pytest
 from conftest import build_pdf
@@ -29,11 +28,6 @@ import pylopdf
                 "ASSEMBLE": 1024,
                 "PRINT_HQ": 2048,
             },
-        ),
-        (
-            pylopdf.EncryptionMethod,
-            "PDF_ENCRYPT_",
-            {"KEEP": 0, "NONE": 1, "RC4_40": 2, "RC4_128": 3, "AES_128": 4, "AES_256": 5, "UNKNOWN": 6},
         ),
     ],
 )
@@ -75,77 +69,3 @@ def test_text_align_members_and_plain_integers_align_alike() -> None:
 
     assert spare(pylopdf.TEXT_ALIGN_CENTER) == spare(1)
     assert spare(pylopdf.TEXT_ALIGN_CENTER) != spare(pylopdf.TEXT_ALIGN_LEFT)
-
-
-def test_save_defaults_to_pdf_encrypt_none() -> None:
-    doc = pylopdf.open(build_pdf(["Plain"]))
-
-    assert b"/Encrypt" not in doc.tobytes()
-    assert b"/Encrypt" not in doc.tobytes(encryption=pylopdf.PDF_ENCRYPT_NONE)
-
-
-@pytest.mark.parametrize("method", ["save", "tobytes"])
-def test_aes_256_encrypts_with_passwords(tmp_path: Path, method: str) -> None:
-    doc = pylopdf.open(build_pdf(["Secret"]))
-    options = {"encryption": pylopdf.PDF_ENCRYPT_AES_256, "user_pw": "user", "owner_pw": "owner"}
-
-    if method == "save":
-        target = tmp_path / "locked.pdf"
-        doc.save(target, **options)  # ty: ignore[invalid-argument-type]
-        data = target.read_bytes()
-    else:
-        data = doc.tobytes(**options)  # ty: ignore[invalid-argument-type]
-
-    locked = pylopdf.open(data)
-    assert locked.needs_password
-    assert pylopdf.open(data, password="user").pages[0].get_text().strip() == "Secret"
-    assert not doc.is_encrypted
-
-
-def test_aes_256_without_passwords_encrypts_with_empty_passwords() -> None:
-    data = pylopdf.open(build_pdf(["Open"])).tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256)
-
-    assert b"/Encrypt" in data
-    reopened = pylopdf.open(data)
-    assert not reopened.needs_password
-    assert reopened.pages[0].get_text().strip() == "Open"
-
-
-@pytest.mark.parametrize("password", [{"user_pw": "x"}, {"owner_pw": "x"}, {"user_pw": ""}])
-def test_password_without_encrypting_method_raises(tmp_path: Path, password: dict[str, str]) -> None:
-    doc = pylopdf.open(build_pdf(["Plain"]))
-    before = doc.tobytes()
-
-    with pytest.raises(pylopdf.PdfError, match="PDF_ENCRYPT_AES_256"):
-        doc.tobytes(garbage=4, **password)  # ty: ignore[invalid-argument-type]
-    with pytest.raises(pylopdf.PdfError, match="PDF_ENCRYPT_AES_256"):
-        doc.save(tmp_path / "out.pdf", **password)  # ty: ignore[invalid-argument-type]
-    assert not (tmp_path / "out.pdf").exists()
-    assert doc.tobytes() == before
-
-
-@pytest.mark.parametrize(
-    ("encryption", "name"),
-    [
-        (pylopdf.PDF_ENCRYPT_KEEP, "PDF_ENCRYPT_KEEP"),
-        (pylopdf.PDF_ENCRYPT_RC4_40, "PDF_ENCRYPT_RC4_40"),
-        (pylopdf.PDF_ENCRYPT_RC4_128, "PDF_ENCRYPT_RC4_128"),
-        (pylopdf.PDF_ENCRYPT_AES_128, "PDF_ENCRYPT_AES_128"),
-        (pylopdf.PDF_ENCRYPT_UNKNOWN, "PDF_ENCRYPT_UNKNOWN"),
-        (99, "99"),
-    ],
-)
-def test_unsupported_encryption_methods_raise(encryption: int, name: str) -> None:
-    doc = pylopdf.open(build_pdf(["Plain"]))
-
-    with pytest.raises(pylopdf.PdfError, match=f"encryption={name} is not supported"):
-        doc.tobytes(encryption=encryption, user_pw="x")
-
-
-def test_encryption_must_be_an_integer() -> None:
-    doc = pylopdf.open(build_pdf(["Plain"]))
-
-    with pytest.raises(TypeError, match="PDF_ENCRYPT"):
-        doc.tobytes(encryption=True)
-    with pytest.raises(TypeError, match="PDF_ENCRYPT"):
-        doc.tobytes(encryption="aes")  # ty: ignore[invalid-argument-type]

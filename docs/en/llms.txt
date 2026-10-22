@@ -75,6 +75,7 @@ replacement, and the migration hint):
 - Document.__contains__ -> Pages.__contains__: Test page in doc.pages, which takes Page views.
 - Document.__getitem__ -> Pages.__getitem__: Use doc.pages[i]; doc.pages also takes slices.
 - Document.__len__ -> Pages.__len__: Use len(doc.pages).
+- Document.authenticate -> Document.unlock: Use doc.unlock(password), which returns Access.USER or Access.OWNER and raises PasswordError for a wrong password.
 - Document.copy_page -> Pages.insert: Use doc.pages.insert(to, doc.pages[i]); the copy is a new page object, not a second reference.
 - Document.delete_page -> Pages.__delitem__: Use del doc.pages[i].
 - Document.delete_pages -> Pages.__delitem__: Use del doc.pages[a:b], or doc.pages.select(...) to keep the other pages.
@@ -93,12 +94,13 @@ replacement, and the migration hint):
 - Document.get_page_text -> Page.get_text: Use doc.pages[i].get_text(...).
 - Document.get_toc -> Document.get_outline: pylopdf's get_outline uses zero-based pages; get_toc used one-based pages.
 - Document.insert_pdf -> Pages.insert: Use doc.pages.insert(index, other.pages[a:b + 1]), or doc.pages.extend(other.pages) to append.
+- Document.is_encrypted -> Document.needs_password: Read doc.needs_password, which is true until unlock() succeeds.
 - Document.is_stream -> Stream: Check isinstance(doc.objects[xref], pylopdf.Stream).
 - Document.language -> Document.language_tag: pylopdf's language_tag keeps the complete BCP 47 tag, such as zh-TW, where pymupdf's language keeps at most three letters.
 - Document.load_page -> Pages.__getitem__: Use doc.pages[i].
 - Document.move_page -> Pages.move: Use doc.pages.move(i, to); to is the index where the page ends up, where pymupdf inserted before page to.
 - Document.name -> Document.path: Read doc.path, a pathlib.Path, or None for a document opened from bytes or created empty.
-- Document.needs_pass -> Document.needs_password: Read doc.needs_password.
+- Document.needs_pass -> Document.needs_password: Read doc.needs_password, which is true until unlock() succeeds; pymupdf's needs_pass stays true after authentication.
 - Document.new_page -> Pages.new: Use doc.pages.new((width, height), index=i); without index the page is appended.
 - Document.page_count -> Pages.__len__: Use len(doc.pages).
 - Document.page_xref -> Page.xref: Use doc.pages[i].xref.
@@ -110,8 +112,10 @@ replacement, and the migration hint):
 - Document.set_language -> Document.set_language_tag: pylopdf's set_language_tag writes the complete BCP 47 tag, such as zh-TW, where pymupdf's set_language keeps at most three letters.
 - Document.set_toc -> Document.set_outline: pylopdf's set_outline uses zero-based pages; set_toc used one-based pages.
 - Document.to_text -> Document.get_text: Call Document.get_text() for the plain text of every page.
+- Document.tobytes -> Document.to_bytes: Use doc.to_bytes(...), which takes the options of save() and a max_size bound.
 - Document.update_object -> Document.objects: Assign a typed value to doc.objects[xref] instead of PDF syntax.
 - Document.update_stream -> Stream.write: Call doc.objects[xref].write(data), which Flate-compresses unless filter=None.
+- Document.write -> Document.to_bytes: Use doc.to_bytes(...), which takes the options of save() and a max_size bound.
 - Document.xref_copy -> Document.objects: Assign doc.objects[source] to doc.objects[target], which copies the object.
 - Document.xref_get_key -> Dictionary: Use doc.objects[xref].get(key), which returns a typed value instead of a (type, syntax) pair.
 - Document.xref_get_keys -> Dictionary: Use list(doc.objects[xref]), whose keys carry no leading slash.
@@ -147,6 +151,7 @@ replacement, and the migration hint):
 - Matrix.prescale -> Matrix.__mul__: Use pylopdf.Matrix(sx, sy) * m, which returns a new Matrix.
 - Matrix.preshear -> Matrix.__mul__: Use pylopdf.Matrix(h, v, 1) * m, which returns a new Matrix.
 - Matrix.pretranslate -> Matrix.__mul__: Use pylopdf.Matrix(1, 0, 0, 1, tx, ty) * m, which returns a new Matrix.
+- PDF_ENCRYPT_* -> Encryption: Pass encryption=Encryption(user_password=..., owner_password=..., permissions=...) to save() or to_bytes(), which writes AES-256 encryption; encryption=None writes none.
 - Page.get_bboxlog -> Page.content: Call page.content(); every item has a bbox and a kind, and its context lists the clips around it.
 - Page.get_cdrawings -> Page.content: Read page.content().paths, whose segments, paints, and strokes are immutable values.
 - Page.get_displaylist -> Page.content: Call page.content(), which returns the page's painted items as an immutable Content sequence.
@@ -188,7 +193,7 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - MetadataProbe.author -> Probe.metadata: Read probe.metadata["author"].
 - MetadataProbe.creationDate -> Probe.metadata: Read probe.metadata["created"].
 - MetadataProbe.creator -> Probe.metadata: Read probe.metadata["creator"].
-- MetadataProbe.encrypted -> Probe.is_encrypted: Read probe.is_encrypted.
+- MetadataProbe.encrypted -> Probe.needs_password: Read probe.needs_password.
 - MetadataProbe.format -> Probe.version: Read probe.version, such as "1.7".
 - MetadataProbe.keywords -> Probe.metadata: Read probe.metadata["keywords"].
 - MetadataProbe.modDate -> Probe.metadata: Read probe.metadata["modified"].
@@ -212,4 +217,4 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - TextPage.height -> TextPageDict.height: Read get_text("dict")["height"].
 - TextPage.width -> TextPageDict.width: Read get_text("dict")["width"].
 - WordEntry -> Word: get_text("words") returns Word records.
-- peek_metadata -> probe: probe(source) takes a path or bytes and returns a Probe record with page_count, version, is_encrypted, is_repaired, and metadata.
+- peek_metadata -> probe: probe(source) takes a path or bytes and returns a Probe record with page_count, version, needs_password, is_repaired, and metadata.

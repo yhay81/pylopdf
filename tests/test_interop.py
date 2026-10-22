@@ -148,7 +148,7 @@ def test_pyhanko_signs_pylopdf_output_incrementally(tmp_path: Path) -> None:
     doc = pylopdf.Document()
     doc.pages.new()
     doc.set_metadata({"title": "pylopdf interop test"})
-    original = doc.tobytes()
+    original = doc.to_bytes()
 
     key_path, cert_path = _make_self_signed_cert(tmp_path)
     signer = signers.SimpleSigner.load(str(key_path), str(cert_path))

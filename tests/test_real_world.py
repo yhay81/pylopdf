@@ -266,7 +266,7 @@ def test_probe_matches_full_load(case: Case) -> None:
     """Probe returns the same page count as a full load."""
     meta = pylopdf.probe(ASSETS / case.name)
     assert meta.page_count == case.pages
-    assert meta.is_encrypted is False
+    assert meta.needs_password is False
     assert meta.is_repaired is False
 
 
@@ -326,7 +326,7 @@ def test_damaged_corpus_outcome(name: str, damage: str, outcome: str) -> None:
     if expected_warning == REBUILT_WARNING:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            reopened = pylopdf.open(doc.tobytes())
+            reopened = pylopdf.open(doc.to_bytes())
         assert not caught
         assert reopened.is_repaired is False
         assert len(reopened.pages) == case.pages
@@ -386,7 +386,7 @@ def test_rebuilt_trailer_drops_stale_chain_offsets_before_save() -> None:
     with pytest.warns(pylopdf.PylopdfWarning, match=REBUILT_WARNING):
         doc = pylopdf.open(damaged)
 
-    saved = doc.tobytes()
+    saved = doc.to_bytes()
     assert b"/Prev" not in saved[saved.rindex(b"trailer") :]
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -459,7 +459,7 @@ def test_unreachable_page_tree_rebuilds_the_xref_table(number: int, shift: int |
     assert doc.pages[0].get_text().split() == ["Rebuilt", "page"]
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        reopened = pylopdf.open(doc.tobytes())
+        reopened = pylopdf.open(doc.to_bytes())
     assert reopened.is_repaired is False
     assert reopened.pages[0].get_text() == doc.pages[0].get_text()
 
@@ -601,7 +601,7 @@ def test_recovered_pdf_avoids_slow_initial_reserialization() -> None:
     assert elapsed < 5.0, f"initial extraction took {elapsed:.2f}s"
 
     start = time.perf_counter()
-    saved = document.tobytes()
+    saved = document.to_bytes()
     elapsed = time.perf_counter() - start
 
     assert elapsed < 5.0, f"saving took {elapsed:.2f}s"
@@ -754,7 +754,7 @@ def test_pdfium_soft_mask_forms_survive_edits_and_saves() -> None:
     """
     document = pylopdf.open(ASSETS / "pdfium-smask-blend.pdf")
     document.set_metadata({"title": "Edited"})
-    saved = document.tobytes()
+    saved = document.to_bytes()
 
     assert len(re.findall(rb"/Type null\s*/Subtype\s*/Form", saved)) == 3
     for page in (document.pages[0], pylopdf.open(saved).pages[0]):
@@ -795,7 +795,7 @@ def test_pdfium_existing_annotations_and_external_link_are_read() -> None:
     assert 215 < green < 240
     assert blue < 16
     assert any(samples[(y * pixmap.width + x) * 4] < 128 for y in range(250, 263) for x in range(293, 350))
-    assert b"/AP" not in document.tobytes()
+    assert b"/AP" not in document.to_bytes()
 
 
 def test_f1040_metadata_title() -> None:
@@ -816,7 +816,7 @@ def test_f1040_page_deletion_drops_the_page_from_the_structure_tree(edit: str) -
         del doc.pages[1:2]
     else:
         doc.pages.select([0])
-    saved = doc.tobytes(garbage=True)
+    saved = doc.to_bytes()
 
     assert len(re.findall(rb"/Type\s*/Page(?![a-zA-Z])", saved)) == 1
     assert len(re.findall(rb"/Subtype\s*/Widget", saved)) == 128
@@ -961,7 +961,7 @@ def test_select_first_page_and_roundtrip(case: Case) -> None:
     doc = pylopdf.open(ASSETS / case.name)
     doc.pages.select([0])
     assert len(doc.pages) == 1
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     assert len(reopened.pages) == 1
 
 
@@ -972,7 +972,7 @@ def test_insert_subset_with_position_roundtrip(case: Case) -> None:
     src = pylopdf.open(ASSETS / case.name)
     doc.pages.insert(0, src.pages[0:1])
     assert len(doc.pages) == case.pages + 1
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     assert len(reopened.pages) == case.pages + 1
     # Pruning preserves fonts/images referenced by the inserted page.
     assert reopened.pages[0].get_pixmap(alpha=True).tobytes().startswith(b"\x89PNG")
@@ -984,7 +984,7 @@ def test_merge_self_and_roundtrip(case: Case) -> None:
     doc = pylopdf.open(raw)
     doc.pages.extend(pylopdf.open(raw).pages)
     assert len(doc.pages) == case.pages * 2
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     assert len(reopened.pages) == case.pages * 2
 
 
@@ -995,7 +995,7 @@ def test_merge_into_empty_and_roundtrip(case: Case) -> None:
     doc = pylopdf.Document()
     doc.pages.extend(source.pages)
     assert len(doc.pages) == case.pages
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     assert len(reopened.pages) == case.pages
 
 
@@ -1006,7 +1006,7 @@ def test_delete_page_and_roundtrip(case: Case) -> None:
     doc = pylopdf.open(ASSETS / case.name)
     del doc.pages[0]
     assert len(doc.pages) == case.pages - 1
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     assert len(reopened.pages) == case.pages - 1
 
 
@@ -1014,7 +1014,7 @@ def test_delete_page_and_roundtrip(case: Case) -> None:
 def test_save_optimized_roundtrip(case: Case) -> None:
     """Garbage, deflate, and object-stream saves preserve readable content."""
     doc = pylopdf.open(ASSETS / case.name)
-    data = doc.tobytes(garbage=True, deflate=True, use_objstms=True)
+    data = doc.to_bytes(object_streams=True)
     reopened = pylopdf.open(data)
     assert len(reopened.pages) == case.pages
 
@@ -1022,8 +1022,8 @@ def test_save_optimized_roundtrip(case: Case) -> None:
 def test_object_streams_reduce_size() -> None:
     """Object-stream saving reduces a medium-size document."""
     doc = pylopdf.open(ASSETS / "bill-hr815.pdf")
-    plain = doc.tobytes()
-    optimized = doc.tobytes(garbage=True, deflate=True, use_objstms=True)
+    plain = doc.to_bytes()
+    optimized = doc.to_bytes(object_streams=True)
     assert len(optimized) < len(plain)
 
 
@@ -1031,7 +1031,7 @@ def test_object_streams_reduce_size() -> None:
 def test_set_metadata_roundtrip(case: Case) -> None:
     doc = pylopdf.open(ASSETS / case.name)
     doc.set_metadata({"title": "回帰テスト", "author": "pylopdf"})
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     assert reopened.metadata["title"] == "回帰テスト"
     assert reopened.metadata["author"] == "pylopdf"
 
@@ -1057,5 +1057,5 @@ def test_extract_text_survives_edit(case: Case) -> None:
     assert case.snippet is not None
     doc = pylopdf.open(ASSETS / case.name)
     doc.pages.select([0])
-    reopened = pylopdf.open(doc.tobytes())
+    reopened = pylopdf.open(doc.to_bytes())
     assert case.snippet in reopened.pages[0].get_text()

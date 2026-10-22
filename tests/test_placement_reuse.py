@@ -70,7 +70,7 @@ def _manuscript_jpeg() -> bytes:
 
 
 def _saved(doc: pylopdf.Document) -> bytes:
-    return doc.tobytes(garbage=True)
+    return doc.to_bytes()
 
 
 def _count(data: bytes, pattern: bytes) -> int:
@@ -241,7 +241,7 @@ def test_edits_that_keep_placed_objects_keep_sharing_them() -> None:
     doc.set_metadata({"title": "Shared"})
     doc.pages[2].set_rotation(90)
     doc.pages[2].add_highlight_annot((40, 30, 160, 90))
-    doc.tobytes(garbage=True, use_objstms=True)
+    doc.to_bytes(object_streams=True)
     for page in doc.pages:
         page.insert_image(LOGO_RECT, stream=logo)
 
@@ -279,7 +279,7 @@ def test_shared_placements_survive_save_and_reopen(tmp_path: Path) -> None:
         page.insert_image(LOGO_RECT, stream=logo)
         page.show_pdf_page((300, 400, 600, 800), source, 0)
     path = tmp_path / "shared.pdf"
-    doc.save(path, garbage=True)
+    doc.save(path)
     expected = [_samples(page) for page in doc.pages]
 
     reopened = pylopdf.open(path)
@@ -370,14 +370,15 @@ def test_image_compression_between_placements_keeps_the_next_placement_full_size
     assert drawn_images(doc.pages[1])[0]["width"] == 240
 
 
-@pytest.mark.parametrize("edit", ["deflate", "replace_text"])
+@pytest.mark.parametrize("edit", ["compress", "replace_text"])
 def test_edits_that_may_change_placed_objects_end_sharing(edit: str) -> None:
     logo = _logo_png()
-    doc = pylopdf.open(build_pdf(["Hello", "World"]))
+    # The long first line gives saving a content stream that Flate makes smaller.
+    doc = pylopdf.open(build_pdf(["Hello" + " again" * 40, "World"]))
     doc.pages[0].insert_image(LOGO_RECT, stream=logo)
 
-    if edit == "deflate":
-        doc.tobytes(deflate=True)
+    if edit == "compress":
+        doc.to_bytes()
     else:
         assert doc.pages[0].replace_text("Hello", "Howdy") == 1
     doc.pages[1].insert_image(LOGO_RECT, stream=logo)
@@ -385,3 +386,15 @@ def test_edits_that_may_change_placed_objects_end_sharing(edit: str) -> None:
     # The next placement adds a fresh image and soft mask.
     assert _count(_saved(doc), IMAGE) == 4
     assert _pixel(doc.pages[0], 100, 60) == _pixel(doc.pages[1], 100, 60)
+
+
+def test_a_save_that_compresses_no_stream_keeps_sharing() -> None:
+    logo = _logo_png()
+    doc = pylopdf.open(build_pdf(["Hello", "World"]))
+    doc.pages[0].insert_image(LOGO_RECT, stream=logo)
+
+    doc.to_bytes()
+    doc.to_bytes(compress=True)
+    doc.pages[1].insert_image(LOGO_RECT, stream=logo)
+
+    assert _count(_saved(doc), IMAGE) == 2

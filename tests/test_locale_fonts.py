@@ -287,7 +287,7 @@ def test_package_generation_fonts_are_read_once(tmp_path: Path, monkeypatch: pyt
         doc.pages[0].insert_text((20, 30), "日本語", **sans)  # ty: ignore[invalid-argument-type]
         assert doc.pages[0].insert_textbox((20, 40, 280, 70), "明朝体の段落", **serif) >= 0  # ty: ignore[invalid-argument-type]
         doc.set_form_field("name", "山田 太郎", **sans)  # ty: ignore[invalid-argument-type]
-        return doc.tobytes()
+        return doc.to_bytes()
 
     reads = _Document.package_font_reads()
     automatic = [generate({}, {"fontname": "tiro"}) for _ in range(3)]
@@ -306,7 +306,7 @@ def test_package_generation_fonts_are_checked_on_every_call(tmp_path: Path, monk
     page = doc.pages[0]
     page.insert_text((20, 30), "日本語")
     doc.set_form_field("name", "山田 太郎")
-    baseline = doc.tobytes()
+    baseline = doc.to_bytes()
 
     size = provider.sans.stat().st_size
     for call in (
@@ -328,7 +328,7 @@ def test_package_generation_fonts_are_checked_on_every_call(tmp_path: Path, monk
         with pytest.raises(FileNotFoundError) as not_found:
             call()
         assert Path(not_found.value.filename) == provider.sans
-    assert doc.tobytes() == baseline
+    assert doc.to_bytes() == baseline
     assert {field["name"]: field["value"] for field in doc.get_form_fields()} == {"name": "山田 太郎"}
 
     # A file restored or replaced at the same path is read again.
@@ -368,7 +368,7 @@ def test_concurrent_generation_shares_package_fonts(tmp_path: Path, monkeypatch:
         doc = pylopdf.Document()
         doc.pages.new((200, 100))
         doc.pages[0].insert_text((20, 40), "日本語", **options)  # ty: ignore[invalid-argument-type]
-        return doc.tobytes()
+        return doc.to_bytes()
 
     reads = _Document.package_font_reads()
     with ThreadPoolExecutor(max_workers=8) as executor:

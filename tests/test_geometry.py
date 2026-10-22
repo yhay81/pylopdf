@@ -306,7 +306,7 @@ def test_transformed_points_work_with_drawing_and_save_reopen(rotation: int) -> 
         assert page.draw_line(start, end, color=(1, 0, 0), width=2) == end
         page.insert_text(Point(20, 40) * transform, "Affine", fontsize=12)
         before = page.get_pixmap(alpha=True).samples
-        data = document.tobytes()
+        data = document.to_bytes()
     with pylopdf.open(data) as reopened:
         assert reopened.pages[0].get_text().strip() == "Affine"
         assert reopened.pages[0].get_pixmap(alpha=True).samples == before

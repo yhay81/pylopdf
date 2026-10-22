@@ -42,18 +42,20 @@ with pylopdf.open("input.pdf") as doc:     # pylopdf.open(pdf_bytes) でも可
     print(doc.metadata["title"])
     doc.set_metadata({"title": "Report", "author": "Alice"})
 
-    doc.save("out.pdf")
-    data = doc.tobytes()                   # 同じPDFをbytesで
-    doc.save("small.pdf", garbage=3, deflate=True, use_objstms=True)
+    doc.save("out.pdf")                    # 圧縮し、使われていないオブジェクトを除く
+    data = doc.to_bytes()                  # 同じPDFをbytesで
+    doc.save("small.pdf", dedupe=True, object_streams=True)
     doc.save(
         "locked.pdf",
-        encryption=pylopdf.PDF_ENCRYPT_AES_256,
-        user_pw="secret",
-        permissions=pylopdf.PDF_PERM_PRINT,
+        encryption=pylopdf.Encryption(
+            user_password="secret",
+            owner_password="owner-secret",
+            permissions=pylopdf.Permissions.PRINT,
+        ),
     )
 ```
 
-- **暗号化されたファイル:** 開くときに`password=`を渡すか、開いた後で`doc.authenticate(password)`を呼びます。
+- **暗号化されたファイル:** 開くときに`password=`を渡すか、開いた後で`doc.unlock(password)`を呼びます。その必要があるかどうかは`doc.needs_password`でわかります。
 - **メタデータだけ読む:** `pylopdf.probe(path)`は文書全体を読み込まずにページ数、バージョン、メタデータを読みます。大量のファイルを走査するときに便利です。
 - **壊れたファイル:** 開くために壊れたファイルを修復した場合、pylopdfは`PylopdfWarning`を出し、`doc.is_repaired`を設定します。保存すると正常なファイルが書き出されます。
 
