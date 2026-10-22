@@ -83,9 +83,9 @@ limits = pylopdf.DocumentLimits(
 |---|---|---|
 | `Document.to_bytes()` | 输出512 MiB | `max_size` |
 | `Document.render_pages()` | PNG输出合计512 MiB | `max_size` |
-| `to_markdown()`、`Table.to_markdown()` | 输出64 MiB | `max_size` |
+| `markdown()`、`Table.markdown()` | 输出64 MiB | `max_size` |
 | `Pixmap.tobytes()`、`Page.get_svg_image()` | 输出64 MiB | `max_size` |
-| `Page.search_for()` | 4,096个结果 | `max_hits` |
+| `Page.search()` | 4,096个结果 | `max_hits` |
 | `Page.content()` | 字形、路径与裁剪的线段以及项合计262,144个 | `max_elements` |
 | `Page.insert_text()`、`insert_textbox()` | 文本1 MiB、4,096行 | `max_text_size` |
 | 传给绘制、表单和`Font`的字体 | 每个字体64 MiB | `max_font_size` |
@@ -96,7 +96,7 @@ limits = pylopdf.DocumentLimits(
 | `Document.get_pdfa_claim()`、`get_xml_metadata()`、`set_xml_metadata()` | XMP元数据1 MiB | `max_size` |
 | `OcrEngine()` | 模型文件64 MiB | `max_model_size` |
 
-有几项上限是固定的。渲染时每页最多6,400万像素。密码最长127个UTF-8字节，这是PDF 2.0规定的最大值。传给`doc.pages.select()`、`insert()`和`extend()`，以及`get_text()`、`to_markdown()`和`render_pages()`的页面列表，条目数最多为页数与4,096中的较大者。书签、页码标签、表单字段、批注和附件列表都设有宽松的固定上限，足以应对大型的真实文档。
+有几项上限是固定的。渲染时每页最多6,400万像素。密码最长127个UTF-8字节，这是PDF 2.0规定的最大值。传给`doc.pages.select()`、`insert()`和`extend()`，以及`doc.text()`、`doc.markdown()`和`render_pages()`的页面列表，条目数最多为页数与4,096中的较大者。书签、页码标签、表单字段、批注和附件列表都设有宽松的固定上限，足以应对大型的真实文档。
 
 被拒绝的调用会在修改文档之前抛出异常，绝不会返回部分结果。
 

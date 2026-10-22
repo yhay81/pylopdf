@@ -2680,8 +2680,9 @@ type LayoutSpanTuple<T> = (BBox, T, f64, (f64, f64), String, i64);
 type SpanTuple = LayoutSpanTuple<String>;
 /// One retained glyph: `(whole Unicode mapping, bbox, baseline origin)`.
 type RawCharTuple = (String, BBox, (f64, f64));
-/// Span retaining glyph records without inferred spaces.
-type RawSpanTuple = LayoutSpanTuple<Vec<RawCharTuple>>;
+/// Span with its assembled text and its glyph records, which hold no inferred
+/// spaces.
+type RawSpanTuple = LayoutSpanTuple<(String, Vec<RawCharTuple>)>;
 /// Word: `(bbox, text)`.
 type WordTuple = (BBox, String);
 /// Borrowed word geometry retained only during one table interpretation.
@@ -2694,8 +2695,8 @@ type MaterializedGrid = (Vec<TableCell>, Vec<u32>);
 type LineTuple = (BBox, Vec<SpanTuple>, Vec<WordTuple>, (f64, f64), u8);
 /// Block: `(bbox, lines)`.
 pub(crate) type BlockTuple = (BBox, Vec<LineTuple>);
-/// Raw line: `(bbox, spans, baseline direction, writing mode)`.
-type RawLineTuple = (BBox, Vec<RawSpanTuple>, (f64, f64), u8);
+/// Raw line: `(bbox, spans with glyphs, words, baseline direction, writing mode)`.
+type RawLineTuple = (BBox, Vec<RawSpanTuple>, Vec<WordTuple>, (f64, f64), u8);
 /// Raw block: `(bbox, lines)`.
 pub(crate) type RawBlockTuple = (BBox, Vec<RawLineTuple>);
 /// Table: `(bbox, row count, column count, row-major cells)`.
@@ -2823,23 +2824,17 @@ fn span_with_content<T>(
 fn split_spans(line: &[GlyphRecord]) -> Result<Vec<SpanTuple>, TextPageLimit> {
     let mut spans = Vec::new();
     for glyphs in span_glyph_slices(line) {
-        let mut text = String::new();
-        let mut previous: Option<&GlyphRecord> = None;
-        for glyph in glyphs {
-            if needs_gap(previous, glyph) && !text.ends_with(' ') {
-                try_push_str_text(&mut text, " ", "layout span text")?;
-            }
-            try_push_glyph_text(&mut text, &glyph.text, "layout span text")?;
-            if !glyph_is_nonspacing_mark(glyph) {
-                previous = Some(glyph);
-            }
-        }
-        try_push_text(&mut spans, span_with_content(glyphs, text)?, "layout spans")?;
+        try_push_text(
+            &mut spans,
+            span_with_content(glyphs, span_text(glyphs)?)?,
+            "layout spans",
+        )?;
     }
     Ok(spans)
 }
 
-/// Materialize one record per mapped glyph, keeping multi-character mappings intact.
+/// Split a line into the spans of [`split_spans`], each with one record per
+/// mapped glyph, keeping multi-character mappings intact.
 fn split_raw_spans(line: &[GlyphRecord]) -> Result<Vec<RawSpanTuple>, TextPageLimit> {
     let mut spans = Vec::new();
     for glyphs in span_glyph_slices(line) {
@@ -2855,11 +2850,27 @@ fn split_raw_spans(line: &[GlyphRecord]) -> Result<Vec<RawSpanTuple>, TextPageLi
         }
         try_push_text(
             &mut spans,
-            span_with_content(glyphs, chars)?,
+            span_with_content(glyphs, (span_text(glyphs)?, chars))?,
             "raw layout spans",
         )?;
     }
     Ok(spans)
+}
+
+/// Assemble a span's text, with a space for each inferred gap.
+fn span_text(glyphs: &[GlyphRecord]) -> Result<String, TextPageLimit> {
+    let mut text = String::new();
+    let mut previous: Option<&GlyphRecord> = None;
+    for glyph in glyphs {
+        if needs_gap(previous, glyph) && !text.ends_with(' ') {
+            try_push_str_text(&mut text, " ", "layout span text")?;
+        }
+        try_push_glyph_text(&mut text, &glyph.text, "layout span text")?;
+        if !glyph_is_nonspacing_mark(glyph) {
+            previous = Some(glyph);
+        }
+    }
+    Ok(text)
 }
 
 /// Split a line into words delimited by whitespace and gaps.
@@ -3827,11 +3838,17 @@ fn assemble_layout(lines: &[Vec<GlyphRecord>]) -> Result<Vec<BlockTuple>, TextPa
     })
 }
 
-/// Assemble raw glyph output with the same block and line boundaries as layout.
+/// Assemble the layout with every span's glyph records as well.
 fn assemble_raw_layout(lines: &[Vec<GlyphRecord>]) -> Result<Vec<RawBlockTuple>, TextPageLimit> {
     assemble_layout_with(lines, |line, bbox| {
         let (direction, writing_mode) = line_direction(line);
-        Ok((bbox, split_raw_spans(line)?, direction, writing_mode))
+        Ok((
+            bbox,
+            split_raw_spans(line)?,
+            split_words(line)?,
+            direction,
+            writing_mode,
+        ))
     })
 }
 

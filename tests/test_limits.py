@@ -330,12 +330,12 @@ def test_eager_object_stream_uses_cumulative_limit_code() -> None:
 
 def test_text_budget_is_cumulative_across_interpreted_pages() -> None:
     doc = pylopdf.open(build_pdf(["ABC", "DEF", ""]), limits=pylopdf.DocumentLimits(max_text_size=5))
-    assert "ABC" in doc.pages[0].get_text()
+    assert "ABC" in doc.pages[0].text()
     with pytest.raises(pylopdf.LimitError) as text:
-        doc.pages[1].get_text()
+        doc.pages[1].text()
     assert _error_code(text.value) == "text_size"
     # A failed text-heavy page does not consume the remaining budget.
-    assert doc.pages[2].get_text() == ""
+    assert doc.pages[2].text() == ""
 
 
 def test_text_budget_remains_active_on_generated_documents() -> None:
@@ -343,33 +343,33 @@ def test_text_budget_remains_active_on_generated_documents() -> None:
     page = doc.pages.new()
     page.insert_text((20, 20), "ABC")
     with pytest.raises(pylopdf.LimitError) as text:
-        page.get_text()
+        page.text()
     assert _error_code(text.value) == "text_size"
 
 
 def test_text_glyph_budget_is_cumulative_without_double_charging_pages() -> None:
     exact = pylopdf.open(build_pdf(["ABC"]), limits=pylopdf.DocumentLimits(max_text_glyphs=3))
-    assert exact.pages[0].get_text("words")
+    assert exact.pages[0].words()
     assert exact.pages[0].find_tables().tables == []
 
     cumulative = pylopdf.open(build_pdf(["ABC", "DEF", ""]), limits=pylopdf.DocumentLimits(max_text_glyphs=5))
-    assert "ABC" in cumulative.pages[0].get_text()
+    assert "ABC" in cumulative.pages[0].text()
     with pytest.raises(pylopdf.LimitError) as glyphs:
-        cumulative.pages[1].get_text("dict")
+        cumulative.pages[1].layout().to_dict()
     assert _error_code(glyphs.value) == "text_glyph_count"
     # A rejected page does not consume the remaining glyph budget.
-    assert cumulative.pages[2].get_text() == ""
+    assert cumulative.pages[2].text() == ""
 
 
 def test_interpretation_budget_bounds_original_and_edited_snapshots(tmp_path: Path) -> None:
     source = build_pdf(["one"])
     exact_source = pylopdf.open(source, limits=pylopdf.DocumentLimits(max_interpretation_size=len(source)))
-    assert "one" in exact_source.pages[0].get_text()
+    assert "one" in exact_source.pages[0].text()
 
     bounded_source = pylopdf.open(source, limits=pylopdf.DocumentLimits(max_interpretation_size=len(source) - 1))
     assert len(bounded_source.pages) == 1
     with pytest.raises(pylopdf.LimitError) as source_error:
-        bounded_source.pages[0].get_text()
+        bounded_source.pages[0].text()
     assert _error_code(source_error.value) == "interpretation_size"
 
     path = tmp_path / "oversized-interpretation.pdf"
@@ -377,7 +377,7 @@ def test_interpretation_budget_bounds_original_and_edited_snapshots(tmp_path: Pa
     bounded_path = pylopdf.open(path, limits=pylopdf.DocumentLimits(max_interpretation_size=len(source) - 1))
     assert len(bounded_path.pages) == 1
     with pytest.raises(pylopdf.LimitError) as path_error:
-        bounded_path.pages[0].get_text()
+        bounded_path.pages[0].text()
     assert _error_code(path_error.value) == "interpretation_size"
 
     baseline = pylopdf.Document()
@@ -386,12 +386,12 @@ def test_interpretation_budget_bounds_original_and_edited_snapshots(tmp_path: Pa
 
     exact_edited = pylopdf.Document(limits=pylopdf.DocumentLimits(max_interpretation_size=snapshot_size))
     exact_edited.pages.new()
-    assert exact_edited.pages[0].get_text() == ""
+    assert exact_edited.pages[0].text() == ""
 
     bounded_edited = pylopdf.Document(limits=pylopdf.DocumentLimits(max_interpretation_size=snapshot_size - 1))
     bounded_edited.pages.new()
     with pytest.raises(pylopdf.LimitError) as edited_error:
-        bounded_edited.pages[0].get_text()
+        bounded_edited.pages[0].text()
     assert _error_code(edited_error.value) == "interpretation_size"
     assert len(bounded_edited.pages) == 1
 
@@ -399,9 +399,9 @@ def test_interpretation_budget_bounds_original_and_edited_snapshots(tmp_path: Pa
 def test_empty_get_text_batch_skips_interpretation_snapshot() -> None:
     source = build_pdf(["one"])
     bounded = pylopdf.open(source, limits=pylopdf.DocumentLimits(max_interpretation_size=len(source) - 1))
-    assert bounded.get_text([]) == ""
+    assert bounded.text([]) == ""
     with pytest.raises(pylopdf.LimitError) as error:
-        bounded.get_text()
+        bounded.text()
     assert _error_code(error.value) == "interpretation_size"
 
 

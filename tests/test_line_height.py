@@ -108,7 +108,7 @@ def _page() -> pylopdf.Page:
 def _baselines(page: pylopdf.Page) -> list[float]:
     return [
         span["origin"][1]
-        for block in page.get_text("dict")["blocks"]
+        for block in page.layout().to_dict()["blocks"]
         for line in block["lines"]
         for span in line["spans"]
     ]

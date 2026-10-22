@@ -11,15 +11,15 @@ from test_tables import _bordered_table_pdf
 import pylopdf
 
 
-def test_search_for_takes_pymupdf_text_keyword() -> None:
+def test_search_takes_the_text_keyword() -> None:
     page = pylopdf.open(build_pdf(["Hello world"])).pages[0]
 
-    assert page.search_for(text="world") == page.search_for("world")
-    assert len(page.search_for(text="world")) == 1
+    assert page.search(text="world") == page.search("world")
+    assert len(page.search("world")) == 1
     with pytest.raises(TypeError, match="needle"):
-        page.search_for(needle="world")  # ty: ignore[unknown-argument, missing-argument]
+        page.search(needle="world")  # ty: ignore[unknown-argument, missing-argument]
     with pytest.raises(ValueError, match="text must be at least 1 character"):
-        page.search_for(text="")
+        page.search("")
 
 
 def test_find_tables_takes_keyword_only_strategy_with_none_default() -> None:
@@ -48,7 +48,7 @@ def test_show_pdf_page_takes_pymupdf_docsrc_keyword() -> None:
         target.pages[0].show_pdf_page((0, 0, 300, 200), src=source)  # ty: ignore[unknown-argument, missing-argument]
 
     reopened = pylopdf.open(target.to_bytes())
-    assert "Stamp" in reopened.pages[0].get_text()
+    assert "Stamp" in reopened.pages[0].text()
 
 
 def test_pixmap_save_takes_pymupdf_filename_keyword(tmp_path: Path) -> None:
@@ -71,7 +71,7 @@ def _word_left_edges(expandtabs: int | None) -> list[tuple[str, float]]:
     else:
         spare = page.insert_textbox(rect, "ab\tcd", fontsize=12, expandtabs=expandtabs)
     assert spare >= 0
-    return [(word[4], round(word[0], 3)) for word in page.get_text("words")]
+    return [(word.text, round(word.bbox.x0, 3)) for word in page.words()]
 
 
 def test_insert_textbox_expands_tabs_to_one_column_by_default() -> None:

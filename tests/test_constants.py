@@ -65,7 +65,7 @@ def test_text_align_members_and_plain_integers_align_alike() -> None:
     def spare(align: int) -> list[tuple[float, ...]]:
         page = pylopdf.Document().pages.new()
         page.insert_textbox((20, 20, 300, 100), "centered", align=align)
-        return [tuple(round(value, 3) for value in word[:4]) for word in page.get_text("words")]
+        return [tuple(round(value, 3) for value in word.bbox) for word in page.words()]
 
     assert spare(pylopdf.TEXT_ALIGN_CENTER) == spare(1)
     assert spare(pylopdf.TEXT_ALIGN_CENTER) != spare(pylopdf.TEXT_ALIGN_LEFT)

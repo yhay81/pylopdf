@@ -162,7 +162,7 @@ def _assert_output(path: Path, kind: str) -> None:
         with pylopdf.open(path) as doc:
             if doc.needs_password:
                 doc.unlock("test-password")
-            assert "Hello PDF" in doc.get_text()
+            assert "Hello PDF" in doc.text()
 
 
 @pytest.mark.parametrize("policy", ["protected", "unprotected", "inherited"])

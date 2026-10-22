@@ -50,7 +50,7 @@ def test_show_pdf_page_returns_the_form_xref() -> None:
     assert target.pages[1].show_pdf_page((0, 0, 200, 100), source) == xref
     self_xref = target.pages[1].show_pdf_page((0, 100, 200, 200), target, 0)
     assert target.objects[self_xref]["Subtype"] == "Form"
-    assert "Stamp" in pylopdf.open(target.to_bytes()).pages[1].get_text()
+    assert "Stamp" in pylopdf.open(target.to_bytes()).pages[1].text()
 
 
 def test_base14_tables_match_pymupdf() -> None:
@@ -101,7 +101,7 @@ def test_full_standard_14_names_draw_like_their_aliases(fontname: str, base_font
 
     data = doc.to_bytes()
     assert f"/BaseFont/{base_font}".encode() in data
-    text = pylopdf.open(data).pages[0].get_text()
+    text = pylopdf.open(data).pages[0].text()
     assert all(word in text for word in ("Named", "Boxed", "Shaped"))
 
 

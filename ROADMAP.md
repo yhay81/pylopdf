@@ -351,8 +351,13 @@ the canvas.
   `Encryption(...)`, `unlock(password)` returning `Access`,
   `doc.needs_password` until unlocking, and `doc.permissions` as
   `Permissions` flags.
-- Still to come, each with its codemod rules: reading, rendering, document
-  properties, interaction, writing, and the constants and records.
+- Done: reading text. `page.text()`, `words()`, `layout()`, `search()`, and
+  `markdown()`, `doc.text()` and `doc.markdown()`, and the `Word`, `Layout`,
+  `Block`, `Line`, `Span`, and `Char` records, with `Layout.to_dict()` for
+  pymupdf's dictionary shape.
+- Still to come, each with its codemod rules: reading tables, OCR, drawings,
+  and images; rendering, document properties, interaction, writing, and the
+  constants and records.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs

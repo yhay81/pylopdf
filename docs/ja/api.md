@@ -86,8 +86,8 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 順序を逆にす�
 
 | メンバ | 用途 |
 |---|---|
-| `get_text(pages=None)` | 全ページ、または指定したページのプレーンテキストを1つの文字列で |
-| `to_markdown(pages=None, *, table_strategy="lines", max_size=64 MiB)` | 見出し、リスト、強調、段組みの読み順、CJKの縦書き、表を含むMarkdown |
+| `text(pages=None)` | 全ページ、または指定したページのプレーンテキストを1つの文字列で |
+| `markdown(pages=None, *, table_strategy="lines", max_size=64 MiB)` | 見出し、リスト、強調、段組みの読み順、CJKの縦書き、表を含むMarkdown |
 
 `table_strategy="lines"`は罫線で描かれた表を変換し、`"text"`は罫線のない表も、明確に揃っていれば変換します。`None`で表の変換を無効にします。
 
@@ -127,17 +127,19 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 順序を逆にす�
 
 | メンバ | 用途 |
 |---|---|
-| `get_text(option="text")` | `"text"`、`"words"`、`"blocks"`、`"dict"`、`"rawdict"` |
-| `search_for(text, *, max_hits=4096)` | 大文字小文字を区別しない検索。`Rect`のリストを返します |
+| `text()` | ページのテキストを読み順で |
+| `words()` | 読み順に並べた語を`Word`レコードで |
+| `layout(*, chars=False)` | ブロック、行、スパンを`Layout`で。[位置付きテキスト](#positioned-text)を参照 |
+| `search(text, *, max_hits=4096)` | 大文字小文字を区別しない検索。`Rect`のリストを返します |
 | `find_tables(*, clip=None, strategy=None)` | 表を`TableFinder`で。[表](#tables)を参照 |
-| `to_markdown(*, table_strategy="lines")` | このページのMarkdown |
+| `markdown(*, table_strategy="lines")` | このページのMarkdown |
 | `get_text_ocr(...)`, `apply_ocr(...)`, `insert_ocr_text_layer(words)` | OCR。[オフラインOCR](ocr.md)を参照 |
 | `content(*, clip=None, annotations=True)` | ページが描くすべてのテキストラン、パス、画像。[ページの内容](#content)を参照 |
 | `get_drawings()` | ベクタのパス。[ベクタ図形](#drawings)を参照 |
 | `get_links()` | リンクとそのリンク先 |
 | `get_label()` | `"iv"`のようなページラベル |
 
-`"words"`は`Word`タプル`(x0, y0, x1, y1, word, block, line, word_no)`を、`"blocks"`は`Block`タプルを、どちらもpymupdfと同じ順で返します。`"dict"`はブロック・行・スパンを、外接矩形・フォント・サイズ・スタイルフラグとともに返します。`"rawdict"`はさらに各グリフを加えます。[位置付きテキスト](#positioned-text)を参照してください。
+`Word`は`text`と`bbox`に加えて、ページのレイアウト内での位置を示す`block`、`line`、`index`を持ちます。それぞれ、属するブロックのインデックス、そのブロック内での行のインデックス、その行内での語のインデックスです。
 
 読み順は行と段組みに従い、右から左に書くテキストや、日本語・中国語の縦書きにも対応します。ルビ、割注、向きが混在するテキストは解釈しません。
 
@@ -189,27 +191,30 @@ pymupdfと同じく、ピクセルマップは既定で白地のRGB、`alpha=Tru
 
 ## 位置付きテキストとグリフ { #positioned-text }
 
-`page.get_text("rawdict")`は`"dict"`の構造を保ったまま、各スパンの`text`を`chars`のリストに置き換えます。
+`page.layout()`は、ページの`width`、`height`、`blocks`を持つ`Layout`を返します。各レコードは1つ下の階層を持ち、範囲はすべて表示空間で表します。
 
-| キー | 意味 |
+| レコード | フィールド |
 |---|---|
-| `c` | グリフ1つ分のテキスト。"fi"のような合字は両方の文字を保持します |
-| `bbox` | おおよその範囲`(x0, y0, x1, y1)` |
-| `origin` | グリフのベースラインの始点`(x, y)` |
+| `Block` | `text`、`bbox`、`lines` |
+| `Line` | `text`、`bbox`、`direction`（ベースラインの単位ベクトル）、`is_vertical`、`spans` |
+| `Span` | `text`、`bbox`、`origin`、`size`、`font`、`is_bold`、`is_italic`、`is_serif`、`is_monospaced`、`chars` |
+| `Char` | `text`、`bbox`、`origin` |
+
+`layout(chars=True)`は、各スパンの`chars`にそのグリフを入れます。`Char`はグリフ1つ分のテキストをすべて保持するため、"fi"のような合字は両方の文字を保持します。`origin`はグリフのベースラインの始点です。
 
 ```python
 with pylopdf.open("report.pdf") as doc:
-    layout = doc.pages[0].get_text("rawdict")
-    for block in layout["blocks"]:
-        for line in block["lines"]:
-            for span in line["spans"]:
-                for char in span["chars"]:
-                    print(char["c"], char["bbox"], char["origin"])
+    layout = doc.pages[0].layout(chars=True)
+    for block in layout.blocks:
+        for line in block.lines:
+            for span in line.spans:
+                for char in span.chars:
+                    print(char.text, char.bbox, char.origin)
 ```
 
-範囲はグリフの輪郭ではなく、ベースラインとフォントサイズから推定します。pylopdfが間隔から推測した空白は項目として追加しないため、`c`の値をつなげても`get_text()`と同じになるとは限りません。PDF内にUnicodeの対応がないグリフは、`PylopdfWarning`を出して読み飛ばします。
+範囲はグリフの輪郭ではなく、ベースラインとフォントサイズから推定します。pylopdfが間隔から推測した空白は文字として追加しないため、文字をつなげても`text()`と同じになるとは限りません。PDF内にUnicodeの対応がないグリフは、`PylopdfWarning`を出して読み飛ばします。
 
-構造は[pymupdfのrawdict](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs)に似ていますが、返すのはテキストブロックだけです。画像やベクタのブロック、色、不透明度、追加のフォントメトリクスは含みません。[オーバーレイの例](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)は、グリフの範囲と始点をHTMLのプレビューとして描きます。
+`layout.to_dict()`は、JSON向けのただの辞書を[pymupdfのdict（文字を含むレイアウトではrawdict）](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs)の形で返します。返すのはテキストブロックだけで、画像やベクタのブロック、色、不透明度、追加のフォントメトリクスは含みません。[オーバーレイの例](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)は、グリフの範囲と始点をHTMLのプレビューとして描きます。
 
 ## ページの内容 { #content }
 
@@ -341,7 +346,7 @@ Path("report.pdf").write_bytes(builder.to_bytes())
 
 `page.find_tables()`は、結合セルも含め、罫線で描かれた表を検出します。`strategy="text"`を指定すると、行と列が明確に揃っている罫線のない表も検出します。揃った段組みの文章が表に見えることがあるため、既定にはしていません。`clip=`は、矩形の中に完全に収まる表だけを残します。
 
-結果は`TableFinder`で、その`tables`は`Table`オブジェクトです。`Table`は`bbox`、`row_count`、`col_count`、`cells`、`extract()`（行ごとのセルのテキスト。結合セルに覆われたセルは`None`）、`to_markdown()`を持ちます。`Table.confidence`は候補を順位付けするための0–1のスコアで、確率ではありません。その根拠は`Table.diagnostics`で確認できます。
+結果は`TableFinder`で、その`tables`は`Table`オブジェクトです。`Table`は`bbox`、`row_count`、`col_count`、`cells`、`extract()`（行ごとのセルのテキスト。結合セルに覆われたセルは`None`）、`markdown()`を持ちます。`Table.confidence`は候補を順位付けするための0–1のスコアで、確率ではありません。その根拠は`Table.diagnostics`で確認できます。
 
 ## テキストとフォント { #fonts }
 
@@ -501,7 +506,7 @@ y軸は下向きなので、`Matrix(90)`は`(1, 0)`を`(0, 1)`に移します。
 ```python
 from pylopdf import Matrix
 
-hits = page.search_for("Total")
+hits = page.search("Total")
 area = hits[0] | hits[-1]                    # 最初と最後のヒットを覆う
 inside = [hit for hit in hits if hit in page.rect]
 box = area * Matrix(1, 0, 0, 1, 0, 20)        # 20ポイント下へ移動
@@ -555,7 +560,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 
 定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）、`AnnotFlags`（`PDF_ANNOT_IS_*`）です。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
 
-APIが返す辞書はただの`dict`で、型チェッカー向けに`TextPageDict`、`RawTextPageDict`、`DrawingInfo`、`ImageInfo`、`LinkInfo`、`FormFieldInfo`、`DocumentMetadata`、`OcrWord`などの`TypedDict`クラスで記述しています。`Word`、`Block`、`ImageItem`、`OutlineEntry`などのタプルは名前付きタプルです。
+テキストの結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`などの変更できないデータクラス（frozen dataclass）です。APIが返すそのほかの辞書はただの`dict`で、型チェッカー向けに`DrawingInfo`、`ImageInfo`、`LinkInfo`、`FormFieldInfo`、`DocumentMetadata`、`OcrWord`などの`TypedDict`クラスで記述しています。`ImageItem`と`OutlineEntry`は名前付きタプルです。
 
 ## 例外と警告 { #exceptions }
 

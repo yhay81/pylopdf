@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast, overload
 
+from pylopdf import _text
 from pylopdf._annots import _SUBTYPE_TYPES, Annot, AnnotType
 from pylopdf._canvas import Canvas
 from pylopdf._content import Content, _content_from_core
@@ -65,8 +66,8 @@ if TYPE_CHECKING:
 
     from pylopdf._document import Document
     from pylopdf._fonts import Font
+    from pylopdf._text import Layout, Word
     from pylopdf._types import (
-        Block,
         DrawingInfo,
         DrawingItem,
         FontLanguage,
@@ -75,9 +76,6 @@ if TYPE_CHECKING:
         OcrRotation,
         OcrWord,
         PageLabelInfo,
-        RawTextPageDict,
-        TextPageDict,
-        Word,
     )
 
 
@@ -386,43 +384,42 @@ class Page:
             raise ValueError(msg)
         self._document._doc.set_page_box(self._page_number(), "CropBox", *stored)
 
-    @overload
-    def get_text(self, option: Literal["text"] = "text") -> str: ...
-    @overload
-    def get_text(self, option: Literal["words"]) -> list[Word]: ...
-    @overload
-    def get_text(self, option: Literal["blocks"]) -> list[Block]: ...
-    @overload
-    def get_text(self, option: Literal["dict"]) -> TextPageDict: ...
-    @overload
-    def get_text(self, option: Literal["rawdict"]) -> RawTextPageDict: ...
-    def get_text(self, option: str = "text") -> str | list[Word] | list[Block] | TextPageDict | RawTextPageDict:
-        """Extract page text or positioned layout data.
+    def text(self) -> str:
+        """Return the page's text in reading order.
 
-        ``option`` uses pymupdf-style names without promising full compatibility:
-
-        - ``"text"``: plain text, the default.
-        - ``"words"``: ``(x0, y0, x1, y1, word, block, line, word index)``.
-        - ``"blocks"``: ``(x0, y0, x1, y1, text, block, 0)``.
-        - ``"dict"``: nested width, height, and blocks with lines and spans.
-        - ``"rawdict"``: the same text hierarchy with ``chars`` replacing span
-          ``text``; each item has ``c``, ``bbox``, and baseline ``origin``.
-
-        Coordinates are display points (1/72 inch at the default PDF UserUnit),
-        with a top-left origin, downward y, and page rotation/CropBox offsets
-        resolved. Bboxes use glyph advances and approximate baseline extents
-        from font-size ratios, not exact outlines. Reading order follows the
-        existing geometry and script heuristics rather than semantic document
-        order.
-
-        Raw entries preserve one glyph's complete Unicode mapping, including
-        ligatures with several characters; no positions are invented by
-        dividing span text. Inferred spaces have no raw entry. Unmapped glyphs
-        retain the existing skip/warning behavior. Output is text-only and
-        shares the existing text/glyph budgets and interpretation cache.
+        Reading order follows the geometry and script heuristics described in
+        the documentation rather than the document's semantic order. Spaces
+        between words are inferred from glyph positions, and lines end with a
+        newline.
         """
         self._page_number()
-        return self._document._page_text(self._pno, option)  # ty: ignore[no-matching-overload]
+        return self._document._page_text(self._pno)
+
+    def words(self) -> list[Word]:
+        """Return the page's words in reading order, as :class:`Word` records.
+
+        Boxes are in display space and come from glyph advances and the font
+        size rather than from glyph outlines.
+        """
+        width_height_blocks = self._document._page_layout(self._page_number())
+        return _text.build_words(width_height_blocks[2])
+
+    def layout(self, *, chars: bool = False) -> Layout:
+        """Return the page's text as blocks, lines, and spans, in reading order.
+
+        With ``chars=True``, every span also lists its glyphs as :class:`Char`
+        records: each keeps the glyph's complete Unicode mapping, ligatures
+        included, and inferred spaces have none. Boxes are in display space and
+        come from glyph advances and the font size rather than from glyph
+        outlines. :meth:`Layout.to_dict` serializes the result.
+        """
+        if not isinstance(chars, bool):
+            msg = f"chars must be True or False: {chars!r}"
+            raise TypeError(msg)
+        page_number = self._page_number()
+        if chars:
+            return _text.build_layout(*self._document._page_raw_layout(page_number))
+        return _text.build_layout(*self._document._page_layout(page_number))
 
     def get_text_ocr(  # noqa: PLR0913 - OCR resource controls are keyword-only.
         self,
@@ -487,15 +484,15 @@ class Page:
         clip_rect = None if clip is None else _validate_rect(clip, name="clip")
         if skip_existing:
             if clip_rect is None:
-                if self.get_text().strip():
+                if self.text().strip():
                     return []
             elif any(
-                word[4].strip()
-                and word[0] < clip_rect[2]
-                and word[2] > clip_rect[0]
-                and word[1] < clip_rect[3]
-                and word[3] > clip_rect[1]
-                for word in self.get_text("words")
+                word.text.strip()
+                and word.bbox.x0 < clip_rect[2]
+                and word.bbox.x1 > clip_rect[0]
+                and word.bbox.y0 < clip_rect[3]
+                and word.bbox.y1 > clip_rect[1]
+                for word in self.words()
             ):
                 return []
         words = self.get_text_ocr(
@@ -514,7 +511,7 @@ class Page:
             )
         return words
 
-    def to_markdown(
+    def markdown(
         self,
         *,
         table_strategy: Literal["lines", "text"] | None = "lines",
@@ -522,7 +519,7 @@ class Page:
     ) -> str:
         """Convert this page to Markdown.
 
-        This is the single-page form of :meth:`Document.to_markdown`; heading
+        This is the single-page form of :meth:`Document.markdown`; heading
         sizes are inferred from this page alone. Complete bordered tables are
         inserted by default; pass ``table_strategy="text"`` for conservative
         borderless candidates or ``None`` to disable table conversion.
@@ -530,13 +527,13 @@ class Page:
         explicitly opts out.
         """
         self._page_number()
-        return self._document.to_markdown(
+        return self._document.markdown(
             pages=[self._pno],
             table_strategy=table_strategy,
             max_size=max_size,
         )
 
-    def search_for(
+    def search(
         self,
         text: str,
         *,

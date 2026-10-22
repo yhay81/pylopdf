@@ -53,7 +53,7 @@ def test_open_options_are_keyword_only() -> None:
 def test_open_accepts_byte_buffers(wrap: type) -> None:
     doc = pylopdf.open(wrap(build_pdf(["Buffered"])))
 
-    assert doc.pages[0].get_text().strip() == "Buffered"
+    assert doc.pages[0].text().strip() == "Buffered"
 
 
 def test_open_rejects_other_sources() -> None:
@@ -87,7 +87,7 @@ def test_unlock_refuses_an_empty_owner_password_alone() -> None:
     with pytest.raises(pylopdf.PasswordError):
         doc.unlock("")
     assert doc.unlock("user") is pylopdf.Access.USER
-    assert doc.pages[0].get_text().strip() == "Locked"
+    assert doc.pages[0].text().strip() == "Locked"
 
 
 @pytest.mark.parametrize(

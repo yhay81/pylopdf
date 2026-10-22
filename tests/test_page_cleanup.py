@@ -82,7 +82,7 @@ def test_excluded_page_navigation_is_removed(operation: Literal["delete", "selec
             pylopdf.LINK_GOTO,
         ]
         assert current.get_outline() == [(2, "Retained child", target), (1, "Retained", target)]
-        assert _EXCLUDED_TEXT not in current.get_text()
+        assert _EXCLUDED_TEXT not in current.text()
 
 
 @pytest.mark.parametrize("indirect_annots", [False, True])
@@ -305,4 +305,4 @@ def test_cleanup_reads_null_navigation_roots_as_absent(operation: Literal["delet
     assert _EXCLUDED_TEXT.encode() not in saved
     for current in (doc, pylopdf.open(saved)):
         assert len(current.pages) == 1
-        assert current.pages[0].get_text().split() == ["Retained", "page"]
+        assert current.pages[0].text().split() == ["Retained", "page"]

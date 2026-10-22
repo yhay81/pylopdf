@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import get_type_hints, is_typeddict
+from typing import Any, get_type_hints, is_typeddict
 
 from conftest import build_pdf
 
@@ -28,10 +28,10 @@ def test_public_type_contracts_are_runtime_importable() -> None:
         "OcrWord",
         "PageLabelInfo",
         "PageLabelSpec",
-        "TextBlock",
-        "TextLine",
-        "TextPageDict",
-        "TextSpan",
+        "Char",
+        "Layout",
+        "Line",
+        "Span",
         "Word",
     }
     assert names <= set(pylopdf.__all__)
@@ -61,10 +61,6 @@ def test_typed_dict_required_and_optional_keys() -> None:
         pylopdf.OcrWord,
         pylopdf.PageLabelInfo,
         pylopdf.PageLabelSpec,
-        pylopdf.TextBlock,
-        pylopdf.TextLine,
-        pylopdf.TextPageDict,
-        pylopdf.TextSpan,
     )
     assert all(is_typeddict(contract) for contract in typed_dicts)
     assert pylopdf.LinkInfo.__required_keys__ == frozenset({"kind", "from", "xref", "id"})
@@ -78,7 +74,7 @@ def test_typed_dict_required_and_optional_keys() -> None:
 
 def test_public_return_annotations_describe_real_values() -> None:
     doc = pylopdf.open(build_pdf(["Typed layout"]))
-    layout: pylopdf.TextPageDict = doc.pages[0].get_text("dict")
+    layout: dict[str, Any] = doc.pages[0].layout().to_dict()
     metadata: pylopdf.DocumentMetadata = doc.metadata
     complexity: pylopdf.DocumentComplexity = doc.complexity
     labels: list[pylopdf.PageLabelInfo] = doc.get_page_labels()

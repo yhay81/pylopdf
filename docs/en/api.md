@@ -120,8 +120,8 @@ it is not secure redaction.
 
 | Member | Purpose |
 |---|---|
-| `get_text(pages=None)` | Plain text of every page, or of the listed pages, as one string |
-| `to_markdown(pages=None, *, table_strategy="lines", max_size=64 MiB)` | Markdown with headings, lists, emphasis, multi-column order, vertical CJK, and tables |
+| `text(pages=None)` | Plain text of every page, or of the listed pages, as one string |
+| `markdown(pages=None, *, table_strategy="lines", max_size=64 MiB)` | Markdown with headings, lists, emphasis, multi-column order, vertical CJK, and tables |
 
 `table_strategy="lines"` converts tables drawn with ruling lines,
 `"text"` also converts borderless tables that are clearly aligned, and `None`
@@ -172,21 +172,21 @@ no page was added, deleted, or reordered in between.
 
 | Member | Purpose |
 |---|---|
-| `get_text(option="text")` | `"text"`, `"words"`, `"blocks"`, `"dict"`, or `"rawdict"` |
-| `search_for(text, *, max_hits=4096)` | Case-insensitive search; returns a list of `Rect` |
+| `text()` | The page's text in reading order |
+| `words()` | The words in reading order, as `Word` records |
+| `layout(*, chars=False)` | Blocks, lines, and spans as a `Layout`; see [Positioned text](#positioned-text) |
+| `search(text, *, max_hits=4096)` | Case-insensitive search; returns a list of `Rect` |
 | `find_tables(*, clip=None, strategy=None)` | Tables as a `TableFinder`; see [Tables](#tables) |
-| `to_markdown(*, table_strategy="lines")` | Markdown for this page |
+| `markdown(*, table_strategy="lines")` | Markdown for this page |
 | `get_text_ocr(...)`, `apply_ocr(...)`, `insert_ocr_text_layer(words)` | OCR; see [Offline OCR](ocr.md) |
 | `content(*, clip=None, annotations=True)` | Every text run, path, and image the page paints; see [Page content](#content) |
 | `get_drawings()` | Vector paths; see [Vector drawings](#drawings) |
 | `get_links()` | Links with their targets |
 | `get_label()` | The page label, such as `"iv"` |
 
-`"words"` returns `Word` tuples `(x0, y0, x1, y1, word, block, line, word_no)`
-and `"blocks"` returns `Block` tuples, both in pymupdf's order. `"dict"`
-returns blocks, lines, and spans with their bounding boxes, font, size, and
-style flags. `"rawdict"` adds each glyph; see
-[Positioned text](#positioned-text).
+A `Word` has `text`, `bbox`, and `block`, `line`, and `index`, which locate
+it in the page's layout: the indexes of its block, of its line in that block,
+and of the word in that line.
 
 Reading order follows lines and columns, including right-to-left text and
 vertical Japanese and Chinese. Ruby, warichu, and text in mixed orientations
@@ -243,34 +243,40 @@ constants.
 
 ## Positioned text and glyphs { #positioned-text }
 
-`page.get_text("rawdict")` keeps the `"dict"` structure but replaces each
-span's `text` with a `chars` list:
+`page.layout()` returns a `Layout` with the page's `width`, `height`, and
+`blocks`. Each record holds the next level down, and every box is in display
+space:
 
-| Key | Meaning |
+| Record | Fields |
 |---|---|
-| `c` | The text of one glyph; a ligature such as "fi" keeps both letters |
-| `bbox` | Approximate bounds `(x0, y0, x1, y1)` |
-| `origin` | Where the glyph's baseline starts, `(x, y)` |
+| `Block` | `text`, `bbox`, `lines` |
+| `Line` | `text`, `bbox`, `direction` (the baseline's unit vector), `is_vertical`, `spans` |
+| `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `chars` |
+| `Char` | `text`, `bbox`, `origin` |
+
+`layout(chars=True)` fills each span's `chars` with its glyphs. A `Char`
+keeps the complete text of one glyph, so a ligature such as "fi" keeps both
+letters, and its `origin` is where the glyph's baseline starts.
 
 ```python
 with pylopdf.open("report.pdf") as doc:
-    layout = doc.pages[0].get_text("rawdict")
-    for block in layout["blocks"]:
-        for line in block["lines"]:
-            for span in line["spans"]:
-                for char in span["chars"]:
-                    print(char["c"], char["bbox"], char["origin"])
+    layout = doc.pages[0].layout(chars=True)
+    for block in layout.blocks:
+        for line in block.lines:
+            for span in line.spans:
+                for char in span.chars:
+                    print(char.text, char.bbox, char.origin)
 ```
 
 Bounds are estimated from the baseline and font size, not from the glyph
-outlines. Spaces that pylopdf infers from gaps are not added as entries, so
-joining the `c` values does not always reproduce `get_text()`. Glyphs that have
-no Unicode mapping in the PDF are skipped with a `PylopdfWarning`.
+outlines. Spaces that pylopdf infers from gaps are not added as characters, so
+joining the characters does not always reproduce `text()`. Glyphs that have no
+Unicode mapping in the PDF are skipped with a `PylopdfWarning`.
 
-The structure resembles
-[pymupdf's rawdict](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs)
-but returns text blocks only, without image or vector blocks and without
-color, opacity, or extra font metrics. The
+`layout.to_dict()` returns plain dictionaries for JSON, in the shape of
+[pymupdf's dict, or its rawdict for a layout with characters](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs),
+with text blocks only, without image or vector blocks and without color,
+opacity, or extra font metrics. The
 [overlay example](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)
 draws glyph bounds and origins as an HTML preview.
 
@@ -479,7 +485,7 @@ can look like a table. `clip=` keeps only tables entirely inside a rectangle.
 
 The result is a `TableFinder`; its `tables` are `Table` objects with `bbox`,
 `row_count`, `col_count`, `cells`, `extract()` (cell text by row, `None` for
-the cells a merged cell covers), and `to_markdown()`. `Table.confidence` is a
+the cells a merged cell covers), and `markdown()`. `Table.confidence` is a
 0–1 score for ranking candidates, not a probability, and
 `Table.diagnostics` explains it.
 
@@ -706,7 +712,7 @@ such as a rotated rectangle; `rect.quad` and `quad.rect` convert between them.
 ```python
 from pylopdf import Matrix
 
-hits = page.search_for("Total")
+hits = page.search("Total")
 area = hits[0] | hits[-1]                    # covers the first and last hit
 inside = [hit for hit in hits if hit in page.rect]
 box = area * Matrix(1, 0, 0, 1, 0, 20)        # moved 20 points down
@@ -768,11 +774,11 @@ Constants keep pymupdf's names and are also grouped in enums:
 are `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`,
 `ShadingType`, `SoftMaskType`, and `ImageMask`.
 
-Dictionaries returned by the API are plain `dict` objects, described for type
-checkers by `TypedDict` classes such as `TextPageDict`, `RawTextPageDict`,
+Text results are records: frozen dataclasses such as `Word`, `Block`, `Line`,
+`Span`, `Char`, and `Layout`. Other dictionaries returned by the API are plain
+`dict` objects, described for type checkers by `TypedDict` classes such as
 `DrawingInfo`, `ImageInfo`, `LinkInfo`, `FormFieldInfo`, `DocumentMetadata`,
-and `OcrWord`. Tuples such as `Word`, `Block`, `ImageItem`, and `OutlineEntry`
-are named tuples.
+and `OcrWord`, and `ImageItem` and `OutlineEntry` are named tuples.
 
 ## Exceptions and warnings { #exceptions }
 

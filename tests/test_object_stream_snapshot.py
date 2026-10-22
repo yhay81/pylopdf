@@ -122,7 +122,7 @@ def _object_stream_pdf(  # noqa: PLR0913 - each keyword shapes one part of the f
 def _source(data: bytes, **kwargs: object) -> str:
     """Open `data`, extract the first page, and report which input hayro parsed."""
     doc = pylopdf.open(data, **kwargs)  # ty: ignore[invalid-argument-type]
-    doc.get_text(pages=[0])
+    doc.text(pages=[0])
     return doc._doc.snapshot_source()  # noqa: SLF001
 
 
@@ -153,19 +153,19 @@ def test_a_file_larger_than_the_rebuilt_tables_keeps_the_original_bytes() -> Non
 def test_nothing_is_read_before_the_first_interpretation_and_after_an_edit() -> None:
     doc = pylopdf.open(_object_stream_pdf(THRESHOLD, annotations=20))
     assert doc._doc.snapshot_source() == "none"  # noqa: SLF001
-    doc.get_text(pages=[0])
+    doc.text(pages=[0])
     assert doc._doc.snapshot_source() == "serialized"  # noqa: SLF001
     doc.set_metadata({"title": "Edited"})
     assert doc._doc.snapshot_source() == "none"  # noqa: SLF001
-    doc.get_text(pages=[0])
+    doc.text(pages=[0])
     assert doc._doc.snapshot_source() == "serialized"  # noqa: SLF001
 
 
 def _views(doc: pylopdf.Document) -> tuple[str, str, str, str]:
     page = doc.pages[0]
     return (
-        doc.get_text(),
-        repr(page.get_text("words")),
+        doc.text(),
+        repr(page.words()),
         hashlib.sha256(page.get_pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).samples).hexdigest(),
         repr(page.get_drawings()),
     )
@@ -178,7 +178,7 @@ def test_the_serialized_graph_gives_the_views_of_the_original_bytes() -> None:
     assert _views(original) == _views(serialized)
     assert original._doc.snapshot_source() == "original"  # noqa: SLF001
     assert serialized._doc.snapshot_source() == "serialized"  # noqa: SLF001
-    assert "Hello" in serialized.get_text()
+    assert "Hello" in serialized.text()
 
 
 def test_the_original_bytes_remain_when_the_serialization_exceeds_the_interpretation_limit() -> None:
@@ -193,7 +193,7 @@ def test_a_page_of_thousands_of_annotations_in_one_container_is_not_quadratic() 
     """Rebuilding the member table for every annotation took 4 s here, for hayro and again for the content guard."""
     doc = pylopdf.open(_object_stream_pdf(12_000, annotations=12_000, appearance=True))
     started = time.perf_counter()
-    doc.get_text(pages=[0])
+    doc.text(pages=[0])
     assert time.perf_counter() - started < 2
     assert doc._doc.snapshot_source() == "serialized"  # noqa: SLF001
 
@@ -207,7 +207,7 @@ def test_the_content_guard_reads_every_annotation_from_the_serialized_graph() ->
     doc = pylopdf.open(_object_stream_pdf(12_000, annotations=12_000, appearance=True, poison_last=True))
     started = time.perf_counter()
     with pytest.raises(pylopdf.LimitError) as refusal:
-        doc.get_text(pages=[0])
+        doc.text(pages=[0])
     assert time.perf_counter() - started < 1
     assert refusal.value.code == "content_nesting_depth"
     assert doc._doc.snapshot_source() == "serialized"  # noqa: SLF001

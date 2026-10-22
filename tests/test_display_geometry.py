@@ -92,7 +92,7 @@ def _page(name: str, rotation: int) -> pylopdf.Page:
 def _origins(page: pylopdf.Page, text: str) -> list[tuple[float, float]]:
     return [
         span["origin"]
-        for block in page.get_text("dict")["blocks"]
+        for block in page.layout().to_dict()["blocks"]
         for line in block["lines"]
         for span in line["spans"]
         if span["text"] == text
@@ -100,7 +100,7 @@ def _origins(page: pylopdf.Page, text: str) -> list[tuple[float, float]]:
 
 
 def _words(page: pylopdf.Page, text: str) -> list[tuple[float, float, float, float]]:
-    return [tuple(word[:4]) for word in page.get_text("words") if word[4] == text]
+    return [tuple(word.bbox) for word in page.words() if word.text == text]
 
 
 def _contains(outer: tuple[float, ...], inner: tuple[float, ...]) -> bool:
@@ -134,7 +134,7 @@ def test_page_rect_is_the_page_that_rendering_and_extraction_display(name: str, 
     # hayro truncates the page size to whole pixels.
     pixmap = page.get_pixmap(dpi=72, alpha=True)
     assert (pixmap.width, pixmap.height) == (int(width), int(height))
-    layout = page.get_text("dict")
+    layout = page.layout().to_dict()
     assert (layout["width"], layout["height"]) == pytest.approx((width, height), abs=1e-3)
     # The box that the expectations derive from is the one that hayro shows.
     assert _origins(page, "Hello") == [pytest.approx(_display_point(name, rotation, *PAGES[name][2]), abs=1e-3)]
@@ -160,7 +160,7 @@ def test_text_drawn_at_a_display_point_is_extracted_there(name: str, rotation: i
         point = (40.0, 40.0 + pylopdf.Font("helv").ascender * 12)
     else:
         page.insert_ocr_text_layer([(40.0, 40.0, 100.0, 52.0, "Probe")])
-        assert page.search_for("Probe") == [pytest.approx((40.0, 40.0, 100.0, 52.0), abs=0.1)]
+        assert page.search("Probe") == [pytest.approx((40.0, 40.0, 100.0, 52.0), abs=0.1)]
         return
 
     assert _origins(page, "Probe") == [pytest.approx(point, abs=1e-3)]

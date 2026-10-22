@@ -150,7 +150,7 @@ def _expected_text(case: OcrCase, document: pylopdf.Document) -> str:
     """Read manual ground truth or retain embedded text independently."""
     if case.ground_truth is not None:
         return case.ground_truth.read_text(encoding="utf-8")
-    return "\n".join(page.get_text() for page in document)
+    return "\n".join(page.text() for page in document.pages)
 
 
 def _recognize_case(
@@ -168,7 +168,7 @@ def _recognize_case(
                 overlap=controls.overlap,
                 min_confidence=controls.min_confidence,
             )
-            for page in document
+            for page in document.pages
         ]
     words = [word for page_words in page_results for word in page_words]
     return len(words), "\n".join(word["text"] for word in words)

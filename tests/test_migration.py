@@ -90,7 +90,7 @@ def test_pylopdf_015_names_raise_hinted_attribute_errors() -> None:
         _ = pylopdf.peek_metadata  # ty: ignore[unresolved-attribute]
     with pytest.raises(AttributeError, match=r"Page\.render is Page\.get_pixmap in pylopdf"):
         _ = pylopdf.Document().pages.new().render  # ty: ignore[unresolved-attribute]
-    with pytest.raises(AttributeError, match=r"pylopdf 0\.15's TextPage is TextPageDict"):
+    with pytest.raises(AttributeError, match=r"pylopdf 0\.15's TextPage is Layout"):
         _ = pylopdf.TextPage  # ty: ignore[unresolved-attribute]
 
 
@@ -190,7 +190,7 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ("import fitz\ndoc.select([2, 0])\n", "doc.pages.select([2, 0])"),
         ("import fitz\nfor page in doc.pages(1, 5):\n    pass\n", "for page in doc.pages[1:5]:"),
         ("import fitz\nlabels = doc.get_page_numbers('iv', only_one=True)\n", "labels = doc.pages.labeled('iv')[:1]"),
-        ("import fitz\ntext = doc.get_page_text(2, 'words')\n", "text = doc.pages[2].get_text('words')"),
+        ("import fitz\nlayout = doc.get_page_text(2, 'dict')\n", "layout = doc.pages[2].layout().to_dict()"),
         ("import fitz\nxref = doc.page_xref(0)\n", "xref = doc.pages[0].xref"),
         ("import fitz\ntry:\n    pass\nexcept fitz.FileDataError:\n    pass\n", "except pylopdf.MalformedPdfError:"),
         ("import fitz\nnames = doc.embfile_names()\n", "names = list(doc.attachments)"),
@@ -232,6 +232,29 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ("import fitz\ndoc = fitz.open()\ndata = doc.write()\n", "data = doc.to_bytes()"),
         ("import fitz\ndoc.authenticate(password)\n", "doc.unlock(password)"),
         ("import fitz\nlocked = doc.is_encrypted\n", "locked = doc.needs_password"),
+        ("import fitz\ntext = page.get_text()\n", "text = page.text()"),
+        ("import fitz\ntext = page.get_text('text', sort=True)\n", "text = page.text()"),
+        ("import fitz\nlayout = page.get_text('dict')\n", "layout = page.layout().to_dict()"),
+        ("import fitz\nlayout = page.get_text(option='rawdict')\n", "layout = page.layout(chars=True).to_dict()"),
+        ("import fitz\nhits = page.search_for('total', hit_max=10)\n", "hits = page.search('total', max_hits=10)"),
+        ("import fitz\ntext = doc.get_page_text(2)\n", "text = doc.pages[2].text()"),
+        ("import fitz\nwords = [w[4] for w in page.get_text('words')]\n", "words = [w.text for w in page.words()]"),
+        (
+            "import fitz\nfor w in page.get_text('words'):\n    print(w[:4], w[7])\n",
+            "for w in page.words():\n    print(w.bbox, w.index)",
+        ),
+        (
+            "import fitz\nnames = {w for x0, y0, x1, y1, w, *_ in page.get_text('words') if x0 > 10}\n",
+            "names = {word.text for word in page.words() if word.bbox.x0 > 10}",
+        ),
+        (
+            "import fitz\ntexts = [b[4] for b in page.get_text('blocks')]\n",
+            "texts = [b.text for b in page.layout().blocks]",
+        ),
+        (
+            "import fitz\nfor x0, y0, x1, y1, word, *_ in page.get_text('words'):\n    print(word, x0)\n",
+            "for item in page.words():\n    print(item.text, item.bbox.x0)",
+        ),
     ],
 )
 def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> None:
@@ -268,6 +291,12 @@ def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> N
             "import pylopdf\ndoc = pylopdf.open(path)\ndata = doc.tobytes(max_size=None)\n",
             "data = doc.to_bytes(max_size=None)",
         ),
+        ("import pylopdf\ndoc = pylopdf.open(path)\ntext = doc.get_text([0, 1])\n", "text = doc.text([0, 1])"),
+        (
+            "import pylopdf\nmd = doc.to_markdown(pages=[0], table_strategy=None)\n",
+            "md = doc.markdown(pages=[0], table_strategy=None)",
+        ),
+        ("import pylopdf\nhits = page.search_for(text='a', max_hits=None)\n", "hits = page.search('a', max_hits=None)"),
     ],
 )
 def test_codemod_migrates_pylopdf_015_programs(migrate_source: Migrate, source: str, expected: str) -> None:
@@ -367,6 +396,7 @@ def test_codemod_marks_probe_results_for_review(migrate_source: Migrate) -> None
         "import pylopdf\ndoc.save(path, encryption=pylopdf.Encryption(user_password='u'))\n",
         "import pylopdf\ndoc.save(path, encryption=None)\ndata = pixmap.tobytes(max_size=None)\n",
         "import pylopdf\npages = doc.pages\npages.select([0])\n",
+        "import pylopdf\ntext = page.text()\nmd = doc.markdown()\nhits = page.search('a')\n",
     ],
 )
 def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, source: str) -> None:
@@ -390,6 +420,15 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import fitz\ndoc.save(path, encryption=method)\n", "encryption=Encryption("),
         ("import fitz\ndata = doc.tobytes(encryption=method)\n", "encryption=Encryption("),
         ("import fitz\nif not doc.authenticate(password):\n    pass\n", "raises PasswordError for a wrong password"),
+        ("import fitz\nwords = page.get_text('words')\n", "Word records with text, bbox, block, line, and index"),
+        ("import fitz\nblocks = page.get_text('blocks')\n", "Block records with text, bbox, and lines"),
+        (
+            "import fitz\nnumbers = [b[5] for b in page.get_text('blocks')]\n",
+            "Block records with text, bbox, and lines",
+        ),
+        ("import fitz\nfor w in page.get_text('words'):\n    print(w)\n", "Word records with text, bbox, block"),
+        ("import fitz\nhtml = page.get_text('html')\n", "Page.get_text is Page.text in pylopdf"),
+        ("import fitz\nhits = page.search_for('a', quads=True)\n", "Page.search_for is Page.search in pylopdf"),
     ],
 )
 def test_codemod_marks_what_it_cannot_rewrite(migrate_source: Migrate, source: str, hint: str) -> None:

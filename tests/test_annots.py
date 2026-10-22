@@ -45,7 +45,7 @@ def _has_dominant_color(pixels: list[tuple[int, int, int]], channel: int) -> boo
 def test_search_and_highlight() -> None:
     doc = pylopdf.open(build_pdf(["Hello PDF"]))
     page = doc.pages[0]
-    hits = page.search_for("Hello")
+    hits = page.search("Hello")
     assert hits
     page.add_highlight_annot(hits)
 
@@ -65,7 +65,7 @@ def test_search_and_highlight() -> None:
 
 def test_highlight_survives_save_roundtrip() -> None:
     doc = pylopdf.open(build_pdf(["Hello PDF"]))
-    hits = doc.pages[0].search_for("PDF")
+    hits = doc.pages[0].search("PDF")
     doc.pages[0].add_highlight_annot(hits, content="review note")
     reopened = pylopdf.open(doc.to_bytes())
     annots = reopened.pages[0].annots()
@@ -246,7 +246,7 @@ def test_missing_text_markup_segment_budget_is_atomic() -> None:
 def test_insert_link_reads_back() -> None:
     doc = pylopdf.open(build_pdf(["Visit example"]))
     page = doc.pages[0]
-    hits = page.search_for("example")
+    hits = page.search("example")
     page.insert_link({"kind": pylopdf.LINK_URI, "from": hits[0], "uri": "https://example.com/"})
     reopened = pylopdf.open(doc.to_bytes())
     annots = reopened.pages[0].annots()

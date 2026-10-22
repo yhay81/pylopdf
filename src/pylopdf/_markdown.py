@@ -25,7 +25,8 @@ from collections import Counter
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from pylopdf import TextLine, TextPageDict, TextSpan, Word
+    from pylopdf._text import TextLine, TextPageDict, TextSpan
+    from pylopdf._text import TextWord as Word
 
 _BBox = tuple[float, float, float, float]
 _MarkdownTable = tuple[_BBox, str]

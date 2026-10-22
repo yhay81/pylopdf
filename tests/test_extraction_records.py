@@ -1,6 +1,9 @@
-"""pymupdf's extraction record shapes: words, blocks, drawings, and links."""
+"""Extraction records: words, the layout, drawings, and links."""
 
 from __future__ import annotations
+
+import dataclasses
+import json
 
 import pytest
 from conftest import build_pdf, build_raw_pdf
@@ -8,45 +11,55 @@ from conftest import build_pdf, build_raw_pdf
 import pylopdf
 
 
-def test_words_are_word_named_tuples_in_pymupdf_order() -> None:
+def test_words_are_word_records() -> None:
     page = pylopdf.open(build_pdf(["Hello world"])).pages[0]
 
-    words = page.get_text("words")
+    words = page.words()
 
-    assert [word.word for word in words] == ["Hello", "world"]
+    assert [word.text for word in words] == ["Hello", "world"]
     first = words[0]
     assert isinstance(first, pylopdf.Word)
-    assert isinstance(first, tuple)
-    assert len(first) == 8
-    x0, y0, x1, y1, text, block_no, line_no, word_no = first
-    assert (text, block_no, line_no, word_no) == ("Hello", 0, 0, 0)
-    assert (first.x0, first.y0, first.x1, first.y1) == (x0, y0, x1, y1)
-    assert words[1].word_no == 1
-    assert pylopdf.Word._fields == ("x0", "y0", "x1", "y1", "word", "block_no", "line_no", "word_no")
+    assert not isinstance(first, tuple)
+    assert (first.block, first.line, first.index) == (0, 0, 0)
+    assert words[1].index == 1
+    assert isinstance(first.bbox, pylopdf.Rect)
+    assert first.bbox.x0 < first.bbox.x1 < words[1].bbox.x0
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        first.text = "Changed"  # ty: ignore[invalid-assignment]
 
 
-def test_blocks_are_block_named_tuples_in_pymupdf_order() -> None:
-    doc = pylopdf.open(build_pdf(["Hello world"]))
+def test_layout_records_nest_blocks_lines_spans_and_chars() -> None:
+    page = pylopdf.open(build_pdf(["Hello world"])).pages[0]
 
-    (block,) = doc.pages[0].get_text("blocks")
+    (block,) = page.layout().blocks
+    (line,) = block.lines
 
     assert isinstance(block, pylopdf.Block)
-    assert len(block) == 7
-    assert block.text == "Hello world"
-    assert (block.block_no, block.block_type) == (0, 0)
-    assert pylopdf.Block._fields == ("x0", "y0", "x1", "y1", "text", "block_no", "block_type")
+    assert block.text == line.text == "Hello world"
+    assert line.direction == pylopdf.Point(1, 0)
+    assert not line.is_vertical
+    assert "".join(span.text for span in line.spans).replace(" ", "") == "Helloworld"
+    assert all(span.chars == () for span in line.spans)
+    chars = [char for span in page.layout(chars=True).blocks[0].lines[0].spans for char in span.chars]
+    assert "".join(char.text for char in chars) == "Hello world"
+    assert all(isinstance(char, pylopdf.Char) for char in chars)
 
 
-def test_dict_layouts_keep_their_typed_dict_names() -> None:
+def test_layout_dictionaries_keep_pymupdfs_shape() -> None:
     page = pylopdf.open(build_pdf(["Hello"])).pages[0]
 
-    assert isinstance(page.get_text("dict"), dict)
-    assert pylopdf.TextPageDict.__name__ == "TextPageDict"
-    assert pylopdf.RawTextPageDict.__name__ == "RawTextPageDict"
-    # The name TextPage stays free for a text page handle.
-    assert not hasattr(pylopdf, "TextPage")
-    assert not hasattr(pylopdf, "WordEntry")
-    assert not hasattr(pylopdf, "BlockEntry")
+    layout = page.layout().to_dict()
+    raw = page.layout(chars=True).to_dict()
+
+    span = layout["blocks"][0]["lines"][0]["spans"][0]
+    raw_span = raw["blocks"][0]["lines"][0]["spans"][0]
+    assert set(span) == {"bbox", "origin", "size", "font", "flags", "text"}
+    assert set(raw_span) == {"bbox", "origin", "size", "font", "flags", "chars"}
+    assert set(raw_span["chars"][0]) == {"c", "bbox", "origin"}
+    assert json.loads(json.dumps(raw))["blocks"][0]["number"] == 0
+    # The names of pylopdf 0.15's records stay free.
+    for name in ("TextPage", "TextPageDict", "RawTextPageDict", "WordEntry", "BlockEntry"):
+        assert not hasattr(pylopdf, name)
 
 
 def _drawing_page() -> pylopdf.Page:

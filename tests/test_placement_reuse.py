@@ -213,7 +213,7 @@ def test_repeated_page_placement_imports_one_form() -> None:
         page = doc.pages.new()
         page.show_pdf_page(page.rect, source, 0)
         # Reading the source is no edit, so the next placement still shares.
-        source.pages[0].get_text()
+        source.pages[0].text()
 
     single = _saved(reference)
     repeated = _saved(doc)

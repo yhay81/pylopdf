@@ -188,7 +188,7 @@ def test_find_bordered_table() -> None:
     assert table.confidence == 1.0
     assert table.diagnostics == pylopdf.TableDiagnostics("lines", 1.0, None, None, None)
     assert table.extract() == [["Name", "Value"], ["Alpha", "42"]]
-    assert table.to_markdown() == "| Name | Value |\n| --- | --- |\n| Alpha | 42 |"
+    assert table.markdown() == "| Name | Value |\n| --- | --- |\n| Alpha | 42 |"
 
 
 @pytest.mark.parametrize(
@@ -218,8 +218,8 @@ def test_bordered_table_restores_rtl_cell_text(hebrew_visual: str, expected: str
     table = page.find_tables()[0]
 
     assert table.extract() == [["Name", "Value"], [expected, "42"]]
-    assert expected in table.to_markdown()
-    assert expected in page.document.to_markdown()
+    assert expected in table.markdown()
+    assert expected in page.document.markdown()
 
 
 @pytest.mark.parametrize(
@@ -261,12 +261,12 @@ def test_table_markdown_preflights_escaped_utf8_output() -> None:
         [0, 1, 2, 3],
         source.diagnostics,
     )
-    expected = table.to_markdown(max_size=None)
+    expected = table.markdown(max_size=None)
     exact_size = len(expected.encode())
 
-    assert table.to_markdown(max_size=exact_size) == expected
+    assert table.markdown(max_size=exact_size) == expected
     with pytest.raises(pylopdf.LimitError) as caught:
-        table.to_markdown(max_size=exact_size - 1)
+        table.markdown(max_size=exact_size - 1)
     assert caught.value.code == "markdown_output_size"
 
 
@@ -275,7 +275,7 @@ def test_table_markdown_validates_output_limit(max_size: object) -> None:
     table = pylopdf.open(_bordered_table_pdf()).pages[0].find_tables()[0]
 
     with pytest.raises((TypeError, ValueError), match="max_size"):
-        table.to_markdown(max_size=max_size)  # ty: ignore[invalid-argument-type]
+        table.markdown(max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 def test_document_preflights_table_before_page_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -286,7 +286,7 @@ def test_document_preflights_table_before_page_markdown(monkeypatch: pytest.Monk
 
     monkeypatch.setattr("pylopdf._markdown.page_to_markdown", fail_page_render)
     with pytest.raises(pylopdf.LimitError) as caught:
-        document.to_markdown(max_size=16)
+        document.markdown(max_size=16)
     assert caught.value.code == "markdown_output_size"
 
 
@@ -346,12 +346,12 @@ def test_rectangular_merged_cell_is_reconstructed() -> None:
     assert table.cells[0] == pytest.approx(pylopdf.Rect(40, 40, 300, 80))
     assert table.cells[1] is None
     assert table.extract() == [["Name Value", None], ["Alpha", "42"]]
-    assert table.to_markdown() == ("| Name Value | Name Value |\n| --- | --- |\n| Alpha | 42 |")
-    assert table.to_markdown(fill_empty=False) == ("| Name Value |  |\n| --- | --- |\n| Alpha | 42 |")
-    filled = table.to_markdown(max_size=None)
-    assert table.to_markdown(max_size=len(filled.encode())) == filled
+    assert table.markdown() == ("| Name Value | Name Value |\n| --- | --- |\n| Alpha | 42 |")
+    assert table.markdown(fill_empty=False) == ("| Name Value |  |\n| --- | --- |\n| Alpha | 42 |")
+    filled = table.markdown(max_size=None)
+    assert table.markdown(max_size=len(filled.encode())) == filled
     with pytest.raises(pylopdf.LimitError, match="Markdown output exceeds"):
-        table.to_markdown(max_size=len(filled.encode()) - 1)
+        table.markdown(max_size=len(filled.encode()) - 1)
 
 
 def test_broken_outer_grid_is_not_reported_as_a_table() -> None:
@@ -389,7 +389,7 @@ def test_sparse_row_grid_infers_repeated_records(rotation: int) -> None:
     assert (table.row_count, table.col_count) == physical_shape
     assert table.confidence == 0.95
 
-    markdown = document.to_markdown()
+    markdown = document.markdown()
     assert "| Name | Qty | Total |" in markdown
     assert "| Item1 | 1 | 10 |" in markdown
     assert "| Item5 | 5 | 50 |" in markdown

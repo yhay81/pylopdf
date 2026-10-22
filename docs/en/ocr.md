@@ -6,8 +6,8 @@ description: Recognize text in scanned PDFs locally with pylopdf's built-in OCR 
 # Offline OCR
 
 pylopdf can recognize text in scanned pages and add it as an invisible text
-layer, which makes the PDF searchable and lets `get_text()` and
-`to_markdown()` read it. Install the model package:
+layer, which makes the PDF searchable and lets `text()` and `markdown()`
+read it. Install the model package:
 
 ```bash
 pip install "pylopdf[ocr]"

@@ -14,6 +14,6 @@ locked.unlock("user")
 assert not locked.needs_password
 assert locked.permissions & pylopdf.PDF_PERM_PRINT
 assert not locked.permissions & pylopdf.PDF_PERM_COPY
-assert locked.pages[0].get_text().strip() == "Secret"
+assert locked.pages[0].text().strip() == "Secret"
 locked.save("encryption-copy.pdf")
 print("encryption ok")

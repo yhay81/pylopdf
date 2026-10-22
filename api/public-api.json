@@ -17,6 +17,7 @@
     "CS_GRAY",
     "CS_RGB",
     "Canvas",
+    "Char",
     "CjkFontLanguage",
     "Clip",
     "ClosePath",
@@ -67,7 +68,9 @@
     "LINK_NAMED",
     "LINK_NONE",
     "LINK_URI",
+    "Layout",
     "LimitError",
+    "Line",
     "LineCap",
     "LineJoin",
     "LineTo",
@@ -148,10 +151,6 @@
     "Probe",
     "PylopdfWarning",
     "Quad",
-    "RawTextBlock",
-    "RawTextLine",
-    "RawTextPageDict",
-    "RawTextSpan",
     "Rect",
     "Segment",
     "ShadingPattern",
@@ -159,6 +158,7 @@
     "Shape",
     "SoftMask",
     "SoftMaskType",
+    "Span",
     "StaleObjectError",
     "StalePageError",
     "Standard",
@@ -174,14 +174,9 @@
     "TableFinder",
     "TagRole",
     "TextAlign",
-    "TextBlock",
-    "TextChar",
     "TextFit",
-    "TextLine",
-    "TextPageDict",
     "TextRenderMode",
     "TextRun",
-    "TextSpan",
     "TilingPattern",
     "TransparencyGroup",
     "Word",
@@ -673,85 +668,46 @@
     },
     "Block": {
       "annotations": {
-        "block_no": "int",
-        "block_type": "int",
-        "text": "str",
-        "x0": "float",
-        "x1": "float",
-        "y0": "float",
-        "y1": "float"
+        "bbox": "Rect",
+        "lines": "tuple[Line, ...]",
+        "text": "str"
       },
+      "dataclass_fields": [
+        "text",
+        "bbox",
+        "lines"
+      ],
       "kind": "class",
       "members": {
-        "block_no": {
+        "bbox": {
           "kind": "property"
         },
-        "block_type": {
+        "lines": {
           "kind": "property"
         },
         "text": {
           "kind": "property"
-        },
-        "x0": {
-          "kind": "property"
-        },
-        "x1": {
-          "kind": "property"
-        },
-        "y0": {
-          "kind": "property"
-        },
-        "y1": {
-          "kind": "property"
         }
       },
-      "named_tuple_fields": [
-        "x0",
-        "y0",
-        "x1",
-        "y1",
-        "text",
-        "block_no",
-        "block_type"
-      ],
       "signature": {
         "parameters": [
           {
-            "annotation": "float",
-            "kind": "positional_or_keyword",
-            "name": "x0"
-          },
-          {
-            "annotation": "float",
-            "kind": "positional_or_keyword",
-            "name": "y0"
-          },
-          {
-            "annotation": "float",
-            "kind": "positional_or_keyword",
-            "name": "x1"
-          },
-          {
-            "annotation": "float",
-            "kind": "positional_or_keyword",
-            "name": "y1"
-          },
-          {
             "annotation": "str",
-            "kind": "positional_or_keyword",
+            "kind": "keyword_only",
             "name": "text"
           },
           {
-            "annotation": "int",
-            "kind": "positional_or_keyword",
-            "name": "block_no"
+            "annotation": "Rect",
+            "kind": "keyword_only",
+            "name": "bbox"
           },
           {
-            "annotation": "int",
-            "kind": "positional_or_keyword",
-            "name": "block_type"
+            "annotation": "tuple[Line, ...]",
+            "kind": "keyword_only",
+            "name": "lines"
           }
-        ]
+        ],
+        "returns": "None"
       }
     },
     "Builder": {
@@ -1498,6 +1454,50 @@
         "returns": "None"
       }
     },
+    "Char": {
+      "annotations": {
+        "bbox": "Rect",
+        "origin": "Point",
+        "text": "str"
+      },
+      "dataclass_fields": [
+        "text",
+        "bbox",
+        "origin"
+      ],
+      "kind": "class",
+      "members": {
+        "bbox": {
+          "kind": "property"
+        },
+        "origin": {
+          "kind": "property"
+        },
+        "text": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "keyword_only",
+            "name": "text"
+          },
+          {
+            "annotation": "Rect",
+            "kind": "keyword_only",
+            "name": "bbox"
+          },
+          {
+            "annotation": "Point",
+            "kind": "keyword_only",
+            "name": "origin"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "CjkFontLanguage": {
       "kind": "type-alias",
       "target": "Literal['ja', 'ko', 'zh-CN', 'zh-TW']"
@@ -2027,24 +2027,6 @@
             "returns": "tuple[int, str] | None"
           }
         },
-        "get_text": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Iterable[int] | None",
-                "default": null,
-                "kind": "positional_or_keyword",
-                "name": "pages"
-              }
-            ],
-            "returns": "str"
-          }
-        },
         "get_xml_metadata": {
           "kind": "method",
           "signature": {
@@ -2106,6 +2088,36 @@
         "limits": {
           "kind": "property",
           "returns": "DocumentLimits"
+        },
+        "markdown": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Iterable[int] | None",
+                "default": null,
+                "kind": "positional_or_keyword",
+                "name": "pages"
+              },
+              {
+                "annotation": "Literal['lines', 'text'] | None",
+                "default": "lines",
+                "kind": "keyword_only",
+                "name": "table_strategy"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              }
+            ],
+            "returns": "str"
+          }
         },
         "markinfo": {
           "kind": "property",
@@ -2563,6 +2575,24 @@
             "returns": "None"
           }
         },
+        "text": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Iterable[int] | None",
+                "default": null,
+                "kind": "positional_or_keyword",
+                "name": "pages"
+              }
+            ],
+            "returns": "str"
+          }
+        },
         "to_bytes": {
           "kind": "method",
           "signature": {
@@ -2615,36 +2645,6 @@
               }
             ],
             "returns": "bytes"
-          }
-        },
-        "to_markdown": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Iterable[int] | None",
-                "default": null,
-                "kind": "positional_or_keyword",
-                "name": "pages"
-              },
-              {
-                "annotation": "Literal['lines', 'text'] | None",
-                "default": "lines",
-                "kind": "keyword_only",
-                "name": "table_strategy"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "str"
           }
         },
         "trailer": {
@@ -4358,6 +4358,62 @@
       "kind": "constant",
       "value": 2
     },
+    "Layout": {
+      "annotations": {
+        "blocks": "tuple[Block, ...]",
+        "height": "float",
+        "width": "float"
+      },
+      "dataclass_fields": [
+        "width",
+        "height",
+        "blocks"
+      ],
+      "kind": "class",
+      "members": {
+        "blocks": {
+          "kind": "property"
+        },
+        "height": {
+          "kind": "property"
+        },
+        "to_dict": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "dict[str, Any]"
+          }
+        },
+        "width": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "float",
+            "kind": "keyword_only",
+            "name": "width"
+          },
+          {
+            "annotation": "float",
+            "kind": "keyword_only",
+            "name": "height"
+          },
+          {
+            "annotation": "tuple[Block, ...]",
+            "kind": "keyword_only",
+            "name": "blocks"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "LimitError": {
       "bases": [
         "pylopdf.PdfError"
@@ -4368,6 +4424,70 @@
           "kind": "property",
           "returns": "str"
         }
+      }
+    },
+    "Line": {
+      "annotations": {
+        "bbox": "Rect",
+        "direction": "Point",
+        "is_vertical": "bool",
+        "spans": "tuple[Span, ...]",
+        "text": "str"
+      },
+      "dataclass_fields": [
+        "text",
+        "bbox",
+        "direction",
+        "is_vertical",
+        "spans"
+      ],
+      "kind": "class",
+      "members": {
+        "bbox": {
+          "kind": "property"
+        },
+        "direction": {
+          "kind": "property"
+        },
+        "is_vertical": {
+          "kind": "property"
+        },
+        "spans": {
+          "kind": "property"
+        },
+        "text": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "keyword_only",
+            "name": "text"
+          },
+          {
+            "annotation": "Rect",
+            "kind": "keyword_only",
+            "name": "bbox"
+          },
+          {
+            "annotation": "Point",
+            "kind": "keyword_only",
+            "name": "direction"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_vertical"
+          },
+          {
+            "annotation": "tuple[Span, ...]",
+            "kind": "keyword_only",
+            "name": "spans"
+          }
+        ],
+        "returns": "None"
       }
     },
     "LineCap": {
@@ -6508,24 +6628,6 @@
             "returns": "str"
           }
         },
-        "get_text": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "default": "text",
-                "kind": "positional_or_keyword",
-                "name": "option"
-              }
-            ],
-            "returns": "str | list[Word] | list[Block] | TextPageDict | RawTextPageDict"
-          }
-        },
         "get_text_ocr": {
           "kind": "method",
           "signature": {
@@ -6897,6 +6999,48 @@
             "returns": "float"
           }
         },
+        "layout": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "chars"
+              }
+            ],
+            "returns": "Layout"
+          }
+        },
+        "markdown": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Literal['lines', 'text'] | None",
+                "default": "lines",
+                "kind": "keyword_only",
+                "name": "table_strategy"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              }
+            ],
+            "returns": "str"
+          }
+        },
         "mediabox": {
           "kind": "property",
           "returns": "Rect"
@@ -6959,7 +7103,7 @@
           "kind": "property",
           "returns": "int"
         },
-        "search_for": {
+        "search": {
           "kind": "method",
           "signature": {
             "parameters": [
@@ -7073,28 +7217,28 @@
             "returns": "int"
           }
         },
-        "to_markdown": {
+        "text": {
           "kind": "method",
           "signature": {
             "parameters": [
               {
                 "kind": "positional_or_keyword",
                 "name": "self"
-              },
-              {
-                "annotation": "Literal['lines', 'text'] | None",
-                "default": "lines",
-                "kind": "keyword_only",
-                "name": "table_strategy"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_size"
               }
             ],
             "returns": "str"
+          }
+        },
+        "words": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "list[Word]"
           }
         },
         "xref": {
@@ -8399,72 +8543,6 @@
         "returns": "Self"
       }
     },
-    "RawTextBlock": {
-      "fields": {
-        "bbox": "tuple[float, float, float, float]",
-        "lines": "list[RawTextLine]",
-        "number": "int",
-        "type": "int"
-      },
-      "kind": "typed-dict",
-      "optional_keys": [],
-      "required_keys": [
-        "bbox",
-        "lines",
-        "number",
-        "type"
-      ]
-    },
-    "RawTextLine": {
-      "fields": {
-        "bbox": "tuple[float, float, float, float]",
-        "dir": "tuple[float, float]",
-        "spans": "list[RawTextSpan]",
-        "wmode": "int"
-      },
-      "kind": "typed-dict",
-      "optional_keys": [],
-      "required_keys": [
-        "bbox",
-        "dir",
-        "spans",
-        "wmode"
-      ]
-    },
-    "RawTextPageDict": {
-      "fields": {
-        "blocks": "list[RawTextBlock]",
-        "height": "float",
-        "width": "float"
-      },
-      "kind": "typed-dict",
-      "optional_keys": [],
-      "required_keys": [
-        "blocks",
-        "height",
-        "width"
-      ]
-    },
-    "RawTextSpan": {
-      "fields": {
-        "bbox": "tuple[float, float, float, float]",
-        "chars": "list[TextChar]",
-        "flags": "int",
-        "font": "str",
-        "origin": "tuple[float, float]",
-        "size": "float"
-      },
-      "kind": "typed-dict",
-      "optional_keys": [],
-      "required_keys": [
-        "bbox",
-        "chars",
-        "flags",
-        "font",
-        "origin",
-        "size"
-      ]
-    },
     "Rect": {
       "annotations": {
         "x0": "float",
@@ -9638,6 +9716,120 @@
         "LUMINOSITY": "luminosity"
       }
     },
+    "Span": {
+      "annotations": {
+        "bbox": "Rect",
+        "chars": "tuple[Char, ...]",
+        "font": "str",
+        "is_bold": "bool",
+        "is_italic": "bool",
+        "is_monospaced": "bool",
+        "is_serif": "bool",
+        "origin": "Point",
+        "size": "float",
+        "text": "str"
+      },
+      "dataclass_fields": [
+        "text",
+        "bbox",
+        "origin",
+        "size",
+        "font",
+        "is_bold",
+        "is_italic",
+        "is_serif",
+        "is_monospaced",
+        "chars"
+      ],
+      "kind": "class",
+      "members": {
+        "bbox": {
+          "kind": "property"
+        },
+        "chars": {
+          "kind": "property"
+        },
+        "font": {
+          "kind": "property"
+        },
+        "is_bold": {
+          "kind": "property"
+        },
+        "is_italic": {
+          "kind": "property"
+        },
+        "is_monospaced": {
+          "kind": "property"
+        },
+        "is_serif": {
+          "kind": "property"
+        },
+        "origin": {
+          "kind": "property"
+        },
+        "size": {
+          "kind": "property"
+        },
+        "text": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "keyword_only",
+            "name": "text"
+          },
+          {
+            "annotation": "Rect",
+            "kind": "keyword_only",
+            "name": "bbox"
+          },
+          {
+            "annotation": "Point",
+            "kind": "keyword_only",
+            "name": "origin"
+          },
+          {
+            "annotation": "float",
+            "kind": "keyword_only",
+            "name": "size"
+          },
+          {
+            "annotation": "str",
+            "kind": "keyword_only",
+            "name": "font"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_bold"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_italic"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_serif"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_monospaced"
+          },
+          {
+            "annotation": "tuple[Char, ...]",
+            "kind": "keyword_only",
+            "name": "chars"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "StaleObjectError": {
       "bases": [
         "pylopdf.PdfError"
@@ -9884,7 +10076,7 @@
             "returns": "list[list[str | None]]"
           }
         },
-        "to_markdown": {
+        "markdown": {
           "kind": "method",
           "signature": {
             "parameters": [
@@ -10142,36 +10334,6 @@
         "RIGHT": 2
       }
     },
-    "TextBlock": {
-      "fields": {
-        "bbox": "tuple[float, float, float, float]",
-        "lines": "list[TextLine]",
-        "number": "int",
-        "type": "int"
-      },
-      "kind": "typed-dict",
-      "optional_keys": [],
-      "required_keys": [
-        "bbox",
-        "lines",
-        "number",
-        "type"
-      ]
-    },
-    "TextChar": {
-      "fields": {
-        "bbox": "tuple[float, float, float, float]",
-        "c": "str",
-        "origin": "tuple[float, float]"
-      },
-      "kind": "typed-dict",
-      "optional_keys": [],
-      "required_keys": [
-        "bbox",
-        "c",
-        "origin"
-      ]
-    },
     "TextFit": {
       "annotations": {
         "spare_height": "float"
@@ -10199,36 +10361,6 @@
         ],
         "returns": "None"
       }
-    },
-    "TextLine": {
-      "fields": {
-        "bbox": "tuple[float, float, float, float]",
-        "dir": "tuple[float, float]",
-        "spans": "list[TextSpan]",
-        "wmode": "int"
-      },
-      "kind": "typed-dict",
-      "optional_keys": [],
-      "required_keys": [
-        "bbox",
-        "dir",
-        "spans",
-        "wmode"
-      ]
-    },
-    "TextPageDict": {
-      "fields": {
-        "blocks": "list[TextBlock]",
-        "height": "float",
-        "width": "float"
-      },
-      "kind": "typed-dict",
-      "optional_keys": [],
-      "required_keys": [
-        "blocks",
-        "height",
-        "width"
-      ]
     },
     "TextRenderMode": {
       "kind": "enum",
@@ -10351,26 +10483,6 @@
         "returns": "None"
       }
     },
-    "TextSpan": {
-      "fields": {
-        "bbox": "tuple[float, float, float, float]",
-        "flags": "int",
-        "font": "str",
-        "origin": "tuple[float, float]",
-        "size": "float",
-        "text": "str"
-      },
-      "kind": "typed-dict",
-      "optional_keys": [],
-      "required_keys": [
-        "bbox",
-        "flags",
-        "font",
-        "origin",
-        "size",
-        "text"
-      ]
-    },
     "TilingPattern": {
       "annotations": {
         "bbox": "Rect",
@@ -10471,95 +10583,66 @@
     },
     "Word": {
       "annotations": {
-        "block_no": "int",
-        "line_no": "int",
-        "word": "str",
-        "word_no": "int",
-        "x0": "float",
-        "x1": "float",
-        "y0": "float",
-        "y1": "float"
+        "bbox": "Rect",
+        "block": "int",
+        "index": "int",
+        "line": "int",
+        "text": "str"
       },
+      "dataclass_fields": [
+        "text",
+        "bbox",
+        "block",
+        "line",
+        "index"
+      ],
       "kind": "class",
       "members": {
-        "block_no": {
+        "bbox": {
           "kind": "property"
         },
-        "line_no": {
+        "block": {
           "kind": "property"
         },
-        "word": {
+        "index": {
           "kind": "property"
         },
-        "word_no": {
+        "line": {
           "kind": "property"
         },
-        "x0": {
-          "kind": "property"
-        },
-        "x1": {
-          "kind": "property"
-        },
-        "y0": {
-          "kind": "property"
-        },
-        "y1": {
+        "text": {
           "kind": "property"
         }
       },
-      "named_tuple_fields": [
-        "x0",
-        "y0",
-        "x1",
-        "y1",
-        "word",
-        "block_no",
-        "line_no",
-        "word_no"
-      ],
       "signature": {
         "parameters": [
           {
-            "annotation": "float",
-            "kind": "positional_or_keyword",
-            "name": "x0"
-          },
-          {
-            "annotation": "float",
-            "kind": "positional_or_keyword",
-            "name": "y0"
-          },
-          {
-            "annotation": "float",
-            "kind": "positional_or_keyword",
-            "name": "x1"
-          },
-          {
-            "annotation": "float",
-            "kind": "positional_or_keyword",
-            "name": "y1"
-          },
-          {
             "annotation": "str",
-            "kind": "positional_or_keyword",
-            "name": "word"
+            "kind": "keyword_only",
+            "name": "text"
+          },
+          {
+            "annotation": "Rect",
+            "kind": "keyword_only",
+            "name": "bbox"
           },
           {
             "annotation": "int",
-            "kind": "positional_or_keyword",
-            "name": "block_no"
+            "kind": "keyword_only",
+            "name": "block"
           },
           {
             "annotation": "int",
-            "kind": "positional_or_keyword",
-            "name": "line_no"
+            "kind": "keyword_only",
+            "name": "line"
           },
           {
             "annotation": "int",
-            "kind": "positional_or_keyword",
-            "name": "word_no"
+            "kind": "keyword_only",
+            "name": "index"
           }
-        ]
+        ],
+        "returns": "None"
       }
     },
     "create": {

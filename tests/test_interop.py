@@ -38,7 +38,7 @@ def test_typst_compile_to_pylopdf() -> None:
     assert isinstance(pdf_bytes, bytes)
     with pylopdf.open(pdf_bytes) as doc:
         assert len(doc.pages) == 1
-        assert "Hello pylopdf" in doc.pages[0].get_text()
+        assert "Hello pylopdf" in doc.pages[0].text()
 
 
 def test_typst_pdfa_output_opens() -> None:
@@ -48,17 +48,17 @@ def test_typst_pdfa_output_opens() -> None:
     assert b"pdfaid" in pdf_bytes
     with pylopdf.open(pdf_bytes) as doc:
         assert len(doc.pages) == 1
-        assert "Hello pylopdf" in doc.pages[0].get_text()
+        assert "Hello pylopdf" in doc.pages[0].text()
 
 
 def test_typst_bold_italic_flow_into_markdown() -> None:
     # Embedded font weight/italic metadata flows through span flags to emphasis.
     pdf = typst.compile(b'#set document(title: "t")\nNormal and *bold emphasis* and _italic part_ here.')
     with pylopdf.open(pdf) as doc:
-        span = doc.pages[0].get_text("dict")["blocks"][0]["lines"][0]["spans"][1]
+        span = doc.pages[0].layout().to_dict()["blocks"][0]["lines"][0]["spans"][1]
         assert span["flags"] & 16  # Bold, using the pymupdf-compatible bit.
         assert "Bold" in span["font"]
-        md = doc.to_markdown()
+        md = doc.markdown()
     assert "**bold emphasis**" in md
     assert "*italic part*" in md
 
@@ -94,7 +94,7 @@ def test_typst_japanese_watermark_via_show_pdf_page() -> None:
     page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
 
     # Vector overlay leaves the CJK watermark directly extractable.
-    assert "社外秘" in page.get_text()
+    assert "社外秘" in page.text()
     # fill:none keeps the page transparent; corners stay white on a white render.
     pix = page.get_pixmap(background=(255, 255, 255), alpha=True)
     assert tuple(pix.samples[0:3]) == (255, 255, 255)

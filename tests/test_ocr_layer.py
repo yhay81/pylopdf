@@ -46,11 +46,11 @@ def test_ocr_layer_is_extractable_and_searchable() -> None:
             (50, 80, 170, 100, "日本語テキスト"),
         ]
     )
-    text = page.get_text()
+    text = page.text()
     assert "Hello" in text
     assert "日本語テキスト" in text
 
-    hits = page.search_for("日本語")
+    hits = page.search("日本語")
     assert hits
     # Match near the requested bbox; the synthetic font need not match exactly.
     assert abs(hits[0].x0 - 50) < 5
@@ -74,31 +74,29 @@ def test_ocr_layer_does_not_need_fallback_fonts() -> None:
     doc.set_fallback_font(None)
     page = doc.pages[0]
     page.insert_ocr_text_layer([(50, 50, 200, 75, "帳票スキャン")])
-    assert "帳票スキャン" in page.get_text()
+    assert "帳票スキャン" in page.text()
 
 
 def test_ocr_layer_survives_save_roundtrip() -> None:
     doc = _blank_page_doc()
     doc.pages[0].insert_ocr_text_layer([(50, 50, 150, 70, "Persistent"), (50, 80, 150, 100, "残存")])
     reopened = pylopdf.open(doc.to_bytes())
-    text = reopened.pages[0].get_text()
+    text = reopened.pages[0].text()
     assert "Persistent" in text
     assert "残存" in text
-    assert reopened.pages[0].search_for("残存")
+    assert reopened.pages[0].search("残存")
 
 
-def test_ocr_layer_accepts_get_text_words_shape() -> None:
-    # Pass get_text("words") eight-item tuples directly; only the first five
-    # items are used.
+def test_ocr_layer_round_trips_extracted_words() -> None:
     src = pylopdf.Document()
     src.pages.new()
     src.pages[0].insert_text((72, 100), "Roundtrip works")
-    words = src.pages[0].get_text("words")
+    words = src.pages[0].words()
     assert words
 
     doc = _blank_page_doc()
-    doc.pages[0].insert_ocr_text_layer(words)
-    extracted = {w[4] for w in doc.pages[0].get_text("words")}
+    doc.pages[0].insert_ocr_text_layer([(*word.bbox, word.text) for word in words])
+    extracted = {w.text for w in doc.pages[0].words()}
     assert extracted == {"Roundtrip", "works"}
 
 
@@ -108,7 +106,7 @@ def test_ocr_layer_on_rotated_page_uses_display_coordinates() -> None:
     page = doc.pages[0]
     page.set_rotation(90)  # Display is 200 x 100.
     page.insert_ocr_text_layer([(120, 30, 180, 50, "回転ページ")])
-    hits = page.search_for("回転ページ")
+    hits = page.search("回転ページ")
     assert hits
     assert abs(hits[0].x0 - 120) < 5  # Match near the requested display coordinates.
 
@@ -119,7 +117,7 @@ def test_ocr_layer_orients_sideways_baselines(rotation: pylopdf.OcrRotation) -> 
     page = doc.pages[0]
     page.insert_ocr_text_layer([(80, 30, 105, 150, "Vertical box")], rotation=rotation)
 
-    hits = page.search_for("Vertical box")
+    hits = page.search("Vertical box")
 
     assert hits
     assert hits[0].height > hits[0].width
@@ -162,9 +160,9 @@ def test_ocr_layer_orders_rotated_columns_logically(rotation: pylopdf.OcrRotatio
     )
 
     expected = [text for _, text in logical_words]
-    assert page.get_text().splitlines() == expected
+    assert page.text().splitlines() == expected
     for box, text in physical_words:
-        hits = page.search_for(text)
+        hits = page.search(text)
         assert len(hits) == 1
         assert tuple(hits[0]) == pytest.approx(box, abs=0.1)
 

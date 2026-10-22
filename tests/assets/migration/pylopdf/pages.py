@@ -14,12 +14,12 @@ doc.pages.extend(doc.pages[0])
 assert len(doc.pages) == 4
 del doc.pages[1]
 doc.pages.select([2, 0, 1])
-assert [page.get_text().strip() for page in doc.pages] == ["A", "A", "C"]
+assert [page.text().strip() for page in doc.pages] == ["A", "A", "C"]
 
 other = pylopdf.Document()
 other.pages.new((200, 200)).insert_text((50, 100), "D", fontsize=24)
 doc.pages.extend(other.pages)
-assert doc.pages[-1].get_text().strip() == "D"
+assert doc.pages[-1].text().strip() == "D"
 
 doc.set_language_tag("zh-TW")
 doc.set_pagemode("UseThumbs")

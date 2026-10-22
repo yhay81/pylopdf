@@ -31,7 +31,7 @@ def _origins(doc: pylopdf.Document, pno: int = 0) -> list[tuple[float, float]]:
 
 
 def _hayro_origins(doc: pylopdf.Document, pno: int = 0) -> list[tuple[str, float, float]]:
-    raw = doc.pages[pno].get_text("rawdict")
+    raw = doc.pages[pno].layout(chars=True).to_dict()
     return [
         (char["c"], char["origin"][0], char["origin"][1])
         for block in raw["blocks"]

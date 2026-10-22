@@ -5,7 +5,7 @@ description: pylopdf의 내장 OCR 엔진으로 스캔한 PDF의 텍스트를 �
 
 # 오프라인 OCR
 
-pylopdf는 스캔한 페이지의 텍스트를 인식해 보이지 않는 텍스트 레이어로 추가할 수 있습니다. 그러면 PDF를 검색할 수 있고 `get_text()`와 `to_markdown()`이 그 텍스트를 읽을 수 있습니다. 모델 패키지를 설치하세요.
+pylopdf는 스캔한 페이지의 텍스트를 인식해 보이지 않는 텍스트 레이어로 추가할 수 있습니다. 그러면 PDF를 검색할 수 있고 `text()`와 `markdown()`이 그 텍스트를 읽을 수 있습니다. 모델 패키지를 설치하세요.
 
 ```bash
 pip install "pylopdf[ocr]"

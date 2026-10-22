@@ -594,7 +594,7 @@ def test_rectangles_drive_drawing_and_search_on_rotated_pages(rotation: int) -> 
         data = document.to_bytes()
     with pylopdf.open(data) as reopened:
         page = reopened.pages[0]
-        (hit,) = page.search_for("Geometry")
+        (hit,) = page.search("Geometry")
         assert isinstance(hit, Rect)
         assert hit in box
         assert hit.intersects(box)

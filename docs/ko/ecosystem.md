@@ -47,7 +47,7 @@ for page in doc.pages:
     page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
 ```
 
-스탬프는 실제 텍스트로 남으므로, 그 뒤에도 `page.get_text()`가 `社外秘`를 찾습니다.
+스탬프는 실제 텍스트로 남으므로, 그 뒤에도 `page.text()`가 `社外秘`를 찾습니다.
 
 ## pyHanko로 디지털 서명하기 { #signatures }
 
@@ -71,7 +71,7 @@ signed_pdf: bytes = out.getvalue()
 
 ## 다른 엔진으로 OCR하기 { #ocr }
 
-pylopdf에는 [내장 OCR](ocr.md)이 있습니다. 대신 Tesseract나 클라우드 서비스 같은 다른 엔진을 쓰려면, 그 엔진이 인식한 단어를 `(x0, y0, x1, y1, text)` 형식으로 `Page.insert_ocr_text_layer(words)`에 전달하세요. pylopdf가 이를 보이지 않는 텍스트 레이어로 추가하므로, 파일 크기는 거의 늘지 않으면서 스캔 문서를 검색할 수 있고 `to_markdown()`이 그 텍스트를 읽을 수 있습니다.
+pylopdf에는 [내장 OCR](ocr.md)이 있습니다. 대신 Tesseract나 클라우드 서비스 같은 다른 엔진을 쓰려면, 그 엔진이 인식한 단어를 `(x0, y0, x1, y1, text)` 형식으로 `Page.insert_ocr_text_layer(words)`에 전달하세요. pylopdf가 이를 보이지 않는 텍스트 레이어로 추가하므로, 파일 크기는 거의 늘지 않으면서 스캔 문서를 검색할 수 있고 `markdown()`이 그 텍스트를 읽을 수 있습니다.
 
 ```python
 import pylopdf

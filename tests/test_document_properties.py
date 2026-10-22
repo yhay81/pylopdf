@@ -109,7 +109,7 @@ def test_set_xml_metadata_adds_an_unfiltered_metadata_stream(tmp_path: Path) -> 
     assert xmp.encode() in path.read_bytes()
     reopened = pylopdf.open(path)
     assert reopened.get_xml_metadata() == xmp
-    assert reopened.get_text().strip() == "plain"
+    assert reopened.text().strip() == "plain"
 
 
 def test_set_xml_metadata_rewrites_an_existing_stream_in_place() -> None:
@@ -355,7 +355,7 @@ def test_property_edits_keep_page_views_valid() -> None:
     doc.set_pagelayout("OneColumn")
     doc.set_markinfo({"Marked": True})
     doc.del_xml_metadata()
-    assert page.get_text().strip() == "plain"
+    assert page.text().strip() == "plain"
 
 
 # --- language tags -----------------------------------------------------------
@@ -486,13 +486,13 @@ def test_is_dirty_starts_false_for_opened_documents_and_true_for_new_ones() -> N
 def test_reads_leave_is_dirty_false() -> None:
     doc = pylopdf.open(REAL_WORLD / "pdfium-links-highlights-annots.pdf")
     page = doc.pages[0]
-    page.get_text()
-    page.get_text("dict")
+    page.text()
+    page.layout().to_dict()
     page.get_pixmap()
     page.get_links()
     page.get_drawings()
-    page.search_for("a")
-    doc.to_markdown()
+    page.search("a")
+    doc.markdown()
     doc.get_outline()
     doc.get_xml_metadata()
     _ = (doc.metadata, doc.pagemode, doc.markinfo, doc.has_annots(), doc.permissions)

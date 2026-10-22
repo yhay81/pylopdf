@@ -86,8 +86,8 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 순서를 뒤집음
 
 | 멤버 | 용도 |
 |---|---|
-| `get_text(pages=None)` | 모든 페이지 또는 나열한 페이지의 일반 텍스트를 하나의 문자열로 |
-| `to_markdown(pages=None, *, table_strategy="lines", max_size=64 MiB)` | 제목, 목록, 강조, 다단 순서, CJK 세로쓰기, 표를 포함한 Markdown |
+| `text(pages=None)` | 모든 페이지 또는 나열한 페이지의 일반 텍스트를 하나의 문자열로 |
+| `markdown(pages=None, *, table_strategy="lines", max_size=64 MiB)` | 제목, 목록, 강조, 다단 순서, CJK 세로쓰기, 표를 포함한 Markdown |
 
 `table_strategy="lines"`는 괘선으로 그린 표를 변환하고, `"text"`는 정렬이 분명한 테두리 없는 표도 변환하며, `None`은 표 변환을 끕니다.
 
@@ -127,17 +127,19 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 순서를 뒤집음
 
 | 멤버 | 용도 |
 |---|---|
-| `get_text(option="text")` | `"text"`, `"words"`, `"blocks"`, `"dict"`, `"rawdict"` |
-| `search_for(text, *, max_hits=4096)` | 대소문자 구분 없는 검색. `Rect` 리스트를 반환 |
+| `text()` | 읽기 순서대로 된 페이지의 텍스트 |
+| `words()` | 읽기 순서대로 된 단어를 `Word` 레코드로 |
+| `layout(*, chars=False)` | 블록, 줄, 스팬을 `Layout`으로. [위치가 있는 텍스트](#positioned-text) 참고 |
+| `search(text, *, max_hits=4096)` | 대소문자 구분 없는 검색. `Rect` 리스트를 반환 |
 | `find_tables(*, clip=None, strategy=None)` | 표를 `TableFinder`로. [표](#tables) 참고 |
-| `to_markdown(*, table_strategy="lines")` | 이 페이지의 Markdown |
+| `markdown(*, table_strategy="lines")` | 이 페이지의 Markdown |
 | `get_text_ocr(...)`, `apply_ocr(...)`, `insert_ocr_text_layer(words)` | OCR. [오프라인 OCR](ocr.md) 참고 |
 | `content(*, clip=None, annotations=True)` | 페이지가 그리는 모든 텍스트 런, 경로, 이미지. [페이지 내용](#content) 참고 |
 | `get_drawings()` | 벡터 경로. [벡터 그림](#drawings) 참고 |
 | `get_links()` | 링크와 그 대상 |
 | `get_label()` | `"iv"` 같은 페이지 레이블 |
 
-`"words"`는 `Word` 튜플 `(x0, y0, x1, y1, word, block, line, word_no)`를, `"blocks"`는 `Block` 튜플을 반환하며 둘 다 pymupdf와 같은 순서입니다. `"dict"`는 블록, 줄, 스팬을 경계 상자, 글꼴, 크기, 스타일 플래그와 함께 반환합니다. `"rawdict"`는 각 글리프를 추가합니다. [위치가 있는 텍스트](#positioned-text)를 참고하세요.
+`Word`는 `text`, `bbox`, 그리고 페이지 레이아웃에서의 위치를 나타내는 `block`, `line`, `index`를 가집니다. 각각 단어가 속한 블록의 인덱스, 그 블록 안에서 줄의 인덱스, 그 줄 안에서 단어의 인덱스입니다.
 
 읽기 순서는 줄과 단을 따르며, 오른쪽에서 왼쪽으로 쓰는 텍스트와 일본어, 중국어 세로쓰기도 포함합니다. 루비, 와리추(割注), 방향이 섞인 텍스트는 해석하지 않습니다.
 
@@ -189,27 +191,30 @@ pymupdf와 마찬가지로 pixmap은 기본적으로 흰 바탕의 RGB이고, `a
 
 ## 위치가 있는 텍스트와 글리프 { #positioned-text }
 
-`page.get_text("rawdict")`는 `"dict"` 구조를 유지하되 각 스팬의 `text`를 `chars` 리스트로 바꿉니다.
+`page.layout()`은 페이지의 `width`, `height`, `blocks`를 가진 `Layout`을 반환합니다. 각 레코드는 한 단계 아래의 레코드를 담으며, 모든 경계 상자는 표시 공간 기준입니다.
 
-| 키 | 의미 |
+| 레코드 | 필드 |
 |---|---|
-| `c` | 글리프 하나의 텍스트. "fi" 같은 합자는 두 글자를 모두 유지 |
-| `bbox` | 대략적인 경계 `(x0, y0, x1, y1)` |
-| `origin` | 글리프의 기준선이 시작하는 위치 `(x, y)` |
+| `Block` | `text`, `bbox`, `lines` |
+| `Line` | `text`, `bbox`, `direction`(기준선의 단위 벡터), `is_vertical`, `spans` |
+| `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `chars` |
+| `Char` | `text`, `bbox`, `origin` |
+
+`layout(chars=True)`는 각 스팬의 `chars`를 그 글리프로 채웁니다. `Char`는 글리프 하나의 텍스트 전체를 유지하므로 "fi" 같은 합자는 두 글자를 모두 유지하며, `origin`은 글리프의 기준선이 시작하는 위치입니다.
 
 ```python
 with pylopdf.open("report.pdf") as doc:
-    layout = doc.pages[0].get_text("rawdict")
-    for block in layout["blocks"]:
-        for line in block["lines"]:
-            for span in line["spans"]:
-                for char in span["chars"]:
-                    print(char["c"], char["bbox"], char["origin"])
+    layout = doc.pages[0].layout(chars=True)
+    for block in layout.blocks:
+        for line in block.lines:
+            for span in line.spans:
+                for char in span.chars:
+                    print(char.text, char.bbox, char.origin)
 ```
 
-경계는 글리프 윤곽이 아니라 기준선과 글꼴 크기로 추정합니다. pylopdf가 간격에서 추론한 공백은 항목으로 추가되지 않으므로, `c` 값을 이어 붙여도 `get_text()`와 항상 같지는 않습니다. PDF에 Unicode 매핑이 없는 글리프는 `PylopdfWarning`과 함께 건너뜁니다.
+경계는 글리프 윤곽이 아니라 기준선과 글꼴 크기로 추정합니다. pylopdf가 간격에서 추론한 공백은 문자로 추가되지 않으므로, 문자를 이어 붙여도 `text()`와 항상 같지는 않습니다. PDF에 Unicode 매핑이 없는 글리프는 `PylopdfWarning`과 함께 건너뜁니다.
 
-구조는 [pymupdf의 rawdict](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs)와 비슷하지만 텍스트 블록만 반환하며, 이미지나 벡터 블록, 색상, 불투명도, 추가 글꼴 메트릭은 없습니다. [오버레이 예제](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)는 글리프 경계와 원점을 HTML 미리보기로 그립니다.
+`layout.to_dict()`는 JSON용 일반 딕셔너리를 [pymupdf의 dict(문자가 있는 레이아웃이면 rawdict)](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs) 형태로 반환합니다. 텍스트 블록만 담으며, 이미지나 벡터 블록, 색상, 불투명도, 추가 글꼴 메트릭은 없습니다. [오버레이 예제](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)는 글리프 경계와 원점을 HTML 미리보기로 그립니다.
 
 ## 페이지 내용 { #content }
 
@@ -341,7 +346,7 @@ Path("report.pdf").write_bytes(builder.to_bytes())
 
 `page.find_tables()`는 병합된 셀을 포함해 괘선으로 그린 표를 찾습니다. `strategy="text"`는 행과 열이 분명히 정렬된 테두리 없는 표도 감지합니다. 정렬된 다단 본문이 표처럼 보일 수 있으므로 기본값은 아닙니다. `clip=`은 사각형 안에 완전히 들어가는 표만 남깁니다.
 
-결과는 `TableFinder`이며, 그 `tables`는 `bbox`, `row_count`, `col_count`, `cells`, `extract()`(행별 셀 텍스트, 병합 셀이 덮는 셀은 `None`), `to_markdown()`을 가진 `Table` 객체입니다. `Table.confidence`는 후보 순위를 매기기 위한 0–1 점수이며 확률은 아닙니다. `Table.diagnostics`가 그 근거를 설명합니다.
+결과는 `TableFinder`이며, 그 `tables`는 `bbox`, `row_count`, `col_count`, `cells`, `extract()`(행별 셀 텍스트, 병합 셀이 덮는 셀은 `None`), `markdown()`을 가진 `Table` 객체입니다. `Table.confidence`는 후보 순위를 매기기 위한 0–1 점수이며 확률은 아닙니다. `Table.diagnostics`가 그 근거를 설명합니다.
 
 ## 텍스트와 글꼴 { #fonts }
 
@@ -501,7 +506,7 @@ y축이 아래를 향하므로 `Matrix(90)`은 `(1, 0)`을 `(0, 1)`로 바꿉니
 ```python
 from pylopdf import Matrix
 
-hits = page.search_for("Total")
+hits = page.search("Total")
 area = hits[0] | hits[-1]                    # 첫 번째와 마지막 결과를 덮음
 inside = [hit for hit in hits if hit in page.rect]
 box = area * Matrix(1, 0, 0, 1, 0, 20)        # 20포인트 아래로 이동
@@ -555,7 +560,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 
 상수는 pymupdf의 이름을 유지하며 열거형으로도 묶여 있습니다. `Permissions`(`PDF_PERM_*`), `LinkKind`(`LINK_*`), `TextAlign`(`TEXT_ALIGN_*`), `AnnotType`(`PDF_ANNOT_*`), `AnnotFlags`(`PDF_ANNOT_IS_*`)입니다. `Access`의 멤버는 `USER`와 `OWNER`이고, `Encryption`은 저장하는 파일을 암호화하는 방법을 나타냅니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
 
-API가 반환하는 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `TextPageDict`, `RawTextPageDict`, `DrawingInfo`, `ImageInfo`, `LinkInfo`, `FormFieldInfo`, `DocumentMetadata`, `OcrWord` 같은 `TypedDict` 클래스로 기술됩니다. `Word`, `Block`, `ImageItem`, `OutlineEntry` 같은 튜플은 네임드 튜플입니다.
+텍스트 결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout` 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 반환하는 그 밖의 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `DrawingInfo`, `ImageInfo`, `LinkInfo`, `FormFieldInfo`, `DocumentMetadata`, `OcrWord` 같은 `TypedDict` 클래스로 기술됩니다. `ImageItem`과 `OutlineEntry`는 네임드 튜플입니다.
 
 ## 예외와 경고 { #exceptions }
 

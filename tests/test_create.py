@@ -73,8 +73,8 @@ def test_pages_join_in_order(font: pylopdf.Font) -> None:
     assert rect.stroke.width == pytest.approx(2)
     assert "NotoSansJP-Regular" in text.font.name
     assert text.glyphs[0].origin.y == pytest.approx(120, abs=0.01)
-    assert first.get_text() == "First page\n"
-    assert second.get_text() == "Second page\n"
+    assert first.text() == "First page\n"
+    assert second.text() == "Second page\n"
 
 
 def test_each_face_is_embedded_once(font: pylopdf.Font) -> None:
@@ -98,7 +98,7 @@ def test_text_without_a_font_uses_an_installed_extra() -> None:
     builder = pylopdf.create()
     with builder.page((200, 100)) as canvas:
         canvas.text("こんにちは", (10, 50))
-    assert builder.finish().pages[0].get_text() == "こんにちは\n"
+    assert builder.finish().pages[0].text() == "こんにちは\n"
 
 
 def test_images(tmp_path: Path) -> None:

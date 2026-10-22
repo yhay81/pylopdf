@@ -21,7 +21,7 @@ def test_getitem_and_iteration(three_page_pdf: bytes) -> None:
 def test_negative_index(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
     assert doc.pages[-1].index == 2
-    assert "Page three" in doc.pages[-1].get_text()
+    assert "Page three" in doc.pages[-1].text()
     with pytest.raises(IndexError):
         _ = doc.pages[-4]
 
@@ -29,7 +29,7 @@ def test_negative_index(three_page_pdf: bytes) -> None:
 def test_page_get_text_and_render(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
     page = doc.pages[1]
-    assert "Page two" in page.get_text()
+    assert "Page two" in page.text()
     png = page.get_pixmap(alpha=True).tobytes(max_size=None)
     assert png == doc.pages[1].get_pixmap(alpha=True).tobytes()
     assert page.get_pixmap(alpha=True).tobytes(max_size=len(png)) == png
@@ -46,9 +46,9 @@ def test_stale_page_after_structure_change(three_page_pdf: bytes) -> None:
     page = doc.pages[2]
     del doc.pages[0]
     with pytest.raises(pylopdf.StalePageError, match="fetch it again"):
-        _ = page.get_text()
+        _ = page.text()
     # A freshly fetched page works after the old page shifts to index 1.
-    assert "Page three" in doc.pages[1].get_text()
+    assert "Page three" in doc.pages[1].text()
 
 
 def test_page_on_closed_document(one_page_pdf: bytes) -> None:

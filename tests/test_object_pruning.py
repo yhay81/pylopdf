@@ -54,7 +54,7 @@ def test_garbage_save_keeps_exactly_the_objects_reachable_from_the_trailer() -> 
     for current in (doc, reloaded):
         assert current.complexity["object_count"] == 10
         assert current.metadata["title"] == "KEPT-INFO"
-        assert "Body text" in current.pages[0].get_text()
+        assert "Body text" in current.pages[0].text()
 
 
 def _structural_edit_pdf() -> bytes:
@@ -104,7 +104,7 @@ def test_structural_edits_drop_unreachable_objects(
     assert b"KEPT-PAGE-CONTENT" in saved
     for marker in [b"ORPHAN-OBJECT", *dropped]:
         assert marker not in saved
-    assert "KEPT-PAGE-CONTENT" in pylopdf.open(saved).pages[0].get_text()
+    assert "KEPT-PAGE-CONTENT" in pylopdf.open(saved).pages[0].text()
 
 
 def _source_with_unreachable_objects() -> pylopdf.Document:
@@ -150,7 +150,7 @@ def test_show_pdf_page_moves_only_the_objects_its_form_reaches() -> None:
     assert list(doc.attachments) == []
     assert [entry.title for entry in doc.get_outline()] == ["OLD-OUTLINE-TITLE"]
     assert b"ORPHAN-OBJECT" not in doc.to_bytes()
-    assert "SOURCE-PAGE-TEXT" in pylopdf.open(saved).pages[0].get_text()
+    assert "SOURCE-PAGE-TEXT" in pylopdf.open(saved).pages[0].text()
 
 
 def test_structural_edits_on_tens_of_thousands_of_objects_stay_fast() -> None:

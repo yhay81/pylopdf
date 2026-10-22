@@ -70,8 +70,8 @@ def _png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
 
 
 def _word(page: pylopdf.Page, text: str) -> tuple[float, float, float, float]:
-    (word,) = [word for word in page.get_text("words") if word[4] == text]
-    return word[0], word[1], word[2], word[3]
+    (word,) = [word for word in page.words() if word.text == text]
+    return tuple(word.bbox)
 
 
 def _assert_text_at(page: pylopdf.Page, text: str, point: tuple[float, float]) -> None:

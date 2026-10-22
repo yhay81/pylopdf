@@ -1,4 +1,4 @@
-"""Tests for positioned text extraction and search_for."""
+"""Tests for positioned text extraction and search."""
 
 from __future__ import annotations
 
@@ -57,46 +57,46 @@ def usrguide() -> pylopdf.Page:
 
 
 def test_words_have_positions_and_numbering(usrguide: pylopdf.Page) -> None:
-    words = usrguide.get_text("words")
+    words = usrguide.words()
     assert len(words) > 100
     page_rect = usrguide.rect
-    for x0, y0, x1, y1, text, block_no, line_no, word_no in words:
+    for word in words:
+        x0, y0, x1, y1 = word.bbox
         assert x0 < x1
         assert y0 < y1
         assert -1 <= x0 <= page_rect.x1 + 1
         assert -1 <= y0 <= page_rect.y1 + 1
-        assert text
-        assert block_no >= 0
-        assert line_no >= 0
-        assert word_no >= 0
-    texts = [w[4] for w in words]
+        assert word.text
+        assert word.block >= 0
+        assert word.line >= 0
+        assert word.index >= 0
+    texts = [w.text for w in words]
     assert "authors" in texts
 
 
 def test_words_numbering_is_consistent(usrguide: pylopdf.Page) -> None:
     """Keep word numbers consecutive per line and line numbers monotonic."""
-    words = usrguide.get_text("words")
+    words = usrguide.words()
     seen: dict[tuple[int, int], int] = {}
-    for *_, block_no, line_no, word_no in words:
-        key = (block_no, line_no)
+    for word in words:
+        key = (word.block, word.line)
         expected = seen.get(key, 0)
-        assert word_no == expected
+        assert word.index == expected
         seen[key] = expected + 1
 
 
 def test_blocks_structure(usrguide: pylopdf.Page) -> None:
-    blocks = usrguide.get_text("blocks")
+    blocks = usrguide.layout().blocks
     assert 1 < len(blocks) < 30
-    numbers = [b[5] for b in blocks]
-    assert numbers == list(range(len(blocks)))
-    assert all(b[6] == 0 for b in blocks)
-    joined = "\n".join(b[4] for b in blocks)
+    assert all(isinstance(block, pylopdf.Block) for block in blocks)
+    assert all(block.text == "\n".join(line.text for line in block.lines) for block in blocks)
+    joined = "\n".join(b.text for b in blocks)
     assert "for authors" in joined
     assert "Introduction" in joined
 
 
 def test_dict_structure(usrguide: pylopdf.Page) -> None:
-    d = usrguide.get_text("dict")
+    d = usrguide.layout().to_dict()
     assert d["width"] == pytest.approx(usrguide.rect.width, abs=1.0)
     assert d["height"] == pytest.approx(usrguide.rect.height, abs=1.0)
     block = d["blocks"][0]
@@ -112,20 +112,42 @@ def test_dict_structure(usrguide: pylopdf.Page) -> None:
     assert "authors" in all_text
 
 
-def test_invalid_option_raises(usrguide: pylopdf.Page) -> None:
-    with pytest.raises(ValueError, match="option"):
-        usrguide.get_text("html")  # ty: ignore[no-matching-overload]
+def test_layout_chars_must_be_a_boolean(usrguide: pylopdf.Page) -> None:
+    with pytest.raises(TypeError, match="chars must be True or False"):
+        usrguide.layout(chars=1)  # ty: ignore[invalid-argument-type]
+
+
+def test_text_records_hold_checked_geometry_and_compare_as_constructed(usrguide: pylopdf.Page) -> None:
+    """The fast record paths give the values that the public constructors would."""
+    layout = usrguide.layout(chars=True)
+    spans = [span for block in layout.blocks for line in block.lines for span in line.spans]
+    chars = [char for span in spans for char in span.chars]
+    boxes = [word.bbox for word in usrguide.words()] + [span.bbox for span in spans] + [char.bbox for char in chars]
+    points = [span.origin for span in spans] + [char.origin for char in chars]
+
+    assert chars
+    assert {type(box) for box in boxes} == {pylopdf.Rect}
+    assert {type(point) for point in points} == {pylopdf.Point}
+    assert boxes == [pylopdf.Rect(*box) for box in boxes]
+    assert points == [pylopdf.Point(*point) for point in points]
+    rebuilt = [pylopdf.Char(text=char.text, bbox=char.bbox, origin=char.origin) for char in chars]
+    assert rebuilt == chars
+    assert {hash(char) for char in rebuilt} == {hash(char) for char in chars}
+    assert repr(rebuilt[0]) == repr(chars[0])
+    assert [span.text for span in usrguide.layout().blocks[0].lines[0].spans] == [
+        span.text for span in layout.blocks[0].lines[0].spans
+    ]
 
 
 def test_document_level_get_page_text_modes() -> None:
     doc = pylopdf.open(build_pdf(["Alpha beta", "Gamma"]))
-    words = doc.pages[0].get_text("words")
-    assert [w[4] for w in words] == ["Alpha", "beta"]
-    assert doc.pages[1].get_text("words")[0][4] == "Gamma"
+    words = doc.pages[0].words()
+    assert [w.text for w in words] == ["Alpha", "beta"]
+    assert doc.pages[1].words()[0].text == "Gamma"
 
 
 def test_search_for_basic(usrguide: pylopdf.Page) -> None:
-    hits = usrguide.search_for("authors")
+    hits = usrguide.search("authors")
     assert len(hits) >= 1
     rect = hits[0]
     assert isinstance(rect, pylopdf.Rect)
@@ -134,37 +156,37 @@ def test_search_for_basic(usrguide: pylopdf.Page) -> None:
 
 
 def test_search_for_is_case_insensitive(usrguide: pylopdf.Page) -> None:
-    assert usrguide.search_for("AUTHORS") == usrguide.search_for("authors")
+    assert usrguide.search("AUTHORS") == usrguide.search("authors")
 
 
 def test_search_for_multiword(usrguide: pylopdf.Page) -> None:
     """Search across words joined by a synthesized space."""
-    hits = usrguide.search_for("for authors")
+    hits = usrguide.search("for authors")
     assert len(hits) == 1
-    only_for = usrguide.search_for("for")[0]
+    only_for = usrguide.search("for")[0]
     assert hits[0].x0 <= only_for.x1
 
 
 def test_search_for_no_match(usrguide: pylopdf.Page) -> None:
-    assert usrguide.search_for("zzzz-not-in-document") == []
+    assert usrguide.search("zzzz-not-in-document") == []
 
 
 def test_search_for_empty_raises(usrguide: pylopdf.Page) -> None:
     with pytest.raises(ValueError, match="text must be"):
-        usrguide.search_for("")
+        usrguide.search("")
 
 
 @pytest.mark.parametrize("value", [0, -1, True, 1.5])
 def test_search_for_validates_hit_budget(usrguide: pylopdf.Page, value: object) -> None:
     with pytest.raises((TypeError, ValueError), match="max_hits"):
-        usrguide.search_for("authors", max_hits=value)  # ty: ignore[invalid-argument-type]
+        usrguide.search("authors", max_hits=value)  # ty: ignore[invalid-argument-type]
 
 
 def test_search_for_bounds_utf8_input_before_core_copy(usrguide: pylopdf.Page) -> None:
-    assert usrguide.search_for("é" * 2048) == []
+    assert usrguide.search("é" * 2048) == []
 
     with pytest.raises(pylopdf.LimitError) as caught:
-        usrguide.search_for("é" * 2049)
+        usrguide.search("é" * 2049)
 
     assert caught.value.code == "search_input_size"
 
@@ -176,16 +198,16 @@ def test_search_for_bounds_hits_without_returning_partial_results() -> None:
     page.insert_text((10, 50), "a" * 4097, max_text_size=4097)
 
     with pytest.raises(pylopdf.LimitError) as caught:
-        page.search_for("a")
+        page.search("a")
 
     assert caught.value.code == "search_hit_count"
-    assert len(page.search_for("a", max_hits=4097)) == 4097
-    assert len(page.search_for("a", max_hits=None)) == 4097
+    assert len(page.search("a", max_hits=4097)) == 4097
+    assert len(page.search("a", max_hits=None)) == 4097
 
 
 def test_search_for_cjk() -> None:
     doc = pylopdf.open(ASSETS / "mhlw-doc.pdf")
-    hits = doc.pages[0].search_for("裁判例")
+    hits = doc.pages[0].search("裁判例")
     assert len(hits) >= 3
     for rect in hits:
         assert rect.x0 < rect.x1
@@ -196,28 +218,28 @@ def test_search_for_nonembedded_cjk() -> None:
     """Search non-embedded CJK text whose Unicode comes from the CMap."""
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
     doc.set_fallback_font(None)
-    assert len(doc.pages[0].search_for("日本語")) == 1
+    assert len(doc.pages[0].search("日本語")) == 1
 
 
 def test_layout_reflects_edits() -> None:
     """Reflect the new document state in layout extraction after select."""
     doc = pylopdf.open(build_pdf(["First page", "Second page"]))
     doc.pages.select([1])
-    words = doc.pages[0].get_text("words")
-    assert [w[4] for w in words] == ["Second", "page"]
+    words = doc.pages[0].words()
+    assert [w.text for w in words] == ["Second", "page"]
 
 
 def test_cached_text_page_reflects_drawing_edit() -> None:
     """Invalidate reusable interpretation after a non-structural page edit."""
     doc = pylopdf.open(build_pdf(["Before"]))
     page = doc.pages[0]
-    assert "Before" in page.get_text("text")
-    assert page.search_for("After") == []
+    assert "Before" in page.text()
+    assert page.search("After") == []
 
     page.insert_text((72, 120), "After")
 
-    assert "After" in page.get_text("text")
-    assert len(page.search_for("After")) == 1
+    assert "After" in page.text()
+    assert len(page.search("After")) == 1
 
 
 def test_dict_reports_transformed_baseline_direction() -> None:
@@ -236,11 +258,11 @@ def test_dict_reports_transformed_baseline_direction() -> None:
         }
     )
     page = pylopdf.open(pdf).pages[0]
-    assert page.get_text() == "Vertical\n"
-    assert [word[4] for word in page.get_text("words")] == ["Vertical"]
-    assert len(page.search_for("Vertical")) == 1
+    assert page.text() == "Vertical\n"
+    assert [word.text for word in page.words()] == ["Vertical"]
+    assert len(page.search("Vertical")) == 1
 
-    line = page.get_text("dict")["blocks"][0]["lines"][0]
+    line = page.layout().to_dict()["blocks"][0]["lines"][0]
     direction_x, direction_y = line["dir"]
     assert direction_x == pytest.approx(0.0, abs=1e-9)
     assert abs(direction_y) == pytest.approx(1.0)
@@ -253,11 +275,11 @@ def test_vertical_cjk_writing_mode_and_search() -> None:
     pdf = build_nonembedded_cjk_pdf().replace(b"/90ms-RKSJ-H", b"/90ms-RKSJ-V")
     page = pylopdf.open(pdf).pages[0]
 
-    assert page.get_text() == "こんにちは日本語\n"
-    assert [word[4] for word in page.get_text("words")] == ["こんにちは日本語"]
-    assert len(page.search_for("日本語")) == 1
+    assert page.text() == "こんにちは日本語\n"
+    assert [word.text for word in page.words()] == ["こんにちは日本語"]
+    assert len(page.search("日本語")) == 1
 
-    line = page.get_text("dict")["blocks"][0]["lines"][0]
+    line = page.layout().to_dict()["blocks"][0]["lines"][0]
     assert line["dir"] == pytest.approx((0.0, 1.0))
     assert line["wmode"] == 1
     assert line["spans"][0]["text"] == "こんにちは日本語"
@@ -266,9 +288,9 @@ def test_vertical_cjk_writing_mode_and_search() -> None:
 def test_horizontal_cjk_is_not_misclassified_as_vertical() -> None:
     """Keep ordinary CJK rows in horizontal writing mode."""
     page = pylopdf.open(build_nonembedded_cjk_pdf()).pages[0]
-    line = page.get_text("dict")["blocks"][0]["lines"][0]
+    line = page.layout().to_dict()["blocks"][0]["lines"][0]
 
-    assert page.get_text() == "こんにちは日本語\n"
+    assert page.text() == "こんにちは日本語\n"
     assert line["dir"] == pytest.approx((1.0, 0.0))
     assert line["wmode"] == 0
 
@@ -300,7 +322,7 @@ def test_rtl_lines_use_logical_order_across_text_apis() -> None:
     embedded_descending = "שלום 321 עולם"
     untouched_ambiguous = "םלוע PDF 123 םולש"
 
-    assert page.get_text().splitlines() == [
+    assert page.text().splitlines() == [
         hebrew,
         arabic,
         embedded_number,
@@ -309,13 +331,13 @@ def test_rtl_lines_use_logical_order_across_text_apis() -> None:
         embedded_descending,
         untouched_ambiguous,
     ]
-    assert page.document.get_text() == (
+    assert page.document.text() == (
         f"{hebrew}\n{arabic}\n{embedded_number}\n{embedded_latin}\n{embedded_separator}\n"
         f"{embedded_descending}\n{untouched_ambiguous}\n"
     )
 
-    words = page.get_text("words")
-    assert [word[4] for word in words] == [
+    words = page.words()
+    assert [word.text for word in words] == [
         "שְלום",
         "עולם",
         "مرحبا",
@@ -337,10 +359,10 @@ def test_rtl_lines_use_logical_order_across_text_apis() -> None:
         "123",
         "םולש",
     ]
-    assert words[0][0] > words[1][0]
-    assert words[2][0] > words[3][0]
+    assert words[0].bbox.x0 > words[1].bbox.x0
+    assert words[2].bbox.x0 > words[3].bbox.x0
 
-    lines = [line for block in page.get_text("dict")["blocks"] for line in block["lines"]]
+    lines = [line for block in page.layout().to_dict()["blocks"] for line in block["lines"]]
     assert [span["text"] for line in lines for span in line["spans"]] == [
         hebrew,
         arabic,
@@ -350,14 +372,14 @@ def test_rtl_lines_use_logical_order_across_text_apis() -> None:
         embedded_descending,
         untouched_ambiguous,
     ]
-    assert len(page.search_for("שְלום")) == 1
-    assert len(page.search_for("بالعالم")) == 1
-    assert len(page.search_for("123")) == 2
-    assert len(page.search_for("PDF")) == 2
-    assert len(page.search_for("12-31")) == 1
-    assert len(page.search_for("שלום")) == 4
+    assert len(page.search("שְלום")) == 1
+    assert len(page.search("بالعالم")) == 1
+    assert len(page.search("123")) == 2
+    assert len(page.search("PDF")) == 2
+    assert len(page.search("12-31")) == 1
+    assert len(page.search("שלום")) == 4
 
-    markdown = page.to_markdown()
+    markdown = page.markdown()
     assert hebrew in markdown
     assert arabic in markdown
     assert embedded_number in markdown
@@ -374,7 +396,7 @@ def test_rtl_edge_token_and_ltr_base_line_remain_in_producer_order() -> None:
     stream = f"BT /F1 20 Tf 40 200 Td <{ltr_base}> Tj ET\nBT /F1 20 Tf 40 140 Td <{rtl_edge}> Tj ET"
     page = pylopdf.open(build_visual_rtl_pdf(stream)).pages[0]
 
-    assert page.get_text().splitlines() == ["PDF םולש", "םלוע PDF"]
+    assert page.text().splitlines() == ["PDF םולש", "םלוע PDF"]
 
 
 def test_vertical_cjk_inference_stops_at_candidate_boundary() -> None:
@@ -382,8 +404,8 @@ def test_vertical_cjk_inference_stops_at_candidate_boundary() -> None:
     text = "日" * 4097
     page = pylopdf.open(build_nonembedded_cjk_pdf(text)).pages[0]
 
-    assert page.get_text().rstrip("\n") == text
-    line = page.get_text("dict")["blocks"][0]["lines"][0]
+    assert page.text().rstrip("\n") == text
+    line = page.layout().to_dict()["blocks"][0]["lines"][0]
     assert line["wmode"] == 0
 
 
@@ -391,11 +413,11 @@ def test_vertical_cjk_columns_read_right_to_left_between_page_furniture() -> Non
     """Order vertical columns right-to-left between a heading and footer."""
     page = pylopdf.open(build_vertical_cjk_columns_pdf()).pages[0]
 
-    assert page.get_text().splitlines() == ["Heading", "右側列", "左側列", "Footer"]
-    layout = page.get_text("dict")
+    assert page.text().splitlines() == ["Heading", "右側列", "左側列", "Footer"]
+    layout = page.layout().to_dict()
     lines = [line for block in layout["blocks"] for line in block["lines"]]
     assert [line["wmode"] for line in lines] == [0, 1, 1, 0]
-    markdown = page.to_markdown()
+    markdown = page.markdown()
     assert markdown.index("Heading") < markdown.index("右側列")
     assert markdown.index("右側列") < markdown.index("左側列")
     assert markdown.index("左側列") < markdown.index("Footer")
@@ -433,8 +455,8 @@ def test_multicolumn_reading_order_follows_columns() -> None:
         "Right two",
         "A footer spanning both columns",
     ]
-    assert page.get_text().splitlines() == expected
-    assert [word[4] for word in page.get_text("words")] == [word for line in expected for word in line.split()]
+    assert page.text().splitlines() == expected
+    assert [word.text for word in page.words()] == [word for line in expected for word in line.split()]
 
 
 def test_narrow_multicolumn_gutter_follows_columns() -> None:
@@ -471,7 +493,7 @@ def test_narrow_multicolumn_gutter_follows_columns() -> None:
         *(right for _, right in rows),
         "A footer spanning both columns",
     ]
-    assert page.get_text().splitlines() == expected
+    assert page.text().splitlines() == expected
 
 
 def test_established_narrow_gutter_follows_small_horizontal_drift() -> None:
@@ -503,7 +525,7 @@ def test_established_narrow_gutter_follows_small_horizontal_drift() -> None:
     )
 
     page = pylopdf.open(pdf).pages[0]
-    assert page.get_text().splitlines() == [
+    assert page.text().splitlines() == [
         *(left for left, _, _ in rows),
         *(right for _, right, _ in rows),
     ]
@@ -536,7 +558,7 @@ def test_repeated_multiseparator_rows_stay_row_major() -> None:
     )
 
     page = pylopdf.open(pdf).pages[0]
-    assert page.get_text().splitlines() == [" ".join(row) for row in rows]
+    assert page.text().splitlines() == [" ".join(row) for row in rows]
 
 
 def test_wide_gap_table_rows_stay_row_major() -> None:
@@ -568,7 +590,7 @@ def test_wide_gap_table_rows_stay_row_major() -> None:
     )
 
     page = pylopdf.open(pdf).pages[0]
-    assert page.get_text().splitlines() == [" ".join(row) for row in rows]
+    assert page.text().splitlines() == [" ".join(row) for row in rows]
 
 
 def test_isolated_wide_gap_stays_on_one_line() -> None:
@@ -588,6 +610,6 @@ def test_isolated_wide_gap_stays_on_one_line() -> None:
     )
 
     page = pylopdf.open(pdf).pages[0]
-    assert page.get_text() == "Header 1\n"
-    layout = page.get_text("dict")
+    assert page.text() == "Header 1\n"
+    layout = page.layout().to_dict()
     assert len(layout["blocks"][0]["lines"]) == 1

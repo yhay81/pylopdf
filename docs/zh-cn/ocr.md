@@ -5,7 +5,7 @@ description: 使用pylopdf内置的OCR引擎在本地识别扫描PDF中的文本
 
 # 离线OCR
 
-pylopdf可以识别扫描页面中的文本，并将其添加为不可见的文本层，使PDF可被搜索，并让`get_text()`和`to_markdown()`能够读取。请安装模型包：
+pylopdf可以识别扫描页面中的文本，并将其添加为不可见的文本层，使PDF可被搜索，并让`text()`和`markdown()`能够读取。请安装模型包：
 
 ```bash
 pip install "pylopdf[ocr]"

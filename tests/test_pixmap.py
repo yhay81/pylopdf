@@ -233,7 +233,7 @@ def test_clean_render_emits_no_warning(one_page_pdf: bytes) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error", pylopdf.PylopdfWarning)
         doc.pages[0].get_pixmap(alpha=True).tobytes()
-        doc.pages[0].get_text()
+        doc.pages[0].text()
 
 
 def test_warnings_do_not_leak_between_operations() -> None:
@@ -243,7 +243,7 @@ def test_warnings_do_not_leak_between_operations() -> None:
         broken.pages[0].get_pixmap(alpha=True).tobytes()
     with warnings.catch_warnings():
         warnings.simplefilter("error", pylopdf.PylopdfWarning)
-        broken.pages[0].get_text()
+        broken.pages[0].text()
 
 
 def test_corpus_render_has_no_warnings() -> None:

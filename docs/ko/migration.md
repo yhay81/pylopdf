@@ -5,7 +5,7 @@ description: 이전 도구, 이름별 대응표, 주의할 동작 차이를 바�
 
 # pymupdf에서 이전
 
-pylopdf는 pymupdf가 PDF 파일로 할 수 있는 모든 일을 자체 API로 하는 것을 목표로 합니다. 지금은 많은 이름이 pymupdf와 같고, `"words"` 튜플, `"dict"` 구조, 사각형을 반환하는 `search_for()`처럼 대부분의 코드가 의존하는 데이터 형태도 같습니다. 다만 그대로 바꿔 끼울 수 있는 대체품은 아닙니다. **PDF 파일만** 열며(XPS, EPUB, 이미지는 열지 않음), 일부 동작을 의도적으로 바꿨고, 다음 릴리스에서 API를 다시 설계하며 이전 도구도 각 부분이 반영될 때마다 이를 따릅니다. 문서와 그 페이지는 이미 새 API인 `pylopdf.open(source)`와 `doc.pages`를 사용합니다. 이 페이지는 그대로 쓸 수 있는 것, 다른 것, pylopdf가 아직 구현하지 않은 부분 대신 쓸 것을 정리합니다.
+pylopdf는 pymupdf가 PDF 파일로 할 수 있는 모든 일을 자체 API로 하는 것을 목표로 합니다. 다만 그대로 바꿔 끼울 수 있는 대체품은 아닙니다. **PDF 파일만** 열며(XPS, EPUB, 이미지는 열지 않음), 일부 동작을 의도적으로 바꿨고, 다음 릴리스에서 API를 다시 설계하며 이전 도구도 각 부분이 반영될 때마다 이를 따릅니다. 문서와 그 페이지, 저장, 텍스트 읽기는 이미 새 API인 `pylopdf.open(source)`, `doc.pages`, `doc.save()`, `page.text()`, `page.layout()`을 사용합니다. 이 페이지는 그대로 쓸 수 있는 것, 다른 것, pylopdf가 아직 구현하지 않은 부분 대신 쓸 것을 정리합니다.
 
 ## 자동 이전 { #codemod }
 
@@ -64,10 +64,13 @@ python -m pylopdf.migrate src/
 
 | pymupdf | pylopdf | 비고 |
 |---|---|---|
-| `page.get_text()` | 같음 | 옵션 `text`, `words`, `blocks`, `dict`, `rawdict`. `html`, `xml`은 없음 |
-| `page.search_for(text)` | 같음 | 사각형을 반환. `quads=`는 없음. `max_hits=`를 늘리지 않으면 결과는 최대 4,096개 |
+| `page.get_text()`, `get_text("text")` | `page.text()` | |
+| `page.get_text("words")` | `page.words()` | 튜플 대신 `text`, `bbox`, `block`, `line`, `index`를 가진 `Word` 레코드 |
+| `page.get_text("blocks")` | `page.layout().blocks` | 튜플 대신 `text`, `bbox`, `lines`를 가진 `Block` 레코드 |
+| `page.get_text("dict")`, `get_text("rawdict")` | `page.layout().to_dict()`, `page.layout(chars=True).to_dict()` | 같은 딕셔너리를 반환. `page.layout()` 자체는 레코드를 반환. `html`, `xml`은 없음 |
+| `page.search_for(text)` | `page.search(text)` | 사각형을 반환. `quads=`는 없음. `max_hits=`를 늘리지 않으면 결과는 최대 4,096개 |
 | `page.get_textpage_ocr()` | `page.get_text_ocr()`, `page.apply_ocr()` | 내장 오프라인 OCR. [오프라인 OCR](ocr.md) 참고 |
-| `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | 내장 |
+| `pymupdf4llm.to_markdown(doc)` | `doc.markdown()` | 내장 |
 | `page.get_pixmap(matrix=…, dpi=…)` | 같음 | 배율 행렬만 지원. `colorspace=`, `annots=`는 아직 없음. `doc.get_page_pixmap(i)`는 `doc.pages[i].get_pixmap()`으로 바뀜 |
 | `pix.samples`, `width`, `height`, `n`, `alpha`, `stride`, `colorspace`, `save()` | 같음 | `save()`와 `tobytes()`는 PNG만 기록 |
 | `page.get_svg_image()` | 같음 | 텍스트는 항상 경로로 그림 |
@@ -108,7 +111,7 @@ python -m pylopdf.migrate src/
 - **페이지 아래쪽 근처의 `insert_text`.** pylopdf는 보이는 페이지 영역(`page.rect`)을 기준으로 어떤 줄이 들어가는지 판단하고, pymupdf는 회전 전 페이지의 아래쪽 가장자리까지 잽니다. 일반적인 회전하지 않은 페이지에서는 둘이 일치합니다.
 - **글꼴은 엄격합니다.** pylopdf는 조용히 다른 글꼴을 쓰는 대신 예외를 발생시킵니다. 예를 들어 글꼴에 문자가 없을 때나, `is_bold=True`로 설치되지 않은 볼드 글꼴을 요청할 때입니다.
 - **폼 병합.** `doc.pages.insert()`와 `extend()`는 pymupdf의 기본값 `widgets=True`처럼 항상 폼 필드를 복사합니다. 받는 문서에 이미 있는 이름의 필드는 `name+1`, `name+2` 등으로 이름을 바꾸므로, 같은 폼의 사본들이 각자 값을 유지합니다.
-- **표와 Markdown.** `find_tables()`는 기본적으로 선으로 그린 표를 감지합니다. 테두리 없는 표에는 `strategy="text"`를 전달하세요. `to_markdown()`은 감지한 표를 읽기 순서에 맞게 배치하고 주변 단락에서 그 텍스트를 제거합니다.
+- **표와 Markdown.** `find_tables()`는 기본적으로 선으로 그린 표를 감지합니다. 테두리 없는 표에는 `strategy="text"`를 전달하세요. `markdown()`은 감지한 표를 읽기 순서에 맞게 배치하고 주변 단락에서 그 텍스트를 제거합니다.
 
 ## 구현하지 않은 기능의 대안 { #deliberate-scope }
 
@@ -139,7 +142,7 @@ doc.save("out.pdf", garbage=4, deflate=True)
 import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc.pages[0]
-page.add_highlight_annot(page.search_for("total"))   # 리스트 전체를 받음
+page.add_highlight_annot(page.search("total"))       # 리스트 전체를 받음
 page.get_pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
 doc.save("out.pdf", dedupe=True, renumber=True)
 ```

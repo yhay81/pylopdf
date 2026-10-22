@@ -5,7 +5,7 @@ description: 移行ツール、名前ごとの対応表、注意すべき挙動�
 
 # pymupdfからの移行
 
-pylopdfは、pymupdfがPDFファイルでできることをすべて、独自のAPIで実現することを目指しています。現在は多くの名前がpymupdfと同じで、`"words"`タプル、`"dict"`の構造、矩形を返す`search_for()`など、多くのコードが依存するデータの形も同じです。ただし、そのまま置き換えられるものではありません。開けるのは**PDFファイルだけ**で（XPS、EPUB、画像は不可）、いくつかの挙動は意図的に変えており、次のリリースではAPIを作り直します。移行ツールも、作り直した部分が入るたびにそれに追従します。文書とそのページはすでに新しいAPI（`pylopdf.open(source)`と`doc.pages`）を使っています。このページでは、そのまま使えるもの、異なるもの、pylopdfがまだ実装していない部分の代わりに使うものをまとめます。
+pylopdfは、pymupdfがPDFファイルでできることをすべて、独自のAPIで実現することを目指しています。ただし、そのまま置き換えられるものではありません。開けるのは**PDFファイルだけ**で（XPS、EPUB、画像は不可）、いくつかの挙動は意図的に変えており、次のリリースではAPIを作り直します。移行ツールも、作り直した部分が入るたびにそれに追従します。文書とそのページ、保存、テキストの読み取りはすでに新しいAPI（`pylopdf.open(source)`、`doc.pages`、`doc.save()`、`page.text()`、`page.layout()`）を使っています。このページでは、そのまま使えるもの、異なるもの、pylopdfがまだ実装していない部分の代わりに使うものをまとめます。
 
 ## 自動移行 { #codemod }
 
@@ -64,10 +64,13 @@ python -m pylopdf.migrate src/
 
 | pymupdf | pylopdf | 備考 |
 |---|---|---|
-| `page.get_text()` | 同じ | オプションは`text`、`words`、`blocks`、`dict`、`rawdict`。`html`と`xml`はありません |
-| `page.search_for(text)` | 同じ | 矩形を返します。`quads=`はありません。`max_hits=`を上げない限り結果は最大4,096件 |
+| `page.get_text()`, `get_text("text")` | `page.text()` | |
+| `page.get_text("words")` | `page.words()` | タプルではなく、`text`、`bbox`、`block`、`line`、`index`を持つ`Word`レコード |
+| `page.get_text("blocks")` | `page.layout().blocks` | タプルではなく、`text`、`bbox`、`lines`を持つ`Block`レコード |
+| `page.get_text("dict")`, `get_text("rawdict")` | `page.layout().to_dict()`, `page.layout(chars=True).to_dict()` | 同じ辞書を返します。`page.layout()`自体はレコードを返します。`html`と`xml`はありません |
+| `page.search_for(text)` | `page.search(text)` | 矩形を返します。`quads=`はありません。`max_hits=`を上げない限り結果は最大4,096件 |
 | `page.get_textpage_ocr()` | `page.get_text_ocr()`, `page.apply_ocr()` | 組み込みのオフラインOCR。[オフラインOCR](ocr.md)を参照 |
-| `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | 組み込み |
+| `pymupdf4llm.to_markdown(doc)` | `doc.markdown()` | 組み込み |
 | `page.get_pixmap(matrix=…, dpi=…)` | 同じ | 拡大縮小の行列のみ。`colorspace=`と`annots=`はまだありません。`doc.get_page_pixmap(i)`は`doc.pages[i].get_pixmap()`になります |
 | `pix.samples`, `width`, `height`, `n`, `alpha`, `stride`, `colorspace`, `save()` | 同じ | `save()`と`tobytes()`はPNGのみを書き出します |
 | `page.get_svg_image()` | 同じ | テキストは常にパスとして描きます |
@@ -108,7 +111,7 @@ python -m pylopdf.migrate src/
 - **ページ下端付近の`insert_text`。** pylopdfはどの行が収まるかをページの見える領域（`page.rect`）で判断しますが、pymupdfは回転前のページの下端までで測ります。通常の回転していないページでは両者は一致します。
 - **フォントの扱いは厳格です。** pylopdfは黙って別のフォントを使わず、例外を送出します。たとえば、フォントに文字がない場合や、`is_bold=True`でインストールされていない太字を求めた場合です。
 - **フォームの結合。** `doc.pages.insert()`と`extend()`は、pymupdfの既定の`widgets=True`と同じく、常にフォームフィールドをコピーします。受け取る側の文書に同じ名前のフィールドがあれば`name+1`、`name+2`のように改名するので、同じフォームのコピーはそれぞれ別の値を持ちます。
-- **表とMarkdown。** `find_tables()`は既定で罫線で描かれた表を検出します。罫線のない表には`strategy="text"`を渡してください。`to_markdown()`は検出した表を読み順の位置に置き、周囲の段落からその表のテキストを取り除きます。
+- **表とMarkdown。** `find_tables()`は既定で罫線で描かれた表を検出します。罫線のない表には`strategy="text"`を渡してください。`markdown()`は検出した表を読み順の位置に置き、周囲の段落からその表のテキストを取り除きます。
 
 ## 実装しない機能: 代わりに使うもの { #deliberate-scope }
 
@@ -139,7 +142,7 @@ doc.save("out.pdf", garbage=4, deflate=True)
 import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc.pages[0]
-page.add_highlight_annot(page.search_for("total"))   # リスト全体を受け取る
+page.add_highlight_annot(page.search("total"))       # リスト全体を受け取る
 page.get_pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
 doc.save("out.pdf", dedupe=True, renumber=True)
 ```

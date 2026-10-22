@@ -99,9 +99,9 @@ a default that is safe for most uses. Raise it with the keyword shown, or pass
 |---|---|---|
 | `Document.to_bytes()` | 512 MiB of output | `max_size` |
 | `Document.render_pages()` | 512 MiB of PNG output in total | `max_size` |
-| `to_markdown()`, `Table.to_markdown()` | 64 MiB of output | `max_size` |
+| `markdown()`, `Table.markdown()` | 64 MiB of output | `max_size` |
 | `Pixmap.tobytes()`, `Page.get_svg_image()` | 64 MiB of output | `max_size` |
-| `Page.search_for()` | 4,096 results | `max_hits` |
+| `Page.search()` | 4,096 results | `max_hits` |
 | `Page.content()` | 262,144 glyphs, path and clip segments, and items | `max_elements` |
 | `Page.insert_text()`, `insert_textbox()` | 1 MiB of text and 4,096 lines | `max_text_size` |
 | Font input to drawing, forms, and `Font` | 64 MiB per font | `max_font_size` |
@@ -114,8 +114,8 @@ a default that is safe for most uses. Raise it with the keyword shown, or pass
 
 A few limits are fixed. Rendering is capped at 64 million pixels per page.
 Passwords stop at 127 UTF-8 bytes, the PDF 2.0 maximum. Lists of pages passed to
-`doc.pages.select()`, `insert()`, and `extend()`, `get_text()`,
-`to_markdown()`, and `render_pages()` may hold up to the page count or 4,096
+`doc.pages.select()`, `insert()`, and `extend()`, `doc.text()`,
+`doc.markdown()`, and `render_pages()` may hold up to the page count or 4,096
 entries, whichever is larger. Outlines, page labels, form fields, annotations, and attachment lists
 have generous fixed limits sized for large real-world documents.
 

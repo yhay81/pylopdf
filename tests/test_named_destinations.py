@@ -353,7 +353,7 @@ def test_reads_and_imports_refuse_beyond_each_limit(shape: Shape) -> None:
 
     assert source.to_bytes() == source_before
     assert target.to_bytes() == target_before
-    assert "Unchanged" in target.pages[0].get_text()
+    assert "Unchanged" in target.pages[0].text()
 
 
 def _edit(doc: pylopdf.Document, operation: Literal["delete", "select"]) -> None:

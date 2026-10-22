@@ -179,15 +179,15 @@ def test_text_render_modes_follow_the_painting() -> None:
 
 def test_text_painted_with_fill_and_stroke_extracts_once() -> None:
     page = page_with("BT /F1 12 Tf 10 50 Td 2 Tr (Hello) Tj 0 Tr 0 -20 Td (World) Tj ET")
-    assert page.get_text() == "Hello\nWorld\n"
-    assert [word[4] for word in page.get_text("words")] == ["Hello", "World"]
+    assert page.text() == "Hello\nWorld\n"
+    assert [word.text for word in page.words()] == ["Hello", "World"]
     (run, _) = page.content().text_runs
     assert run.render_mode is TextRenderMode.FILL_STROKE
 
 
 def test_a_stroke_of_other_glyphs_is_read_as_its_own_text() -> None:
     page = page_with("BT /F1 12 Tf 10 50 Td (Hello) Tj 1 Tr 0 -20 Td (Hello) Tj ET")
-    assert page.get_text() == "Hello\nHello\n"
+    assert page.text() == "Hello\nHello\n"
     assert [run.render_mode for run in page.content().text_runs] == [TextRenderMode.FILL, TextRenderMode.STROKE]
 
 
@@ -302,7 +302,7 @@ def test_stencil_masks_are_images_without_an_object() -> None:
 def test_type3_glyphs_take_their_boxes_from_the_procedure() -> None:
     page = pylopdf.open(CORPUS[0].parent / "pdfium-type3.pdf").pages[0]
     with pytest.warns(pylopdf.PylopdfWarning):
-        page.get_text()
+        page.text()
     runs = page.content().text_runs
     assert runs
     for run in runs:
@@ -456,7 +456,7 @@ def test_content_agrees_with_the_extraction_views(path: Path) -> None:
 
         expected = pytest.warns(pylopdf.PylopdfWarning) if path.name == "pdfium-type3.pdf" else nullcontext()
         with expected:
-            layout = page.get_text("rawdict")
+            layout = page.layout(chars=True).to_dict()
         characters = Counter(
             (char["c"], round(char["origin"][0], 3), round(char["origin"][1], 3))
             for block in layout["blocks"]
