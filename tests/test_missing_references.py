@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 
 import pytest
-from conftest import build_pdf, outline_entries, outline_tuples
+from conftest import annotation_subtypes, build_pdf, outline_entries, outline_tuples
 
 import pylopdf
 
@@ -86,13 +86,13 @@ def test_missing_number_below_the_highest_object_stays_a_reference() -> None:
 def test_annotations_start_a_new_array_for_a_null_annots_entry(value: str) -> None:
     """Adding an annotation raised `PdfError` for the indirect null and missing array."""
     doc = pylopdf.open(_pdf(page=f"/Annots {value}"))
-    assert doc.pages[0].annots() == []
+    assert annotation_subtypes(doc.pages[0]) == []
 
     doc.pages[0].links.add((10, 10, 100, 30), "https://example.com/")
-    doc.pages[0].add_highlight_annot([(10, 40, 100, 60)])
+    doc.pages[0].annotations.add(pylopdf.Highlight([(10, 40, 100, 60)]))
 
     for current in _with_reloaded(doc):
-        assert [annot.type[1] for annot in current.pages[0].annots()] == ["Link", "Highlight"]
+        assert annotation_subtypes(current.pages[0]) == ["Link", "Highlight"]
         assert [link.target for link in current.pages[0].links] == ["https://example.com/"]
 
 

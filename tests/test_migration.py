@@ -374,6 +374,13 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             'page.links.add(r, pylopdf.NamedAction("NextPage"))',
         ),
         ("import fitz\nfound = doc.has_links()\n", "found = any(page.links for page in doc.pages)"),
+        ("import fitz\nfound = doc.has_annots()\n", "found = any(page.annotations for page in doc.pages)"),
+        (
+            "import fitz\nannot = page.add_highlight_annot(hits)\n",
+            "annot = page.annotations.add(pylopdf.Highlight(hits))",
+        ),
+        ("import fitz\npage.delete_annot(annot)\n", "del page.annotations[page.annotations.index(annot)]"),
+        ("import fitz\ndef f(annot: fitz.Annot) -> None: ...\n", "def f(annot: pylopdf.Annotation) -> None: ..."),
     ],
 )
 def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> None:
@@ -427,6 +434,14 @@ def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> N
         ("import pylopdf\ncreated = doc.metadata['creationDate']\n", 'created = doc.metadata.get("created", "")'),
         ("import pylopdf\nlabel = page.get_label()\n", "label = page.label"),
         ("import pylopdf\npage.add_link_annot(rect, uri)\n", "page.links.add(rect, uri)"),
+        (
+            "import pylopdf\npage.add_highlight_annot(rects, color=(1, 0, 0), content='n')\n",
+            "page.annotations.add(pylopdf.Highlight(rects, color=pylopdf.Color(1, 0, 0), contents='n'))",
+        ),
+        (
+            "import pylopdf\npage.add_highlight_annot(rects, color=rgb, opacity=0.5)\n",
+            "page.annotations.add(pylopdf.Highlight(rects, color=pylopdf.Color(*rgb), opacity=0.5))",
+        ),
         (
             'import pylopdf\npage.insert_link({"kind": pylopdf.LINK_LAUNCH, "from": r, "file": "a.txt"})\n',
             'page.links.add(r, pylopdf.Launch("a.txt"))',
@@ -671,6 +686,14 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import fitz\npage.update_link(link_dict)\n", "Assign link.rect and link.target"),
         ("import fitz\nif link['kind'] == fitz.LINK_GOTO:\n    pass\n", "isinstance(link.target, Destination)"),
         ("import pylopdf\nfrom pylopdf import LinkInfo\n", "page.links lists Link handles"),
+        ("import fitz\nfor annot in page.annots():\n    print(annot.info)\n", "page.annotations lists Annotation"),
+        (
+            "import fitz\nnotes = page.annots(types=[fitz.PDF_ANNOT_TEXT])\n",
+            "page.annotations lists Annotation handles",
+        ),
+        ("import fitz\nannot = page.first_annot\n", "Annotation handles have typed properties"),
+        ("import fitz\nannot = page.add_highlight_annot(start=a, stop=b)\n", "page.annotations.add(Highlight("),
+        ("import pylopdf\nannots = page.annots()\n", "links are in page.links"),
     ],
 )
 def test_codemod_marks_what_it_cannot_rewrite(migrate_source: Migrate, source: str, hint: str) -> None:

@@ -120,7 +120,7 @@ the concept and API overview.
     `src/pylopdf/_canvas.py`, `_create.py`, `_fonts.py`, `_shape.py`, and
     `_geometry.py`.
   - Interaction: `form.rs`, `acroform_import.rs`;
-    `document/{forms,annotations}.rs`; `src/pylopdf/_annots.py` and
+    `document/{forms,annotations}.rs`; `src/pylopdf/_annotations.py` and
     `_links.py`.
   - Rewriting: `content/`, `text_replace.rs`, `image_compression.rs`;
     `document/replacement.rs`.
@@ -2355,11 +2355,18 @@ the concept and API overview.
   release the GIL, and reject complete results above 4,096 array entries or
   1 MiB of aggregate encoded/returned subtype, annotation text (`/Contents`,
   `/Name`, `/T`, dates, `/Subj`, `/NM`, `/IT`), URI, file, and destination
-  text per call. `Page.annots()` returns read-only `Annot` handles
-  (`src/pylopdf/_annots.py`) that store the page, the
-  annotation's xref, and its `/Annots` index, and re-read the page's
-  annotations on every property access; a handle whose page went stale or
-  whose annotation left `/Annots` raises `StaleObjectError`. Creation must preflight the same page count,
+  text per call. `page.annotations` (`src/pylopdf/_annotations.py`) is an
+  `Annotations` sequence of `Annotation` handles for every `/Annots` entry
+  with a `/Rect` except `/Link`, `/Widget`, and `/Popup` subtypes, an entry
+  without a subtype included (MuPDF lists none of the three, and reads a
+  missing subtype as unknown). A handle reads its annotation through
+  `read_annotation` and `annotation_at` as a `Link` handle does, with the
+  same direct-dictionary rule, and its properties are read-only typed values
+  (`/C` and `/IC` of one, three, or four components become a `Color`, CMYK
+  converted naively). `remove_annotations` also removes the `/Popup` that
+  an annotation names when the page lists it. `add(Highlight(...))` calls
+  `add_highlight_annotation`; the other specifications of api/DESIGN.md come
+  with the Interaction milestone. Creation must preflight the same page count,
   1 MiB aggregate generated subtype plus Contents/URI input, and 4,096
   highlight rectangles before creating dependent objects or invalidating
   caches. Caller annotation text must stop before PyO3 copying with
@@ -2499,11 +2506,9 @@ the concept and API overview.
   Table 29 reads as the default) and write through `set_catalog_name` and
   `set_mark_info`, which keep placements; assignments take an enum member or
   its exact value, where pymupdf matched names case-insensitively.
-  `has_annots` scans every page's `/Annots` with the page index and
-  releases the GIL. `Document.language` reads and writes the
-  complete BCP 47 `/Lang` tag, where MuPDF packs it into at most three
-  letters, so pymupdf reads `en-US` as `en` and cannot tell `zh-TW` from
-  `zh-HK`; Python and `is_language_tag` in Rust both check its shape
+  `Document.language` reads and writes the complete BCP 47 `/Lang` tag,
+  where MuPDF packs it into at most three letters, so pymupdf reads `en-US`
+  as `en` and cannot tell `zh-TW` from `zh-HK`; Python and `is_language_tag` in Rust both check its shape
   (subtags of one to eight ASCII letters or digits, at most 256 bytes).
   `permissions` returns `Permissions` flags as MuPDF decides them: none
   while the document is locked, `Permissions.ALL` for an unencrypted

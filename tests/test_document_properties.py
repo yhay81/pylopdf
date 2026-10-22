@@ -269,40 +269,44 @@ def _has_links(doc: pylopdf.Document) -> bool:
     return any(page.links for page in doc.pages)
 
 
-def test_links_and_has_annots_on_documents_without_annotations() -> None:
+def _has_annotations(doc: pylopdf.Document) -> bool:
+    return any(page.annotations for page in doc.pages)
+
+
+def test_links_and_annotations_on_documents_without_annotations() -> None:
     doc = pylopdf.open(build_pdf(["plain", "two"]))
     assert _has_links(doc) is False
-    assert doc.has_annots() is False
+    assert _has_annotations(doc) is False
 
 
-def test_links_and_has_annots_follow_pymupdf_subtypes() -> None:
+def test_links_and_annotations_follow_pymupdf_subtypes() -> None:
     links = pylopdf.open(_annotated_pdf("[4 0 R null 9 0 R]", "<< /Type /Annot /Subtype /Link /Rect [0 0 1 1] >>"))
-    assert (_has_links(links), links.has_annots()) == (True, False)
+    assert (_has_links(links), _has_annotations(links)) == (True, False)
 
     widgets = pylopdf.open(_annotated_pdf("[<< /Subtype /Widget /Rect [0 0 1 1] >>]"))
-    assert (_has_links(widgets), widgets.has_annots()) == (False, False)
+    assert (_has_links(widgets), _has_annotations(widgets)) == (False, False)
 
     # An annotation without a subtype counts, as MuPDF reads it as unknown.
     untyped = pylopdf.open(_annotated_pdf("4 0 R", "[<< /Rect [0 0 1 1] >>]"))
-    assert (_has_links(untyped), untyped.has_annots()) == (False, True)
+    assert (_has_links(untyped), _has_annotations(untyped)) == (False, True)
 
 
-def test_links_and_has_annots_on_real_world_files() -> None:
+def test_links_and_annotations_on_real_world_files() -> None:
     # pymupdf 1.28.2 reports the same values for these files.
     annotated = pylopdf.open(REAL_WORLD / "pdfium-links-highlights-annots.pdf")
-    assert (_has_links(annotated), annotated.has_annots()) == (True, True)
+    assert (_has_links(annotated), _has_annotations(annotated)) == (True, True)
     manual = pylopdf.open(REAL_WORLD / "usrguide.pdf")
-    assert (_has_links(manual), manual.has_annots()) == (True, False)
+    assert (_has_links(manual), _has_annotations(manual)) == (True, False)
     form = pylopdf.open(REAL_WORLD / "f1040.pdf")
-    assert (_has_links(form), form.has_annots()) == (False, False)
+    assert (_has_links(form), _has_annotations(form)) == (False, False)
 
 
-def test_has_annots_sees_created_annotations() -> None:
+def test_annotations_see_created_annotations() -> None:
     doc = pylopdf.open(build_pdf(["plain"]))
     doc.pages[0].links.add(pylopdf.Rect(10, 10, 50, 50), "https://example.com")
-    assert (_has_links(doc), doc.has_annots()) == (True, False)
-    doc.pages[0].add_highlight_annot(pylopdf.Rect(10, 10, 50, 50))
-    assert (_has_links(doc), doc.has_annots()) == (True, True)
+    assert (_has_links(doc), _has_annotations(doc)) == (True, False)
+    doc.pages[0].annotations.add(pylopdf.Highlight(pylopdf.Rect(10, 10, 50, 50)))
+    assert (_has_links(doc), _has_annotations(doc)) == (True, True)
 
 
 # --- document state ------------------------------------------------------
@@ -317,7 +321,7 @@ def test_is_closed() -> None:
         _ = doc.pages
     for operation in (
         lambda: doc.xmp,
-        doc.has_annots,
+        lambda: doc.page_labels,
         lambda: doc.page_mode,
         lambda: doc.mark_info,
         lambda: doc.metadata,
@@ -340,7 +344,7 @@ def test_path_is_the_file_the_document_came_from(tmp_path: Path) -> None:
 
 def test_encrypted_documents_refuse_property_access_until_authenticated() -> None:
     doc = pylopdf.open(ENCRYPTED / "user-aes-256.pdf")
-    for operation in (lambda: doc.xmp, doc.has_annots, lambda: doc.page_layout, lambda: doc.language):
+    for operation in (lambda: doc.xmp, lambda: doc.page_labels, lambda: doc.page_layout, lambda: doc.language):
         with pytest.raises(pylopdf.EncryptedDocumentError):
             operation()
     assert doc.path == ENCRYPTED / "user-aes-256.pdf"
@@ -499,7 +503,7 @@ def test_reads_leave_is_dirty_false() -> None:
     doc.markdown()
     _ = (doc.outline.entries(), doc.page_labels, page.label)
     _ = (doc.xmp, dict(doc.metadata), doc.page_mode, doc.mark_info, doc.language, doc.pdfa_claim)
-    _ = (doc.has_annots(), doc.permissions, doc.version)
+    _ = ([(annotation.type, annotation.contents) for annotation in page.annotations], doc.permissions, doc.version)
     _ = list(doc.objects)
     assert not doc.is_dirty
 

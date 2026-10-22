@@ -41,7 +41,8 @@ python -m pylopdf.migrate src/
 | `doc.language`、`set_language(tag)` | `doc.language`、`doc.language = tag` | 使用完整的标签：pymupdf最多只保留三个字母，因此`zh-TW`和`zh-HK`都会变成`zh-Hant`；`del doc.language`将其删除 |
 | `doc.pagemode`、`pagelayout`、`markinfo`及其`set_*`方法 | 对`doc.page_mode`、`page_layout`、`mark_info`赋值 | `PageMode`和`PageLayout`枚举以及`MarkInfo`记录；名称须完全匹配，而pymupdf不区分大小写 |
 | `doc.has_links()` | `any(page.links for page in doc.pages)` | |
-| `doc.has_annots()`、`is_closed` | 相同 | |
+| `doc.has_annots()` | `any(page.annotations for page in doc.pages)` | |
+| `doc.is_closed` | 相同 | |
 | `doc.name` | `doc.path` | 一个`pathlib.Path`；从bytes打开或新建的空文档为`None`。由于所有文档都是PDF，`is_pdf`已被移除 |
 | `doc.needs_pass`、`doc.is_encrypted` | `doc.needs_password` | 在文档解锁之前为True |
 | `doc.authenticate(password)` | `doc.unlock(password)` | 返回`Access.USER`或`Access.OWNER`；密码错误时抛出`PasswordError`，而不是返回0 |
@@ -104,8 +105,8 @@ python -m pylopdf.migrate src/
 | `page.show_pdf_page(rect, docsrc, pno)` | 相同 | 源文档可以是同一个文档 |
 | `page.new_shape()`、`shape.draw_*`、`finish()`、`insert_text()`、`commit()` | 相同 | `with page.new_shape() as shape:`会自动提交；尚不支持`morph=`和`oc=` |
 | `page.draw_line()`、`draw_rect()`及其他`draw_*` | 相同 | 样式选项仅限关键字参数 |
-| `page.annots()`、`annot.type`、`rect`、`info`、`colors`、`flags` | 相同 | 目前为只读 |
-| `page.add_highlight_annot()` | 相同 | |
+| `page.annots()`、`page.first_annot`、`annot.type`、`rect`、`info`、`colors`、`flags`、`parent` | `page.annotations`、`annotation.type`、`rect`、`contents`等文本、`color`、`interior_color`、`flags`、`page` | 带类型化属性的`Annotation`句柄：`type`是`AnnotationType`成员，`info`和`colors`字典变为属性。链接和控件不在其中，弹出窗口属于其批注；这些属性目前为只读 |
+| `page.add_highlight_annot(quads)`、`page.delete_annot(annot)` | `page.annotations.add(Highlight(quads))`、`del page.annotations[i]` | `color`是`Color`，`content`改为`contents`；删除批注会一并删除其弹出窗口 |
 | `page.get_links()`、`page.links()`、`page.first_link`、`page.load_links()` | `page.links` | 带有`rect`和`target`的`Link`句柄序列，取代字典和`Link`对象链 |
 | `page.insert_link(link)`、`page.update_link(link)`、`page.delete_link(link)` | `page.links.add(rect, target)`、给`link.rect`和`link.target`赋值、`del page.links[i]` | 链接目标与书签相同，是URI字符串、`Destination(page, point, zoom)`、`RemoteDestination(file, page)`、`Launch(file)`或`NamedAction(name)`之一；用`isinstance`判断目标，取代`LINK_*`类型 |
 | `page.widgets()` | `doc.get_form_fields()`、`doc.set_form_field(name, value)` | 表单按文档处理 |
@@ -159,7 +160,7 @@ doc.save("out.pdf", garbage=4, deflate=True)
 import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc.pages[0]
-page.add_highlight_annot(page.search("total"))       # 可直接传入整个列表
+page.annotations.add(pylopdf.Highlight(page.search("total")))  # 可直接传入整个列表
 page.pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
 doc.save("out.pdf", dedupe=True, renumber=True)
 ```

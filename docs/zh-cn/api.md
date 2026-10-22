@@ -178,7 +178,6 @@ del doc.fallback_fonts            # back to the installed font extras
 | `language` | 文档的语言，为完整的BCP 47标签，例如`zh-TW`或`sr-Latn-RS`，或为`None`。赋值标签即写入，`del doc.language`将其删除；格式不正确的标签会抛出异常 |
 | `page_mode`、`page_layout` | 阅读器打开文档的方式，为`PageMode`和`PageLayout`成员，例如`PageMode.USE_OUTLINES`或`PageLayout.TWO_COLUMN_LEFT`；未设置时为`USE_NONE`和`SINGLE_PAGE`。可赋值成员或其准确名称 |
 | `mark_info` | 以`MarkInfo(marked=, user_properties=, suspects=)`记录表示的标签PDF标志，不存在时为`None`。赋值时写入全部三个标志，`del`将其删除 |
-| `has_annots()` | 是否有任何页面带有链接和表单控件以外的批注；是否有页面带有链接，可用`any(page.links for page in doc.pages)`判断 |
 | `objects`、`trailer`、`catalog` | 直接访问PDF对象；参见[底层对象](#low-level-objects) |
 
 `language`保留完整的标签，而pymupdf的`language`最多只保留三个字母，因此在那里`zh-TW`和`zh-HK`都会被读成`zh-Hant`。写入XMP时，即使保存时压缩流也不会压缩数据包，因此在文件中搜索XMP的工具仍能找到它。
@@ -253,11 +252,21 @@ page.rotation = 90
 
 | 成员 | 用途 |
 |---|---|
-| `annots(*, types=None)` | 只读的`Annot`对象，含`type`、`rect`、`info`、`colors`、`flags`和`xref` |
-| `add_highlight_annot(quads, *, color=, opacity=0.4, content=None)` | 高亮一个或多个矩形或四边形，例如搜索结果 |
+| `annotations` | 页面上除链接和表单控件以外的批注，以`Annotation`句柄给出 |
 | `links` | 页面的链接，按页面列出的顺序给出`Link`句柄 |
 
-批注类型和标志分别为`PDF_ANNOT_*`和`PDF_ANNOT_IS_*`常量。
+`page.annotations`是按页面列出顺序排列的`Annotation`句柄序列；弹出窗口属于指向它的批注，不单独列出。句柄每次访问都读取文档，具有`AnnotationType`成员`type`、显示坐标中的`rect`、文本`contents`、`author`、`subject`、`name`、`icon`和`intent`、以存储的PDF日期字符串给出的日期`created`和`modified`、以`Color`记录或`None`给出的`color`和`interior_color`、`opacity`、`AnnotationFlags`值`flags`，以及`xref`、`obj`和`page`。`page.annotations.add(Highlight(rects, *, color=Color(1, 1, 0), opacity=0.4, contents=None))`高亮一个或多个矩形或四边形（例如搜索结果）并返回新句柄，`del page.annotations[i]`连同弹出窗口一起删除批注。`AnnotationType`和`AnnotationFlags`的成员与pymupdf的`PDF_ANNOT_*`和`PDF_ANNOT_IS_*`常量取值相同。
+
+```python
+from pylopdf import AnnotationType, Color, Highlight
+
+note = page.annotations.add(Highlight(page.search("total"), color=Color(1, 0.8, 0), contents="Check"))
+for annotation in page.annotations:
+    if annotation.type is AnnotationType.TEXT:
+        print(annotation.author, annotation.contents)
+```
+
+读取批注时每页最多4,096个批注和1 MiB文本，高亮的`contents`最多1 MiB（`LimitError`代码`annotation_input_size`）。
 
 `page.links`是`Link`句柄的序列：`page.links.add(rect, target)`在显示坐标的矩形上添加链接并返回其句柄，`del page.links[i]`删除一个链接。句柄每次访问都读取文档，给`rect`或`target`赋值即编辑链接。链接目标与[书签](#outline)相同，是URI字符串、`Destination`、`RemoteDestination`、`Launch`或`NamedAction`之一。动作为JavaScript等pylopdf不读取的动作、或目标不指向任何页面的链接，其目标为`None`。`xref`和`obj`给出批注的对象编号及其在[对象模型](#low-level-objects)中的字典，边框、颜色和标志都在这个字典里。
 
@@ -672,11 +681,11 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 | `Content`、`TextRun`、`Path`、`Image`、`Glyph`、`FontRef`、`Color`、`Stroke`、`GraphicsContext`及其他内容类型 | [页面内容](#content) |
 | `Colorspace` | [`Pixmap`](#pixmap)的颜色空间：`GRAY`和`RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [书签与页码标签](#outline) |
-| `Link`, `Links` | [批注与链接](#page-annotations) |
+| `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `Highlight`, `Link`, `Links` | [批注与链接](#page-annotations) |
 | `PageBoxes` | [页面几何](#page-geometry) |
 | `FallbackFont`, `FallbackFonts` | [渲染与图像](#document-rendering) |
 
-常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）和`AnnotFlags`（`PDF_ANNOT_IS_*`）。`Access`的成员是`USER`和`OWNER`，`Encryption`描述如何加密保存的文件。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
+常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotationType`（`PDF_ANNOT_*`）和`AnnotationFlags`（`PDF_ANNOT_IS_*`）。`Access`的成员是`USER`和`OWNER`，`Encryption`描述如何加密保存的文件。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
 
 文本、表格、OCR和页面内容的结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`和书签目标等不可变的数据类（frozen dataclass）。API返回的其他字典都是普通的`dict`对象，并通过`FormFieldInfo`等`TypedDict`类向类型检查器描述。
 

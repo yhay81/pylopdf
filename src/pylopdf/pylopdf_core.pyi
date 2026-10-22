@@ -34,6 +34,20 @@ _ObjectRoot: TypeAlias = tuple[int, int] | None
 _PageBox: TypeAlias = tuple[float, float, float, float]
 _Target: TypeAlias = tuple[str, int | None, tuple[float, float] | None, float | None, str | None, str | None]
 _OutlineColor: TypeAlias = tuple[float, float, float] | None
+_AnnotationTexts: TypeAlias = tuple[
+    str | None, str | None, str | None, str | None, str | None, str | None, str | None, str | None
+]
+_Annotation: TypeAlias = tuple[
+    int,
+    int,
+    str | None,
+    tuple[float, float, float, float],
+    int,
+    _AnnotationTexts,
+    list[float],
+    list[float],
+    float | None,
+]
 _ObjectStep: TypeAlias = int | bytes
 
 class PdfError(ValueError): ...
@@ -425,7 +439,6 @@ class _Document:
     def set_catalog_name(self, key: str, value: str) -> None: ...
     def set_language_tag(self, tag: str | None) -> None: ...
     def set_mark_info(self, marked: bool, user_properties: bool, suspects: bool) -> None: ...
-    def has_annotation_kind(self, links: bool) -> bool: ...
     def get_form_fields(self) -> list[tuple[str, str, str | None]]: ...
     def form_button_states(self, name: str) -> list[str]: ...
     def set_form_field(
@@ -610,20 +623,8 @@ class _Document:
         keep_proportion: bool,
         overlay: bool,
     ) -> int: ...
-    def read_annotations(
-        self, page_number: int
-    ) -> list[
-        tuple[
-            int,
-            int,
-            str,
-            tuple[float, float, float, float],
-            int,
-            tuple[str | None, str | None, str | None, str | None, str | None, str | None, str | None, str | None],
-            list[float],
-            list[float],
-        ]
-    ]: ...
+    def read_annotations(self, page_number: int) -> list[_Annotation]: ...
+    def read_annotation(self, page_number: int, index: int, xref: int) -> _Annotation: ...
     def read_links(self, page_number: int) -> list[tuple[int, int, tuple[float, float, float, float], _Target]]: ...
     def read_link(
         self, page_number: int, index: int, xref: int

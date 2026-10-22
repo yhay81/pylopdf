@@ -98,7 +98,7 @@ _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
     "insert_image": lambda doc: doc.pages[0].insert_image(
         (10, 10, 50, 50), pixmap=doc.pages[0].pixmap(matrix=pylopdf.Matrix(0.05, 0.05), alpha=True)
     ),
-    "add_highlight_annot": lambda doc: doc.pages[0].add_highlight_annot([(10, 10, 100, 30)]),
+    "add_highlight": lambda doc: doc.pages[0].annotations.add(pylopdf.Highlight([(10, 10, 100, 30)])),
     "add_link_annot": lambda doc: doc.pages[0].links.add((10, 10, 100, 30), "https://example.com/"),
     "insert_ocr_text_layer": lambda doc: doc.pages[0].apply_ocr(
         words=ocr_words([(10, 10, 100, 30, "Word")]), skip_existing=False

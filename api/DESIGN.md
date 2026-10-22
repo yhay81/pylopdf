@@ -317,7 +317,7 @@ its text needs an OpenType `Font` until krilla draws the Standard 14 fonts.
 
 | API | Notes |
 | --- | --- |
-| `page.annotations` | A sequence of `Annotation` handles with typed properties (`type`, `rect`, `contents`, `author`, `color`, `interior_color`, `opacity`, `flags`, `xref`, `page`), `add(specification)` → `Annotation`, and `del`. |
+| `page.annotations` | A sequence of `Annotation` handles for the annotations other than links, widgets, and popups, with typed properties (`type`, `rect`, `contents`, `author`, `subject`, `name`, `icon`, `intent`, `created`, `modified`, `color`, `interior_color`, `opacity`, `flags`, `xref`, `obj`, `page`), `add(specification)` → `Annotation`, and `del`, which removes the popup as well. |
 | Annotation specifications | `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Note`, `FreeText`, `Line`, `Square`, `Circle`, `Polygon`, `PolyLine`, `Ink`, `Stamp`, `FileAttachment`, `Caret`, and `Redaction`. |
 | `page.links` | A sequence of `Link` handles (`rect` and `target`, both assignable, plus `xref`, `obj`, and `page`), `add(rect, target)`, and `del`. A target is a URI string, a `Destination(page, point=None, zoom=None)`, a `RemoteDestination`, a `Launch`, or a `NamedAction`; a link that pylopdf cannot follow reads as `None`. |
 | `doc.form` | A mapping of `Field` handles by fully qualified name: `value` (assignable), `type`, `flags`, `choices`, `widgets`, and `reset()`. |

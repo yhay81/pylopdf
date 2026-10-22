@@ -67,7 +67,7 @@ svg = page.svg()
 # Add content
 page.insert_text((72, 72), "Approved", fontsize=20, color=(0.8, 0, 0))
 page.insert_image((72, 100, 200, 200), filename="logo.png")
-page.add_highlight_annot(hits)
+page.annotations.add(pylopdf.Highlight(hits))
 
 # Reorganize pages (fetch pages again with doc.pages[i] afterwards)
 del doc.pages[1:3]

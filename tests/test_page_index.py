@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from conftest import build_pdf, build_raw_pdf, outline_entries, outline_tuples
+from conftest import annotation_subtypes, build_pdf, build_raw_pdf, outline_entries, outline_tuples
 
 import pylopdf
 from pylopdf.pylopdf_core import _Document
@@ -92,7 +92,7 @@ def _snapshot(doc: pylopdf.Document) -> tuple[int, list[tuple[object, ...]], lis
             page.boxes.media.x1,
             page.rotation,
             page.rect,
-            [(annot.type, annot.rect, annot.xref) for annot in page.annots()],
+            [(annot.type, annot.rect, annot.xref) for annot in page.annotations],
             [(link.rect, link.target) for link in page.links],
         )
         for page in views
@@ -134,7 +134,7 @@ EDITS: dict[str, tuple[Callable[[pylopdf.Document], object], list[int | str]]] =
         lambda doc: doc.pages[3].links.add((1, 1, 20, 20), "https://example.com/"),
         UNCHANGED,
     ),
-    "add_highlight_annot": (lambda doc: doc.pages[1].add_highlight_annot((10, 10, 50, 20)), UNCHANGED),
+    "add_highlight": (lambda doc: doc.pages[1].annotations.add(pylopdf.Highlight((10, 10, 50, 20))), UNCHANGED),
     "pruning_to_bytes": (lambda doc: doc.to_bytes(), UNCHANGED),
     "attachments.add": (lambda doc: doc.attachments.add("notes.txt", b"notes"), UNCHANGED),
 }
@@ -398,7 +398,7 @@ def _aliased_snapshot(doc: pylopdf.Document) -> tuple[object, ...]:
             page.boxes.media.x1,
             page.rotation,
             page.rect,
-            [(annot.type, annot.rect, annot.xref) for annot in page.annots()],
+            [(annot.type, annot.rect, annot.xref) for annot in page.annotations],
             [(link.rect, link.target) for link in page.links],
         )
         for page in views
@@ -415,7 +415,7 @@ PAGE_EDITS: dict[str, Callable[[pylopdf.Page], object]] = {
     "show_pdf_page": lambda page: page.show_pdf_page((0, 0, 40, 40), STAMP),
     "replace_text": lambda page: page.replace_text("Text", "Done"),
     "add_link_annot": lambda page: page.links.add((1, 1, 20, 20), "https://example.com/"),
-    "add_highlight_annot": lambda page: page.add_highlight_annot((5, 5, 40, 15)),
+    "add_highlight": lambda page: page.annotations.add(pylopdf.Highlight((5, 5, 40, 15))),
 }
 
 
@@ -512,7 +512,7 @@ def test_annotating_pages_that_share_an_indirect_array_keeps_them_separate() -> 
     doc = pylopdf.open(_indirect_annots_pdf(1))
     for _ in range(3):
         doc.pages.extend(doc.pages[0])
-    assert [len(page.annots()) for page in doc.pages] == [1, 1, 1, 1]
+    assert [len(annotation_subtypes(page)) for page in doc.pages] == [1, 1, 1, 1]
 
     for number, page in enumerate(doc.pages):
         page.links.add((20, 20, 30, 30), f"https://example.com/{number}")
@@ -562,8 +562,8 @@ def test_editing_every_page_keeps_the_page_index(edit: str) -> None:
     assert len(fresh.pages) == TIMED_PAGES
     for number in (0, TIMED_PAGES // 2, TIMED_PAGES - 1):
         assert fresh.pages[number].text() == doc.pages[number].text()
-        assert [(a.type, a.rect) for a in fresh.pages[number].annots()] == [
-            (a.type, a.rect) for a in doc.pages[number].annots()
+        assert [(a.type, a.rect) for a in fresh.pages[number].annotations] == [
+            (a.type, a.rect) for a in doc.pages[number].annotations
         ]
 
 
@@ -581,4 +581,4 @@ def test_annotating_every_page_with_its_own_indirect_array_is_linear() -> None:
     elapsed = time.perf_counter() - start
 
     assert elapsed < 2.0, f"annotating {TIMED_PAGES} pages took {elapsed:.2f}s"
-    assert {len(page.annots()) for page in doc.pages} == {2}
+    assert {len(annotation_subtypes(page)) for page in doc.pages} == {2}

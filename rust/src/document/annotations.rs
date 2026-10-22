@@ -12,20 +12,21 @@ pub(super) const MAX_HIGHLIGHT_RECTS: usize = 4_096;
 
 pub(super) const MAX_TEXT_MARKUP_SEGMENTS: usize = 65_536;
 
-/// One annotation returned by read_annotations: Subtype, display Rect, Contents, URI.
-/// One page annotation: its xref (0 for a direct dictionary), its position in
-/// `/Annots`, subtype, display rect, `/F` flags, the text entries `/Contents`,
-/// `/Name`, `/T`, `/CreationDate`, `/M`, `/Subj`, `/NM`, and `/IT`, and the
-/// `/C` and `/IC` colours.
+/// One page annotation that `page.annotations` lists: its position in
+/// `/Annots`, its xref (0 for a direct dictionary), its subtype (`None`
+/// without one), display rect, `/F` flags, the text entries `/Contents`,
+/// `/Name`, `/T`, `/CreationDate`, `/M`, `/Subj`, `/NM`, and `/IT`, the `/C`
+/// and `/IC` colours, and the `/CA` opacity.
 pub(super) type AnnotationTuple = (
     u32,
     u32,
-    String,
+    Option<String>,
     (f64, f64, f64, f64),
     i64,
     [Option<String>; 8],
     Vec<f64>,
     Vec<f64>,
+    Option<f64>,
 );
 
 /// The annotation text entries that `AnnotationTuple` carries, in its order.
@@ -595,14 +596,13 @@ pub(super) fn read_annotations(
     page_number: u32,
 ) -> PyResult<Vec<AnnotationTuple>> {
     py.detach(|| {
-        let (crop, rotation) = this.page_display_geometry(page_number)?;
+        let geometry = this.page_display_geometry(page_number)?;
         let page_id = this.page_id(page_number)?;
         let Some(annots) = this.page_annotation_items(page_id)? else {
             return Ok(Vec::new());
         };
         let mut out = Vec::new();
-        let mut encoded_bytes = 0usize;
-        let mut returned_bytes = 0usize;
+        let mut budget = (0usize, 0usize);
         for (index, item) in annots.iter().enumerate() {
             let (xref, dict) = match item {
                 Object::Reference(id) => match this.doc.get_object(*id).and_then(Object::as_dict) {
@@ -612,70 +612,130 @@ pub(super) fn read_annotations(
                 Object::Dictionary(dict) => (0, dict),
                 _ => continue,
             };
-            let subtype = match dict.get(b"Subtype").and_then(Object::as_name) {
-                Ok(name) => bounded_annotation_bytes(
-                    name,
-                    &mut encoded_bytes,
-                    &mut returned_bytes,
-                    "subtype text",
-                )?,
-                Err(_) => continue,
-            };
-            let Some(rect) = resolve_box(&this.doc, dict, b"Rect") else {
+            let index = u32::try_from(index).unwrap_or(u32::MAX);
+            let Some(annotation) =
+                this.annotation_item(index, xref, dict, geometry, &mut budget)?
+            else {
                 continue;
             };
-            let display = draw::pdf_rect_to_display(crop, rotation, rect);
-            let flags = dict
-                .get(b"F")
-                .map(|value| deref_object(&this.doc, value))
-                .and_then(Object::as_i64)
-                .unwrap_or(0);
-            let mut texts: [Option<String>; 8] = Default::default();
-            for (slot, key) in texts.iter_mut().zip(ANNOTATION_TEXT_KEYS) {
-                let Ok(object) = dict.get(key) else {
-                    continue;
-                };
-                *slot = if key == b"Name" || key == b"IT" {
-                    match deref_object(&this.doc, object).as_name() {
-                        Ok(name) => Some(bounded_annotation_bytes(
-                            name,
-                            &mut encoded_bytes,
-                            &mut returned_bytes,
-                            "icon name",
-                        )?),
-                        Err(_) => None,
-                    }
-                } else {
-                    bounded_annotation_text(
-                        &this.doc,
-                        object,
-                        &mut encoded_bytes,
-                        &mut returned_bytes,
-                        if key == b"Contents" {
-                            "Contents text"
-                        } else {
-                            "annotation text"
-                        },
-                    )?
-                };
-            }
-            let index = u32::try_from(index).unwrap_or(u32::MAX);
             out.try_reserve(1).map_err(|error| {
                 PdfError::new_err(format!("failed to grow returned annotations: {error}"))
             })?;
-            out.push((
-                xref,
-                index,
-                subtype,
-                (display[0], display[1], display[2], display[3]),
-                flags,
-                texts,
-                annotation_color(&this.doc, dict, b"C"),
-                annotation_color(&this.doc, dict, b"IC"),
-            ));
+            out.push(annotation);
         }
         Ok(out)
     })
+}
+
+/// Implements [`_Document::read_annotation`].
+pub(super) fn read_annotation(
+    this: &_Document,
+    py: Python<'_>,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+) -> PyResult<AnnotationTuple> {
+    py.detach(|| {
+        let geometry = this.page_display_geometry(page_number)?;
+        let page_id = this.page_id(page_number)?;
+        let (index, dict) = this.annotation_at(page_id, index, xref)?;
+        this.annotation_item(index, xref, dict, geometry, &mut (0, 0))?
+            .ok_or_else(|| {
+                StaleObjectError::new_err(format!(
+                    "annotation {xref} at index {index} is no longer one that page.annotations lists"
+                ))
+            })
+    })
+}
+
+impl _Document {
+    /// Read an annotation that `page.annotations` lists, or `None` for a
+    /// link, a widget, a popup, or an annotation without a rectangle. `budget` holds
+    /// the encoded and returned text bytes of the call.
+    fn annotation_item(
+        &self,
+        index: u32,
+        xref: u32,
+        dict: &Dictionary,
+        (crop, rotation): ([f64; 4], i64),
+        budget: &mut (usize, usize),
+    ) -> PyResult<Option<AnnotationTuple>> {
+        let subtype = dict
+            .get(b"Subtype")
+            .map(|value| deref_object(&self.doc, value))
+            .and_then(Object::as_name)
+            .ok();
+        // Links and widgets have sequences of their own, and a popup
+        // belongs to the annotation that names it, as in MuPDF.
+        if matches!(subtype, Some(b"Link" | b"Widget" | b"Popup")) {
+            return Ok(None);
+        }
+        let Some(rect) = resolve_box(&self.doc, dict, b"Rect") else {
+            return Ok(None);
+        };
+        let (encoded_bytes, returned_bytes) = budget;
+        let subtype = subtype
+            .map(|name| {
+                bounded_annotation_bytes(name, encoded_bytes, returned_bytes, "subtype text")
+            })
+            .transpose()?;
+        let display = draw::pdf_rect_to_display(crop, rotation, rect);
+        let flags = dict
+            .get(b"F")
+            .map(|value| deref_object(&self.doc, value))
+            .and_then(Object::as_i64)
+            .unwrap_or(0);
+        let mut texts: [Option<String>; 8] = Default::default();
+        for (slot, key) in texts.iter_mut().zip(ANNOTATION_TEXT_KEYS) {
+            let Ok(object) = dict.get(key) else {
+                continue;
+            };
+            *slot = if key == b"Name" || key == b"IT" {
+                match deref_object(&self.doc, object).as_name() {
+                    Ok(name) => Some(bounded_annotation_bytes(
+                        name,
+                        encoded_bytes,
+                        returned_bytes,
+                        "icon name",
+                    )?),
+                    Err(_) => None,
+                }
+            } else {
+                bounded_annotation_text(
+                    &self.doc,
+                    object,
+                    encoded_bytes,
+                    returned_bytes,
+                    if key == b"Contents" {
+                        "Contents text"
+                    } else {
+                        "annotation text"
+                    },
+                )?
+            };
+        }
+        let opacity = dict
+            .get(b"CA")
+            .map(|value| deref_object(&self.doc, value))
+            .ok()
+            .and_then(|value| match value {
+                Object::Integer(value) => Some(*value as f64),
+                Object::Real(value) => Some(f64::from(*value)),
+                _ => None,
+            })
+            .filter(|value| value.is_finite());
+        Ok(Some((
+            index,
+            xref,
+            subtype,
+            (display[0], display[1], display[2], display[3]),
+            flags,
+            texts,
+            annotation_color(&self.doc, dict, b"C"),
+            annotation_color(&self.doc, dict, b"IC"),
+            opacity,
+        )))
+    }
 }
 
 /// Implements [`_Document::add_highlight_annotation`].
@@ -1032,11 +1092,11 @@ pub(super) fn set_link(
     Ok(id.0)
 }
 
-/// Implements [`_Document::remove_annotations`]: take the annotations out
-/// of the page's `/Annots` in one edit, after finding every one of them and
-/// storing the page's direct annotation dictionaries as objects, so that no
-/// later handle can shift onto another annotation. The objects stay until a
-/// pruning save.
+/// Implements [`_Document::remove_annotations`]: take the annotations, and
+/// the popups they name when the page lists those too, out of the page's
+/// `/Annots` in one edit, after finding every one of them and storing the
+/// page's direct annotation dictionaries as objects, so that no later handle
+/// can shift onto another annotation. The objects stay until a pruning save.
 pub(super) fn remove_annotations(
     this: &mut _Document,
     page_number: u32,
@@ -1045,12 +1105,21 @@ pub(super) fn remove_annotations(
     let page_id = this.page_id(page_number)?;
     let mut positions = Vec::new();
     positions
-        .try_reserve_exact(handles.len())
+        .try_reserve_exact(handles.len().saturating_mul(2))
         .map_err(|error| {
             PdfError::new_err(format!("failed to allocate removed annotations: {error}"))
         })?;
     for (index, xref) in handles {
-        positions.push(this.annotation_at(page_id, index, xref)?.0 as usize);
+        let (index, annotation) = this.annotation_at(page_id, index, xref)?;
+        positions.push(index as usize);
+        if let Ok(Object::Reference(popup)) = annotation.get(b"Popup") {
+            let listed = this.page_annotation_items(page_id)?.and_then(|items| {
+                items
+                    .iter()
+                    .position(|item| matches!(item, Object::Reference(id) if id == popup))
+            });
+            positions.extend(listed);
+        }
     }
     // Remove from the end, so that each removal keeps the earlier positions.
     positions.sort_unstable_by(|a, b| b.cmp(a));

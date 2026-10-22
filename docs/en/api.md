@@ -259,7 +259,6 @@ del doc.fallback_fonts            # back to the installed font extras
 | `language` | The document's language as a complete BCP 47 tag, such as `zh-TW` or `sr-Latn-RS`, or `None`. Assign a tag to write it and `del doc.language` to remove it; a malformed tag raises |
 | `page_mode`, `page_layout` | How a viewer opens the document, as `PageMode` and `PageLayout` members such as `PageMode.USE_OUTLINES` or `PageLayout.TWO_COLUMN_LEFT`; `USE_NONE` and `SINGLE_PAGE` when unset. Assign a member or its exact name |
 | `mark_info` | The tagged-PDF flags as a `MarkInfo(marked=, user_properties=, suspects=)` record, or `None` when absent. Assigning writes all three flags; `del` removes them |
-| `has_annots()` | Whether any page has an annotation other than a link or form widget; `any(page.links for page in doc.pages)` tells whether any page has a link |
 | `objects`, `trailer`, `catalog` | Direct access to PDF objects; see [Low-level objects](#low-level-objects) |
 
 `language` keeps the complete tag, where pymupdf's keeps at most three
@@ -355,12 +354,36 @@ The same image or page drawn again is stored once in the file.
 
 | Member | Purpose |
 |---|---|
-| `annots(*, types=None)` | Read-only `Annot` objects with `type`, `rect`, `info`, `colors`, `flags`, and `xref` |
-| `add_highlight_annot(quads, *, color=, opacity=0.4, content=None)` | Highlight one or more rectangles or quads, such as search results |
+| `annotations` | The page's annotations other than links and form widgets, as `Annotation` handles |
 | `links` | The page's links as `Link` handles, in the order the page lists them |
 
-Annotation types and flags are the `PDF_ANNOT_*` and `PDF_ANNOT_IS_*`
-constants.
+`page.annotations` is a sequence of `Annotation` handles, in the order the
+page lists them; a popup belongs to the annotation that names it and is not
+listed. A handle reads the document on every access and has `type`, an
+`AnnotationType` member, `rect` in display coordinates, the texts
+`contents`, `author`, `subject`, `name`, `icon`, and `intent`, the dates
+`created` and `modified` as the PDF date strings stored, `color` and
+`interior_color` as `Color` records or `None`, `opacity`, `flags`, an
+`AnnotationFlags` value, and `xref`, `obj`, and `page`.
+`page.annotations.add(Highlight(rects, *, color=Color(1, 1, 0), opacity=0.4,
+contents=None))` highlights one or more rectangles or quads, such as search
+results, and returns the new handle; `del page.annotations[i]` removes an
+annotation with its popup. The members of `AnnotationType` and
+`AnnotationFlags` keep the values of pymupdf's `PDF_ANNOT_*` and
+`PDF_ANNOT_IS_*` constants.
+
+```python
+from pylopdf import AnnotationType, Color, Highlight
+
+note = page.annotations.add(Highlight(page.search("total"), color=Color(1, 0.8, 0), contents="Check"))
+for annotation in page.annotations:
+    if annotation.type is AnnotationType.TEXT:
+        print(annotation.author, annotation.contents)
+```
+
+Annotation reads stop at 4,096 annotations and 1 MiB of text per page, and
+a highlight's contents stop at 1 MiB (`LimitError` code
+`annotation_input_size`).
 
 `page.links` is a sequence of `Link` handles: `page.links.add(rect, target)`
 adds a link over a rectangle in display coordinates and returns its handle,
@@ -946,13 +969,13 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |
 | `Colorspace` | The color spaces of a [`Pixmap`](#pixmap): `GRAY` and `RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [Outline and page labels](#outline) |
-| `Link`, `Links` | [Annotations and links](#page-annotations) |
+| `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `Highlight`, `Link`, `Links` | [Annotations and links](#page-annotations) |
 | `PageBoxes` | [Page geometry](#page-geometry) |
 | `FallbackFont`, `FallbackFonts` | [Rendering and images](#document-rendering) |
 
 Constants keep pymupdf's names and are also grouped in enums:
-`Permissions` (`PDF_PERM_*`), `TextAlign` (`TEXT_ALIGN_*`), `AnnotType` (`PDF_ANNOT_*`), and `AnnotFlags`
-(`PDF_ANNOT_IS_*`). `Access` has the members `USER` and `OWNER`, and
+`Permissions` (`PDF_PERM_*`), `TextAlign` (`TEXT_ALIGN_*`), `AnnotationType`
+(`PDF_ANNOT_*`), and `AnnotationFlags` (`PDF_ANNOT_IS_*`). `Access` has the members `USER` and `OWNER`, and
 `Encryption` describes how to encrypt a saved file. The content model's enums
 are `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`,
 `ShadingType`, `SoftMaskType`, and `ImageMask`.

@@ -46,7 +46,7 @@ MODULE_RENAMES = {
     "peek_metadata": "probe",
 }
 #: pymupdf module attributes that pylopdf names otherwise; pylopdf's own ``Outline`` is the item sequence.
-PYMUPDF_MODULE_RENAMES = {"Outline": "OutlineItem"}
+PYMUPDF_MODULE_RENAMES = {"Outline": "OutlineItem", "Annot": "Annotation"}
 #: Module constants that became enum members.
 MODULE_MEMBER_RENAMES = {
     "csRGB": "Colorspace.RGB",
@@ -1026,6 +1026,71 @@ def _set_fallback_font(_: _Migrator, receiver: str, args: _Arguments) -> str | N
     return f"{receiver}.fallback_fonts = {{}}"
 
 
+ANNOTATION_RECORD_MESSAGE = (
+    "page.annotations lists Annotation handles with type, rect, contents, author, subject, color, "
+    "interior_color, opacity, and flags in place of a type tuple and info and colors dictionaries; "
+    "links are in page.links."
+)
+ANNOTATION_HANDLE_MESSAGE = (
+    "pylopdf's Annotation handles have typed properties in place of info, colors, and next; "
+    "annotation.type is an AnnotationType member."
+)
+
+
+def _annots(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``annots(types=...)`` to the page's annotation handles."""
+    bound = args.bind(("types",))
+    if bound is None:
+        return None
+    migrator.todo(ANNOTATION_RECORD_MESSAGE)
+    types = bound.get("types", "None")
+    if types == "None":
+        return f"list({receiver}.annotations)"
+    return f"[annotation for annotation in {receiver}.annotations if annotation.type in {types}]"
+
+
+def _color_record(migrator: _Migrator, text: str) -> str | None:
+    """Return a ``Color`` for an RGB tuple expression, unpacking a tuple literal."""
+    color = migrator.class_name("Color")
+    if color is None:
+        return None
+    node = cst.parse_expression(text)
+    if isinstance(node, (cst.Tuple, cst.List)) and all(isinstance(e, cst.Element) for e in node.elements):
+        return f"{color}({', '.join(_code(element.value) for element in node.elements)})"
+    return f"{color}(*{text})"
+
+
+def _add_highlight_annot(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``add_highlight_annot(quads, ...)`` to ``annotations.add(Highlight(...))``."""
+    keywords = dict(args.keywords)
+    if len(args.positional) > 1 or set(keywords) - {"quads", "rects", "color", "opacity", "content"}:
+        return None
+    area = args.positional[0] if args.positional else keywords.get("quads", keywords.get("rects"))
+    highlight = migrator.class_name("Highlight")
+    if area is None or highlight is None:
+        return None
+    arguments = [area]
+    if "color" in keywords:
+        color = _color_record(migrator, keywords["color"])
+        if color is None:
+            return None
+        arguments.append(f"color={color}")
+    if "opacity" in keywords:
+        arguments.append(f"opacity={keywords['opacity']}")
+    if "content" in keywords:
+        arguments.append(f"contents={keywords['content']}")
+    return f"{receiver}.annotations.add({highlight}({', '.join(arguments)}))"
+
+
+def _delete_annot(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``delete_annot(annot)`` as a statement to ``del`` of its index."""
+    bound = args.bind(("annot",))
+    if bound is None or set(bound) != {"annot"}:
+        return None
+    annotations = f"{receiver}.annotations"
+    return f"del {annotations}[{annotations}.index({bound['annot']})]"
+
+
 LINK_RECORD_MESSAGE = (
     "page.links lists Link handles instead of dictionaries: read link.rect and link.target, a URI string, "
     "Destination, RemoteDestination, Launch, NamedAction, or None; assigning either edits the link."
@@ -1254,6 +1319,9 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "insert_link": _insert_link,
     "add_link_annot": _add_link_annot,
     "has_links": _no_arguments("any(page.links for page in {receiver}.pages)"),
+    "annots": _annots,
+    "add_highlight_annot": _add_highlight_annot,
+    "has_annots": _no_arguments("any(page.annotations for page in {receiver}.pages)"),
 }
 
 
@@ -1403,6 +1471,7 @@ STATEMENT_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] =
     "set_artbox": _set_page_box("art"),
     "set_bleedbox": _set_page_box("bleed"),
     "set_trimbox": _set_page_box("trim"),
+    "delete_annot": _delete_annot,
 }
 #: Statement rules that assign to their receiver, which must therefore be a name or an attribute.
 ASSIGNING_RULES = frozenset(
@@ -2282,9 +2351,10 @@ class _Migrator(cst.CSTTransformer):
             if name != "mediabox" and self._scan.pymupdf:
                 self.todo(PAGE_BOX_MESSAGE)
             return cst.parse_expression(f"{_code(updated_node.value)}.boxes.{PAGE_BOX_NAMES.get(name, 'media')}")
-        if name == "first_link" and self._scan.pymupdf:
-            self.todo(LINK_HANDLE_MESSAGE)
-            return cst.parse_expression(f"next(iter({_code(updated_node.value)}.links), None)")
+        if name in {"first_link", "first_annot"} and self._scan.pymupdf:
+            self.todo(LINK_HANDLE_MESSAGE if name == "first_link" else ANNOTATION_HANDLE_MESSAGE)
+            collection = "links" if name == "first_link" else "annotations"
+            return cst.parse_expression(f"next(iter({_code(updated_node.value)}.{collection}), None)")
         if name in DOCUMENT_PROPERTY_RENAMES:
             if name == "markinfo":
                 self.todo(MARK_INFO_MESSAGE)

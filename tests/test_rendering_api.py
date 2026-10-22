@@ -87,7 +87,7 @@ def test_svg_draws_text_as_paths() -> None:
 def _annotated_page() -> pylopdf.Page:
     doc = pylopdf.open(build_pdf([""], page_size=(200, 100)))
     page = doc.pages[0]
-    page.add_highlight_annot([(20, 20, 180, 80)], color=(1, 0, 0))
+    page.annotations.add(pylopdf.Highlight([(20, 20, 180, 80)], color=pylopdf.Color(1, 0, 0)))
     return page
 
 

@@ -760,48 +760,6 @@ pub(super) fn set_mark_info(
     Ok(())
 }
 
-/// Implements [`_Document::has_annotation_kind`]: whether any page's
-/// `/Annots` lists a dictionary whose `/Subtype` is `/Link` (`links`), or is
-/// neither `/Link` nor `/Widget`, a missing subtype included (otherwise).
-pub(super) fn has_annotation_kind(this: &_Document, py: Python<'_>, links: bool) -> PyResult<bool> {
-    py.detach(|| {
-        let doc = &this.doc;
-        fn present<'a>(doc: &'a Document, object: &'a Object) -> Option<&'a Object> {
-            non_null_value(doc, object).ok().flatten()
-        }
-        for &page_id in doc.page_ids()? {
-            let Some(Object::Array(entries)) = doc
-                .get_object(page_id)
-                .and_then(Object::as_dict)
-                .and_then(|page| page.get(b"Annots"))
-                .ok()
-                .and_then(|annots| present(doc, annots))
-            else {
-                continue;
-            };
-            for entry in entries {
-                let Some(Object::Dictionary(annotation)) = present(doc, entry) else {
-                    continue;
-                };
-                let subtype = annotation
-                    .get(b"Subtype")
-                    .ok()
-                    .and_then(|subtype| present(doc, subtype))
-                    .and_then(|subtype| subtype.as_name().ok());
-                let found = if links {
-                    subtype == Some(b"Link")
-                } else {
-                    !matches!(subtype, Some(b"Link" | b"Widget"))
-                };
-                if found {
-                    return Ok(true);
-                }
-            }
-        }
-        Ok(false)
-    })
-}
-
 /// Implements [`_Document::pdfa_claim`].
 pub(super) fn pdfa_claim(
     this: &_Document,
