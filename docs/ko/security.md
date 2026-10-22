@@ -93,7 +93,7 @@ limits = pylopdf.DocumentLimits(
 | `Page.replace_text()` | 페이지 콘텐츠 64 MiB | `max_size` |
 | 첨부 파일: `add()`, `read()`, `write()` | 파일당 64 MiB | `max_size` |
 | `Stream.read()` | 64 MiB | `max_size` |
-| `Document.get_pdfa_claim()`, `get_xml_metadata()`, `set_xml_metadata()` | XMP 메타데이터 1 MiB | `max_size` |
+| `Document.xmp`, `pdfa_claim` | XMP 메타데이터 1 MiB | `doc.catalog["Metadata"]`의 `Stream.read(max_size=)` |
 | `OcrEngine()` | 모델 파일 64 MiB | `max_model_size` |
 
 일부 제한은 고정되어 있습니다. 렌더링은 페이지당 6,400만 픽셀로 제한됩니다. 비밀번호는 PDF 2.0의 최대치인 UTF-8 127바이트까지입니다. `doc.pages.select()`, `insert()`, `extend()`, `doc.text()`, `doc.markdown()`, `doc.render()`에 전달하는 페이지 목록은 페이지 수와 4,096 중 큰 값까지의 항목을 담을 수 있습니다. 목차, 페이지 레이블, 폼 필드, 주석, 첨부 파일 목록에는 큰 실제 문서에 맞춘 넉넉한 고정 제한이 있습니다.
@@ -123,8 +123,8 @@ limits = pylopdf.DocumentLimits(
 | `password_input_size`, `metadata_input_size`, `annotation_input_size`, `form_field_input_size`, `toc_input_size`, `page_label_input_size`, `replacement_input_size` | 메서드에 전달한 텍스트가 너무 큼 |
 | `page_entry_count` | 페이지 목록이 허용보다 김 |
 | `toc_entry_count`, `toc_text_size`, `named_destination_count`, `named_destination_text_size`, `structure_tree_count`, `form_content_size` | 목차, 링크 대상 테이블, 태그 PDF 구조, 가져온 페이지가 너무 큼 |
-| `xmp_metadata_size` | XMP 메타데이터가 `max_size`보다 큼 |
-| `xmp_metadata_input_size` | `set_xml_metadata()`에 전달한 XMP 메타데이터가 `max_size`보다 큼 |
+| `xmp_metadata_size` | XMP 메타데이터가 1 MiB보다 큼 |
+| `xmp_metadata_input_size` | `Document.xmp`에 대입한 XMP 메타데이터가 1 MiB보다 큼 |
 | `ocr_model_size`, `ocr_dictionary_entries` | OCR 모델 파일이 너무 큼 |
 
 ## 기본 보호 장치 { #built-in-protections }

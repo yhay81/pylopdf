@@ -28,6 +28,7 @@ import libcst as cst
 
 import pylopdf
 from pylopdf._hints import migration_hint
+from pylopdf._metadata import METADATA_KEYS
 from pylopdf._migration_hints import HINTS, PYLOPDF_015_ONLY, PYLOPDF_015_REMOVED
 
 if TYPE_CHECKING:
@@ -50,6 +51,13 @@ MODULE_MEMBER_RENAMES = {
     "csGRAY": "Colorspace.GRAY",
     "CS_RGB": "Colorspace.RGB",
     "CS_GRAY": "Colorspace.GRAY",
+}
+#: Document properties that the API reset renamed; only pymupdf's and pylopdf 0.15's Document had them.
+DOCUMENT_PROPERTY_RENAMES = {
+    "pagemode": "page_mode",
+    "pagelayout": "page_layout",
+    "language_tag": "language",
+    "markinfo": "mark_info",
 }
 #: Pixmap attributes that the buffer protocol replaced, and what reads the same pixels.
 PIXMAP_SAMPLES = {"samples": "bytes({receiver})", "samples_mv": "memoryview({receiver})"}
@@ -892,6 +900,116 @@ def _render_page(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     return f"{receiver}.pages[{bound['pno']}].pixmap({', '.join(keywords)}).to_bytes({size})"
 
 
+#: pymupdf's and pylopdf 0.15's metadata keys that ``doc.metadata`` renamed.
+METADATA_KEY_RENAMES = {"creationDate": "created", "modDate": "modified"}
+#: pymupdf's metadata entries that are properties now, and what reads them.
+METADATA_FACTS = {"format": 'f"PDF {{{receiver}.version}}"', "encryption": "{receiver}.encryption_method"}
+#: Keys whose value pymupdf's ``set_metadata`` ignored.
+METADATA_READ_ONLY = frozenset(METADATA_FACTS)
+#: The literals that pymupdf's ``set_metadata`` reads as removing an entry.
+_FALSY_LITERALS = frozenset({'""', "''", "None", "False", "0", '"none"', "'none'", '"null"', "'null'"})
+#: The catalog names that page_mode and page_layout take, which pymupdf matched case-insensitively.
+PAGE_MODE_NAMES = ("UseNone", "UseOutlines", "UseThumbs", "FullScreen", "UseOC", "UseAttachments")
+PAGE_LAYOUT_NAMES = ("SinglePage", "OneColumn", "TwoColumnLeft", "TwoColumnRight", "TwoPageLeft", "TwoPageRight")
+MARK_INFO_MESSAGE = (
+    "doc.mark_info returns a MarkInfo record with marked, user_properties, and suspects, or None; "
+    "assign a MarkInfo to replace it."
+)
+PDFA_MESSAGE = "doc.pdfa_claim returns a PdfaClaim record with part and conformance, or None, instead of a tuple."
+
+
+def _set_metadata(_: _Migrator, receiver: str, args: _Arguments) -> str | None:  # noqa: PLR0911
+    """Rewrite ``set_metadata({...})`` with a literal dictionary to ``metadata.update()`` or ``clear()``.
+
+    A value that removed an entry, or any other argument, keeps the call for
+    the member hint, because the new mapping removes entries with ``del``.
+    """
+    bound = args.bind(("m",))
+    if bound is None or "m" not in bound:
+        return None
+    try:
+        node = cst.parse_expression(bound["m"])
+    except cst.ParserSyntaxError:
+        return None
+    if not isinstance(node, cst.Dict):
+        return None
+    if not node.elements:
+        return f"{receiver}.metadata.clear()"
+    entries = []
+    for element in node.elements:
+        if not isinstance(element, cst.DictElement):
+            return None
+        key = _string_literal(_code(element.key))
+        value = _code(element.value)
+        if key is None or value in _FALSY_LITERALS:
+            return None
+        if key in METADATA_READ_ONLY:
+            continue
+        entries.append(f'"{METADATA_KEY_RENAMES.get(key, key)}": {value}')
+    return f"{receiver}.metadata.update({{{', '.join(entries)}}})"
+
+
+def _get_xml_metadata(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``get_xml_metadata()``, which returned ``""`` without a packet, to ``xmp``."""
+    if args.positional or args.keywords:
+        return None
+    return f'({receiver}.xmp or "")'
+
+
+def _get_pdfa_claim(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite pylopdf 0.15's ``get_pdfa_claim()`` to the ``pdfa_claim`` record."""
+    if args.positional or args.keywords:
+        return None
+    migrator.todo(PDFA_MESSAGE)
+    return f"{receiver}.pdfa_claim"
+
+
+def _assign_property(prop: str, parameter: str) -> Callable[[_Migrator, str, _Arguments], str | None]:
+    """Rewrite a setter call to an assignment of ``prop``."""
+
+    def rule(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+        bound = args.bind((parameter,))
+        if bound is None or set(bound) != {parameter}:
+            return None
+        return f"{receiver}.{prop} = {bound[parameter]}"
+
+    return rule
+
+
+def _delete_property(prop: str) -> Callable[[_Migrator, str, _Arguments], str | None]:
+    """Rewrite a call that removes an entry to ``del`` of ``prop``."""
+
+    def rule(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+        return None if args.positional or args.keywords else f"del {receiver}.{prop}"
+
+    return rule
+
+
+def _set_language(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``set_language(tag)`` and 0.15's ``set_language_tag(tag)``; ``None`` removes the tag."""
+    bound = args.bind(("language",))
+    if bound is None or set(bound) != {"language"}:
+        return None
+    if bound["language"] == "None":
+        return f"del {receiver}.language"
+    return f"{receiver}.language = {bound['language']}"
+
+
+def _set_catalog_name(prop: str, names: Sequence[str]) -> Callable[[_Migrator, str, _Arguments], str | None]:
+    """Rewrite ``set_pagemode(name)`` and ``set_pagelayout(name)``, matching a literal as pymupdf did."""
+
+    def rule(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+        if len(args.positional) != 1 or args.keywords:
+            return None
+        literal = _string_literal(args.positional[0])
+        if literal is None:
+            return None
+        matches = [name for name in names if name.lower() == literal.removeprefix("/").lower()]
+        return f'{receiver}.{prop} = "{matches[0]}"' if matches else None
+
+    return rule
+
+
 #: Calls rewritten wherever they appear.
 CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "get_toc": _get_toc,
@@ -923,7 +1041,6 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "xref_stream": _one_argument("xref", "{receiver}.objects[{value}].read()"),
     "xref_stream_raw": _one_argument("xref", "{receiver}.objects[{value}].read(decode=False)"),
     "update_stream": _update_stream,
-    "set_language": _one_argument("language", "{receiver}.set_language_tag({value})"),
     "save": _save,
     "tobytes": _tobytes,
     "write": _tobytes,
@@ -942,6 +1059,9 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "get_svg_image": _get_svg_image,
     "render_pages": _render_pages,
     "render_svg": _renamed("svg"),
+    "set_metadata": _set_metadata,
+    "get_xml_metadata": _get_xml_metadata,
+    "get_pdfa_claim": _get_pdfa_claim,
 }
 
 
@@ -1076,6 +1196,12 @@ STATEMENT_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] =
     "delete_page": _delete_page,
     "delete_pages": _delete_pages,
     "authenticate": _unlock(note=False),
+    "set_xml_metadata": _assign_property("xmp", "metadata"),
+    "del_xml_metadata": _delete_property("xmp"),
+    "set_language": _set_language,
+    "set_language_tag": _set_language,
+    "set_pagemode": _set_catalog_name("page_mode", PAGE_MODE_NAMES),
+    "set_pagelayout": _set_catalog_name("page_layout", PAGE_LAYOUT_NAMES),
 }
 #: Statement rules that assign to their receiver, which must therefore be a name or an attribute.
 ASSIGNING_RULES = frozenset(
@@ -1512,6 +1638,8 @@ class _Migrator(cst.CSTTransformer):
         self._statement_calls: set[int] = set()
         #: Module attributes that an enclosing call's rule replaces, which need no hint of their own.
         self._consumed: set[int] = set()
+        #: Subscripts that are assigned or deleted, which keep their form.
+        self._targets: set[int] = set()
 
     # Hint comments ------------------------------------------------------
 
@@ -1776,9 +1904,44 @@ class _Migrator(cst.CSTTransformer):
             return updated_node.with_changes(value=self.renamed[updated_node.value])
         return updated_node
 
+    def visit_AssignTarget(self, node: cst.AssignTarget) -> None:
+        self._targets.add(id(node.target))
+
+    def visit_AugAssign(self, node: cst.AugAssign) -> None:
+        self._targets.add(id(node.target))
+
+    def visit_Del(self, node: cst.Del) -> None:
+        self._targets.add(id(node.target))
+
     def leave_Subscript(self, original_node: cst.Subscript, updated_node: cst.Subscript) -> cst.BaseExpression:
         updated_node = updated_node.with_changes(value=self._pages_of(updated_node.value))
+        if id(original_node) not in self._targets:
+            metadata = self._metadata_key(updated_node)
+            if metadata is not None:
+                self.rewrites += 1
+                return metadata
         return self._extracted_image_key(updated_node)
+
+    def _metadata_key(self, node: cst.Subscript) -> cst.BaseExpression | None:
+        """Read a key of pymupdf's or pylopdf 0.15's metadata dictionary from ``doc.metadata``.
+
+        Those dictionaries held every key, ``""`` when absent, so a read
+        becomes ``get(key, "")``; in a module that imports only pylopdf, only
+        the keys that changed are rewritten.
+        """
+        code = _code(node.value)
+        if not code.endswith(".metadata") or len(node.slice) != 1 or not isinstance(node.slice[0].slice, cst.Index):
+            return None
+        key = _string_literal(_code(node.slice[0].slice.value))
+        return None if key is None else self._metadata_read(code, key, None)
+
+    def _metadata_read(self, code: str, key: str, default: str | None) -> cst.BaseExpression | None:
+        """Return what reads ``key`` of the metadata at ``code``, or None to keep the read."""
+        if key in METADATA_FACTS:
+            return cst.parse_expression(METADATA_FACTS[key].format(receiver=code.removesuffix(".metadata")))
+        if key not in METADATA_KEY_RENAMES and not (self._scan.pymupdf and key in METADATA_KEYS and default is None):
+            return None
+        return cst.parse_expression(f'{code}.get("{METADATA_KEY_RENAMES.get(key, key)}", {default or chr(34) * 2})')
 
     def _extracted_image_key(self, node: cst.Subscript) -> cst.BaseExpression:
         """Read a key of ``extract_image``'s dictionary from the image handle or its record."""
@@ -1872,6 +2035,10 @@ class _Migrator(cst.CSTTransformer):
             return updated_node.value
         if self._is_table(receiver) and name in TABLE_RENAMES:
             return cst.parse_expression(TABLE_RENAMES[name].format(table=_receiver(updated_node.value)))
+        if name in DOCUMENT_PROPERTY_RENAMES:
+            if name == "markinfo":
+                self.todo(MARK_INFO_MESSAGE)
+            return updated_node.with_changes(attr=cst.Name(DOCUMENT_PROPERTY_RENAMES[name]))
         if name in PIXMAP_SAMPLES:
             # Only pymupdf's and pylopdf 0.15's Pixmap has these names; the buffer protocol replaces them.
             return cst.parse_expression(PIXMAP_SAMPLES[name].format(receiver=_code(updated_node.value)))
@@ -1922,6 +2089,15 @@ class _Migrator(cst.CSTTransformer):
     def _method_call(self, function: cst.Attribute, updated_node: cst.Call) -> cst.BaseExpression:
         """Rewrite a method call by the method's name."""
         name = function.attr.value
+        if name == "get" and _code(function.value).endswith(".metadata"):
+            arguments = _Arguments.of(updated_node)
+            key = None if arguments is None or not arguments.positional else _string_literal(arguments.positional[0])
+            if arguments is not None and key is not None and not arguments.keywords:
+                default = arguments.positional[1] if len(arguments.positional) > 1 else None
+                replacement = self._metadata_read(_code(function.value), key, default)
+                if replacement is not None:
+                    self.rewrites += 1
+                    return replacement
         if name in STATEMENT_RULES and name not in CALL_RULES and (self._scan.pymupdf or name not in ASSIGNING_RULES):
             self._member_todo(name)
             return updated_node

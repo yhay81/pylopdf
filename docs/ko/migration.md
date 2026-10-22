@@ -36,10 +36,11 @@ python -m pylopdf.migrate src/
 | `pymupdf.open()`, `pymupdf.Document()` | `pylopdf.Document()` | 빈 문서 |
 | `doc[i]`, `doc.load_page(i)`, `len(doc)`, `doc.page_count`, 반복 | `doc.pages[i]`, `len(doc.pages)`, `doc.pages` 반복 | `doc.pages`는 pymupdf의 `doc.pages(start, stop)`처럼 슬라이스도 지원 |
 | `page.number`, `page.parent` | `page.index`, `page.document` | |
-| `doc.metadata`, `set_metadata()` | 같음 | |
-| `doc.get_xml_metadata()`, `set_xml_metadata()`, `del_xml_metadata()` | 같음 | 읽기와 쓰기는 기본적으로 1 MiB에서 멈춤. `max_size=None`으로 제한 해제 |
-| `doc.language`, `set_language(tag)` | `doc.language_tag`, `set_language_tag(tag)` | 완전한 태그를 다룸. pymupdf는 최대 세 글자만 유지하므로 `zh-TW`와 `zh-HK`가 모두 `zh-Hant`가 됨. 이전 도구가 `set_language`를 다시 씀 |
-| `doc.pagemode`, `pagelayout`, `markinfo`와 그 `set_*` 메서드, `has_links()`, `has_annots()`, `is_closed` | 같음 | |
+| `doc.metadata`, `set_metadata(m)` | `doc.metadata`, `doc.metadata.update(m)` | 존재하는 항목의 실시간 매핑. 없는 항목은 `.get(key, "")`로 읽고 `del doc.metadata[key]`로 삭제. `created`와 `modified`가 `creationDate`와 `modDate`를, `doc.version`과 `doc.encryption_method`가 `format`과 `encryption`을 대신함 |
+| `doc.get_xml_metadata()`, `set_xml_metadata(xml)`, `del_xml_metadata()` | `doc.xmp`, `doc.xmp = xml`, `del doc.xmp` | 패킷이 없으면 `None`. 읽기와 쓰기는 1 MiB에서 멈춤 |
+| `doc.language`, `set_language(tag)` | `doc.language`, `doc.language = tag` | 완전한 태그를 다룸. pymupdf는 최대 세 글자만 유지하므로 `zh-TW`와 `zh-HK`가 모두 `zh-Hant`가 됨. `del doc.language`로 삭제 |
+| `doc.pagemode`, `pagelayout`, `markinfo`와 그 `set_*` 메서드 | `doc.page_mode`, `page_layout`, `mark_info`에 대입 | `PageMode`, `PageLayout` 열거형과 `MarkInfo` 레코드. pymupdf는 대소문자를 무시했지만 이름은 정확히 일치해야 함 |
+| `doc.has_links()`, `has_annots()`, `is_closed` | 같음 | |
 | `doc.name` | `doc.path` | `pathlib.Path`. bytes에서 열었거나 새로 만든 빈 문서는 `None`. 모든 문서가 PDF이므로 `is_pdf`는 없어짐 |
 | `doc.needs_pass`, `doc.is_encrypted` | `doc.needs_password` | 문서 잠금을 해제할 때까지 True |
 | `doc.authenticate(password)` | `doc.unlock(password)` | `Access.USER` 또는 `Access.OWNER`를 반환하고, 비밀번호가 틀리면 0을 반환하는 대신 `PasswordError` 발생 |

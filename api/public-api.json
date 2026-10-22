@@ -28,7 +28,6 @@
     "DocumentClosedError",
     "DocumentComplexity",
     "DocumentLimits",
-    "DocumentMetadata",
     "EMPTY_IRECT",
     "EMPTY_QUAD",
     "EMPTY_RECT",
@@ -74,7 +73,7 @@
     "MarkInfo",
     "MarkedContent",
     "Matrix",
-    "MetadataUpdate",
+    "Metadata",
     "MoveTo",
     "Name",
     "Objects",
@@ -133,12 +132,15 @@
     "Page",
     "PageLabelInfo",
     "PageLabelSpec",
+    "PageLayout",
+    "PageMode",
     "Pages",
     "Paint",
     "PasswordError",
     "Path",
     "PathBuilder",
     "PdfError",
+    "PdfaClaim",
     "Permissions",
     "Pixmap",
     "Point",
@@ -1904,17 +1906,9 @@
           "kind": "property",
           "returns": "DocumentComplexity"
         },
-        "del_xml_metadata": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "None"
-          }
+        "encryption_method": {
+          "kind": "property",
+          "returns": "str | None"
         },
         "get_form_fields": {
           "kind": "method",
@@ -1950,42 +1944,6 @@
               }
             ],
             "returns": "list[PageLabelInfo]"
-          }
-        },
-        "get_pdfa_claim": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int | None",
-                "default": 1048576,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "tuple[int, str] | None"
-          }
-        },
-        "get_xml_metadata": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int | None",
-                "default": 1048576,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "str"
           }
         },
         "has_annots": {
@@ -2028,13 +1986,17 @@
           "kind": "property",
           "returns": "bool"
         },
-        "language_tag": {
+        "language": {
           "kind": "property",
           "returns": "str | None"
         },
         "limits": {
           "kind": "property",
           "returns": "DocumentLimits"
+        },
+        "mark_info": {
+          "kind": "property",
+          "returns": "MarkInfo | None"
         },
         "markdown": {
           "kind": "method",
@@ -2066,13 +2028,9 @@
             "returns": "str"
           }
         },
-        "markinfo": {
-          "kind": "property",
-          "returns": "MarkInfo"
-        },
         "metadata": {
           "kind": "property",
-          "returns": "DocumentMetadata"
+          "returns": "Metadata"
         },
         "needs_password": {
           "kind": "property",
@@ -2082,13 +2040,13 @@
           "kind": "property",
           "returns": "Objects"
         },
-        "pagelayout": {
+        "page_layout": {
           "kind": "property",
-          "returns": "str"
+          "returns": "PageLayout"
         },
-        "pagemode": {
+        "page_mode": {
           "kind": "property",
-          "returns": "str"
+          "returns": "PageMode"
         },
         "pages": {
           "kind": "property",
@@ -2097,6 +2055,10 @@
         "path": {
           "kind": "property",
           "returns": "Path | None"
+        },
+        "pdfa_claim": {
+          "kind": "property",
+          "returns": "PdfaClaim | None"
         },
         "permissions": {
           "kind": "property",
@@ -2404,57 +2366,6 @@
             "returns": "None"
           }
         },
-        "set_language_tag": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str | None",
-                "kind": "positional_or_keyword",
-                "name": "tag"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "set_markinfo": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "MarkInfo",
-                "kind": "positional_or_keyword",
-                "name": "markinfo"
-              }
-            ],
-            "returns": "bool"
-          }
-        },
-        "set_metadata": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "MetadataUpdate | DocumentMetadata",
-                "kind": "positional_or_keyword",
-                "name": "m"
-              }
-            ],
-            "returns": "None"
-          }
-        },
         "set_outline": {
           "kind": "method",
           "signature": {
@@ -2484,63 +2395,6 @@
                 "annotation": "Sequence[PageLabelSpec]",
                 "kind": "positional_or_keyword",
                 "name": "labels"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "set_pagelayout": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "pagelayout"
-              }
-            ],
-            "returns": "bool"
-          }
-        },
-        "set_pagemode": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "pagemode"
-              }
-            ],
-            "returns": "bool"
-          }
-        },
-        "set_xml_metadata": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "metadata"
-              },
-              {
-                "annotation": "int | None",
-                "default": 1048576,
-                "kind": "keyword_only",
-                "name": "max_size"
               }
             ],
             "returns": "None"
@@ -2638,6 +2492,14 @@
             ],
             "returns": "Access"
           }
+        },
+        "version": {
+          "kind": "property",
+          "returns": "str"
+        },
+        "xmp": {
+          "kind": "property",
+          "returns": "str | None"
         }
       },
       "signature": {
@@ -2807,36 +2669,6 @@
         ],
         "returns": "None"
       }
-    },
-    "DocumentMetadata": {
-      "fields": {
-        "author": "str",
-        "creationDate": "str",
-        "creator": "str",
-        "encryption": "str | None",
-        "format": "str",
-        "keywords": "str",
-        "modDate": "str",
-        "producer": "str",
-        "subject": "str",
-        "title": "str",
-        "trapped": "str"
-      },
-      "kind": "typed-dict",
-      "optional_keys": [],
-      "required_keys": [
-        "author",
-        "creationDate",
-        "creator",
-        "encryption",
-        "format",
-        "keywords",
-        "modDate",
-        "producer",
-        "subject",
-        "title",
-        "trapped"
-      ]
     },
     "EMPTY_IRECT": {
       "kind": "function",
@@ -4443,18 +4275,51 @@
       "members": {}
     },
     "MarkInfo": {
-      "fields": {
-        "Marked": "bool",
-        "Suspects": "bool",
-        "UserProperties": "bool"
+      "annotations": {
+        "marked": "bool",
+        "suspects": "bool",
+        "user_properties": "bool"
       },
-      "kind": "typed-dict",
-      "optional_keys": [
-        "Marked",
-        "Suspects",
-        "UserProperties"
+      "dataclass_fields": [
+        "marked",
+        "user_properties",
+        "suspects"
       ],
-      "required_keys": []
+      "kind": "class",
+      "members": {
+        "marked": {
+          "kind": "property"
+        },
+        "suspects": {
+          "kind": "property"
+        },
+        "user_properties": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "bool",
+            "default": false,
+            "kind": "keyword_only",
+            "name": "marked"
+          },
+          {
+            "annotation": "bool",
+            "default": false,
+            "kind": "keyword_only",
+            "name": "user_properties"
+          },
+          {
+            "annotation": "bool",
+            "default": false,
+            "kind": "keyword_only",
+            "name": "suspects"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "MarkedContent": {
       "annotations": {
@@ -4722,35 +4587,113 @@
         "returns": "Self"
       }
     },
-    "MetadataUpdate": {
-      "fields": {
-        "author": "str | None",
-        "creationDate": "str | None",
-        "creator": "str | None",
-        "encryption": "str | None",
-        "format": "str | None",
-        "keywords": "str | None",
-        "modDate": "str | None",
-        "producer": "str | None",
-        "subject": "str | None",
-        "title": "str | None",
-        "trapped": "str | None"
+    "Metadata": {
+      "kind": "class",
+      "members": {
+        "__delitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "key"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "key"
+              }
+            ],
+            "returns": "str"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[str]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        },
+        "clear": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "update": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "default": [],
+                "kind": "positional_only",
+                "name": "other"
+              },
+              {
+                "annotation": "str",
+                "kind": "var_keyword",
+                "name": "values"
+              }
+            ],
+            "returns": "None"
+          }
+        }
       },
-      "kind": "typed-dict",
-      "optional_keys": [
-        "author",
-        "creationDate",
-        "creator",
-        "encryption",
-        "format",
-        "keywords",
-        "modDate",
-        "producer",
-        "subject",
-        "title",
-        "trapped"
-      ],
-      "required_keys": []
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "MoveTo": {
       "annotations": {
@@ -7145,6 +7088,28 @@
         "startpage"
       ]
     },
+    "PageLayout": {
+      "kind": "enum",
+      "members": {
+        "ONE_COLUMN": "OneColumn",
+        "SINGLE_PAGE": "SinglePage",
+        "TWO_COLUMN_LEFT": "TwoColumnLeft",
+        "TWO_COLUMN_RIGHT": "TwoColumnRight",
+        "TWO_PAGE_LEFT": "TwoPageLeft",
+        "TWO_PAGE_RIGHT": "TwoPageRight"
+      }
+    },
+    "PageMode": {
+      "kind": "enum",
+      "members": {
+        "FULL_SCREEN": "FullScreen",
+        "USE_ATTACHMENTS": "UseAttachments",
+        "USE_NONE": "UseNone",
+        "USE_OC": "UseOC",
+        "USE_OUTLINES": "UseOutlines",
+        "USE_THUMBS": "UseThumbs"
+      }
+    },
     "Pages": {
       "kind": "class",
       "members": {
@@ -7759,6 +7724,40 @@
       ],
       "kind": "exception",
       "members": {}
+    },
+    "PdfaClaim": {
+      "annotations": {
+        "conformance": "str",
+        "part": "int"
+      },
+      "dataclass_fields": [
+        "part",
+        "conformance"
+      ],
+      "kind": "class",
+      "members": {
+        "conformance": {
+          "kind": "property"
+        },
+        "part": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "part"
+          },
+          {
+            "annotation": "str",
+            "kind": "keyword_only",
+            "name": "conformance"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "Permissions": {
       "kind": "enum",

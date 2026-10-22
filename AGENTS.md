@@ -103,7 +103,7 @@ the concept and API overview.
     `src/pylopdf/_objects.py`.
   - Structure: `page_cleanup.rs`, `structure_prune.rs`;
     `document/{page_tree,navigation,labels,metadata,attachments}.rs`;
-    `src/pylopdf/_attachments.py`.
+    `src/pylopdf/_attachments.py` and `_metadata.py`.
   - Content: `content_guard.rs`, `content_scan.rs`, `graph_guard.rs`,
     `postscript_scan.rs`, `read_depth.rs`, and the content model,
     `content_model.rs` and `src/pylopdf/_content.py`.
@@ -1492,7 +1492,7 @@ the concept and API overview.
   `non_null_object` and `non_null_value` in `rust/src/document/objects.rs`
   resolve a reference chain this way, and lopdf's reference-limit error for a
   cyclic or over-long chain still surfaces. Annotation appends start a new `/Annots`
-  array, `set_metadata` replaces trailer `/Info`, both page-attribute
+  array, Info metadata writes replace trailer `/Info`, both page-attribute
   inheritance walks end at such a `/Parent`, Font and XObject registration
   starts an empty category, `get_outline` returns no entries for such an
   `/Outlines`, attachment writes replace catalog `/Names`, and the
@@ -2353,17 +2353,25 @@ the concept and API overview.
   boundaries before PyO3 copying, using `toc_entry_count` and
   `toc_input_size`; direct Rust calls repeat the entry and text boundaries, then
   prepare entries and the parent stack fallibly before PDF mutation.
-- Info metadata reads decode only the eight public standard fields, release the
-  GIL, and reject aggregate source or returned text above 1 MiB. The fast
-  metadata probe applies the returned-text boundary and accepts an optional
-  input-file boundary before parsing. Bounded path reads admit at most one byte
-  beyond the budget, byte input is checked directly, and failures use
-  `LimitError.code == "file_size"`. `set_metadata` must batch and preflight the
-  1 MiB source/encoded boundary before PyO3 copying with
-  `metadata_input_size`; direct Rust calls repeat the boundary. Inline Info
-  dictionaries are moved rather than cloned. Returned maps, prepared write
-  batches, direct single-entry input copies, and encoded PDF strings grow
-  fallibly; duplicate tracking uses a fixed bitset for the eight public keys.
+- `Document.metadata` is a `Metadata` mapping (`src/pylopdf/_metadata.py`)
+  that reads the Info dictionary on every access and lists the entries
+  present under pylopdf's names (`METADATA_KEYS`, the keys of
+  `Probe.metadata`); dates stay the PDF date strings stored (ROADMAP.md D7).
+  Info metadata reads decode only the nine standard entries
+  (`INFO_METADATA_KEYS`), release the GIL, and reject aggregate source or
+  returned text above 1 MiB. The fast metadata probe applies the
+  returned-text boundary and accepts an optional input-file boundary before
+  parsing. Bounded path reads admit at most one byte beyond the budget, byte
+  input is checked directly, and failures use
+  `LimitError.code == "file_size"`. Writes validate every key and value
+  (non-empty strings; `trapped` is `True`, `False`, or `Unknown`) before any
+  change, then `_write_metadata` preflights the 1 MiB source/encoded boundary
+  before PyO3 copying with `metadata_input_size` and calls
+  `set_metadata_batch` once, where an empty value removes an entry; direct
+  Rust calls repeat the boundary. Inline Info dictionaries are moved rather
+  than cloned. Returned maps, prepared write batches, direct single-entry
+  input copies, and encoded PDF strings grow fallibly; duplicate tracking
+  uses a fixed bitset for the nine keys.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
 - Page-label number-tree reads borrow node shapes, visit indirect cycles once,
   release the GIL, and reject the complete result above 4,096 entries/nodes, 32
@@ -2373,32 +2381,36 @@ the concept and API overview.
   explicit value tie-breaks. `set_page_labels` must enforce the same
   entry/text boundary before PyO3 copying with `page_label_input_size`, repeat
   it in direct Rust calls, and invalidate caches only after success.
-- `Document.get_pdfa_claim` releases the GIL and defaults to a 1 MiB decoded
-  XMP limit applied to every filter layer. `max_size=None` is the explicit
-  unbounded opt-out and failures use `LimitError.code == "xmp_metadata_size"`;
-  malformed or unsupported filters must not fall back to encoded bytes. Match
+- `Document.pdfa_claim` releases the GIL and applies a 1 MiB decoded XMP
+  limit to every filter layer; the core's `pdfa_claim(max_size)` takes the
+  bound, which `None` lifts, and failures use
+  `LimitError.code == "xmp_metadata_size"`; malformed or unsupported filters
+  must not fall back to encoded bytes. Match
   exact `pdfaid:part` / `pdfaid:conformance` XML elements or attributes, not
   lookalike prefixes, quoted values, comments, or CDATA. This remains a
   self-declaration read rather than PDF/A validation.
-- `get_xml_metadata`, `set_xml_metadata`, and `del_xml_metadata`
-  (`document/metadata.rs`) follow pymupdf: reads decode the catalog's
-  `/Metadata` stream under the same 1 MiB `xmp_metadata_size` default and
-  return UTF-8 text with replacement up to the first NUL; writes rewrite a
+- `Document.xmp` (`document/metadata.rs`) reads as pymupdf's
+  `get_xml_metadata` does, but returns `None` without a packet: reads decode
+  the catalog's `/Metadata` stream under the same 1 MiB `xmp_metadata_size`
+  bound and return UTF-8 text with replacement up to the first NUL, and a
+  larger packet reads through `Stream.read(max_size=)`; assignments rewrite a
   referenced stream in place without its filters, or add a
   `/Type /Metadata /Subtype /XML` stream, and mark it `allows_compression =
   false` so compressing saves keep the packet readable. Writes stop above 1 MiB
   of encoded input with `xmp_metadata_input_size` in Python and Rust, so
   written XMP stays readable under the read default. Rewriting an existing
   stream forgets placements, because `/Metadata` may name any stream; adding
-  one keeps them. `set_metadata` never synchronizes XMP. The catalog's
+  one keeps them. Info metadata writes never synchronize XMP. The catalog's
   `/PageMode`, `/PageLayout`, and `/MarkInfo` read through the object model
-  and write through `set_catalog_name` and `set_mark_info`, which keep
-  placements; `has_links` and `has_annots` scan every page's `/Annots` with
-  the page index and release the GIL. `language_tag` and `set_language_tag`
-  replace pymupdf's `language` and `set_language`: MuPDF packs
-  `/Lang` into at most three letters, so pymupdf reads `en-US` as `en` and
-  cannot tell `zh-TW` from `zh-HK`. They read and write the complete BCP 47
-  tag, which Python and `is_language_tag` in Rust both check for shape
+  as `PageMode`, `PageLayout`, and `MarkInfo` (a name outside ISO 32000-2
+  Table 29 reads as the default) and write through `set_catalog_name` and
+  `set_mark_info`, which keep placements; assignments take an enum member or
+  its exact value, where pymupdf matched names case-insensitively.
+  `has_links` and `has_annots` scan every page's `/Annots` with the page
+  index and release the GIL. `Document.language` reads and writes the
+  complete BCP 47 `/Lang` tag, where MuPDF packs it into at most three
+  letters, so pymupdf reads `en-US` as `en` and cannot tell `zh-TW` from
+  `zh-HK`; Python and `is_language_tag` in Rust both check its shape
   (subtags of one to eight ASCII letters or digits, at most 256 bytes).
   `permissions` returns `Permissions` flags as MuPDF decides them: none
   while the document is locked, `Permissions.ALL` for an unencrypted
@@ -2681,7 +2693,7 @@ the concept and API overview.
   a document without a password where pymupdf asks for one. `unlock`
   follows MuPDF's decision by rebuilding the Encrypt dictionary from
   `encryption_state.encode()` (`original_password_matches`), and
-  `metadata["encryption"]` describes it the same way. lopdf's fast metadata
+  `encryption_method` describes it the same way. lopdf's fast metadata
   reader also drops `/Trapped`, so `probe` omits `trapped`.
 - lopdf 0.45 keeps a rebuilt table's newest trailer verbatim, including its
   `/Prev`, and its full writer emits trailer keys as-is. pylopdf removes

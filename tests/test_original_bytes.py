@@ -110,7 +110,7 @@ def _consistent_page_texts(data: bytes) -> list[list[str]]:
     """Return each page's lines after checking that an edit and a save change nothing."""
     doc = pylopdf.open(data)
     unedited = _page_views(doc)
-    doc.set_metadata({"title": "Edited"})
+    doc.metadata.update({"title": "Edited"})
     assert _page_views(doc) == unedited
     assert _page_views(pylopdf.open(doc.to_bytes())) == unedited
     return [text.splitlines() for text, _ in unedited]

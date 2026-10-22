@@ -108,7 +108,7 @@ _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
     "new_page": lambda doc: doc.pages.new(),
     "copy_page": lambda doc: doc.pages.extend(doc.pages[0]),
     "set_outline": lambda doc: doc.set_outline([(1, "Start", 0)]),
-    "set_metadata": lambda doc: doc.set_metadata({"title": "Edited"}),
+    "set_metadata": lambda doc: doc.metadata.update({"title": "Edited"}),
     "attachments.add": lambda doc: doc.attachments.add("note.txt", b"note"),
 }
 
@@ -251,9 +251,9 @@ def test_metadata_replaces_an_unallocated_info_dictionary() -> None:
     """Setting metadata raised `PdfError` for the unresolvable trailer `/Info`."""
     data = build_raw_pdf(_target_objects()).replace(b"/Root 1 0 R >>", b"/Root 1 0 R /Info 90 0 R >>")
     doc = pylopdf.open(data)
-    assert doc.metadata["title"] == ""
+    assert "title" not in doc.metadata
 
-    doc.set_metadata({"title": "Edited"})
+    doc.metadata.update({"title": "Edited"})
 
     for current in _with_reloaded(doc):
         assert current.metadata["title"] == "Edited"

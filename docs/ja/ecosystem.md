@@ -25,10 +25,10 @@ typstはPDF/A（パート1〜4）とPDF/UA-1のファイルを書き出せます
 
 ```python
 pdf_a: bytes = typst.compile("report.typ", pdf_standards="a-2b")
-pylopdf.open(pdf_a).get_pdfa_claim()   # (2, "B")
+pylopdf.open(pdf_a).pdfa_claim   # PdfaClaim(part=2, conformance='B')
 ```
 
-`Document.get_pdfa_claim()`は、ファイルがどのPDF/Aレベルを宣言しているかを読むだけです。既存のPDFが本当に適合しているかを確認するには、標準的な検証ツールである[veraPDF](https://verapdf.org/)（Javaで動作）を使ってください。
+`Document.pdfa_claim`は、ファイルがどのPDF/Aレベルを宣言しているかを読むだけです。既存のPDFが本当に適合しているかを確認するには、標準的な検証ツールである[veraPDF](https://verapdf.org/)（Javaで動作）を使ってください。
 
 ## typstでデザインした透かしやヘッダー { #cjk-watermarks }
 

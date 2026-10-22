@@ -25,10 +25,10 @@ typst可以输出PDF/A（第1至4部分）和PDF/UA-1文件：
 
 ```python
 pdf_a: bytes = typst.compile("report.typ", pdf_standards="a-2b")
-pylopdf.open(pdf_a).get_pdfa_claim()   # (2, "B")
+pylopdf.open(pdf_a).pdfa_claim   # PdfaClaim(part=2, conformance='B')
 ```
 
-`Document.get_pdfa_claim()`只读取文件声明的PDF/A级别。要检查现有PDF是否真正符合标准，请使用标准验证工具[veraPDF](https://verapdf.org/)（运行于Java）。
+`Document.pdfa_claim`只读取文件声明的PDF/A级别。要检查现有PDF是否真正符合标准，请使用标准验证工具[veraPDF](https://verapdf.org/)（运行于Java）。
 
 ## 用typst设计水印和页眉 { #cjk-watermarks }
 

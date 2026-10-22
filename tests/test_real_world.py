@@ -250,7 +250,7 @@ def test_open_from_path_and_stream(case: Case) -> None:
 @ALL
 def test_metadata_format(case: Case) -> None:
     doc = pylopdf.open(ASSETS / case.name)
-    assert doc.metadata["format"] == case.version
+    assert f"PDF {doc.version}" == case.version
 
 
 @ALL
@@ -763,7 +763,7 @@ def test_pdfium_soft_mask_forms_survive_edits_and_saves() -> None:
     keyword as null as hayro does.
     """
     document = pylopdf.open(ASSETS / "pdfium-smask-blend.pdf")
-    document.set_metadata({"title": "Edited"})
+    document.metadata.update({"title": "Edited"})
     saved = document.to_bytes()
 
     assert len(re.findall(rb"/Type null\s*/Subtype\s*/Form", saved)) == 3
@@ -1039,9 +1039,9 @@ def test_object_streams_reduce_size() -> None:
 
 
 @ALL
-def test_set_metadata_roundtrip(case: Case) -> None:
+def test_metadata_roundtrip(case: Case) -> None:
     doc = pylopdf.open(ASSETS / case.name)
-    doc.set_metadata({"title": "回帰テスト", "author": "pylopdf"})
+    doc.metadata.update({"title": "回帰テスト", "author": "pylopdf"})
     reopened = pylopdf.open(doc.to_bytes())
     assert reopened.metadata["title"] == "回帰テスト"
     assert reopened.metadata["author"] == "pylopdf"

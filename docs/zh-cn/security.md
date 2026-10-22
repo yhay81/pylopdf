@@ -93,7 +93,7 @@ limits = pylopdf.DocumentLimits(
 | `Page.replace_text()` | 页面内容64 MiB | `max_size` |
 | 附件：`add()`、`read()`、`write()` | 每个文件64 MiB | `max_size` |
 | `Stream.read()` | 64 MiB | `max_size` |
-| `Document.get_pdfa_claim()`、`get_xml_metadata()`、`set_xml_metadata()` | XMP元数据1 MiB | `max_size` |
+| `Document.xmp`、`pdfa_claim` | XMP元数据1 MiB | `doc.catalog["Metadata"]`的`Stream.read(max_size=)` |
 | `OcrEngine()` | 模型文件64 MiB | `max_model_size` |
 
 有几项上限是固定的。渲染时每页最多6,400万像素。密码最长127个UTF-8字节，这是PDF 2.0规定的最大值。传给`doc.pages.select()`、`insert()`和`extend()`，以及`doc.text()`、`doc.markdown()`和`doc.render()`的页面列表，条目数最多为页数与4,096中的较大者。书签、页码标签、表单字段、批注和附件列表都设有宽松的固定上限，足以应对大型的真实文档。
@@ -123,8 +123,8 @@ limits = pylopdf.DocumentLimits(
 | `password_input_size`、`metadata_input_size`、`annotation_input_size`、`form_field_input_size`、`toc_input_size`、`page_label_input_size`、`replacement_input_size` | 传给方法的文本过大 |
 | `page_entry_count` | 页面列表超出允许的长度 |
 | `toc_entry_count`、`toc_text_size`、`named_destination_count`、`named_destination_text_size`、`structure_tree_count`、`form_content_size` | 书签、链接目标表、标签PDF结构或导入的页面过大 |
-| `xmp_metadata_size` | XMP元数据大于`max_size` |
-| `xmp_metadata_input_size` | 传给`set_xml_metadata()`的XMP元数据大于`max_size` |
+| `xmp_metadata_size` | XMP元数据大于1 MiB |
+| `xmp_metadata_input_size` | 赋值给`Document.xmp`的XMP元数据大于1 MiB |
 | `ocr_model_size`、`ocr_dictionary_entries` | OCR模型文件过大 |
 
 ## 内置防护 { #built-in-protections }

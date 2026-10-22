@@ -29,10 +29,10 @@ typst can write PDF/A (parts 1 to 4) and PDF/UA-1 files:
 
 ```python
 pdf_a: bytes = typst.compile("report.typ", pdf_standards="a-2b")
-pylopdf.open(pdf_a).get_pdfa_claim()   # (2, "B")
+pylopdf.open(pdf_a).pdfa_claim   # PdfaClaim(part=2, conformance='B')
 ```
 
-`Document.get_pdfa_claim()` only reads which PDF/A level a file claims. To
+`Document.pdfa_claim` only reads which PDF/A level a file claims. To
 check that an existing PDF really conforms, use
 [veraPDF](https://verapdf.org/), the standard validator (it runs on Java).
 

@@ -93,7 +93,7 @@ limits = pylopdf.DocumentLimits(
 | `Page.replace_text()` | ページのコンテンツ64 MiB | `max_size` |
 | 添付ファイル: `add()`, `read()`, `write()` | ファイル1つあたり64 MiB | `max_size` |
 | `Stream.read()` | 64 MiB | `max_size` |
-| `Document.get_pdfa_claim()`, `get_xml_metadata()`, `set_xml_metadata()` | XMPメタデータ1 MiB | `max_size` |
+| `Document.xmp`, `pdfa_claim` | XMPメタデータ1 MiB | `doc.catalog["Metadata"]`の`Stream.read(max_size=)` |
 | `OcrEngine()` | モデルファイル64 MiB | `max_model_size` |
 
 いくつかの上限は固定です。レンダリングは1ページあたり6,400万画素までです。パスワードはPDF 2.0の上限であるUTF-8で127バイトまでです。`doc.pages.select()`、`insert()`、`extend()`、`doc.text()`、`doc.markdown()`、`doc.render()`に渡すページのリストは、ページ数と4,096のうち大きい方の項目数まで持てます。しおり、ページラベル、フォームフィールド、注釈、添付ファイルの一覧には、実際の大きな文書に合わせた余裕のある固定の上限があります。
@@ -123,8 +123,8 @@ limits = pylopdf.DocumentLimits(
 | `password_input_size`, `metadata_input_size`, `annotation_input_size`, `form_field_input_size`, `toc_input_size`, `page_label_input_size`, `replacement_input_size` | メソッドに渡したテキストが大きすぎる |
 | `page_entry_count` | ページのリストが許容より長い |
 | `toc_entry_count`, `toc_text_size`, `named_destination_count`, `named_destination_text_size`, `structure_tree_count`, `form_content_size` | しおり、リンク先の表、タグ付きPDFの構造、取り込むページが大きすぎる |
-| `xmp_metadata_size` | XMPメタデータが`max_size`より大きい |
-| `xmp_metadata_input_size` | `set_xml_metadata()`に渡したXMPメタデータが`max_size`より大きい |
+| `xmp_metadata_size` | XMPメタデータが1 MiBより大きい |
+| `xmp_metadata_input_size` | `Document.xmp`に代入したXMPメタデータが1 MiBより大きい |
 | `ocr_model_size`, `ocr_dictionary_entries` | OCRのモデルファイルが大きすぎる |
 
 ## 組み込みの保護 { #built-in-protections }

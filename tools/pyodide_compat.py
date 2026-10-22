@@ -380,7 +380,7 @@ def _consistency_results() -> dict[str, Any]:
     def texts(data: bytes) -> list[list[str]]:
         document = pylopdf.open(data)
         unedited = [document.pages[index].text().splitlines() for index in range(len(document.pages))]
-        document.set_metadata({"title": "Edited"})
+        document.metadata["title"] = "Edited"
         edited = [document.pages[index].text().splitlines() for index in range(len(document.pages))]
         _require(unedited == edited, "an unrelated edit changed extracted text")
         return unedited
@@ -510,8 +510,8 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
     _require(pylopdf.Document().path is None, "an empty document reported a path")
     unlocked = [_unlock_result(decrypted, password) for password in ("wrong", "userpw", "ownerpw")]
     _require(unlocked == ["PasswordError", "USER", "OWNER"], "a decrypted document unlocked with the wrong access")
-    encryption_description = decrypted.metadata["encryption"]
-    _require(encryption_description == "Standard V5 R6 256-bit AES", "metadata described the wrong encryption")
+    encryption_description = decrypted.encryption_method
+    _require(encryption_description == "Standard V5 R6 256-bit AES", "encryption_method described the wrong encryption")
     granted = pylopdf.Permissions.PRINT | pylopdf.Permissions.COPY
     reencrypted = decrypted.to_bytes(encryption=pylopdf.Encryption(user_password="user", permissions=granted))  # noqa: S106
     _require(pylopdf.open(reencrypted).needs_password, "Encryption did not encrypt")
@@ -1293,8 +1293,8 @@ def _document_property_results(root: Path) -> dict[str, Any]:
     import pylopdf  # noqa: PLC0415
 
     form = pylopdf.open(root / "tests/assets/real_world/f1040.pdf")
-    xmp = form.get_xml_metadata()
-    _require(xmp.startswith("<?xpacket"), "real-world XMP did not decode")
+    xmp = form.xmp
+    _require(xmp is not None and xmp.startswith("<?xpacket"), "real-world XMP did not decode")
     document = pylopdf.open(
         _build_raw_pdf(
             {
@@ -1305,24 +1305,28 @@ def _document_property_results(root: Path) -> dict[str, Any]:
         )
     )
     packet = '<x:xmpmeta xmlns:x="adobe:ns:meta/">Grüße ∑</x:xmpmeta>'
-    document.set_xml_metadata(packet)
-    _require(document.set_pagemode("/useoutlines"), "set_pagemode did not return True")
-    _require(document.set_pagelayout("TwoColumnRight"), "set_pagelayout did not return True")
-    _require(document.set_markinfo({"Marked": True}), "set_markinfo did not return True")
-    document.set_language_tag("zh-TW")
+    document.xmp = packet
+    document.page_mode = pylopdf.PageMode.USE_OUTLINES
+    document.page_layout = "TwoColumnRight"
+    document.mark_info = pylopdf.MarkInfo(marked=True)
+    document.language = "zh-TW"
+    document.metadata.update(title="Grüße", created="D:20260102030405Z", trapped="True")
     data = document.to_bytes()
     _require(packet.encode() in data, "saving compressed the XMP packet")
     saved = pylopdf.open(data)
     return {
         "form_xmp": [len(xmp), _digest(xmp)],
-        "form_markinfo": form.markinfo,
+        "form_mark_info": repr(form.mark_info),
+        "form_pdfa_claim": repr(form.pdfa_claim),
         "form_annotations": [form.has_links(), form.has_annots()],
-        "xmp": saved.get_xml_metadata(),
-        "pagemode": saved.pagemode,
-        "pagelayout": saved.pagelayout,
-        "markinfo": saved.markinfo,
-        "language_tag": saved.language_tag,
-        "xmp_limit": _exception_name(lambda: saved.set_xml_metadata("x" * 10, max_size=9)),
+        "xmp": saved.xmp,
+        "page_mode": str(saved.page_mode),
+        "page_layout": str(saved.page_layout),
+        "mark_info": repr(saved.mark_info),
+        "language": saved.language,
+        "metadata": dict(saved.metadata),
+        "version": saved.version,
+        "xmp_limit": _exception_name(lambda: setattr(saved, "xmp", "x" * ((1 << 20) + 1))),
         "path": [form.path is not None, saved.path is None, saved.is_closed],
     }
 
@@ -1416,7 +1420,7 @@ def _create_results(root: Path) -> dict[str, Any]:
         "outline": [list(entry) for entry in document.get_outline()],
         "text": _digest(document.pages[0].text()),
         "struct_tree": str(document.catalog["StructTreeRoot"]["Type"]),
-        "ua_claim": "pdfuaid" in document.get_xml_metadata(),
+        "ua_claim": "pdfuaid" in (document.xmp or ""),
     }
 
 

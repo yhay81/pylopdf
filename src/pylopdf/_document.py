@@ -11,6 +11,7 @@ import stat
 import sys
 import warnings as _warnings
 from collections import Counter
+from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,6 +42,7 @@ from pylopdf._limits import (
     _validate_optional_positive_int,
     _validate_utf8_text_input,
 )
+from pylopdf._metadata import METADATA_KEYS, MarkInfo, Metadata, PageLayout, PageMode, PdfaClaim, _metadata_value
 from pylopdf._objects import Dictionary, Name, Objects, String
 from pylopdf._page import _PAGE_LABEL_STYLES, Page
 from pylopdf._pages import Pages
@@ -70,7 +72,7 @@ if sys.platform == "win32":
     from pylopdf.pylopdf_core import _copy_windows_dacl
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from collections.abc import Callable, Iterable, Sequence
     from types import TracebackType
     from typing import Any, Self
 
@@ -79,13 +81,10 @@ if TYPE_CHECKING:
     from pylopdf._types import (
         CjkFontLanguage,
         DocumentComplexity,
-        DocumentMetadata,
         FontLanguage,
         FormFieldInfo,
         FormFieldType,
         ImageCompressionResult,
-        MarkInfo,
-        MetadataUpdate,
         PageLabelInfo,
         PageLabelSpec,
     )
@@ -244,24 +243,6 @@ def _validate_password_input(password: str | None, label: str = "password") -> N
         )
 
 
-#: Map pymupdf-style Python metadata keys to PDF Info keys.
-_METADATA_KEYS: dict[str, str] = {
-    "title": "Title",
-    "author": "Author",
-    "subject": "Subject",
-    "keywords": "Keywords",
-    "creator": "Creator",
-    "producer": "Producer",
-    "creationDate": "CreationDate",
-    "modDate": "ModDate",
-    "trapped": "Trapped",
-}
-# Metadata keys that set_metadata ignores, so that a metadata round trip works.
-_READ_ONLY_METADATA_KEYS = frozenset({"format", "encryption"})
-# The catalog names that set_pagemode and set_pagelayout accept (ISO 32000-2 Table 29).
-_PAGE_MODES = ("UseNone", "UseOutlines", "UseThumbs", "FullScreen", "UseOC", "UseAttachments")
-_PAGE_LAYOUTS = ("SinglePage", "OneColumn", "TwoColumnLeft", "TwoColumnRight", "TwoPageLeft", "TwoPageRight")
-_MARK_INFO_KEYS = ("Marked", "UserProperties", "Suspects")
 _MAX_LANGUAGE_TAG_BYTES = 256
 _LANGUAGE_TAG = re.compile(r"[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*", re.ASCII)
 
@@ -288,15 +269,37 @@ def _owner_password(encryption: Encryption) -> str:
     return encryption.user_password if encryption.owner_password is None else encryption.owner_password
 
 
-def _catalog_name(value: str, valid: tuple[str, ...], key: str) -> str:
-    """Match a catalog name as pymupdf does: case-insensitively, slash optional."""
-    if isinstance(value, str):
-        text = value.removeprefix("/").lower()
-        for name in valid:
-            if name.lower() == text:
-                return name
-    msg = f"bad {key} value: {value!r} (valid: {list(valid)})"
-    raise PdfError(msg)
+def _catalog_enum(kind: type[PageMode | PageLayout], value: object, name: str) -> str:
+    """Return the catalog name of a page mode or layout, given as a member or its exact value."""
+    try:
+        return str(kind(value))
+    except ValueError:
+        msg = f"{name} must be one of {[member.value for member in kind]}: {value!r}"
+        raise ValueError(msg) from None
+
+
+def _write_metadata(document: Document, values: Mapping[str, str]) -> None:
+    """Write validated Info values in one edit, where ``""`` removes an entry.
+
+    The values share the 1 MiB input and encoded-text limits
+    (``LimitError.code == "metadata_input_size"``), checked before any
+    change.
+    """
+    document._ensure_open()
+    present = [value for value in values.values() if value]
+    _validate_cumulative_utf8_input(
+        present,
+        _MAX_METADATA_INPUT_TEXT_SIZE,
+        limit_code="metadata_input_size",
+        input_label="Info metadata input",
+    )
+    _validate_cumulative_pdf_text_input(
+        present,
+        _MAX_METADATA_INPUT_TEXT_SIZE,
+        limit_code="metadata_input_size",
+        input_label="encoded Info metadata input",
+    )
+    document._doc.set_metadata_batch([(METADATA_KEYS[key], value) for key, value in values.items()])
 
 
 def _is_language_tag(tag: object) -> bool:
@@ -560,236 +563,181 @@ class Document:
         self._generation += 1
 
     @property
-    def metadata(self) -> DocumentMetadata:
-        """Return pymupdf's metadata dictionary.
+    def metadata(self) -> Metadata:
+        """Return the Info dictionary as a live :class:`Metadata` mapping.
 
-        ``format`` is the PDF version, such as ``"PDF 1.7"``; the nine
-        standard Info fields read as ``""`` when absent; and ``encryption``
-        describes the encryption the document was opened with, as in
-        ``"Standard V5 R6 256-bit AES"``, or is ``None``. Reads reject more
-        than 1 MiB of aggregate encoded or returned text.
+        Assigning a mapping replaces every entry in one edit, and an empty
+        mapping removes the Info dictionary.
         """
         self._ensure_open()
-        raw = self._doc.get_metadata()
-        return {
-            "format": f"PDF {self._doc.version()}",
-            "title": raw.get("Title", ""),
-            "author": raw.get("Author", ""),
-            "subject": raw.get("Subject", ""),
-            "keywords": raw.get("Keywords", ""),
-            "creator": raw.get("Creator", ""),
-            "producer": raw.get("Producer", ""),
-            "creationDate": raw.get("CreationDate", ""),
-            "modDate": raw.get("ModDate", ""),
-            "trapped": raw.get("Trapped", ""),
-            "encryption": self._doc.encryption_method(),
-        }
+        return Metadata(self)
 
-    def set_metadata(self, m: MetadataUpdate | DocumentMetadata) -> None:
-        """Set metadata with pymupdf's meaning.
-
-        Keys match :attr:`metadata`; an unknown key raises ``ValueError``, and
-        the read-only ``format`` and ``encryption`` keys are ignored, so
-        ``doc.set_metadata(doc.metadata)`` works. A false value (``None`` or
-        ``""``) or the text ``"none"`` or ``"null"`` removes its entry, and an
-        empty dictionary removes the Info dictionary. ``trapped`` writes the
-        name ``/True``, ``/False``, or ``/Unknown`` for those values. The
-        fields share 1 MiB input and encoded-text limits. All updates are
-        validated before PyO3 copying and applied atomically. Caller refusals
-        use ``LimitError.code == "metadata_input_size"``.
-        """
+    @metadata.setter
+    def metadata(self, values: Mapping[str, str]) -> None:
         self._ensure_open()
-        if not isinstance(m, dict):
-            msg = f"metadata must be a dict: {type(m).__name__}"
+        if not isinstance(values, Mapping):
+            msg = f"metadata must be a mapping: {type(values).__name__}"
             raise TypeError(msg)
-        unknown = sorted(key for key in m if key not in _METADATA_KEYS and key not in _READ_ONLY_METADATA_KEYS)
-        if unknown:
-            msg = f"unknown metadata key(s): {unknown} (valid: {sorted(_METADATA_KEYS)})"
-            raise ValueError(msg)
-        if not m:
+        if not values:
             self._doc.remove_metadata()
             return
-        updates: list[tuple[str, str]] = []
-        for key, value in m.items():
-            pdf_key = _METADATA_KEYS.get(key)
-            if pdf_key is None:
-                continue
-            if value is None or value in {"none", "null"}:
-                value = ""  # noqa: PLW2901 - an empty value removes the entry.
-            if not isinstance(value, str):
-                msg = f"metadata value must be a string or None: {key!r}={value!r}"
-                raise TypeError(msg)
-            updates.append((pdf_key, value))
-        values = [value for _, value in updates]
-        _validate_cumulative_utf8_input(
-            values,
-            _MAX_METADATA_INPUT_TEXT_SIZE,
-            limit_code="metadata_input_size",
-            input_label="Info metadata input",
-        )
-        _validate_cumulative_pdf_text_input(
-            (value for value in values if value),
-            _MAX_METADATA_INPUT_TEXT_SIZE,
-            limit_code="metadata_input_size",
-            input_label="encoded Info metadata input",
-        )
-        self._doc.set_metadata_batch(updates)
+        checked = {key: _metadata_value(key, value) for key, value in values.items()}
+        _write_metadata(self, {key: checked.get(key, "") for key in METADATA_KEYS})
 
-    def get_xml_metadata(self, *, max_size: int | None = _DEFAULT_MAX_XMP_METADATA_SIZE) -> str:
-        """Return the catalog's XMP metadata as text, or ``""`` when absent.
+    @property
+    def version(self) -> str:
+        """Return the PDF version of the file header, such as ``"1.7"``."""
+        self._ensure_open()
+        return self._doc.version()
 
-        As in pymupdf, the decoded stream is read as UTF-8 with invalid bytes
-        replaced and ends at its first NUL character. ``max_size`` bounds
-        every decoding layer and defaults to 1 MiB; pass ``None`` only to
-        accept unbounded materialization. Refusals use
-        ``LimitError.code == "xmp_metadata_size"``.
+    @property
+    def encryption_method(self) -> str | None:
+        """Return the encryption the document was opened with, such as ``"Standard V5 R6 256-bit AES"``, or ``None``."""
+        self._ensure_open()
+        return self._doc.encryption_method()
+
+    @property
+    def xmp(self) -> str | None:
+        """Return the catalog's XMP metadata packet as text, or ``None`` when absent.
+
+        The decoded stream is read as UTF-8 with invalid bytes replaced and
+        ends at its first NUL character. Every decoding layer is bounded at
+        1 MiB (``LimitError.code == "xmp_metadata_size"``); read a larger
+        packet through ``doc.catalog["Metadata"].read(max_size=...)``.
+
+        Assigning a string rewrites an existing ``/Metadata`` stream in place
+        or adds one, unfiltered so that tools scanning the file for XMP
+        packets find it, up to 1 MiB of UTF-8 (``xmp_metadata_input_size``).
+        ``del doc.xmp`` removes the catalog's entry; the stream stays until a
+        pruning save. :attr:`metadata` and the XMP packet are independent.
         """
         self._ensure_open()
-        _validate_optional_positive_int("max_size", max_size)
-        data = self._doc.xml_metadata(max_size)
+        data = self._doc.xml_metadata(_DEFAULT_MAX_XMP_METADATA_SIZE)
         if data is None:
-            return ""
+            return None
         return data.decode("utf-8", errors="replace").split("\0", 1)[0]
 
-    def set_xml_metadata(self, metadata: str, *, max_size: int | None = _DEFAULT_MAX_XMP_METADATA_SIZE) -> None:
-        """Store ``metadata`` as the catalog's XMP metadata, encoded as UTF-8.
-
-        As in pymupdf, an existing ``/Metadata`` stream is rewritten in place
-        and otherwise a new one is added. The stream stays unfiltered, also
-        when saving compresses streams, so that tools scanning the file for
-        XMP packets find it. :meth:`set_metadata` does not change XMP.
-        ``max_size`` bounds the encoded input and defaults to 1 MiB, the
-        default that :meth:`get_xml_metadata` reads back. Refusals use
-        ``LimitError.code == "xmp_metadata_input_size"``.
-        """
+    @xmp.setter
+    def xmp(self, packet: str) -> None:
         self._ensure_open()
-        if not isinstance(metadata, str):
-            msg = f"metadata must be a str: {type(metadata).__name__}"
+        if not isinstance(packet, str):
+            msg = f"xmp must be a str: {type(packet).__name__}"
             raise TypeError(msg)
         _validate_utf8_text_input(
-            metadata,
-            max_size,
+            packet,
+            _DEFAULT_MAX_XMP_METADATA_SIZE,
             limit_code="xmp_metadata_input_size",
             input_label="XMP metadata input",
         )
-        self._doc.set_xml_metadata(metadata.encode("utf-8"), max_size)
+        self._doc.set_xml_metadata(packet.encode("utf-8"), _DEFAULT_MAX_XMP_METADATA_SIZE)
 
-    def del_xml_metadata(self) -> None:
-        """Remove the catalog's ``/Metadata`` entry, as pymupdf does.
-
-        The stream itself stays until a pruning save removes it.
-        """
+    @xmp.deleter
+    def xmp(self) -> None:
         self._ensure_open()
         self._doc.remove_xml_metadata()
 
     @property
-    def pagemode(self) -> str:
-        """Return the catalog's ``/PageMode`` name, ``"UseNone"`` when unset."""
+    def pdfa_claim(self) -> PdfaClaim | None:
+        """Return the PDF/A part and conformance that the XMP metadata claims, or ``None``.
+
+        This reads the ``pdfaid:part`` and ``pdfaid:conformance``
+        self-declaration and does not validate compliance; use veraPDF or
+        another validator for that. The XMP packet is read under the 1 MiB
+        bound of :attr:`xmp`.
+        """
+        self._ensure_open()
+        claim = self._doc.pdfa_claim(_DEFAULT_MAX_XMP_METADATA_SIZE)
+        return None if claim is None else PdfaClaim(part=int(claim[0]), conformance=claim[1])
+
+    @property
+    def page_mode(self) -> PageMode:
+        """Return how a viewer opens the document; unset or unknown reads as ``PageMode.USE_NONE``."""
         self._ensure_open()
         value = self.catalog.get("PageMode")
-        return str(value) if isinstance(value, Name) else "UseNone"
+        try:
+            return PageMode(str(value)) if isinstance(value, Name) else PageMode.USE_NONE
+        except ValueError:
+            return PageMode.USE_NONE
 
-    def set_pagemode(self, pagemode: str) -> bool:
-        """Set ``/PageMode`` and return ``True``.
-
-        As in pymupdf, the name matches case-insensitively with or without a
-        leading slash: ``UseNone``, ``UseOutlines``, ``UseThumbs``,
-        ``FullScreen``, ``UseOC``, or ``UseAttachments``. Another value raises
-        :class:`PdfError`, a ``ValueError``.
-        """
+    @page_mode.setter
+    def page_mode(self, mode: PageMode | str) -> None:
         self._ensure_open()
-        self._doc.set_catalog_name("PageMode", _catalog_name(pagemode, _PAGE_MODES, "PageMode"))
-        return True
+        self._doc.set_catalog_name("PageMode", _catalog_enum(PageMode, mode, "page_mode"))
 
     @property
-    def pagelayout(self) -> str:
-        """Return the catalog's ``/PageLayout`` name, ``"SinglePage"`` when unset."""
+    def page_layout(self) -> PageLayout:
+        """Return how a viewer lays pages out; unset or unknown reads as ``PageLayout.SINGLE_PAGE``."""
         self._ensure_open()
         value = self.catalog.get("PageLayout")
-        return str(value) if isinstance(value, Name) else "SinglePage"
+        try:
+            return PageLayout(str(value)) if isinstance(value, Name) else PageLayout.SINGLE_PAGE
+        except ValueError:
+            return PageLayout.SINGLE_PAGE
 
-    def set_pagelayout(self, pagelayout: str) -> bool:
-        """Set ``/PageLayout`` and return ``True``.
-
-        As in pymupdf, the name matches case-insensitively with or without a
-        leading slash: ``SinglePage``, ``OneColumn``, ``TwoColumnLeft``,
-        ``TwoColumnRight``, ``TwoPageLeft``, or ``TwoPageRight``. Another
-        value raises :class:`PdfError`, a ``ValueError``.
-        """
+    @page_layout.setter
+    def page_layout(self, layout: PageLayout | str) -> None:
         self._ensure_open()
-        self._doc.set_catalog_name("PageLayout", _catalog_name(pagelayout, _PAGE_LAYOUTS, "PageLayout"))
-        return True
+        self._doc.set_catalog_name("PageLayout", _catalog_enum(PageLayout, layout, "page_layout"))
 
     @property
-    def language_tag(self) -> str | None:
+    def language(self) -> str | None:
         """Return the catalog's ``/Lang`` language tag as stored, or ``None``.
 
-        The complete BCP 47 tag is returned, such as ``"zh-TW"`` or
-        ``"sr-Latn-RS"``. pymupdf's ``language`` keeps at most three letters
-        and maps Chinese tags to ``zh-Hans`` or ``zh-Hant``, so pylopdf
-        replaces it under this name.
+        The complete BCP 47 tag is kept, such as ``"zh-TW"`` or
+        ``"sr-Latn-RS"``. Assigning writes a well-formed tag (ISO 32000-2
+        §14.9.2.2) of at most 256 bytes, hyphen-separated subtags of one to
+        eight ASCII letters or digits, the first of letters only; anything
+        else raises :class:`PdfError`. ``del doc.language`` removes it.
         """
         self._ensure_open()
         value = self.catalog.get("Lang")
         return value.text if isinstance(value, String) else None
 
-    def set_language_tag(self, tag: str | None) -> None:
-        """Store ``tag`` as the catalog's ``/Lang``, or remove it for ``None``.
-
-        The tag is written unchanged and must be a well-formed BCP 47 tag
-        (ISO 32000-2 §14.9.2.2) of at most 256 bytes: hyphen-separated
-        subtags of one to eight ASCII letters or digits, the first of letters
-        only. Anything else raises :class:`PdfError`, a ``ValueError``.
-        """
+    @language.setter
+    def language(self, tag: str) -> None:
         self._ensure_open()
-        if tag is not None and not _is_language_tag(tag):
+        if not _is_language_tag(tag):
             msg = f"not a well-formed BCP 47 language tag: {tag!r}"
             raise PdfError(msg)
         self._doc.set_language_tag(tag)
 
-    @property
-    def markinfo(self) -> MarkInfo:
-        """Return the catalog's ``/MarkInfo`` flags.
+    @language.deleter
+    def language(self) -> None:
+        self._ensure_open()
+        self._doc.set_language_tag(None)
 
-        A document without a ``/MarkInfo`` dictionary returns ``{}``.
-        Otherwise ``Marked``, ``UserProperties``, and ``Suspects`` are all
-        present, each ``True`` only when the dictionary holds ``true``.
+    @property
+    def mark_info(self) -> MarkInfo | None:
+        """Return the catalog's ``/MarkInfo`` flags, or ``None`` without a ``/MarkInfo`` dictionary.
+
+        Each flag is true only when the dictionary holds ``true``. Assigning
+        a :class:`MarkInfo` replaces the dictionary, and ``del
+        doc.mark_info`` removes it.
         """
         self._ensure_open()
         mark_info = self.catalog.get("MarkInfo")
         if not isinstance(mark_info, Dictionary):
-            return {}
-        return {
-            "Marked": mark_info.get("Marked") is True,
-            "UserProperties": mark_info.get("UserProperties") is True,
-            "Suspects": mark_info.get("Suspects") is True,
-        }
+            return None
+        return MarkInfo(
+            marked=mark_info.get("Marked") is True,
+            user_properties=mark_info.get("UserProperties") is True,
+            suspects=mark_info.get("Suspects") is True,
+        )
 
-    def set_markinfo(self, markinfo: MarkInfo) -> bool:
-        """Replace ``/MarkInfo`` with pymupdf's meaning and return ``True``.
-
-        Keys missing from ``markinfo`` are written as ``false``, whatever the
-        document held before. Values are booleans or the strings ``"true"``
-        and ``"false"`` in any case. An empty or non-dictionary argument
-        changes nothing and returns ``False``; an unknown key or another
-        value raises ``ValueError``.
-        """
+    @mark_info.setter
+    def mark_info(self, flags: MarkInfo) -> None:
         self._ensure_open()
-        if not markinfo or not isinstance(markinfo, dict):
-            return False
-        unknown = sorted(str(key) for key in markinfo if key not in _MARK_INFO_KEYS)
-        if unknown:
-            msg = f"bad MarkInfo key(s): {unknown} (valid: {list(_MARK_INFO_KEYS)})"
-            raise ValueError(msg)
-        flags = dict.fromkeys(_MARK_INFO_KEYS, False)
-        for key, value in markinfo.items():
-            text = str(value).lower()
-            if text not in {"true", "false"}:
-                msg = f"bad MarkInfo value for {key!r}: {value!r}"
-                raise ValueError(msg)
-            flags[key] = text == "true"
-        self._doc.set_mark_info(flags["Marked"], flags["UserProperties"], flags["Suspects"])
-        return True
+        if not isinstance(flags, MarkInfo):
+            msg = f"mark_info must be a MarkInfo: {type(flags).__name__}"
+            raise TypeError(msg)
+        self._doc.set_mark_info(flags.marked, flags.user_properties, flags.suspects)
+
+    @mark_info.deleter
+    def mark_info(self) -> None:
+        self._ensure_open()
+        catalog = self.catalog
+        if "MarkInfo" in catalog:
+            del catalog["MarkInfo"]
 
     def has_links(self) -> bool:
         """Return whether any page lists a link annotation."""
@@ -1120,26 +1068,6 @@ class Document:
         """
         self._ensure_open()
         return Attachments(self)
-
-    def get_pdfa_claim(
-        self,
-        *,
-        max_size: int | None = _DEFAULT_MAX_XMP_METADATA_SIZE,
-    ) -> tuple[int, str] | None:
-        """Read the XMP PDF/A claim from ``pdfaid:part`` and conformance.
-
-        Return ``(part, conformance)``, for example ``(2, "B")`` for a
-        PDF/A-2b claim. PDF/A-4 without conformance uses an empty string. Return
-        ``None`` when absent. This reads a self-declaration; it does not validate
-        compliance. Use veraPDF or another external validator. ``max_size``
-        bounds every XMP decoding layer and defaults to 1 MiB. Pass a larger
-        positive integer for known large metadata or ``None`` only when
-        intentionally accepting unbounded materialization.
-        """
-        self._ensure_open()
-        _validate_optional_positive_int("max_size", max_size)
-        claim = self._doc.pdfa_claim(max_size)
-        return None if claim is None else (int(claim[0]), claim[1])
 
     def text(self, pages: Iterable[int] | None = None) -> str:
         """Return the plain text of the given pages in one batched call.

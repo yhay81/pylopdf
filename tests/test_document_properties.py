@@ -1,4 +1,4 @@
-"""XMP metadata and catalog document properties with pymupdf's meaning."""
+"""XMP metadata, catalog properties, and document state."""
 
 from __future__ import annotations
 
@@ -50,17 +50,17 @@ def _annotated_pdf(annots: str, *extra: bytes | str) -> bytes:
 # --- XMP metadata ---------------------------------------------------------
 
 
-def test_xml_metadata_is_empty_without_a_metadata_stream() -> None:
-    assert pylopdf.open(build_pdf(["plain"])).get_xml_metadata() == ""
+def test_xmp_is_none_without_a_metadata_stream() -> None:
+    assert pylopdf.open(build_pdf(["plain"])).xmp is None
     # A /Metadata entry that is no stream reads as absent, as in pymupdf.
-    assert pylopdf.open(_catalog_pdf("/Metadata 4 0 R", "<< /Type /Metadata >>")).get_xml_metadata() == ""
+    assert pylopdf.open(_catalog_pdf("/Metadata 4 0 R", "<< /Type /Metadata >>")).xmp is None
 
 
-def test_xml_metadata_decodes_filters_invalid_utf8_and_nul_as_pymupdf() -> None:
+def test_xmp_decodes_filters_invalid_utf8_and_nul_as_pymupdf() -> None:
     xmp = '<x:xmpmeta xmlns:x="adobe:ns:meta/">日本語</x:xmpmeta>'
-    assert pylopdf.open(_xmp_pdf(xmp.encode(), compressed=True)).get_xml_metadata() == xmp
+    assert pylopdf.open(_xmp_pdf(xmp.encode(), compressed=True)).xmp == xmp
     damaged = pylopdf.open(_xmp_pdf(b"<a>\xff</a>\x00ignored"))
-    assert damaged.get_xml_metadata() == "<a>�</a>"
+    assert damaged.xmp == "<a>�</a>"
 
 
 @pytest.mark.parametrize(
@@ -70,78 +70,80 @@ def test_xml_metadata_decodes_filters_invalid_utf8_and_nul_as_pymupdf() -> None:
         ("f1040.pdf", 4090),
         ("pdf20-simple.pdf", 2351),
         ("wdl6812-manuscript.pdf", 2004),
-        ("usrguide.pdf", 0),
     ],
 )
-def test_real_world_xml_metadata_matches_pymupdf_lengths(name: str, length: int) -> None:
+def test_real_world_xmp_matches_pymupdf_lengths(name: str, length: int) -> None:
     # pymupdf 1.28.2 returns text of the same lengths and digests for these files.
-    xmp = pylopdf.open(REAL_WORLD / name).get_xml_metadata(max_size=None)
+    xmp = pylopdf.open(REAL_WORLD / name).xmp
+    assert xmp is not None
     assert len(xmp) == length
-    if length:
-        assert "<x:xmpmeta" in xmp or "<?xpacket" in xmp
+    assert "<x:xmpmeta" in xmp or "<?xpacket" in xmp
 
 
-def test_xml_metadata_read_is_bounded_on_every_decoding_layer() -> None:
+def test_real_world_file_without_xmp() -> None:
+    assert pylopdf.open(REAL_WORLD / "usrguide.pdf").xmp is None
+
+
+def test_xmp_read_is_bounded_on_every_decoding_layer() -> None:
     doc = pylopdf.open(_xmp_pdf(b"<x/>" + b" " * 2_000_000, compressed=True))
     with pytest.raises(LimitError) as caught:
-        doc.get_xml_metadata()
+        _ = doc.xmp
     assert caught.value.code == "xmp_metadata_size"
-    assert len(doc.get_xml_metadata(max_size=None)) == 2_000_004
-    with pytest.raises(ValueError, match="max_size"):
-        doc.get_xml_metadata(max_size=0)
+    with pytest.raises(LimitError) as caught:
+        _ = doc.pdfa_claim
+    assert caught.value.code == "xmp_metadata_size"
+    # A larger packet reads through the stream itself.
+    assert len(doc.catalog["Metadata"].read(max_size=None)) == 2_000_004
 
 
-def test_set_xml_metadata_adds_an_unfiltered_metadata_stream(tmp_path: Path) -> None:
+def test_assigning_xmp_adds_an_unfiltered_metadata_stream(tmp_path: Path) -> None:
     doc = pylopdf.open(build_pdf(["plain"]))
     xmp = "<x:xmpmeta>héllo</x:xmpmeta>"
 
-    assert doc.set_xml_metadata(xmp) is None
+    doc.xmp = xmp
     stream = doc.catalog["Metadata"]
     assert isinstance(stream, pylopdf.Stream)
     assert stream["Type"] == "Metadata"
     assert stream["Subtype"] == "XML"
     assert "Filter" not in stream
-    assert doc.get_xml_metadata() == xmp
+    assert doc.xmp == xmp
 
-    # Deflating streams leaves the XMP packet readable in the file.
+    # Compressing saves leave the XMP packet readable in the file.
     path = tmp_path / "xmp.pdf"
     doc.save(path)
     assert xmp.encode() in path.read_bytes()
     reopened = pylopdf.open(path)
-    assert reopened.get_xml_metadata() == xmp
+    assert reopened.xmp == xmp
     assert reopened.text().strip() == "plain"
 
 
-def test_set_xml_metadata_rewrites_an_existing_stream_in_place() -> None:
+def test_assigning_xmp_rewrites_an_existing_stream_in_place() -> None:
     doc = pylopdf.open(_xmp_pdf(b"<old/>", compressed=True))
     xref = doc.catalog["Metadata"].xref
 
-    doc.set_xml_metadata("<new/>")
+    doc.xmp = "<new/>"
     stream = doc.catalog["Metadata"]
     assert stream.xref == xref
     assert "Filter" not in stream
     assert stream["Type"] == "Metadata"
     assert stream.read(decode=False) == b"<new/>"
-    assert pylopdf.open(doc.to_bytes()).get_xml_metadata() == "<new/>"
+    assert pylopdf.open(doc.to_bytes()).xmp == "<new/>"
 
 
-def test_set_xml_metadata_input_is_bounded_before_any_change() -> None:
+def test_assigned_xmp_is_bounded_before_any_change() -> None:
     doc = pylopdf.open(build_pdf(["plain"]))
     objects = len(doc.objects)
     with pytest.raises(LimitError) as caught:
-        doc.set_xml_metadata("é" * 600_000)  # 1.2 MB of UTF-8 in 600,000 characters
+        doc.xmp = "é" * 600_000  # 1.2 MB of UTF-8 in 600,000 characters
     assert caught.value.code == "xmp_metadata_input_size"
-    with pytest.raises(LimitError):
-        doc.set_xml_metadata("x" * 100, max_size=99)
     assert len(doc.objects) == objects
     assert "Metadata" not in doc.catalog
 
-    doc.set_xml_metadata("x" * 100, max_size=100)
-    doc.set_xml_metadata("x" * 2_000_000, max_size=None)
-    assert len(doc.get_xml_metadata(max_size=None)) == 2_000_000
+    doc.xmp = "x" * (1 << 20)
+    assert doc.xmp == "x" * (1 << 20)
 
 
-def test_set_xml_metadata_repeats_the_input_bound_in_rust() -> None:
+def test_assigned_xmp_repeats_the_input_bound_in_rust() -> None:
     doc = pylopdf.open(build_pdf(["plain"]))
     with pytest.raises(LimitError) as caught:
         doc._doc.set_xml_metadata(b"x" * 10, 9)  # noqa: SLF001 - the core repeats the bound.
@@ -149,85 +151,77 @@ def test_set_xml_metadata_repeats_the_input_bound_in_rust() -> None:
     assert "Metadata" not in doc.catalog
 
 
-def test_set_xml_metadata_takes_text_only() -> None:
+def test_assigned_xmp_is_text_only() -> None:
     doc = pylopdf.open(build_pdf(["plain"]))
     with pytest.raises(TypeError, match="str"):
-        doc.set_xml_metadata(b"<x/>")  # ty: ignore[invalid-argument-type]
+        doc.xmp = b"<x/>"  # ty: ignore[invalid-assignment]
 
 
-def test_del_xml_metadata_removes_the_catalog_entry() -> None:
+def test_deleting_xmp_removes_the_catalog_entry() -> None:
     doc = pylopdf.open(_xmp_pdf(b"<old/>"))
-    doc.del_xml_metadata()
+    del doc.xmp
     assert "Metadata" not in doc.catalog
-    assert doc.get_xml_metadata() == ""
-    doc.del_xml_metadata()  # Removing absent metadata changes nothing.
+    assert doc.xmp is None
+    del doc.xmp  # Removing absent metadata changes nothing.
     saved = pylopdf.open(doc.to_bytes())
-    assert saved.get_xml_metadata() == ""
+    assert saved.xmp is None
     assert all(
         not (isinstance(value, pylopdf.Stream) and value.get("Type") == "Metadata") for value in saved.objects.values()
     )
 
 
-def test_set_metadata_leaves_xmp_unchanged() -> None:
+def test_info_metadata_edits_leave_xmp_unchanged() -> None:
     doc = pylopdf.open(_xmp_pdf(b"<old/>"))
-    doc.set_metadata({"title": "New"})
-    assert doc.get_xml_metadata() == "<old/>"
+    doc.metadata["title"] = "New"
+    doc.metadata = {"author": "Me"}
+    assert doc.xmp == "<old/>"
 
 
 # --- page mode and page layout ----------------------------------------------
 
 
-def test_page_mode_and_layout_default_to_pymupdf_values() -> None:
+def test_page_mode_and_layout_default_to_their_specified_values() -> None:
     doc = pylopdf.open(build_pdf(["plain"]))
-    assert doc.pagemode == "UseNone"
-    assert doc.pagelayout == "SinglePage"
-    # A value that is no name reads as unset, as in pymupdf.
+    assert doc.page_mode is pylopdf.PageMode.USE_NONE
+    assert doc.page_layout is pylopdf.PageLayout.SINGLE_PAGE
+    # A value that is no name, or a name outside ISO 32000-2 Table 29, reads as unset.
     odd = pylopdf.open(_catalog_pdf("/PageMode (UseOutlines) /PageLayout 7"))
-    assert odd.pagemode == "UseNone"
-    assert odd.pagelayout == "SinglePage"
-    assert pylopdf.open(REAL_WORLD / "usrguide.pdf").pagemode == "UseOutlines"
+    assert odd.page_mode is pylopdf.PageMode.USE_NONE
+    assert odd.page_layout is pylopdf.PageLayout.SINGLE_PAGE
+    custom = pylopdf.open(_catalog_pdf("/PageMode /Custom /PageLayout 4 0 R", "/TwoColumnLeft"))
+    assert custom.page_mode is pylopdf.PageMode.USE_NONE
+    assert custom.page_layout is pylopdf.PageLayout.TWO_COLUMN_LEFT
+    assert pylopdf.open(REAL_WORLD / "usrguide.pdf").page_mode is pylopdf.PageMode.USE_OUTLINES
 
 
-def test_page_mode_reads_names_outside_the_standard_list() -> None:
-    doc = pylopdf.open(_catalog_pdf("/PageMode /Custom /PageLayout 4 0 R", "/TwoColumnLeft"))
-    assert doc.pagemode == "Custom"
-    assert doc.pagelayout == "TwoColumnLeft"
-
-
-@pytest.mark.parametrize(
-    ("value", "stored"),
-    [("FullScreen", "FullScreen"), ("/useoc", "UseOC"), ("USEATTACHMENTS", "UseAttachments")],
-)
-def test_set_pagemode_matches_names_case_insensitively(value: str, stored: str) -> None:
+@pytest.mark.parametrize("mode", [pylopdf.PageMode.FULL_SCREEN, pylopdf.PageMode.USE_OC, "UseAttachments", "UseNone"])
+def test_assigning_page_mode_writes_the_name(mode: pylopdf.PageMode | str) -> None:
     doc = pylopdf.open(build_pdf(["plain"]))
-    assert doc.set_pagemode(value) is True
-    assert doc.catalog["PageMode"] == stored
+    doc.page_mode = mode
+    assert doc.catalog["PageMode"] == mode
     assert isinstance(doc.catalog["PageMode"], pylopdf.Name)
-    assert pylopdf.open(doc.to_bytes()).pagemode == stored
+    assert pylopdf.open(doc.to_bytes()).page_mode == mode
 
 
-@pytest.mark.parametrize(
-    ("value", "stored"),
-    [("OneColumn", "OneColumn"), ("/twopageright", "TwoPageRight"), ("twocolumnleft", "TwoColumnLeft")],
-)
-def test_set_pagelayout_matches_names_case_insensitively(value: str, stored: str) -> None:
+@pytest.mark.parametrize("layout", [pylopdf.PageLayout.ONE_COLUMN, "TwoPageRight", "TwoColumnLeft"])
+def test_assigning_page_layout_writes_the_name(layout: pylopdf.PageLayout | str) -> None:
     doc = pylopdf.open(build_pdf(["plain"]))
-    assert doc.set_pagelayout(value) is True
-    assert pylopdf.open(doc.to_bytes()).pagelayout == stored
+    doc.page_layout = layout
+    assert pylopdf.open(doc.to_bytes()).page_layout == layout
 
 
-@pytest.mark.parametrize("value", ["", "/", "Custom", "SinglePage", None, 1])
-def test_set_pagemode_rejects_other_values(value: object) -> None:
+@pytest.mark.parametrize("value", ["", "/", "Custom", "SinglePage", "useoc", "/UseOC", None, 1])
+def test_page_mode_refuses_other_values(value: object) -> None:
     doc = pylopdf.open(build_pdf(["plain"]))
-    with pytest.raises(pylopdf.PdfError, match="bad PageMode value"):
-        doc.set_pagemode(value)  # ty: ignore[invalid-argument-type]
+    with pytest.raises(ValueError, match="page_mode must be one of"):
+        doc.page_mode = value  # ty: ignore[invalid-assignment]
     assert "PageMode" not in doc.catalog
 
 
-def test_set_pagelayout_rejects_page_modes() -> None:
+def test_page_layout_refuses_page_modes() -> None:
     doc = pylopdf.open(build_pdf(["plain"]))
-    with pytest.raises(ValueError, match="bad PageLayout value"):
-        doc.set_pagelayout("UseNone")
+    with pytest.raises(ValueError, match="page_layout must be one of"):
+        doc.page_layout = "UseNone"
     with pytest.raises(pylopdf.PdfError, match="bad PageLayout"):
         doc._doc.set_catalog_name("PageLayout", "twopageright")  # noqa: SLF001
     with pytest.raises(pylopdf.PdfError, match="unsupported"):
@@ -238,37 +232,34 @@ def test_set_pagelayout_rejects_page_modes() -> None:
 # --- MarkInfo ----------------------------------------------------------------
 
 
-def test_markinfo_reads_pymupdf_shape() -> None:
-    assert pylopdf.open(build_pdf(["plain"])).markinfo == {}
-    assert pylopdf.open(_catalog_pdf("/MarkInfo true")).markinfo == {}
-    assert pylopdf.open(REAL_WORLD / "f1040.pdf").markinfo == {
-        "Marked": True,
-        "UserProperties": False,
-        "Suspects": False,
-    }
+def test_mark_info_reads_the_three_flags() -> None:
+    assert pylopdf.open(build_pdf(["plain"])).mark_info is None
+    assert pylopdf.open(_catalog_pdf("/MarkInfo true")).mark_info is None
+    assert pylopdf.open(REAL_WORLD / "f1040.pdf").mark_info == pylopdf.MarkInfo(marked=True)
     indirect = pylopdf.open(_catalog_pdf("/MarkInfo 4 0 R", "<< /Suspects true /Marked 5 >>"))
-    assert indirect.markinfo == {"Marked": False, "UserProperties": False, "Suspects": True}
+    assert indirect.mark_info == pylopdf.MarkInfo(suspects=True)
 
 
-def test_set_markinfo_writes_all_three_flags() -> None:
+def test_assigning_mark_info_writes_all_three_flags() -> None:
     doc = pylopdf.open(_catalog_pdf("/MarkInfo << /UserProperties true /Extra 1 >>"))
-    assert doc.set_markinfo({"Marked": True, "Suspects": "TRUE"}) is True  # ty: ignore[invalid-argument-type]
-    # Missing keys become false, whatever the document held, as in pymupdf.
-    expected = {"Marked": True, "UserProperties": False, "Suspects": True}
-    assert doc.markinfo == expected
+    flags = pylopdf.MarkInfo(marked=True, suspects=True)
+    doc.mark_info = flags
+    # Flags left false are written false, whatever the document held.
+    assert doc.mark_info == flags
     assert sorted(doc.catalog["MarkInfo"]) == ["Marked", "Suspects", "UserProperties"]
-    assert pylopdf.open(doc.to_bytes()).markinfo == expected
+    assert pylopdf.open(doc.to_bytes()).mark_info == flags
 
 
-def test_set_markinfo_ignores_empty_input_and_rejects_bad_entries() -> None:
-    doc = pylopdf.open(build_pdf(["plain"]))
-    assert doc.set_markinfo({}) is False
-    assert doc.set_markinfo(None) is False  # ty: ignore[invalid-argument-type]
-    with pytest.raises(ValueError, match="bad MarkInfo key"):
-        doc.set_markinfo({"Marked": True, "Tagged": True})  # ty: ignore[invalid-argument-type, invalid-key]
-    with pytest.raises(ValueError, match="bad MarkInfo value"):
-        doc.set_markinfo({"Marked": 1})  # ty: ignore[invalid-argument-type]
-    assert doc.markinfo == {}
+def test_mark_info_refuses_other_values_and_deletes() -> None:
+    doc = pylopdf.open(REAL_WORLD / "f1040.pdf")
+    with pytest.raises(TypeError, match="MarkInfo"):
+        doc.mark_info = {"Marked": True}  # ty: ignore[invalid-assignment]
+    with pytest.raises(TypeError, match="bool"):
+        pylopdf.MarkInfo(marked=1)  # ty: ignore[invalid-argument-type]
+    del doc.mark_info
+    assert doc.mark_info is None
+    del doc.mark_info  # Removing absent flags changes nothing.
+    assert pylopdf.open(doc.to_bytes()).mark_info is None
 
 
 # --- links and annotations -------------------------------------------------
@@ -322,7 +313,13 @@ def test_is_closed() -> None:
     assert doc.is_closed is True
     with pytest.raises(pylopdf.DocumentClosedError):
         _ = doc.pages
-    for operation in (doc.get_xml_metadata, doc.has_links, lambda: doc.pagemode, lambda: doc.markinfo):
+    for operation in (
+        lambda: doc.xmp,
+        doc.has_links,
+        lambda: doc.page_mode,
+        lambda: doc.mark_info,
+        lambda: doc.metadata,
+    ):
         with pytest.raises(pylopdf.DocumentClosedError):
             operation()
 
@@ -341,7 +338,7 @@ def test_path_is_the_file_the_document_came_from(tmp_path: Path) -> None:
 
 def test_encrypted_documents_refuse_property_access_until_authenticated() -> None:
     doc = pylopdf.open(ENCRYPTED / "user-aes-256.pdf")
-    for operation in (doc.get_xml_metadata, doc.has_annots, lambda: doc.pagelayout):
+    for operation in (lambda: doc.xmp, doc.has_annots, lambda: doc.page_layout, lambda: doc.language):
         with pytest.raises(pylopdf.EncryptedDocumentError):
             operation()
     assert doc.path == ENCRYPTED / "user-aes-256.pdf"
@@ -350,49 +347,51 @@ def test_encrypted_documents_refuse_property_access_until_authenticated() -> Non
 def test_property_edits_keep_page_views_valid() -> None:
     doc = pylopdf.open(build_pdf(["plain"]))
     page = doc.pages[0]
-    doc.set_xml_metadata("<x/>")
-    doc.set_pagemode("UseThumbs")
-    doc.set_pagelayout("OneColumn")
-    doc.set_markinfo({"Marked": True})
-    doc.del_xml_metadata()
+    doc.xmp = "<x/>"
+    doc.page_mode = pylopdf.PageMode.USE_THUMBS
+    doc.page_layout = pylopdf.PageLayout.ONE_COLUMN
+    doc.mark_info = pylopdf.MarkInfo(marked=True)
+    doc.language = "en"
+    doc.metadata["title"] = "t"
+    del doc.xmp
     assert page.text().strip() == "plain"
 
 
 # --- language tags -----------------------------------------------------------
 
 
-def test_language_tag_reads_the_stored_tag_unchanged() -> None:
-    assert pylopdf.open(build_pdf(["plain"])).language_tag is None
+def test_language_reads_the_stored_tag_unchanged() -> None:
+    assert pylopdf.open(build_pdf(["plain"])).language is None
     # pymupdf reads these as "en" and "zh-Hant"; pylopdf keeps the whole tag.
-    assert pylopdf.open(_catalog_pdf("/Lang (en-GB)")).language_tag == "en-GB"
-    assert pylopdf.open(_catalog_pdf("/Lang 4 0 R", "(zh-HK)")).language_tag == "zh-HK"
+    assert pylopdf.open(_catalog_pdf("/Lang (en-GB)")).language == "en-GB"
+    assert pylopdf.open(_catalog_pdf("/Lang 4 0 R", "(zh-HK)")).language == "zh-HK"
     utf16 = "<FEFF007A0068002D00540057>"  # "zh-TW" as a UTF-16BE text string
-    assert pylopdf.open(_catalog_pdf(f"/Lang {utf16}")).language_tag == "zh-TW"
+    assert pylopdf.open(_catalog_pdf(f"/Lang {utf16}")).language == "zh-TW"
     # A malformed stored value reads as stored; a value that is no string reads as absent.
-    assert pylopdf.open(_catalog_pdf("/Lang (not a tag)")).language_tag == "not a tag"
-    assert pylopdf.open(_catalog_pdf("/Lang /en")).language_tag is None
+    assert pylopdf.open(_catalog_pdf("/Lang (not a tag)")).language == "not a tag"
+    assert pylopdf.open(_catalog_pdf("/Lang /en")).language is None
 
 
 @pytest.mark.parametrize(
     "tag", ["zh-CN", "zh-TW", "zh-HK", "en-US", "pt-BR", "sr-Latn-RS", "ja", "x-private", "de-CH-1996"]
 )
-def test_set_language_tag_keeps_the_complete_tag(tag: str) -> None:
+def test_assigning_language_keeps_the_complete_tag(tag: str) -> None:
     doc = pylopdf.open(build_pdf(["plain"]))
-    assert doc.set_language_tag(tag) is None
-    assert doc.language_tag == tag
+    doc.language = tag
+    assert doc.language == tag
     lang = doc.catalog["Lang"]
     assert isinstance(lang, pylopdf.String)
     assert bytes(lang) == tag.encode()
-    assert pylopdf.open(doc.to_bytes()).language_tag == tag
+    assert pylopdf.open(doc.to_bytes()).language == tag
 
 
-def test_set_language_tag_none_removes_lang() -> None:
+def test_deleting_language_removes_lang() -> None:
     doc = pylopdf.open(_catalog_pdf("/Lang (en-US)"))
-    doc.set_language_tag(None)
+    del doc.language
     assert "Lang" not in doc.catalog
-    assert doc.language_tag is None
-    doc.set_language_tag(None)  # Removing an absent tag changes nothing.
-    assert pylopdf.open(doc.to_bytes()).language_tag is None
+    assert doc.language is None
+    del doc.language  # Removing an absent tag changes nothing.
+    assert pylopdf.open(doc.to_bytes()).language is None
 
 
 @pytest.mark.parametrize(
@@ -411,30 +410,35 @@ def test_set_language_tag_none_removes_lang() -> None:
         "日本語",
         "a" + "-a" * 128,
         5,
+        None,
     ],
 )
-def test_set_language_tag_rejects_malformed_tags(tag: object) -> None:
+def test_language_refuses_malformed_tags(tag: object) -> None:
     doc = pylopdf.open(_catalog_pdf("/Lang (ja)"))
     with pytest.raises(pylopdf.PdfError, match="BCP 47"):
-        doc.set_language_tag(tag)  # ty: ignore[invalid-argument-type]
-    assert doc.language_tag == "ja"
+        doc.language = tag  # ty: ignore[invalid-assignment]
+    assert doc.language == "ja"
 
 
-def test_set_language_tag_repeats_the_check_in_rust() -> None:
+def test_language_repeats_the_check_in_rust() -> None:
     doc = pylopdf.open(build_pdf(["plain"]))
     for tag in ("en_US", "a" + "-a" * 128):
         with pytest.raises(pylopdf.PdfError, match="BCP 47"):
             doc._doc.set_language_tag(tag)  # noqa: SLF001 - the core repeats the check.
     doc._doc.set_language_tag("a" + "-a" * 127)  # noqa: SLF001 - 255 bytes is accepted.
-    assert doc.language_tag == "a" + "-a" * 127
+    assert doc.language == "a" + "-a" * 127
 
 
-def test_pymupdf_language_names_raise_migration_hints() -> None:
+def test_removed_property_names_raise_migration_hints() -> None:
     doc = pylopdf.open(build_pdf(["plain"]))
-    with pytest.raises(AttributeError, match="language_tag"):
-        _ = doc.language  # ty: ignore[unresolved-attribute]
-    with pytest.raises(AttributeError, match="set_language_tag"):
+    with pytest.raises(AttributeError, match=r"doc\.language"):
         doc.set_language("en-US")  # ty: ignore[unresolved-attribute]
+    with pytest.raises(AttributeError, match=r"doc\.page_mode"):
+        _ = doc.pagemode  # ty: ignore[unresolved-attribute]
+    with pytest.raises(AttributeError, match=r"doc\.xmp"):
+        doc.get_xml_metadata()  # ty: ignore[unresolved-attribute]
+    with pytest.raises(AttributeError, match=r"doc\.metadata"):
+        doc.set_metadata({})  # ty: ignore[unresolved-attribute]
 
 
 # --- page numbers, unsaved changes, and permissions ----------------------------
@@ -494,8 +498,8 @@ def test_reads_leave_is_dirty_false() -> None:
     page.search("a")
     doc.markdown()
     doc.get_outline()
-    doc.get_xml_metadata()
-    _ = (doc.metadata, doc.pagemode, doc.markinfo, doc.has_annots(), doc.permissions)
+    _ = (doc.xmp, dict(doc.metadata), doc.page_mode, doc.mark_info, doc.language, doc.pdfa_claim)
+    _ = (doc.has_annots(), doc.permissions, doc.version)
     _ = list(doc.objects)
     assert not doc.is_dirty
 
@@ -503,13 +507,13 @@ def test_reads_leave_is_dirty_false() -> None:
 @pytest.mark.parametrize(
     "edit",
     [
-        lambda doc: doc.set_metadata({"title": "t"}),
-        lambda doc: doc.set_metadata(doc.metadata),
+        lambda doc: doc.metadata.update(title="t"),
+        lambda doc: setattr(doc, "metadata", {**doc.metadata, "author": "a"}),
         lambda doc: doc.pages[0].set_rotation(90),
         lambda doc: doc.pages[0].insert_text((72, 72), "x"),
         lambda doc: doc.pages.select([0]),
-        lambda doc: doc.set_pagemode("UseOutlines"),
-        lambda doc: doc.set_xml_metadata("<x/>"),
+        lambda doc: setattr(doc, "page_mode", "UseOutlines"),
+        lambda doc: setattr(doc, "xmp", "<x/>"),
         lambda doc: doc.pages.new(),
     ],
 )

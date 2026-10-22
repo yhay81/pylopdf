@@ -50,8 +50,8 @@ import pylopdf
 
 with pylopdf.open("input.pdf") as doc:     # or pylopdf.open(pdf_bytes)
     print(len(doc.pages))
-    print(doc.metadata["title"])
-    doc.set_metadata({"title": "Report", "author": "Alice"})
+    print(doc.metadata.get("title"))
+    doc.metadata.update(title="Report", author="Alice")
 
     doc.save("out.pdf")                    # compressed, without unused objects
     data = doc.to_bytes()                  # the same PDF as bytes

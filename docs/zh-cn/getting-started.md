@@ -39,8 +39,8 @@ import pylopdf
 
 with pylopdf.open("input.pdf") as doc:     # 也可使用 pylopdf.open(pdf_bytes)
     print(len(doc.pages))
-    print(doc.metadata["title"])
-    doc.set_metadata({"title": "Report", "author": "Alice"})
+    print(doc.metadata.get("title"))
+    doc.metadata.update(title="Report", author="Alice")
 
     doc.save("out.pdf")                    # 压缩，且不含未使用的对象
     data = doc.to_bytes()                  # 以bytes形式得到同一份PDF

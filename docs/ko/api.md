@@ -29,7 +29,8 @@ pylopdf.Document(*, limits=None)
 | 멤버 | 용도 |
 |---|---|
 | `pages` | 페이지. [페이지](#document-pages) 참고 |
-| `metadata` / `set_metadata(m)` | 제목, 작성자 등 Info 필드와 `format`, `encryption`. `set_metadata`는 값이 빈 키를 삭제하고, `{}`이면 모두 삭제 |
+| `metadata` | 존재하는 Info 항목의 실시간 매핑. 키는 `title`, `author`, `subject`, `keywords`, `creator`, `producer`, `created`, `modified`, `trapped`이며 날짜는 PDF 날짜 문자열. 키에 대입하거나 `update()`를 호출하면 기록하고, `del`은 항목을 삭제하며, 매핑을 대입하면 모든 항목을 바꾸고, `{}`를 대입하거나 `clear()`를 호출하면 모두 삭제 |
+| `version`, `encryption_method` | 파일 헤더의 PDF 버전(예: `"1.7"`)과 문서를 열 때의 암호화 방식(예: `"Standard V5 R6 256-bit AES"`) 또는 `None` |
 | `needs_password`, `unlock(password)` | 문서가 잠겨 있는지 여부와 잠금 해제. `unlock`은 `Access.USER` 또는 `Access.OWNER`를 반환하고, 비밀번호가 틀리면 `PasswordError`를 발생시킴 |
 | `is_repaired` | 열 때 손상된 cross-reference 데이터를 복구했는지 여부 |
 | `permissions` | 문서가 허용하는 작업을 나타내는 `Permissions` 플래그. 잠겨 있는 동안은 없음, 암호화되지 않은 문서이거나 소유자 비밀번호로 연 뒤에는 `Permissions.ALL`, 그 밖에는 암호화가 허용하는 플래그. 플래그는 `Permissions.PRINT in doc.permissions`로 확인 |
@@ -111,15 +112,15 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 순서를 뒤집음
 | `get_form_fields()` | 모든 폼 필드와 그 이름, 종류, 값, 옵션 |
 | `set_form_field(name, value, *, font=, fontfile=, fontbuffer=, fontindex=, font_language=)` | 필드를 채우고 표시 모양을 다시 생성. [폼](#forms) 참고 |
 | `attachments` | 포함된 파일을 매핑으로. [첨부 파일](#attachments) 참고 |
-| `get_pdfa_claim()` | 파일이 선언한 PDF/A 파트와 적합성 수준(예: `(2, "B")`). 선언만 읽으며 검증하지는 않음 |
-| `get_xml_metadata(*, max_size=1 MiB)` / `set_xml_metadata(metadata, *, max_size=1 MiB)` / `del_xml_metadata()` | XMP 메타데이터 패킷을 텍스트로(없으면 `""`). `set_metadata`는 이를 바꾸지 않음 |
-| `language_tag` / `set_language_tag(tag)` | `zh-TW`나 `sr-Latn-RS` 같은 완전한 BCP 47 태그로 나타낸 문서의 언어, 또는 `None`. `set_language_tag(None)`은 언어를 제거하며, 형식이 잘못된 태그는 예외를 발생시킴 |
-| `pagemode` / `set_pagemode(mode)`, `pagelayout` / `set_pagelayout(layout)` | 뷰어가 문서를 여는 방식(예: `"UseOutlines"`, `"TwoColumnLeft"`). 설정되지 않았으면 `"UseNone"`과 `"SinglePage"` |
-| `markinfo` / `set_markinfo(markinfo)` | 태그 PDF 플래그를 담은 `MarkInfo` 딕셔너리(없으면 `{}`). 설정할 때는 세 플래그를 모두 기록하며, 생략한 플래그는 `False`가 됨 |
+| `pdfa_claim` | 파일이 선언한 PDF/A 파트와 적합성 수준을 담은 `PdfaClaim(part=2, conformance="B")` 레코드, 또는 `None`. 선언만 읽으며 검증하지는 않음 |
+| `xmp` | XMP 메타데이터 패킷을 텍스트로, 또는 `None`. 문자열을 대입하면 기록하고 `del doc.xmp`는 삭제. 읽기와 쓰기는 1 MiB에서 멈추며, 더 큰 패킷은 `doc.catalog["Metadata"].read(max_size=None)`로 읽음. `metadata`는 이를 바꾸지 않음 |
+| `language` | `zh-TW`나 `sr-Latn-RS` 같은 완전한 BCP 47 태그로 나타낸 문서의 언어, 또는 `None`. 태그를 대입하면 기록하고 `del doc.language`는 삭제하며, 형식이 잘못된 태그는 예외를 발생시킴 |
+| `page_mode`, `page_layout` | 뷰어가 문서를 여는 방식을 나타내는 `PageMode`, `PageLayout` 멤버(예: `PageMode.USE_OUTLINES`, `PageLayout.TWO_COLUMN_LEFT`). 설정되지 않았으면 `USE_NONE`과 `SINGLE_PAGE`. 멤버나 그 정확한 이름을 대입 |
+| `mark_info` | 태그 PDF 플래그를 담은 `MarkInfo(marked=, user_properties=, suspects=)` 레코드, 없으면 `None`. 대입하면 세 플래그를 모두 기록하고 `del`은 삭제 |
 | `has_links()`, `has_annots()` | 어느 페이지에 링크가 있는지, 또는 링크나 폼 위젯이 아닌 주석이 있는지 여부 |
 | `objects`, `trailer`, `catalog` | PDF 객체에 직접 접근. [저수준 객체](#low-level-objects) 참고 |
 
-`language_tag`는 pymupdf의 `language`를 대신합니다. `language`는 태그를 최대 세 글자까지만 유지하므로 `zh-TW`와 `zh-HK`가 모두 `zh-Hant`로 읽힙니다. XMP는 저장할 때 스트림을 압축하더라도 압축하지 않고 기록하므로, 파일에서 XMP를 찾는 도구도 계속 찾을 수 있습니다.
+`language`는 완전한 태그를 유지합니다. pymupdf의 `language`는 태그를 최대 세 글자까지만 유지하므로 그곳에서는 `zh-TW`와 `zh-HK`가 모두 `zh-Hant`로 읽힙니다. XMP는 저장할 때 스트림을 압축하더라도 압축하지 않고 기록하므로, 파일에서 XMP를 찾는 도구도 계속 찾을 수 있습니다.
 
 ## Page { #page }
 
@@ -590,7 +591,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 
 상수는 pymupdf의 이름을 유지하며 열거형으로도 묶여 있습니다. `Permissions`(`PDF_PERM_*`), `LinkKind`(`LINK_*`), `TextAlign`(`TEXT_ALIGN_*`), `AnnotType`(`PDF_ANNOT_*`), `AnnotFlags`(`PDF_ANNOT_IS_*`)입니다. `Access`의 멤버는 `USER`와 `OWNER`이고, `Encryption`은 저장하는 파일을 암호화하는 방법을 나타냅니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
 
-텍스트, 표, OCR, 페이지 내용의 결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord`, `Path`, `Image` 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 반환하는 그 밖의 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `LinkInfo`, `FormFieldInfo`, `DocumentMetadata` 같은 `TypedDict` 클래스로 기술됩니다. `OutlineEntry`는 네임드 튜플입니다.
+텍스트, 표, OCR, 페이지 내용의 결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord`, `Path`, `Image`, `MarkInfo`, `PdfaClaim` 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 반환하는 그 밖의 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `LinkInfo`, `FormFieldInfo` 같은 `TypedDict` 클래스로 기술됩니다. `OutlineEntry`는 네임드 튜플입니다.
 
 ## 예외와 경고 { #exceptions }
 

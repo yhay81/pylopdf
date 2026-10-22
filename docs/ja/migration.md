@@ -36,10 +36,11 @@ python -m pylopdf.migrate src/
 | `pymupdf.open()`, `pymupdf.Document()` | `pylopdf.Document()` | 空の文書 |
 | `doc[i]`, `doc.load_page(i)`, `len(doc)`, `doc.page_count`, イテレーション | `doc.pages[i]`, `len(doc.pages)`, `doc.pages`のイテレーション | `doc.pages`は、pymupdfの`doc.pages(start, stop)`と同じようにスライスにも対応します |
 | `page.number`, `page.parent` | `page.index`, `page.document` | |
-| `doc.metadata`, `set_metadata()` | 同じ | |
-| `doc.get_xml_metadata()`, `set_xml_metadata()`, `del_xml_metadata()` | 同じ | 読み書きとも既定では1 MiBまでです。`max_size=None`で上限を外せます |
-| `doc.language`, `set_language(tag)` | `doc.language_tag`, `set_language_tag(tag)` | 完全なタグを扱います。pymupdfは3文字までしか保持しないため、`zh-TW`と`zh-HK`はどちらも`zh-Hant`になります。移行ツールは`set_language`を書き換えます |
-| `doc.pagemode`, `pagelayout`, `markinfo`とその`set_*`メソッド, `has_links()`, `has_annots()`, `is_closed` | 同じ | |
+| `doc.metadata`, `set_metadata(m)` | `doc.metadata`, `doc.metadata.update(m)` | 存在する項目のライブなマッピングです。ない項目は`.get(key, "")`で読み、`del doc.metadata[key]`で削除します。`creationDate`と`modDate`は`created`と`modified`に、`format`と`encryption`は`doc.version`と`doc.encryption_method`になります |
+| `doc.get_xml_metadata()`, `set_xml_metadata(xml)`, `del_xml_metadata()` | `doc.xmp`, `doc.xmp = xml`, `del doc.xmp` | パケットがないときは`None`です。読み書きとも1 MiBまでです |
+| `doc.language`, `set_language(tag)` | `doc.language`, `doc.language = tag` | 完全なタグを扱います。pymupdfは3文字までしか保持しないため、`zh-TW`と`zh-HK`はどちらも`zh-Hant`になります。`del doc.language`で削除します |
+| `doc.pagemode`, `pagelayout`, `markinfo`とその`set_*`メソッド | `doc.page_mode`, `page_layout`, `mark_info`への代入 | `PageMode`・`PageLayout`列挙型と`MarkInfo`レコードです。pymupdfは大文字と小文字を区別しませんでしたが、名前は正確に一致させます |
+| `doc.has_links()`, `has_annots()`, `is_closed` | 同じ | |
 | `doc.name` | `doc.path` | `pathlib.Path`。bytesから開いた文書や新しく作った空の文書では`None`。すべての文書がPDFなので、`is_pdf`はなくなりました |
 | `doc.needs_pass`, `doc.is_encrypted` | `doc.needs_password` | 文書を復号するまでTrue |
 | `doc.authenticate(password)` | `doc.unlock(password)` | `Access.USER`か`Access.OWNER`を返します。パスワードが違えば、0を返す代わりに`PasswordError`を送出します |

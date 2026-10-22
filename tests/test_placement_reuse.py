@@ -238,7 +238,7 @@ def test_edits_that_keep_placed_objects_keep_sharing_them() -> None:
     del doc.pages[3:4]
     doc.pages.extend(pylopdf.open(build_pdf(["Appendix"])).pages)
     doc.set_outline([(1, "Start", 0)])
-    doc.set_metadata({"title": "Shared"})
+    doc.metadata.update({"title": "Shared"})
     doc.pages[2].set_rotation(90)
     doc.pages[2].add_highlight_annot((40, 30, 160, 90))
     doc.to_bytes(object_streams=True)
