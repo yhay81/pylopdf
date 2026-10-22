@@ -1596,28 +1596,10 @@ fn krilla_image(input: ImageInput) -> PyResult<CanvasImage> {
         ImageInput::Pixmap {
             width,
             height,
-            alpha,
+            layout,
             data,
         } => {
-            let rgba = if alpha {
-                let mut rgba = Vec::new();
-                rgba.try_reserve_exact(data.len()).map_err(|error| {
-                    PdfError::new_err(format!("failed to copy the Pixmap: {error}"))
-                })?;
-                rgba.extend_from_slice(&data);
-                rgba
-            } else {
-                let mut rgba = Vec::new();
-                rgba.try_reserve_exact(data.len() / 3 * 4)
-                    .map_err(|error| {
-                        PdfError::new_err(format!("failed to copy the Pixmap: {error}"))
-                    })?;
-                for pixel in data.as_chunks::<3>().0 {
-                    rgba.extend_from_slice(pixel);
-                    rgba.push(255);
-                }
-                rgba
-            };
+            let rgba = crate::pixmap::expand_to_rgba(layout, &data).map_err(PdfError::new_err)?;
             KrillaImage::from_rgba8(rgba, width, height)
         }
     };
@@ -2067,7 +2049,7 @@ impl _Canvas {
         let input = ImageInput::Pixmap {
             width: pixmap.width,
             height: pixmap.height,
-            alpha: pixmap.alpha,
+            layout: pixmap.layout,
             data: Arc::clone(&pixmap.data),
         };
         drop(pixmap);

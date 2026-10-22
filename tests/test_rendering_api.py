@@ -20,29 +20,29 @@ def test_pixmap_defaults_to_opaque_rgb_on_white() -> None:
     pixmap = _page().pixmap()
 
     assert (pixmap.width, pixmap.height) == (200, 100)
-    assert (pixmap.n, pixmap.alpha, pixmap.stride) == (3, False, 600)
-    assert pixmap.colorspace == pylopdf.csRGB
-    assert len(pixmap.samples) == 200 * 100 * 3
-    assert pixmap.samples[:3] == b"\xff\xff\xff"
+    assert (pixmap.channels, pixmap.alpha, pixmap.stride) == (3, False, 600)
+    assert pixmap.colorspace is pylopdf.Colorspace.RGB
+    assert len(bytes(pixmap)) == 200 * 100 * 3
+    assert bytes(pixmap)[:3] == b"\xff\xff\xff"
     assert repr(pixmap) == "<Pixmap 200x100 rgb>"
-    assert pixmap.tobytes()[PNG_COLOR_TYPE_OFFSET] == PNG_RGB
+    assert pixmap.to_bytes()[PNG_COLOR_TYPE_OFFSET] == PNG_RGB
     view = memoryview(pixmap)
-    assert view.nbytes == len(pixmap.samples)
+    assert view.nbytes == len(bytes(pixmap))
 
 
 def test_pixmap_with_alpha_keeps_transparency() -> None:
     pixmap = _page().pixmap(alpha=True)
 
-    assert (pixmap.n, pixmap.alpha, pixmap.stride) == (4, True, 800)
-    assert pixmap.samples[:4] == b"\x00\x00\x00\x00"
-    assert pixmap.tobytes()[PNG_COLOR_TYPE_OFFSET] == PNG_RGBA
+    assert (pixmap.channels, pixmap.alpha, pixmap.stride) == (4, True, 800)
+    assert bytes(pixmap)[:4] == b"\x00\x00\x00\x00"
+    assert pixmap.to_bytes()[PNG_COLOR_TYPE_OFFSET] == PNG_RGBA
 
 
 def test_background_paints_beneath_the_page() -> None:
     page = _page()
 
-    assert page.pixmap(background=(255, 0, 0)).samples[:3] == b"\xff\x00\x00"
-    assert page.pixmap(alpha=True, background=(0, 0, 255, 128)).samples[:4] == b"\x00\x00\xff\x80"
+    assert bytes(page.pixmap(background=(255, 0, 0)))[:3] == b"\xff\x00\x00"
+    assert bytes(page.pixmap(alpha=True, background=(0, 0, 255, 128)))[:4] == b"\x00\x00\xff\x80"
     with pytest.raises(ValueError, match="alpha=False needs an opaque background"):
         page.pixmap(background=(0, 0, 255, 128))
 
@@ -54,7 +54,7 @@ def test_matrix_scales_each_axis_and_excludes_dpi() -> None:
     assert (pixmap.width, pixmap.height) == (400, 300)
     assert page.pixmap(matrix=(0.5, 0, 0, 0.5, 0, 0)).width == 100
     # A translation moves the pixmap's origin in pymupdf, not its pixels.
-    assert page.pixmap(matrix=pylopdf.Matrix(1, 0, 0, 1, 30, 40)).samples == page.pixmap().samples
+    assert bytes(page.pixmap(matrix=pylopdf.Matrix(1, 0, 0, 1, 30, 40))) == bytes(page.pixmap())
     assert page.pixmap(dpi=36).width == 100
     with pytest.raises(ValueError, match="dpi or matrix, not both"):
         page.pixmap(matrix=pylopdf.Matrix(4, 4), dpi=36)
@@ -74,7 +74,7 @@ def test_matrices_that_do_not_only_scale_raise(matrix: object) -> None:
 def test_negative_indexes_render_the_same_page() -> None:
     doc = pylopdf.open(build_pdf(["One", "Two"]))
 
-    assert doc.pages[-1].pixmap(dpi=36, alpha=True).samples == doc.pages[1].pixmap(dpi=36, alpha=True).samples
+    assert bytes(doc.pages[-1].pixmap(dpi=36, alpha=True)) == bytes(doc.pages[1].pixmap(dpi=36, alpha=True))
 
 
 def test_svg_draws_text_as_paths() -> None:
@@ -98,13 +98,13 @@ def test_annotations_false_leaves_annotation_appearances_out() -> None:
     with_annotations = page.pixmap()
     without = page.pixmap(annotations=False)
 
-    assert with_annotations.samples != without.samples
-    assert set(without.samples) == {255}
-    assert len(without.samples) == len(blank.samples)
+    assert bytes(with_annotations) != bytes(without)
+    assert set(bytes(without)) == {255}
+    assert len(bytes(without)) == len(bytes(blank))
     assert page.svg(annotations=False) != page.svg()
     doc = page.document
-    assert doc.render(annotations=False) == [without.tobytes()]
-    assert doc.render() == [with_annotations.tobytes()]
+    assert doc.render(annotations=False) == [without.to_bytes()]
+    assert doc.render() == [with_annotations.to_bytes()]
 
 
 @pytest.mark.parametrize("name", ["pixmap", "svg"])
@@ -122,8 +122,8 @@ def test_render_follows_the_pixmap_options() -> None:
 
     assert rgb[PNG_COLOR_TYPE_OFFSET] == PNG_RGB
     assert rgba[PNG_COLOR_TYPE_OFFSET] == PNG_RGBA
-    assert rgb == doc.pages[0].pixmap(dpi=36).tobytes()
-    assert rgba == doc.pages[0].pixmap(dpi=36, alpha=True).tobytes()
+    assert rgb == doc.pages[0].pixmap(dpi=36).to_bytes()
+    assert rgba == doc.pages[0].pixmap(dpi=36, alpha=True).to_bytes()
 
 
 def test_old_names_are_removed() -> None:
@@ -151,15 +151,9 @@ def test_rgb_pixmaps_insert_without_a_soft_mask() -> None:
     assert "SMask" in doc.objects[with_alpha]
 
 
-def test_colorspace_values() -> None:
-    assert (pylopdf.csRGB.n, pylopdf.csRGB.name) == (3, "DeviceRGB")
-    assert (pylopdf.csGRAY.n, pylopdf.csGRAY.name) == (1, "DeviceGray")
-    assert (pylopdf.csCMYK.n, pylopdf.csCMYK.name) == (4, "DeviceCMYK")
-    assert (pylopdf.CS_RGB, pylopdf.CS_GRAY, pylopdf.CS_CMYK) == (1, 2, 3)
-    assert pylopdf.Colorspace(pylopdf.CS_GRAY) == pylopdf.csGRAY
-    assert repr(pylopdf.csRGB) == "Colorspace(CS_RGB) - DeviceRGB"
-    assert len({pylopdf.csRGB, pylopdf.Colorspace(pylopdf.CS_RGB)}) == 1
-    with pytest.raises(pylopdf.PdfError):
-        pylopdf.Colorspace(9)
-    with pytest.raises(AttributeError):
-        pylopdf.csRGB.n = 1  # ty: ignore[invalid-assignment]
+def test_colorspace_is_a_string_enum() -> None:
+    assert list(pylopdf.Colorspace) == [pylopdf.Colorspace.GRAY, pylopdf.Colorspace.RGB]
+    assert pylopdf.Colorspace("gray") is pylopdf.Colorspace.GRAY
+    assert pylopdf.Colorspace.RGB == "rgb"
+    for name in ("csRGB", "csGRAY", "csCMYK", "CS_RGB", "CS_GRAY", "CS_CMYK"):
+        assert not hasattr(pylopdf, name)

@@ -78,14 +78,14 @@ def _count(data: bytes, pattern: bytes) -> int:
 
 
 def _samples(page: pylopdf.Page) -> bytes:
-    return page.pixmap(background=WHITE, alpha=True).samples
+    return bytes(page.pixmap(background=WHITE, alpha=True))
 
 
 def _pixel(page: pylopdf.Page, x: int, y: int) -> tuple[int, int, int]:
     """Return RGB at display point ``(x, y)`` after rendering on white."""
     pix = page.pixmap(background=WHITE, alpha=True)
     offset = y * pix.stride + x * 4
-    r, g, b = pix.samples[offset : offset + 3]
+    r, g, b = bytes(pix)[offset : offset + 3]
     return (r, g, b)
 
 
@@ -188,7 +188,7 @@ def test_pixmaps_with_equal_samples_but_other_dimensions_stay_distinct() -> None
     square.pages[0].insert_image((0, 0, 2, 2), stream=_solid_png(RED), keep_proportion=False)
     wide_pixmap = wide.pages[0].pixmap(background=WHITE, alpha=True)
     square_pixmap = square.pages[0].pixmap(background=WHITE, alpha=True)
-    assert wide_pixmap.samples == square_pixmap.samples
+    assert bytes(wide_pixmap) == bytes(square_pixmap)
     doc = _pages(1, 200, 100)
     page = doc.pages[0]
 

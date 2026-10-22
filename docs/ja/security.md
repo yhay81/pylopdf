@@ -84,7 +84,7 @@ limits = pylopdf.DocumentLimits(
 | `Document.to_bytes()` | 出力512 MiB | `max_size` |
 | `Document.render()` | PNG出力の合計512 MiB | `max_size` |
 | `markdown()`, `Table.markdown()` | 出力64 MiB | `max_size` |
-| `Pixmap.tobytes()`, `Page.svg()` | 出力64 MiB | `max_size` |
+| `Pixmap.to_bytes()`, `Page.svg()` | 出力64 MiB | `max_size` |
 | `Page.search()` | 結果4,096件 | `max_hits` |
 | `Page.content()` | グリフ、パスとクリップのセグメント、線の破線の長さ、項目で合わせて262,144 | `max_elements` |
 | `Page.insert_text()`, `insert_textbox()` | テキスト1 MiBと4,096行 | `max_text_size` |

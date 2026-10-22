@@ -57,7 +57,7 @@ def _pixel(page: pylopdf.Page, x: int, y: int) -> tuple[int, int, int]:
     """Return RGB at display point ``(x, y)`` after rendering on white."""
     pix = page.pixmap(background=WHITE, alpha=True)
     offset = y * pix.stride + x * 4
-    r, g, b = pix.samples[offset : offset + 3]
+    r, g, b = bytes(pix)[offset : offset + 3]
     return (r, g, b)
 
 
@@ -595,7 +595,7 @@ def test_insert_image_rotates_clockwise(
     if source_kind == "stream":
         target.pages[0].insert_image(
             (10, 10, 90, 90),
-            stream=pixmap.tobytes(),
+            stream=pixmap.to_bytes(),
             rotate=rotate,
             keep_proportion=False,
         )
@@ -699,12 +699,12 @@ def test_insert_image_rejects_bad_input() -> None:
         )
     with pytest.raises(TypeError, match="pixmap must be a Pixmap"):
         page.insert_image((0, 0, 10, 10), pixmap=b"not a pixmap")  # ty: ignore[invalid-argument-type]
-    before = page.pixmap(background=WHITE, alpha=True).samples
+    before = bytes(page.pixmap(background=WHITE, alpha=True))
     with pytest.raises(TypeError, match="rotate must be a multiple of 90"):
         page.insert_image((0, 0, 10, 10), stream=_solid_png(1, 1, RED), rotate=True)
     with pytest.raises(ValueError, match="rotate must be a multiple of 90"):
         page.insert_image((0, 0, 10, 10), stream=_solid_png(1, 1, RED), rotate=45)
-    assert page.pixmap(background=WHITE, alpha=True).samples == before
+    assert bytes(page.pixmap(background=WHITE, alpha=True)) == before
     assert drawn_images(page) == []
     with pytest.raises(ValueError, match="rect"):
         page.insert_image((50, 50, 10, 10), stream=_solid_png(1, 1, RED))
@@ -1072,7 +1072,7 @@ def test_insert_text_embedded_overlay_order() -> None:
         overlay=False,
     )
     underlay_rgb = bytes(
-        channel for offset, channel in enumerate(underlay.pages[0].pixmap(alpha=True).samples) if offset % 4 != 3
+        channel for offset, channel in enumerate(bytes(underlay.pages[0].pixmap(alpha=True))) if offset % 4 != 3
     )
     assert set(underlay_rgb) == {0, 128}
 
@@ -1086,7 +1086,7 @@ def test_insert_text_embedded_overlay_order() -> None:
         color=(1.0, 0.0, 0.0),
     )
     overlay_rgb = bytes(
-        channel for offset, channel in enumerate(overlay.pages[0].pixmap(alpha=True).samples) if offset % 4 != 3
+        channel for offset, channel in enumerate(bytes(overlay.pages[0].pixmap(alpha=True))) if offset % 4 != 3
     )
     assert set(overlay_rgb) != {0, 128}
 
@@ -1101,7 +1101,7 @@ def test_insert_text_embedded_overlay_order() -> None:
     )
     standard_rgb = bytes(
         channel
-        for offset, channel in enumerate(standard_underlay.pages[0].pixmap(alpha=True).samples)
+        for offset, channel in enumerate(bytes(standard_underlay.pages[0].pixmap(alpha=True)))
         if offset % 4 != 3
     )
     assert set(standard_rgb) == {0, 128}
@@ -1141,13 +1141,13 @@ def test_insert_textbox_justifies_only_soft_wrapped_lines() -> None:
 def test_insert_textbox_overflow_is_non_drawing_and_empty_text_is_free() -> None:
     doc = _new_page_doc(200, 100)
     page = doc.pages[0]
-    before = page.pixmap(background=WHITE, alpha=True).samples
+    before = bytes(page.pixmap(background=WHITE, alpha=True))
 
     spare = page.insert_textbox((10, 10, 110, 15), "one two three four", fontsize=10)
 
     assert spare < 0
     assert page.text() == ""
-    assert page.pixmap(background=WHITE, alpha=True).samples == before
+    assert bytes(page.pixmap(background=WHITE, alpha=True)) == before
     assert page.insert_textbox((10, 10, 110, 25), "", fontsize=10) == 15
     assert page.text() == ""
 
@@ -1214,7 +1214,7 @@ def test_insert_textbox_underlay_stays_below_existing_content(fontfile: Path | N
         overlay=False,
     )
 
-    rgb = bytes(channel for offset, channel in enumerate(page.pixmap(alpha=True).samples) if offset % 4 != 3)
+    rgb = bytes(channel for offset, channel in enumerate(bytes(page.pixmap(alpha=True))) if offset % 4 != 3)
     assert set(rgb) == {0, 128}
 
 

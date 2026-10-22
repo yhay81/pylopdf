@@ -110,7 +110,7 @@ def test_the_document_stays_usable_after_a_panic() -> None:
     assert doc.pages[1].pixmap(alpha=True).width == 300
     assert "PAGE TEXT" in doc.pages[0].text()
     with pytest.raises(pylopdf.PdfError, match=MESSAGE):
-        doc.pages[0].pixmap(alpha=True).tobytes()
+        doc.pages[0].pixmap(alpha=True).to_bytes()
     assert len(doc.render([1, 2], alpha=True, workers=2)) == 2
 
     # A worker thread of the parallel renderer panics as well.

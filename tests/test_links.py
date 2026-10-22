@@ -454,7 +454,7 @@ def test_insert_pdf_refusal_preserves_original_interpretation_fast_path() -> Non
     target = pylopdf.open(compressed, limits=pylopdf.DocumentLimits(max_interpretation_size=limit))
     page = target.pages[0]
     original_text = page.text()
-    original_png = page.pixmap(alpha=True).tobytes()
+    original_png = page.pixmap(alpha=True).to_bytes()
     # Serialize without the options that change the document and its snapshot.
     original_bytes = target.to_bytes(compress=False, prune=False)
 
@@ -469,4 +469,4 @@ def test_insert_pdf_refusal_preserves_original_interpretation_fast_path() -> Non
 
     assert target.to_bytes(compress=False, prune=False) == original_bytes
     assert page.text() == original_text
-    assert page.pixmap(alpha=True).tobytes() == original_png
+    assert page.pixmap(alpha=True).to_bytes() == original_png

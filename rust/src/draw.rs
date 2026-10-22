@@ -85,63 +85,69 @@ fn zeroed_bytes(length: usize, label: &str) -> Result<Vec<u8>, String> {
     Ok(data)
 }
 
-/// Convert RGB8, or straight-alpha RGBA8, pixels directly to a PDF Image XObject.
+/// Convert gray or RGB pixels, with or without straight alpha, directly to a
+/// PDF Image XObject in DeviceGray or DeviceRGB.
 pub fn pixmap_parts(
     width: u32,
     height: u32,
-    alpha: bool,
+    layout: crate::pixmap::Layout,
     data: &[u8],
 ) -> Result<ImageParts, String> {
     if width == 0 || height == 0 {
         return Err("Pixmap dimensions are zero".to_owned());
     }
+    let channels = layout.channels() as usize;
+    let color_channels = channels - usize::from(layout.alpha);
+    let color_space = if layout.gray {
+        "DeviceGray"
+    } else {
+        "DeviceRGB"
+    };
     let pixel_count = usize::try_from(u64::from(width) * u64::from(height))
         .map_err(|_| "Pixmap dimensions are too large".to_owned())?;
     let expected_len = pixel_count
-        .checked_mul(if alpha { 4 } else { 3 })
+        .checked_mul(channels)
         .ok_or_else(|| "Pixmap dimensions are too large".to_owned())?;
     if data.len() != expected_len {
         return Err("Pixmap buffer length does not match its dimensions".to_owned());
     }
-    if !alpha {
-        // RGB samples are already the XObject's plane, and opaque.
+    if !layout.alpha {
+        // Color samples are already the XObject's plane, and opaque.
         return Ok(ImageParts {
             width,
             height,
-            color_space: "DeviceRGB",
+            color_space,
             filter: "FlateDecode",
             data: flate_compress(data)?,
             alpha: None,
         });
     }
 
-    let rgb_len = pixel_count
-        .checked_mul(3)
+    let color_len = pixel_count
+        .checked_mul(color_channels)
         .ok_or_else(|| "Pixmap dimensions are too large".to_owned())?;
     let opaque = data
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .all(|pixel| pixel[3] == u8::MAX);
-    let mut rgb = reserve_bytes(rgb_len, "Pixmap RGB plane")?;
+        .chunks_exact(channels)
+        .all(|pixel| pixel[color_channels] == u8::MAX);
+    let mut color = reserve_bytes(color_len, "Pixmap color plane")?;
     let mut alpha = if opaque {
         None
     } else {
         Some(reserve_bytes(pixel_count, "Pixmap alpha plane")?)
     };
-    for pixel in data.as_chunks::<4>().0 {
-        rgb.extend_from_slice(&pixel[..3]);
+    for pixel in data.chunks_exact(channels) {
+        color.extend_from_slice(&pixel[..color_channels]);
         if let Some(alpha) = &mut alpha {
-            alpha.push(pixel[3]);
+            alpha.push(pixel[color_channels]);
         }
     }
 
     Ok(ImageParts {
         width,
         height,
-        color_space: "DeviceRGB",
+        color_space,
         filter: "FlateDecode",
-        data: flate_compress(&rgb)?,
+        data: flate_compress(&color)?,
         alpha,
     })
 }

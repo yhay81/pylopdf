@@ -557,7 +557,7 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
             ],
             "placements": len(scan_placements),
             "extracted": [scan_image.format, list(scan_image.resolution), hashlib.sha256(scan_image.data).hexdigest()],
-            "pixmap": [scan_pixmap.width, scan_pixmap.height, scan_pixmap.n],
+            "pixmap": [scan_pixmap.width, scan_pixmap.height, scan_pixmap.channels],
         },
         "encryption": {
             "locked_exception": encrypted_error,
@@ -862,11 +862,13 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
     first_pixmap = first.pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True)
     _require((first_pixmap.width, first_pixmap.height) == (120, 90), "generated page raster size changed")
     _require(
-        first.pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).samples == first_pixmap.samples,
+        bytes(first.pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True)) == bytes(first_pixmap),
         "a repeated render on the retained cache changed the raster",
     )
     pixmap_buffer = memoryview(first_pixmap)
-    _require(bytes(pixmap_buffer) == first_pixmap.samples, "the Pixmap buffer differs from its samples")
+    _require(bytes(pixmap_buffer) == bytes(first_pixmap), "the Pixmap buffer differs from its pixels")
+    _require(bytes(pylopdf.Pixmap.from_array(first_pixmap)) == bytes(first_pixmap), "from_array changed the pixels")
+    gray_pixmap = first.pixmap(matrix=pylopdf.Matrix(0.5, 0.5), colorspace="gray")
 
     second = document.pages.new((180, 240))
     stale_error = _exception_name(lambda: first.rect)
@@ -932,8 +934,18 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
             (root / "fonts/pylopdf-fonts-he/src/pylopdf_fonts_he/NotoSansHebrew-Variable.ttf").read_bytes(),
         ),
         "text_sha256": [_digest(text) for text in texts],
-        "first_pixmap": [first_pixmap.width, first_pixmap.height, first_pixmap.n],
-        "first_pixmap_buffer": [pixmap_buffer.readonly, pixmap_buffer.format, pixmap_buffer.ndim, pixmap_buffer.nbytes],
+        "first_pixmap": [first_pixmap.width, first_pixmap.height, first_pixmap.channels],
+        "first_pixmap_buffer": [
+            pixmap_buffer.readonly,
+            pixmap_buffer.format,
+            list(pixmap_buffer.shape or ()),
+            pixmap_buffer.nbytes,
+        ],
+        "gray_pixmap": [
+            list(memoryview(gray_pixmap).shape or ()),
+            hashlib.sha256(bytes(gray_pixmap)).hexdigest(),
+            hashlib.sha256(gray_pixmap.to_bytes("jpeg", quality=80)).hexdigest(),
+        ],
         "batch_render_sizes": render_sizes,
         "merged_text_sha256": [_digest(text) for text in merged_texts],
         "selected_text_sha256": _digest(selected.pages[0].text()),

@@ -230,7 +230,7 @@ DAMAGE_OUTCOMES = {
 def _rgba_pixel(page: pylopdf.Page, x: int, y: int) -> tuple[int, int, int, int]:
     """Return one rendered pixel over a white background."""
     pixmap = page.pixmap(background=(255, 255, 255), alpha=True)
-    samples = pixmap.samples
+    samples = bytes(pixmap)
     offset = (y * pixmap.width + x) * 4
     return (
         samples[offset],
@@ -272,7 +272,7 @@ def test_probe_matches_full_load(case: Case) -> None:
 
 def _has_ink(page: pylopdf.Page) -> bool:
     """Return whether a low-resolution render of the page is not blank."""
-    samples = page.pixmap(matrix=pylopdf.Matrix(0.5, 0.5), background=(255, 255, 255), alpha=True).samples
+    samples = bytes(page.pixmap(matrix=pylopdf.Matrix(0.5, 0.5), background=(255, 255, 255), alpha=True))
     return any(samples[offset : offset + 3] != b"\xff\xff\xff" for offset in range(0, len(samples), 4))
 
 
@@ -702,7 +702,7 @@ def test_pdfium_type3_stencil_glyphs_render_to_raster() -> None:
     """Expose the current platform-dependent Type 3 raster behavior."""
     page = pylopdf.open(ASSETS / "pdfium-type3.pdf").pages[0]
     pixmap = page.pixmap(background=(255, 255, 255), alpha=True)
-    samples = pixmap.samples
+    samples = bytes(pixmap)
     has_ink = any(samples[offset : offset + 3] != b"\xff\xff\xff" for offset in range(0, len(samples), 4))
 
     if not has_ink:
@@ -798,7 +798,7 @@ def test_pdfium_existing_annotations_and_external_link_are_read() -> None:
         }
     ]
     pixmap = page.pixmap(background=(255, 255, 255), alpha=True)
-    samples = pixmap.samples
+    samples = bytes(pixmap)
     yellow_offset = (252 * pixmap.width + 320) * 4
     red, green, blue = samples[yellow_offset : yellow_offset + 3]
     assert red > 245
@@ -958,13 +958,13 @@ def test_manuscript_scan_has_no_text_layer() -> None:
 def test_manuscript_compression_preserves_mismatched_masks() -> None:
     """Skip real JPEG/mask pairs rather than changing their compositing."""
     doc = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")
-    before = doc.pages[0].pixmap(alpha=True).samples
+    before = bytes(doc.pages[0].pixmap(alpha=True))
 
     result = doc.rewrite_images(dpi_threshold=150, dpi_target=100, quality=50)
 
     assert result["considered"] >= 2
     assert result["rewritten"] == 0
-    assert doc.pages[0].pixmap(alpha=True).samples == before
+    assert bytes(doc.pages[0].pixmap(alpha=True)) == before
 
 
 @ALL
@@ -986,7 +986,7 @@ def test_insert_subset_with_position_roundtrip(case: Case) -> None:
     reopened = pylopdf.open(doc.to_bytes())
     assert len(reopened.pages) == case.pages + 1
     # Pruning preserves fonts/images referenced by the inserted page.
-    assert reopened.pages[0].pixmap(alpha=True).tobytes().startswith(b"\x89PNG")
+    assert reopened.pages[0].pixmap(alpha=True).to_bytes().startswith(b"\x89PNG")
 
 
 @ALL
@@ -1050,7 +1050,7 @@ def test_set_metadata_roundtrip(case: Case) -> None:
 @ALL
 def test_render_page_png(case: Case) -> None:
     doc = pylopdf.open(ASSETS / case.name)
-    png = doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes()
+    png = doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes()
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
     assert len(png) > 1000
 

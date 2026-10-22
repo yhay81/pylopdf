@@ -1112,16 +1112,16 @@ impl _OcrEngine {
             return Err(OcrError::new_err("rotation must be 0, 90, 180, or 270"));
         }
         let pixels = Arc::clone(&pixmap.data);
-        let alpha = pixmap.alpha;
+        let layout = pixmap.layout;
         let width = pixmap.width as usize;
         let height = pixmap.height as usize;
         drop(pixmap);
         py.detach(|| {
-            // Recognition reads RGBA; an RGB Pixmap gains opaque alpha bytes.
-            let pixels = if alpha {
+            // Recognition reads RGBA; any other Pixmap is expanded once.
+            let pixels = if layout.channels() == 4 {
                 pixels
             } else {
-                Arc::new(rgb_to_rgba(&pixels).map_err(OcrError::new_err)?)
+                Arc::new(crate::pixmap::expand_to_rgba(layout, &pixels).map_err(OcrError::new_err)?)
             };
             if rotation == 0 {
                 return self
@@ -1150,17 +1150,4 @@ impl _OcrEngine {
     fn __repr__(&self) -> &'static str {
         "<pylopdf.OcrEngine native models>"
     }
-}
-
-/// Expand RGB8 samples to opaque RGBA8 with fallible allocation.
-fn rgb_to_rgba(rgb: &[u8]) -> Result<Vec<u8>, String> {
-    let pixels = rgb.len() / 3;
-    let mut rgba = Vec::new();
-    rgba.try_reserve_exact(pixels.saturating_mul(4))
-        .map_err(|error| format!("failed to allocate the OCR input raster: {error}"))?;
-    for pixel in rgb.as_chunks::<3>().0 {
-        rgba.extend_from_slice(pixel);
-        rgba.push(u8::MAX);
-    }
-    Ok(rgba)
 }

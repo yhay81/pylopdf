@@ -12,7 +12,7 @@ import pylopdf
 
 def _png() -> bytes:
     pixmap = pylopdf.open(build_pdf(["Pixels"])).pages[0].pixmap(matrix=pylopdf.Matrix(0.2, 0.2), alpha=True)
-    return pixmap.tobytes()
+    return pixmap.to_bytes()
 
 
 def test_insert_image_returns_the_image_xref(tmp_path: Path) -> None:

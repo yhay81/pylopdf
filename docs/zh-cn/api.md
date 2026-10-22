@@ -97,7 +97,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 颠倒页面顺序
 
 | 成员 | 用途 |
 |---|---|
-| `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, workers=None, max_size=512 MiB)` | 并行渲染所有页面或列出的页面，按顺序返回PNG bytes |
+| `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, colorspace="rgb", format="png", quality=95, workers=None, max_size=512 MiB)` | 并行渲染所有页面或列出的页面，按顺序返回PNG或JPEG bytes |
 | `images` | 按对象编号排列的图像对象；参见[图像](#images) |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | 对图像降采样并重新压缩，以减小文件 |
 | `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | 用于显示未嵌入字体的中文、日语或韩语文本的字体；CJK extra会自动完成设置 |
@@ -148,11 +148,11 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 颠倒页面顺序
 
 | 成员 | 用途 |
 |---|---|
-| `pixmap(*, dpi=None, matrix=None, clip=None, alpha=False, background=None, annotations=True)` | 渲染为[`Pixmap`](#pixmap) |
+| `pixmap(*, dpi=None, matrix=None, clip=None, alpha=False, background=None, annotations=True, colorspace="rgb")` | 渲染为[`Pixmap`](#pixmap) |
 | `svg(*, annotations=True, max_size=64 MiB)` | 渲染为SVG字符串，文本绘制为路径 |
 | `resources` | 页面资源所及的内容：`resources.images`列出其图像对象；参见[图像](#images) |
 
-pixmap默认为72 dpi的白底RGB，`alpha=True`时为RGBA。`dpi`和`matrix`只能传入其一；矩阵必须只做缩放，例如`Matrix(2, 2)`。`clip`只渲染页面的一部分，`annotations=False`不绘制注释和表单控件。
+pixmap默认为72 dpi的白底RGB，`alpha=True`时为RGBA。`dpi`和`matrix`只能传入其一；矩阵必须只做缩放，例如`Matrix(2, 2)`。`clip`只渲染页面的一部分，`annotations=False`不绘制注释和表单控件，`colorspace="gray"`渲染为灰度像素。
 
 ### 页面几何 { #page-geometry }
 
@@ -559,15 +559,18 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 
 ## Pixmap { #pixmap }
 
-`Pixmap`保存渲染页面的像素，不可修改。
+`Pixmap`保存渲染页面或图像的像素，不可修改。
 
 | 成员 | 用途 |
 |---|---|
-| `width`、`height`、`n`、`alpha`、`stride`、`colorspace` | 尺寸和布局：RGB时`n`为3，RGBA时为4 |
-| `samples` | 以`bytes`返回像素 |
-| `memoryview(pix)`、`np.frombuffer(pix, dtype=np.uint8)` | 无需复制即可访问像素 |
-| `tobytes()` | PNG bytes |
-| `save(filename)` | 写出PNG文件 |
+| `width`、`height`、`channels`、`alpha`、`stride`、`colorspace` | 尺寸和布局：灰度时`channels`为1，带alpha的灰度为2，RGB为3，带alpha的RGB为4；`colorspace`为`Colorspace.GRAY`或`Colorspace.RGB` |
+| `numpy.asarray(pix)`、`memoryview(pix)` | 无需复制即可访问像素，灰度时形状为`(height, width)`，否则为`(height, width, channels)` |
+| `bytes(pix)` | 像素的副本 |
+| `Pixmap.from_array(array)` | 复制上述形状的`uint8`数组得到的pixmap |
+| `to_bytes(format="png", *, quality=95, max_size=64 MiB)` | PNG或JPEG bytes；JPEG没有alpha |
+| `save(path, /, *, format=None, quality=95)` | 写出PNG或JPEG；未指定`format`时由扩展名`.png`、`.jpg`或`.jpeg`决定 |
+
+图像处理交给NumPy、Pillow和OpenCV：`PIL.Image.fromarray(numpy.asarray(pix))`即可得到Pillow图像。
 
 ## 模块级函数与类型 { #module-level }
 
@@ -583,7 +586,7 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 | `Base14_fontnames`、`Base14_fontdict` | `fontname=`接受的Standard 14字体名称 |
 | `Name`、`String`、`Array`、`Dictionary`、`Stream`、`Objects` | [底层对象](#low-level-objects) |
 | `Content`、`TextRun`、`Path`、`Image`、`Glyph`、`FontRef`、`Color`、`Stroke`、`GraphicsContext`及其他内容类型 | [页面内容](#content) |
-| `Colorspace`、`csRGB`、`csGRAY`、`csCMYK` | pymupdf的设备颜色空间 |
+| `Colorspace` | [`Pixmap`](#pixmap)的颜色空间：`GRAY`和`RGB` |
 
 常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）和`AnnotFlags`（`PDF_ANNOT_IS_*`）。`Access`的成员是`USER`和`OWNER`，`Encryption`描述如何加密保存的文件。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
 

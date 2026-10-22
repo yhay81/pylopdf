@@ -25,7 +25,7 @@ def _region_pixels(page: pylopdf.Page, rect: pylopdf.Rect) -> list[tuple[int, in
     for y in range(int(rect.y0), min(int(rect.y1), pix.height)):
         for x in range(int(rect.x0), min(int(rect.x1), pix.width)):
             offset = y * pix.stride + x * 4
-            r, g, b = pix.samples[offset : offset + 3]
+            r, g, b = bytes(pix)[offset : offset + 3]
             out.append((r, g, b))
     return out
 

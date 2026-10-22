@@ -100,7 +100,7 @@ def _page_views(doc: pylopdf.Document) -> list[tuple[str, str]]:
     return [
         (
             doc.pages[index].text(),
-            hashlib.sha256(doc.pages[index].pixmap(matrix=pylopdf.Matrix(0.25, 0.25), alpha=True).samples).hexdigest(),
+            hashlib.sha256(bytes(doc.pages[index].pixmap(matrix=pylopdf.Matrix(0.25, 0.25), alpha=True))).hexdigest(),
         )
         for index in range(len(doc.pages))
     ]
@@ -656,7 +656,7 @@ def test_walker_pages_render_under_an_interpretation_limit() -> None:
     doc = pylopdf.open(data, limits=limits)
 
     assert [doc.pages[index].text().splitlines() for index in range(2)] == [["PAGE ONE"], ["PAGE TWO"]]
-    assert doc.render(alpha=True)[1] == doc.pages[1].pixmap(alpha=True).tobytes()
+    assert doc.render(alpha=True)[1] == doc.pages[1].pixmap(alpha=True).to_bytes()
 
 
 def test_walker_pages_render_without_changing_the_saved_tree() -> None:

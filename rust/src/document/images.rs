@@ -11,11 +11,11 @@ pub(super) const DEFAULT_MAX_IMAGE_PIXELS: u64 = 64_000_000;
 pub(crate) enum ImageInput {
     /// Accepted JPEG or PNG bytes.
     Encoded(Vec<u8>),
-    /// A Pixmap's RGB8 or straight-alpha RGBA8 samples.
+    /// A Pixmap's gray or RGB samples, with or without straight alpha.
     Pixmap {
         width: u32,
         height: u32,
-        alpha: bool,
+        layout: Layout,
         data: Arc<Vec<u8>>,
     },
 }
@@ -27,9 +27,9 @@ impl ImageInput {
             Self::Pixmap {
                 width,
                 height,
-                alpha,
+                layout,
                 data,
-            } => placement_reuse::pixmap_image_digest(*width, *height, *alpha, data),
+            } => placement_reuse::pixmap_image_digest(*width, *height, *layout, data),
         }
     }
 
@@ -45,9 +45,9 @@ impl ImageInput {
             Self::Pixmap {
                 width,
                 height,
-                alpha,
+                layout,
                 data,
-            } => draw::pixmap_parts(width, height, alpha, &data).map_err(PdfError::new_err),
+            } => draw::pixmap_parts(width, height, layout, &data).map_err(PdfError::new_err),
         }
     }
 }
@@ -267,7 +267,7 @@ pub(super) fn insert_pixmap(
     let input = ImageInput::Pixmap {
         width: pixmap.width,
         height: pixmap.height,
-        alpha: pixmap.alpha,
+        layout: pixmap.layout,
         data: Arc::clone(&pixmap.data),
     };
     drop(pixmap);

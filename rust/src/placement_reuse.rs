@@ -60,11 +60,18 @@ pub(crate) fn encoded_image_digest(data: &[u8]) -> ImageDigest {
 pub(crate) fn pixmap_image_digest(
     width: u32,
     height: u32,
-    alpha: bool,
+    layout: crate::pixmap::Layout,
     samples: &[u8],
 ) -> ImageDigest {
+    // One tag per sample layout: 1 RGBA, 2 RGB, 3 gray and alpha, 4 gray.
+    let tag = match (layout.gray, layout.alpha) {
+        (false, true) => 1,
+        (false, false) => 2,
+        (true, true) => 3,
+        (true, false) => 4,
+    };
     Sha256::new()
-        .chain_update([if alpha { 1 } else { 2 }])
+        .chain_update([tag])
         .chain_update(width.to_be_bytes())
         .chain_update(height.to_be_bytes())
         .chain_update(samples)

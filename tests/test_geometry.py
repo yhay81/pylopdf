@@ -305,10 +305,10 @@ def test_transformed_points_work_with_drawing_and_save_reopen(rotation: int) -> 
         start, end = Point(10, 10) * transform, Point(40, 10) * transform
         assert page.draw_line(start, end, color=(1, 0, 0), width=2) == end
         page.insert_text(Point(20, 40) * transform, "Affine", fontsize=12)
-        before = page.pixmap(alpha=True).samples
+        before = bytes(page.pixmap(alpha=True))
         data = document.to_bytes()
     with pylopdf.open(data) as reopened:
         assert reopened.pages[0].text().strip() == "Affine"
-        assert reopened.pages[0].pixmap(alpha=True).samples == before
+        assert bytes(reopened.pages[0].pixmap(alpha=True)) == before
         line = reopened.pages[0].content().paths[0]
         assert line.segments == (pylopdf.MoveTo(start), pylopdf.LineTo(end))

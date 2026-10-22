@@ -73,7 +73,7 @@ without copying:
 import numpy as np
 
 pix = page.pixmap()
-pixels = np.frombuffer(pix, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+pixels = np.asarray(pix)  # shaped (height, width, channels)
 ```
 
-`pix.samples` returns an independent `bytes` copy instead.
+`bytes(pix)` returns an independent copy instead, and `Pixmap.from_array(pixels)` turns an array back into a pixmap.

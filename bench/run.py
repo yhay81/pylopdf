@@ -141,7 +141,7 @@ def _pylopdf_merge(docs: list[bytes]) -> bytes:
 
 def _pylopdf_render(data: bytes) -> bytes:
     with pylopdf.open(data) as doc:
-        return doc.pages[0].pixmap(matrix=pylopdf.Matrix(2, 2)).tobytes()
+        return doc.pages[0].pixmap(matrix=pylopdf.Matrix(2, 2)).to_bytes()
 
 
 def _pylopdf_render_batch(data: bytes, workers: int) -> int:
@@ -155,7 +155,7 @@ _PYLOPDF_RENDERER = _Renderer(
     open=pylopdf.open,
     first_page=lambda doc: doc.pages[0],
     pixmap=lambda page: page.pixmap(matrix=pylopdf.Matrix(2, 2)),
-    png=lambda pixmap: pixmap.tobytes(),
+    png=lambda pixmap: pixmap.to_bytes(),
 )
 
 

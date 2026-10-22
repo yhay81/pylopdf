@@ -1,7 +1,9 @@
 # Type stubs for the Rust extension module pylopdf_core.
 import os
 import sys
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
+
+from typing_extensions import Buffer
 
 from pylopdf._pixmap import Colorspace
 
@@ -246,17 +248,30 @@ class Pixmap:
     @property
     def height(self) -> int: ...
     @property
-    def n(self) -> int: ...
+    def channels(self) -> int: ...
     @property
     def alpha(self) -> bool: ...
     @property
     def colorspace(self) -> Colorspace: ...
     @property
     def stride(self) -> int: ...
-    @property
-    def samples(self) -> bytes: ...
-    def tobytes(self, *, max_size: int | None = 67108864) -> bytes: ...
-    def save(self, filename: str | os.PathLike[str]) -> None: ...
+    @staticmethod
+    def from_array(array: Buffer, /) -> Pixmap: ...
+    def to_bytes(
+        self,
+        format: Literal["png", "jpeg"] = "png",  # noqa: A002 - the public name.
+        *,
+        quality: int = 95,
+        max_size: int | None = 67108864,
+    ) -> bytes: ...
+    def save(
+        self,
+        path: str | os.PathLike[str],
+        /,
+        *,
+        format: Literal["png", "jpeg"] | None = None,  # noqa: A002 - the public name.
+        quality: int = 95,
+    ) -> None: ...
     def __buffer__(self, flags: int, /) -> memoryview: ...
 
 class _Document:
@@ -523,6 +538,7 @@ class _Document:
         self,
         page_number: int,
         scale: tuple[float, float],
+        gray: bool,
         alpha: bool,
         background: tuple[int, int, int, int] | None,
         clip: tuple[float, float, float, float] | None,
@@ -776,13 +792,16 @@ class _Document:
         background: tuple[int, int, int, int] | None,
         max_output_size: int | None,
     ) -> bytes: ...
-    def render_pages_png(
+    def render_pages_encoded(
         self,
         page_numbers: list[int],
         scale: tuple[float, float],
+        gray: bool,
         alpha: bool,
         background: tuple[int, int, int, int] | None,
         annotations: bool,
+        format: str,  # noqa: A002 - the public name.
+        quality: int,
         workers: int,
         max_output_size: int | None,
     ) -> list[bytes]: ...

@@ -84,7 +84,7 @@ limits = pylopdf.DocumentLimits(
 | `Document.to_bytes()` | 출력 512 MiB | `max_size` |
 | `Document.render()` | PNG 출력 합계 512 MiB | `max_size` |
 | `markdown()`, `Table.markdown()` | 출력 64 MiB | `max_size` |
-| `Pixmap.tobytes()`, `Page.svg()` | 출력 64 MiB | `max_size` |
+| `Pixmap.to_bytes()`, `Page.svg()` | 출력 64 MiB | `max_size` |
 | `Page.search()` | 결과 4,096개 | `max_hits` |
 | `Page.content()` | 글리프, 경로와 클립의 세그먼트, 선의 대시 길이, 항목을 합쳐 262,144개 | `max_elements` |
 | `Page.insert_text()`, `insert_textbox()` | 텍스트 1 MiB와 4,096줄 | `max_text_size` |

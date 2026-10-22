@@ -41,8 +41,9 @@ def _check_pixmap_buffer(pixmap: Pixmap, expected: bytes) -> None:
     view = memoryview(pixmap)
     _require(condition=view.readonly, message="Pixmap buffer must be read-only")
     _require(condition=view.format == "B", message=f"unexpected Pixmap buffer format: {view.format!r}")
-    _require(condition=view.ndim == 1, message=f"unexpected Pixmap buffer dimensions: {view.ndim}")
-    _require(condition=bytes(view) == expected, message="Pixmap buffer differs from samples")
+    shape = (pixmap.height, pixmap.width, pixmap.channels)
+    _require(condition=view.shape == shape, message=f"unexpected Pixmap buffer shape: {view.shape}")
+    _require(condition=bytes(view) == expected, message="Pixmap buffer differs from its pixels")
     del pixmap
     gc.collect()
     _require(condition=bytes(view) == expected, message="Pixmap buffer did not retain its owner")
@@ -86,8 +87,8 @@ def _run_smoke() -> None:
             message="raw glyph extraction changed the baseline origin",
         )
         pixmap = reopened.pages[0].pixmap(alpha=True)
-        samples = pixmap.samples
-        _require(condition=pixmap.tobytes().startswith(_PNG_SIGNATURE), message="rendering did not return PNG data")
+        samples = bytes(pixmap)
+        _require(condition=pixmap.to_bytes().startswith(_PNG_SIGNATURE), message="rendering did not return PNG data")
         _check_free_threaded_import()
         _check_pixmap_buffer(pixmap, samples)
 

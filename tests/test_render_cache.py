@@ -22,7 +22,7 @@ def _text_pdf(page_texts: list[str]) -> bytes:
 def _fresh_samples(data: bytes, pno: int, scale: float = 1.0) -> bytes:
     """Rasterize one page of a newly opened document."""
     with pylopdf.open(data) as doc:
-        return doc.pages[pno].pixmap(matrix=pylopdf.Matrix(scale, scale), alpha=True).samples
+        return bytes(doc.pages[pno].pixmap(matrix=pylopdf.Matrix(scale, scale), alpha=True))
 
 
 @pytest.mark.parametrize(
@@ -44,11 +44,13 @@ def test_repeated_renders_match_fresh_documents(name: str) -> None:
     expected = [_fresh_samples(data, pno, 0.5) for pno in pages]
 
     for _ in range(2):
-        assert [doc.pages[pno].pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).samples for pno in pages] == expected
+        assert [bytes(doc.pages[pno].pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True)) for pno in pages] == expected
     with pylopdf.open(data) as fresh:
-        expected_png = [fresh.pages[pno].pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).tobytes() for pno in pages]
+        expected_png = [
+            fresh.pages[pno].pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).to_bytes() for pno in pages
+        ]
     assert [
-        doc.pages[pno].pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).tobytes() for pno in pages
+        doc.pages[pno].pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).to_bytes() for pno in pages
     ] == expected_png
     assert doc.render(pages, matrix=pylopdf.Matrix(0.5, 0.5), alpha=True, workers=1) == expected_png
     assert doc.render(pages, matrix=pylopdf.Matrix(0.5, 0.5), alpha=True, workers=2) == expected_png
@@ -57,25 +59,25 @@ def test_repeated_renders_match_fresh_documents(name: str) -> None:
 def test_edits_after_retained_renders_are_visible() -> None:
     data = _text_pdf(["One", "Two"])
     doc = pylopdf.open(data)
-    before = doc.pages[0].pixmap(alpha=True).samples
-    assert doc.pages[0].pixmap(alpha=True).samples == before
+    before = bytes(doc.pages[0].pixmap(alpha=True))
+    assert bytes(doc.pages[0].pixmap(alpha=True)) == before
 
     doc.pages[0].insert_text((20, 100), "Edited", fontsize=24)
-    after = doc.pages[0].pixmap(alpha=True).samples
+    after = bytes(doc.pages[0].pixmap(alpha=True))
 
     assert after != before
     assert after == _fresh_samples(doc.to_bytes(), 0)
-    assert doc.render([0], alpha=True, workers=1) == [doc.pages[0].pixmap(alpha=True).tobytes()]
+    assert doc.render([0], alpha=True, workers=1) == [doc.pages[0].pixmap(alpha=True).to_bytes()]
 
 
 def test_structural_edits_after_retained_renders_are_visible() -> None:
     data = _text_pdf(["First", "Second", "Third"])
     doc = pylopdf.open(data)
-    rendered = [doc.pages[pno].pixmap(alpha=True).samples for pno in range(len(doc.pages))]
+    rendered = [bytes(doc.pages[pno].pixmap(alpha=True)) for pno in range(len(doc.pages))]
 
     del doc.pages[0:1]
 
-    assert [doc.pages[pno].pixmap(alpha=True).samples for pno in range(len(doc.pages))] == rendered[1:]
+    assert [bytes(doc.pages[pno].pixmap(alpha=True)) for pno in range(len(doc.pages))] == rendered[1:]
 
 
 def test_fallback_font_changes_reset_retained_fonts() -> None:
@@ -83,50 +85,50 @@ def test_fallback_font_changes_reset_retained_fonts() -> None:
     data = build_nonembedded_cjk_pdf()
     doc = pylopdf.open(data)
     doc.set_fallback_font(None)
-    blank = doc.pages[0].pixmap(alpha=True).tobytes()
-    assert doc.pages[0].pixmap(alpha=True).tobytes() == blank
+    blank = doc.pages[0].pixmap(alpha=True).to_bytes()
+    assert doc.pages[0].pixmap(alpha=True).to_bytes() == blank
 
     doc.set_fallback_font(SANS)
-    with_font = doc.pages[0].pixmap(alpha=True).tobytes()
+    with_font = doc.pages[0].pixmap(alpha=True).to_bytes()
     fresh = pylopdf.open(data)
     fresh.set_fallback_font(SANS)
 
     assert with_font != blank
-    assert with_font == fresh.pages[0].pixmap(alpha=True).tobytes()
+    assert with_font == fresh.pages[0].pixmap(alpha=True).to_bytes()
 
     doc.set_fallback_font(None)
-    assert doc.pages[0].pixmap(alpha=True).tobytes() == blank
+    assert doc.pages[0].pixmap(alpha=True).to_bytes() == blank
 
 
 def test_alternating_documents_on_one_thread() -> None:
     first = pylopdf.open(_text_pdf(["Alpha"]))
     second = pylopdf.open(_text_pdf(["Beta"]))
-    expected_first = first.pages[0].pixmap(alpha=True).samples
-    expected_second = second.pages[0].pixmap(alpha=True).samples
+    expected_first = bytes(first.pages[0].pixmap(alpha=True))
+    expected_second = bytes(second.pages[0].pixmap(alpha=True))
     assert expected_first != expected_second
 
     for _ in range(2):
-        assert first.pages[0].pixmap(alpha=True).samples == expected_first
-        assert second.pages[0].pixmap(alpha=True).samples == expected_second
+        assert bytes(first.pages[0].pixmap(alpha=True)) == expected_first
+        assert bytes(second.pages[0].pixmap(alpha=True)) == expected_second
     del first
-    assert second.pages[0].pixmap(alpha=True).samples == expected_second
+    assert bytes(second.pages[0].pixmap(alpha=True)) == expected_second
 
 
 def test_other_threads_render_and_edit_consistently() -> None:
     """A cache retained on the creating thread must not survive edits elsewhere."""
     doc = pylopdf.open(_text_pdf(["One"]))
-    retained = doc.pages[0].pixmap(alpha=True).samples
+    retained = bytes(doc.pages[0].pixmap(alpha=True))
 
     def render_then_edit() -> tuple[bytes, bytes]:
-        rendered = doc.pages[0].pixmap(alpha=True).samples
+        rendered = bytes(doc.pages[0].pixmap(alpha=True))
         doc.pages[0].insert_text((20, 100), "Edited elsewhere", fontsize=18)
-        return rendered, doc.pages[0].pixmap(alpha=True).samples
+        return rendered, bytes(doc.pages[0].pixmap(alpha=True))
 
     with ThreadPoolExecutor(max_workers=1) as executor:
         rendered, edited_elsewhere = executor.submit(render_then_edit).result()
 
     assert rendered == retained
-    edited = doc.pages[0].pixmap(alpha=True).samples
+    edited = bytes(doc.pages[0].pixmap(alpha=True))
     assert edited != retained
     assert edited == edited_elsewhere == _fresh_samples(doc.to_bytes(), 0)
 
@@ -137,8 +139,8 @@ def test_documents_created_on_other_threads_render_correctly() -> None:
         doc = executor.submit(pylopdf.open, data).result()
 
     expected = _fresh_samples(data, 0)
-    assert doc.pages[0].pixmap(alpha=True).samples == expected
-    assert doc.pages[0].pixmap(alpha=True).samples == expected
+    assert bytes(doc.pages[0].pixmap(alpha=True)) == expected
+    assert bytes(doc.pages[0].pixmap(alpha=True)) == expected
 
 
 def test_renders_beyond_the_retained_page_bound() -> None:
@@ -151,21 +153,21 @@ def test_renders_beyond_the_retained_page_bound() -> None:
     doc = pylopdf.open(data)
     for _ in range(2):
         assert [
-            doc.pages[pno].pixmap(matrix=pylopdf.Matrix(0.25, 0.25), alpha=True).tobytes()
+            doc.pages[pno].pixmap(matrix=pylopdf.Matrix(0.25, 0.25), alpha=True).to_bytes()
             for pno in range(len(doc.pages))
         ] == expected
     assert doc.render(matrix=pylopdf.Matrix(0.25, 0.25), alpha=True, workers=1) == expected
-    assert doc.pages[3].pixmap(matrix=pylopdf.Matrix(0.25, 0.25), alpha=True).tobytes() == expected[3]
+    assert doc.pages[3].pixmap(matrix=pylopdf.Matrix(0.25, 0.25), alpha=True).to_bytes() == expected[3]
 
 
 def test_closing_after_retained_renders() -> None:
     data = _text_pdf(["Closed"])
     doc = pylopdf.open(data)
-    expected = doc.pages[0].pixmap(alpha=True).samples
+    expected = bytes(doc.pages[0].pixmap(alpha=True))
 
     doc.close()
     doc.close()
 
     with pytest.raises(pylopdf.DocumentClosedError):
-        doc.pages[0].pixmap(alpha=True).tobytes()
+        doc.pages[0].pixmap(alpha=True).to_bytes()
     assert _fresh_samples(data, 0) == expected

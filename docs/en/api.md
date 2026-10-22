@@ -135,7 +135,7 @@ attached to their base characters.
 
 | Member | Purpose |
 |---|---|
-| `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, workers=None, max_size=512 MiB)` | PNG bytes for every page, or the listed pages, in order, rendered in parallel |
+| `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, colorspace="rgb", format="png", quality=95, workers=None, max_size=512 MiB)` | PNG or JPEG bytes for every page, or the listed pages, in order, rendered in parallel |
 | `images` | The image objects by object number; see [Images](#images) |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | Downsample and recompress images to make the file smaller |
 | `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | Font used to display Chinese, Japanese, or Korean text whose font is not embedded; the CJK extras set this up automatically |
@@ -199,14 +199,15 @@ are not interpreted.
 
 | Member | Purpose |
 |---|---|
-| `pixmap(*, dpi=None, matrix=None, clip=None, alpha=False, background=None, annotations=True)` | Render to a [`Pixmap`](#pixmap) |
+| `pixmap(*, dpi=None, matrix=None, clip=None, alpha=False, background=None, annotations=True, colorspace="rgb")` | Render to a [`Pixmap`](#pixmap) |
 | `svg(*, annotations=True, max_size=64 MiB)` | Render to an SVG string, with text drawn as paths |
 | `resources` | What the page's resources reach: `resources.images` lists its image objects; see [Images](#images) |
 
 A pixmap is RGB on white at 72 dpi by default and RGBA with `alpha=True`.
 Pass `dpi` or `matrix`, not both; a matrix must only scale, such as
 `Matrix(2, 2)`. `clip` renders only part of the page, and
-`annotations=False` leaves out annotations and form widgets.
+`annotations=False` leaves out annotations and form widgets, and
+`colorspace="gray"` renders gray pixels.
 
 ### Page geometry { #page-geometry }
 
@@ -773,15 +774,19 @@ a rectangle lies inside a quad tests all four corners.
 
 ## Pixmap { #pixmap }
 
-`Pixmap` holds the pixels of a rendered page and cannot be changed.
+`Pixmap` holds the pixels of a rendered page or image and cannot be changed.
 
 | Member | Purpose |
 |---|---|
-| `width`, `height`, `n`, `alpha`, `stride`, `colorspace` | Size and layout: `n` is 3 for RGB and 4 for RGBA |
-| `samples` | The pixels as `bytes` |
-| `memoryview(pix)`, `np.frombuffer(pix, dtype=np.uint8)` | The pixels without copying |
-| `tobytes()` | PNG bytes |
-| `save(filename)` | Write a PNG file |
+| `width`, `height`, `channels`, `alpha`, `stride`, `colorspace` | Size and layout: `channels` is 1 for gray, 2 for gray with alpha, 3 for RGB, and 4 for RGB with alpha; `colorspace` is `Colorspace.GRAY` or `Colorspace.RGB` |
+| `numpy.asarray(pix)`, `memoryview(pix)` | The pixels without copying, shaped `(height, width)` for gray and `(height, width, channels)` otherwise |
+| `bytes(pix)` | A copy of the pixels |
+| `Pixmap.from_array(array)` | A pixmap with a copy of a `uint8` array shaped as above |
+| `to_bytes(format="png", *, quality=95, max_size=64 MiB)` | PNG or JPEG bytes; JPEG has no alpha |
+| `save(path, /, *, format=None, quality=95)` | Write PNG or JPEG; the extension `.png`, `.jpg`, or `.jpeg` names the format unless `format` does |
+
+Image processing belongs to NumPy, Pillow, and OpenCV:
+`PIL.Image.fromarray(numpy.asarray(pix))` gives a Pillow image.
 
 ## Module functions and types { #module-level }
 
@@ -797,7 +802,7 @@ a rectangle lies inside a quad tests all four corners.
 | `Base14_fontnames`, `Base14_fontdict` | The Standard 14 font names that `fontname=` accepts |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [Low-level objects](#low-level-objects) |
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |
-| `Colorspace`, `csRGB`, `csGRAY`, `csCMYK` | pymupdf's device color spaces |
+| `Colorspace` | The color spaces of a [`Pixmap`](#pixmap): `GRAY` and `RGB` |
 
 Constants keep pymupdf's names and are also grouped in enums:
 `Permissions` (`PDF_PERM_*`), `LinkKind` (`LINK_*`), `TextAlign`

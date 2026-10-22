@@ -48,15 +48,17 @@ def test_show_pdf_page_takes_pymupdf_docsrc_keyword() -> None:
     assert "Stamp" in reopened.pages[0].text()
 
 
-def test_pixmap_save_takes_pymupdf_filename_keyword(tmp_path: Path) -> None:
+def test_pixmap_save_takes_its_path_positionally(tmp_path: Path) -> None:
     pixmap = pylopdf.open(build_pdf(["Pixels"])).pages[0].pixmap(matrix=pylopdf.Matrix(0.25, 0.25), alpha=True)
     target = tmp_path / "page.png"
 
-    pixmap.save(filename=target)
+    pixmap.save(target)
 
-    assert target.read_bytes() == pixmap.tobytes()
+    assert target.read_bytes() == pixmap.to_bytes()
     with pytest.raises(TypeError):
-        pixmap.save(path=tmp_path / "other.png")  # ty: ignore[unknown-argument, missing-argument]
+        pixmap.save(filename=tmp_path / "other.png")  # ty: ignore[unknown-argument, missing-argument]
+    with pytest.raises(TypeError):
+        pixmap.save(path=tmp_path / "other.png")  # ty: ignore[positional-only-parameter-as-kwarg]
     assert not (tmp_path / "other.png").exists()
 
 

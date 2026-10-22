@@ -44,6 +44,15 @@ MODULE_RENAMES = {
     "EmptyFileError": "MalformedPdfError",
     "peek_metadata": "probe",
 }
+#: Module constants that became enum members.
+MODULE_MEMBER_RENAMES = {
+    "csRGB": "Colorspace.RGB",
+    "csGRAY": "Colorspace.GRAY",
+    "CS_RGB": "Colorspace.RGB",
+    "CS_GRAY": "Colorspace.GRAY",
+}
+#: Pixmap attributes that the buffer protocol replaced, and what reads the same pixels.
+PIXMAP_SAMPLES = {"samples": "bytes({receiver})", "samples_mv": "memoryview({receiver})"}
 #: Builtins that iterate their arguments, whose document arguments become ``doc.pages``.
 ITERATING_BUILTINS = frozenset(
     {"all", "any", "enumerate", "filter", "frozenset", "iter", "list", "map"}
@@ -564,7 +573,34 @@ def _save_options(migrator: _Migrator, bound: dict[str, str]) -> list[str] | Non
     return [*options, encryption] if encryption else options
 
 
+#: pymupdf's Pixmap output names and the formats that pylopdf writes.
+PIXMAP_FORMATS = {"png": "png", "jpg": "jpeg", "jpeg": "jpeg"}
+
+
+def _pixmap_keywords(args: _Arguments, names: Sequence[str]) -> list[str] | None:
+    """Translate pymupdf's ``output`` and ``jpg_quality`` to ``format`` and ``quality``, or None."""
+    bound = args.bind(names)
+    if bound is None or not ({"output", "jpg_quality"} & set(bound)):
+        return None
+    keywords = []
+    if bound.get("output", "None") != "None":
+        try:
+            output = ast.literal_eval(bound["output"])
+        except (ValueError, SyntaxError):
+            return None
+        if not isinstance(output, str) or output.lower() not in PIXMAP_FORMATS:
+            return None
+        keywords.append(f'format="{PIXMAP_FORMATS[output.lower()]}"')
+    if "jpg_quality" in bound:
+        keywords.append(f"quality={bound['jpg_quality']}")
+    return keywords
+
+
 def _save(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    if not migrator.is_document(receiver):
+        pixmap = _pixmap_keywords(args, ("filename", "output", "jpg_quality"))
+        if pixmap is not None and args.positional:
+            return f"{receiver}.save({', '.join([args.positional[0], *pixmap])})"
     bound = args.bind((*SAVE_PARAMETERS, "object_streams"))
     if bound is None or "filename" not in bound or (len(args.positional) > 1 and not migrator.is_document(receiver)):
         # Another class's save, such as Pixmap.save(filename, output), which keeps its own rules.
@@ -577,6 +613,13 @@ def _save(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
 
 
 def _tobytes(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    if not args.positional and not args.keywords:
+        # Document.to_bytes() and Pixmap.to_bytes() alike.
+        return f"{receiver}.to_bytes()"
+    if not migrator.is_document(receiver):
+        pixmap = _pixmap_keywords(args, ("output", "jpg_quality"))
+        if pixmap is not None:
+            return f"{receiver}.to_bytes({', '.join(keyword.removeprefix('format=') for keyword in pixmap)})"
     bound = args.bind((*TOBYTES_PARAMETERS, "object_streams", "max_size"))
     if bound is None or not (set(args.keywords) - {"max_size"} or migrator.is_document(receiver)):
         # Another class's tobytes, such as Pixmap.tobytes(output), which keeps its own rules.
@@ -778,8 +821,8 @@ def _extract_image(migrator: _Migrator, receiver: str, args: _Arguments) -> str 
     return f"{receiver}.images[{bound['xref']}].extract()"
 
 
-#: pymupdf's device RGB color space, which ``pixmap()`` renders.
-_RGB_COLORSPACES = frozenset({"pymupdf.csRGB", "fitz.csRGB", "pylopdf.csRGB", "csRGB"})
+#: The RGB color space, which ``pixmap()`` renders by default, as module constants become enum members.
+_RGB_COLORSPACES = frozenset({"pylopdf.Colorspace.RGB", "Colorspace.RGB", "csRGB"})
 #: pymupdf's identity matrix, the only one that ``svg()`` draws with.
 _IDENTITY_MATRICES = frozenset({"pymupdf.Identity", "fitz.Identity", "pylopdf.Identity", "Identity"})
 
@@ -789,9 +832,9 @@ def _render_keywords(args: _Arguments, names: Sequence[str]) -> list[str] | None
     bound = args.bind(names)
     if bound is None:
         return None
-    if "colorspace" in bound and bound["colorspace"] not in _RGB_COLORSPACES:
-        return None
-    dropped = {"colorspace"}
+    dropped = set()
+    if bound.get("colorspace") in _RGB_COLORSPACES:
+        dropped.add("colorspace")
     if bound.get("dpi") == "None":
         dropped.add("dpi")
     elif "dpi" in bound:
@@ -846,7 +889,7 @@ def _render_page(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     if "background" in bound:
         keywords.append(f"background={bound['background']}")
     size = f"max_size={bound['max_size']}" if "max_size" in bound else ""
-    return f"{receiver}.pages[{bound['pno']}].pixmap({', '.join(keywords)}).tobytes({size})"
+    return f"{receiver}.pages[{bound['pno']}].pixmap({', '.join(keywords)}).to_bytes({size})"
 
 
 #: Calls rewritten wherever they appear.
@@ -1797,6 +1840,9 @@ class _Migrator(cst.CSTTransformer):
         if name in MODULE_RENAMES and not (called and name in MODULE_CALL_RULES):
             self.rewrites += 1
             return updated_node.with_changes(attr=cst.Name(MODULE_RENAMES[name]))
+        if name in MODULE_MEMBER_RENAMES:
+            self.rewrites += 1
+            return cst.parse_expression(f"{_code(updated_node.value)}.{MODULE_MEMBER_RENAMES[name]}")
         if (
             not (called and name in MODULE_CALL_RULES)
             and id(original_node) not in self._consumed
@@ -1806,7 +1852,9 @@ class _Migrator(cst.CSTTransformer):
             self.todo(migration_hint(name) or f"pylopdf does not provide pymupdf's {name}.")
         return updated_node
 
-    def _attribute_rule(self, original_node: cst.Attribute, updated_node: cst.Attribute) -> cst.BaseExpression | None:
+    def _attribute_rule(  # noqa: PLR0911 - one return per renamed property.
+        self, original_node: cst.Attribute, updated_node: cst.Attribute
+    ) -> cst.BaseExpression | None:
         """Rewrite a renamed property that is read rather than called."""
         name = original_node.attr.value
         receiver = original_node.value
@@ -1824,6 +1872,9 @@ class _Migrator(cst.CSTTransformer):
             return updated_node.value
         if self._is_table(receiver) and name in TABLE_RENAMES:
             return cst.parse_expression(TABLE_RENAMES[name].format(table=_receiver(updated_node.value)))
+        if name in PIXMAP_SAMPLES:
+            # Only pymupdf's and pylopdf 0.15's Pixmap has these names; the buffer protocol replaces them.
+            return cst.parse_expression(PIXMAP_SAMPLES[name].format(receiver=_code(updated_node.value)))
         return None
 
     def _module_call(self, member: str, updated_node: cst.Call) -> cst.BaseExpression:

@@ -164,12 +164,12 @@ def test_to_pixmap_renders_the_pixels_with_or_without_the_mask() -> None:
     opaque = image.to_pixmap()
     masked = image.to_pixmap(alpha=True)
 
-    assert (opaque.width, opaque.height, opaque.n, opaque.alpha) == (2, 1, 3, False)
-    assert opaque.samples == bytes([10, 10, 10, 20, 20, 20])
-    assert (masked.width, masked.height, masked.n, masked.alpha) == (2, 1, 4, True)
-    assert masked.samples[3] == 255
-    assert 120 <= masked.samples[7] <= 136
-    assert doc.images[9].to_pixmap().samples == bytes([255, 0, 0])
+    assert (opaque.width, opaque.height, opaque.channels, opaque.alpha) == (2, 1, 3, False)
+    assert bytes(opaque) == bytes([10, 10, 10, 20, 20, 20])
+    assert (masked.width, masked.height, masked.channels, masked.alpha) == (2, 1, 4, True)
+    assert bytes(masked)[3] == 255
+    assert 120 <= bytes(masked)[7] <= 136
+    assert bytes(doc.images[9].to_pixmap()) == bytes([255, 0, 0])
     with pytest.raises(TypeError):
         image.to_pixmap(alpha=1)  # ty: ignore[invalid-argument-type]
 

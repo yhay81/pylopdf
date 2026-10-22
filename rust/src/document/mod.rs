@@ -49,7 +49,7 @@ use crate::object_recovery;
 use crate::object_stream_work;
 use crate::ocr;
 use crate::page_cleanup::PageCleanupPlan;
-use crate::pixmap::Pixmap;
+use crate::pixmap::{EncodeFailure, Encoding, Layout, Pixmap};
 use crate::placement_reuse::{self, FormSource, PlacedForm, PlacedImage, PlacementReuse};
 use crate::prune::{prune_unreachable_objects, reachable_object_ids};
 use crate::read_depth::{self, MAX_READ_DEPTH};
@@ -932,35 +932,45 @@ impl _Document {
         )
     }
 
-    /// Render one-based pages to PNG in input order on a bounded worker pool.
+    /// Render one-based pages to encoded images in input order on a bounded
+    /// worker pool.
     ///
-    /// `annotations` false leaves every annotation's appearance out.
+    /// `gray` and `alpha` select the samples, `format` is `"png"` or
+    /// `"jpeg"` with `quality`, and `annotations` false leaves every
+    /// annotation's appearance out.
     #[allow(clippy::too_many_arguments)] // Mirrors the Python-facing method.
-    fn render_pages_png(
+    fn render_pages_encoded(
         &mut self,
         py: Python<'_>,
         page_numbers: Vec<u32>,
         scale: (f32, f32),
+        gray: bool,
         alpha: bool,
         background: Option<(u8, u8, u8, u8)>,
         annotations: bool,
+        format: &str,
+        quality: u8,
         workers: usize,
         max_output_size: Option<usize>,
     ) -> PyResult<Vec<Vec<u8>>> {
-        rendering::render_pages_png(
+        let layout = Layout { gray, alpha };
+        let encoding = Encoding::parse(format, quality, layout)?;
+        rendering::render_pages_encoded(
             self,
             py,
             page_numbers,
             scale,
-            alpha,
+            layout,
             background,
             annotations,
+            encoding,
             workers,
             max_output_size,
         )
     }
 
-    /// Render a one-based page and return an RGB, or straight-alpha RGBA, Pixmap.
+    /// Render a one-based page and return a gray or RGB Pixmap, with straight
+    /// alpha when `alpha` is true.
     ///
     /// `annotations` false leaves every annotation's appearance out.
     #[allow(clippy::too_many_arguments)] // Mirrors the Python-facing method.
@@ -969,6 +979,7 @@ impl _Document {
         py: Python<'_>,
         page_number: u32,
         scale: (f32, f32),
+        gray: bool,
         alpha: bool,
         background: Option<(u8, u8, u8, u8)>,
         clip: Option<(f64, f64, f64, f64)>,
@@ -979,7 +990,7 @@ impl _Document {
             py,
             page_number,
             scale,
-            alpha,
+            Layout { gray, alpha },
             background,
             clip,
             annotations,

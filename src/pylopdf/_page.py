@@ -42,7 +42,7 @@ from pylopdf._limits import (
 )
 from pylopdf._objects import Dictionary
 from pylopdf._ocr import OcrEngine, OcrWord, _default_ocr_engine, _validate_ocr_rotation
-from pylopdf._pixmap import _render_background, _render_scale, _validate_bool
+from pylopdf._pixmap import Colorspace, _render_background, _render_gray, _render_scale, _validate_bool
 from pylopdf._shape import Shape
 from pylopdf._tables import Table, build_tables
 from pylopdf._types import (
@@ -1816,6 +1816,7 @@ class Page:
         alpha: bool = False,
         background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
         annotations: bool = True,
+        colorspace: Colorspace | Literal["gray", "rgb"] = Colorspace.RGB,
     ) -> Pixmap:
         """Render the page to a :class:`Pixmap`.
 
@@ -1823,11 +1824,12 @@ class Page:
         resolution, or ``matrix`` scales the page with the identity at 72 dpi;
         pass one of them. Only scaling matrices are supported: rotation, shear,
         and flips raise :class:`PdfError`, and a translation moves no pixels.
-        ``alpha=True`` keeps transparency in straight-alpha RGBA.
+        ``alpha=True`` keeps transparency in a straight alpha channel.
         ``background`` is an RGB or RGBA tuple with components from 0 to 255
         painted beneath the page, which must be opaque without ``alpha``.
         ``annotations=False`` leaves out the appearances of annotations and
-        form widgets.
+        form widgets. ``colorspace="gray"`` converts the rendered colors to
+        gray with ITU-R BT.601 luma weights.
 
         ``clip`` is an optional display-coordinate rectangle. It is intersected
         with the page and rounded outward to pixel boundaries. A clip that does
@@ -1835,18 +1837,19 @@ class Page:
         region is rasterized, but full-page render-size limits still apply:
         65,535 pixels per side and 64,000,000 pixels in all.
 
-        The pixmap exposes its pixels through the buffer protocol, so
-        ``numpy.asarray(memoryview(pix)).reshape(pix.height, pix.width, pix.n)``
-        reads them without a copy.
+        The pixmap exposes its pixels through the buffer protocol, shaped
+        ``(height, width, channels)``, so ``numpy.asarray(pix)`` reads them
+        without a copy.
         """
         scale = _render_scale(matrix, dpi)
         rgba = _render_background(background, alpha=alpha)
         _validate_bool("annotations", annotations)
+        gray = _render_gray(colorspace)
         clip_rect = None if clip is None else _validate_rect(clip, name="clip")
         page_number = self._page_number()
         document = self._document
         document._ensure_fallback_fonts()
-        result = document._doc.render_page_pixmap(page_number, scale, alpha, rgba, clip_rect, annotations)
+        result = document._doc.render_page_pixmap(page_number, scale, gray, alpha, rgba, clip_rect, annotations)
         document._emit_warnings()
         return result
 

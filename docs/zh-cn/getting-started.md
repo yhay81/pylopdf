@@ -85,7 +85,7 @@ with pylopdf.open("input.pdf") as doc:
 ```python
 with pylopdf.open("input.pdf") as doc:
     doc.pages[0].pixmap(dpi=144).save("page-1.png")
-    png = doc.pages[0].pixmap(dpi=300).tobytes()  # PNG bytes
+    png = doc.pages[0].pixmap(dpi=300).to_bytes()  # PNG bytes
     pix = doc.pages[0].pixmap(dpi=144)            # 供NumPy或Pillow使用的RGB像素
     pngs = doc.render(dpi=144, workers=4)       # 并行渲染所有页面
     svg = doc.pages[0].svg()

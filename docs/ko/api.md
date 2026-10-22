@@ -97,7 +97,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 순서를 뒤집음
 
 | 멤버 | 용도 |
 |---|---|
-| `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, workers=None, max_size=512 MiB)` | 모든 페이지 또는 나열한 페이지를 순서대로 병렬 렌더링한 PNG bytes |
+| `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, colorspace="rgb", format="png", quality=95, workers=None, max_size=512 MiB)` | 모든 페이지 또는 나열한 페이지를 순서대로 병렬 렌더링한 PNG 또는 JPEG bytes |
 | `images` | 객체 번호별 이미지 객체. [이미지](#images) 참조 |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | 이미지를 다운샘플링하고 재압축해 파일 크기를 줄임 |
 | `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | 글꼴이 포함되지 않은 중국어, 일본어, 한국어 텍스트를 표시할 때 쓰는 글꼴. CJK extra가 자동으로 설정 |
@@ -148,11 +148,11 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 순서를 뒤집음
 
 | 멤버 | 용도 |
 |---|---|
-| `pixmap(*, dpi=None, matrix=None, clip=None, alpha=False, background=None, annotations=True)` | [`Pixmap`](#pixmap)으로 렌더링 |
+| `pixmap(*, dpi=None, matrix=None, clip=None, alpha=False, background=None, annotations=True, colorspace="rgb")` | [`Pixmap`](#pixmap)으로 렌더링 |
 | `svg(*, annotations=True, max_size=64 MiB)` | 텍스트를 패스로 그린 SVG 문자열로 렌더링 |
 | `resources` | 페이지의 리소스가 닿는 것. `resources.images`가 이미지 객체를 나열합니다. [이미지](#images) 참조 |
 
-pixmap은 기본적으로 72 dpi, 흰 바탕의 RGB이고, `alpha=True`이면 RGBA입니다. `dpi`와 `matrix` 중 하나만 전달합니다. 행렬은 `Matrix(2, 2)`처럼 배율만 바꾸는 것이어야 합니다. `clip`은 페이지의 일부만 렌더링하고, `annotations=False`는 주석과 폼 위젯을 그리지 않습니다.
+pixmap은 기본적으로 72 dpi, 흰 바탕의 RGB이고, `alpha=True`이면 RGBA입니다. `dpi`와 `matrix` 중 하나만 전달합니다. 행렬은 `Matrix(2, 2)`처럼 배율만 바꾸는 것이어야 합니다. `clip`은 페이지의 일부만 렌더링하고, `annotations=False`는 주석과 폼 위젯을 그리지 않고, `colorspace="gray"`는 그레이 픽셀로 렌더링합니다.
 
 ### 페이지 기하 { #page-geometry }
 
@@ -559,15 +559,18 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 
 ## Pixmap { #pixmap }
 
-`Pixmap`은 렌더링된 페이지의 픽셀을 담으며 변경할 수 없습니다.
+`Pixmap`은 렌더링된 페이지나 이미지의 픽셀을 담으며 변경할 수 없습니다.
 
 | 멤버 | 용도 |
 |---|---|
-| `width`, `height`, `n`, `alpha`, `stride`, `colorspace` | 크기와 배치. `n`은 RGB이면 3, RGBA이면 4 |
-| `samples` | 픽셀을 `bytes`로 |
-| `memoryview(pix)`, `np.frombuffer(pix, dtype=np.uint8)` | 복사 없이 픽셀에 접근 |
-| `tobytes()` | PNG bytes |
-| `save(filename)` | PNG 파일로 기록 |
+| `width`, `height`, `channels`, `alpha`, `stride`, `colorspace` | 크기와 배치. `channels`는 그레이면 1, 알파가 있는 그레이면 2, RGB면 3, 알파가 있는 RGB면 4. `colorspace`는 `Colorspace.GRAY` 또는 `Colorspace.RGB` |
+| `numpy.asarray(pix)`, `memoryview(pix)` | 복사 없이 픽셀에 접근. 모양은 그레이면 `(height, width)`, 그 밖에는 `(height, width, channels)` |
+| `bytes(pix)` | 픽셀의 사본 |
+| `Pixmap.from_array(array)` | 같은 모양의 `uint8` 배열을 복사한 pixmap |
+| `to_bytes(format="png", *, quality=95, max_size=64 MiB)` | PNG 또는 JPEG bytes. JPEG에는 알파가 없음 |
+| `save(path, /, *, format=None, quality=95)` | PNG 또는 JPEG로 기록. `format`이 없으면 확장자 `.png`, `.jpg`, `.jpeg`로 정함 |
+
+이미지 처리는 NumPy, Pillow, OpenCV에 맡깁니다. `PIL.Image.fromarray(numpy.asarray(pix))`로 Pillow 이미지를 얻습니다.
 
 ## 모듈 함수와 타입 { #module-level }
 
@@ -583,7 +586,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 | `Base14_fontnames`, `Base14_fontdict` | `fontname=`이 받는 Standard 14 글꼴 이름 |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [저수준 객체](#low-level-objects) |
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext` 등 내용 타입 | [페이지 내용](#content) |
-| `Colorspace`, `csRGB`, `csGRAY`, `csCMYK` | pymupdf의 장치 색 공간 |
+| `Colorspace` | [`Pixmap`](#pixmap)의 색 공간. `GRAY`와 `RGB` |
 
 상수는 pymupdf의 이름을 유지하며 열거형으로도 묶여 있습니다. `Permissions`(`PDF_PERM_*`), `LinkKind`(`LINK_*`), `TextAlign`(`TEXT_ALIGN_*`), `AnnotType`(`PDF_ANNOT_*`), `AnnotFlags`(`PDF_ANNOT_IS_*`)입니다. `Access`의 멤버는 `USER`와 `OWNER`이고, `Encryption`은 저장하는 파일을 암호화하는 방법을 나타냅니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
 

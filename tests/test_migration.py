@@ -225,7 +225,7 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ),
         (
             "import fitz\npix.save('a.png', output='png')\ndata = pix.tobytes('png')\n",
-            "pix.save('a.png', output='png')\ndata = pix.tobytes('png')",
+            'pix.save(\'a.png\', format="png")\ndata = pix.to_bytes("png")',
         ),
         ("import fitz\ndoc.save(path, encryption=fitz.PDF_ENCRYPT_NONE, owner_pw='o')\n", "doc.save(path)"),
         ("import fitz\ndata = doc.tobytes(garbage=3)\n", "data = doc.to_bytes(dedupe=True, renumber=True)"),
@@ -297,14 +297,25 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ),
         (
             "import pylopdf\npng = doc.render_page(0, 2.0, max_size=9)\n",
-            "png = doc.pages[0].pixmap(dpi=144, alpha=True).tobytes(max_size=9)",
+            "png = doc.pages[0].pixmap(dpi=144, alpha=True).to_bytes(max_size=9)",
         ),
         (
             "import pylopdf\npng = doc.render_page(0, s, background=(1, 2, 3))\n",
-            "png = doc.pages[0].pixmap(dpi=72 * (s), alpha=True, background=(1, 2, 3)).tobytes()",
+            "png = doc.pages[0].pixmap(dpi=72 * (s), alpha=True, background=(1, 2, 3)).to_bytes()",
         ),
         ("import pylopdf\nsvg = doc.render_page_svg(1, max_size=9)\n", "svg = doc.pages[1].svg(max_size=9)"),
         ("import pylopdf\nsvg = page.render_svg()\n", "svg = page.svg()"),
+        (
+            "import fitz\npix = page.get_pixmap(colorspace=fitz.csGRAY)\n",
+            "pix = page.pixmap(colorspace=pylopdf.Colorspace.GRAY)",
+        ),
+        ("import fitz\nn = (pix.width, pix.samples)\n", "n = (pix.width, bytes(pix))"),
+        ("import fitz\nview = pix.samples_mv\n", "view = memoryview(pix)"),
+        ("import fitz\npng = pix.tobytes()\n", "png = pix.to_bytes()"),
+        ("import fitz\njpeg = pix.tobytes('jpg', jpg_quality=80)\n", 'jpeg = pix.to_bytes("jpeg", quality=80)'),
+        ("import fitz\npix.save('out.jpg', jpg_quality=70)\n", "pix.save('out.jpg', quality=70)"),
+        ("import fitz\npix.save(path, output='png')\n", 'pix.save(path, format="png")'),
+        ("import fitz\ncs = fitz.csGRAY\n", "cs = pylopdf.Colorspace.GRAY"),
     ],
 )
 def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> None:
@@ -446,9 +457,9 @@ def test_codemod_marks_probe_results_for_review(migrate_source: Migrate) -> None
         "import pylopdf\ndoc = pylopdf.open(path)\ndoc.pages.select([0])\nfor page in doc.pages:\n    pass\n",
         # Saving with the current options, and another class's save and tobytes, stay as they are.
         "import pylopdf\ndoc.save(path, compress=False, encryption=pylopdf.Encryption(user_password='u'))\n",
-        "import pylopdf\npixmap.save(path)\npixmap.save(path, 'png')\ndata = pixmap.tobytes()\n",
+        "import pylopdf\npixmap.save(path)\npixmap.save(path, format='png')\ndata = pixmap.to_bytes()\n",
         "import pylopdf\ndoc.save(path, encryption=pylopdf.Encryption(user_password='u'))\n",
-        "import pylopdf\ndoc.save(path, encryption=None)\ndata = pixmap.tobytes(max_size=None)\n",
+        "import pylopdf\ndoc.save(path, encryption=None)\ndata = pixmap.to_bytes(max_size=None)\n",
         "import pylopdf\npages = doc.pages\npages.select([0])\n",
         "import pylopdf\ntext = page.text()\nmd = doc.markdown()\nhits = page.search('a')\n",
         (
@@ -500,8 +511,10 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import fitz\nimages = page.get_images()\n", "page.resources.images returns ImageObject handles"),
         ("import fitz\nimage = doc.extract_image(xref)\n", "doc.images[xref].extract() returns an EncodedImage"),
         ("import fitz\nmask = doc.extract_image(xref)['smask']\n", "returns an EncodedImage"),
-        ("import fitz\npix = page.get_pixmap(colorspace=fitz.csGRAY)\n", "Page.get_pixmap is Page.pixmap"),
         ("import fitz\nsvg = page.get_svg_image(text_as_path=False)\n", "Page.get_svg_image is Page.svg"),
+        ("import fitz\nchannels = pix.n\n", "Pixmap.n is Pixmap.channels"),
+        ("import fitz\ncs = fitz.csCMYK\n", "csCMYK"),
+        ("import fitz\ndata = pix.tobytes('pnm')\n", "to_bytes"),
     ],
 )
 def test_codemod_marks_what_it_cannot_rewrite(migrate_source: Migrate, source: str, hint: str) -> None:

@@ -62,7 +62,7 @@ with pylopdf.open("report.pdf") as document:
 import numpy as np
 
 pix = page.pixmap()
-pixels = np.frombuffer(pix, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+pixels = np.asarray(pix)  # 形は(高さ, 幅, チャンネル数)
 ```
 
-`pix.samples`は代わりに独立した`bytes`のコピーを返します。
+`bytes(pix)`は代わりに独立したコピーを返し、`Pixmap.from_array(pixels)`は配列をピクセルマップに戻します。

@@ -380,7 +380,7 @@ The typed object model exposes lopdf's graph.
 | `Access` | `USER`, `OWNER` |
 | `PageMode`, `PageLayout` | the catalog's `/PageMode` and `/PageLayout` names |
 | `TextAlign` | `LEFT`, `CENTER`, `RIGHT`, `JUSTIFY` |
-| `Colorspace` | `GRAY`, `RGB`, `CMYK` |
+| `Colorspace` | `GRAY`, `RGB` (CMYK when hayro or a conversion renders it) |
 | `BlendMode` | the sixteen blend modes of ISO 32000-2 §11.3.5 |
 | `FillRule`, `LineCap`, `LineJoin` | `NONZERO`, `EVEN_ODD`; `BUTT`, `ROUND`, `SQUARE`; `MITER`, `ROUND`, `BEVEL` |
 | `TextRenderMode` | `FILL`, `STROKE`, `FILL_STROKE`, `INVISIBLE` |
@@ -452,7 +452,7 @@ hint.
 | `get_pixmap(...)`, `get_svg_image(...)` | `pixmap(...)`, `svg(...)` |
 | `insert_text`, `insert_textbox`, `insert_image`, `show_pdf_page`, `draw_*`, `new_shape()` and `Shape` | `page.draw()` and `Canvas` |
 | `get_text_ocr(...)`, `insert_ocr_text_layer(words)` | `ocr(...)`, `apply_ocr(words=...)` |
-| `Pixmap.n`, `samples`, `tobytes()`, `save(filename)` | `channels`, the buffer protocol, `to_bytes(format=...)`, `save(path, *, format=None)` |
+| `Pixmap.n`, `samples`, `tobytes()`, `save(filename)` | `channels`, the buffer protocol, `to_bytes(format=...)`, `save(path, /, *, format=None)` |
 | `Font(fontname, fontfile, fontbuffer, *, language, family, weight, ...)`, `text_length()` | `Font.standard()`, `Font.from_file()`, `Font.from_bytes()`, `Font.installed()`, `text_width()` |
 | `Annot` with `info` and `colors` dictionaries | `Annotation` with typed properties |
 | `FileDataError(PdfError, RuntimeError)`, `EmptyFileError` | `MalformedPdfError(PdfError)` |
