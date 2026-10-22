@@ -180,9 +180,9 @@ no page was added, deleted, or reordered in between.
 | `words()` | The words in reading order, as `Word` records |
 | `layout(*, chars=False)` | Blocks, lines, and spans as a `Layout`; see [Positioned text](#positioned-text) |
 | `search(text, *, max_hits=4096)` | Case-insensitive search; returns a list of `Rect` |
-| `find_tables(*, clip=None, strategy=None)` | Tables as a `TableFinder`; see [Tables](#tables) |
+| `tables(*, strategy="lines", clip=None)` | Tables as a list of `Table` records; see [Tables](#tables) |
 | `markdown(*, table_strategy="lines")` | Markdown for this page |
-| `get_text_ocr(...)`, `apply_ocr(...)`, `insert_ocr_text_layer(words)` | OCR; see [Offline OCR](ocr.md) |
+| `ocr(...)`, `apply_ocr(*, words=None, ...)` | OCR, and an invisible text layer from it or from another engine's words; see [Offline OCR](ocr.md) |
 | `content(*, clip=None, annotations=True)` | Every text run, path, and image the page paints; see [Page content](#content) |
 | `get_drawings()` | Vector paths; see [Vector drawings](#drawings) |
 | `get_links()` | Links with their targets |
@@ -482,16 +482,22 @@ at most 64 KiB (`tag_text_size`).
 
 ## Tables { #tables }
 
-`page.find_tables()` finds tables drawn with ruling lines, including merged
+`page.tables()` finds tables drawn with ruling lines, including merged
 cells. `strategy="text"` also detects borderless tables when rows and columns
 are clearly aligned; it is not the default because aligned multi-column prose
 can look like a table. `clip=` keeps only tables entirely inside a rectangle.
 
-The result is a `TableFinder`; its `tables` are `Table` objects with `bbox`,
-`row_count`, `col_count`, `cells`, `extract()` (cell text by row, `None` for
-the cells a merged cell covers), and `markdown()`. `Table.confidence` is a
-0–1 score for ranking candidates, not a probability, and
-`Table.diagnostics` explains it.
+The result is a list of `Table` records with `bbox`, `rows` (the cell text,
+row by row), `cells` (each cell's `Rect` in the same shape), `diagnostics`,
+and `markdown()`. A merged cell keeps its text and box in its top-left slot,
+and the slots it covers are `None`. `diagnostics.confidence` is a 0–1 score
+for ranking candidates, not a probability; the other diagnostics explain it.
+
+```python
+for table in page.tables():
+    header, *body = table.rows
+    print(table.bbox, header, len(body))
+```
 
 ## Text and fonts { #fonts }
 
@@ -778,11 +784,12 @@ Constants keep pymupdf's names and are also grouped in enums:
 are `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`,
 `ShadingType`, `SoftMaskType`, and `ImageMask`.
 
-Text results are records: frozen dataclasses such as `Word`, `Block`, `Line`,
-`Span`, `Char`, and `Layout`. Other dictionaries returned by the API are plain
-`dict` objects, described for type checkers by `TypedDict` classes such as
-`DrawingInfo`, `ImageInfo`, `LinkInfo`, `FormFieldInfo`, `DocumentMetadata`,
-and `OcrWord`, and `ImageItem` and `OutlineEntry` are named tuples.
+Text, table, and OCR results are records: frozen dataclasses such as `Word`,
+`Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, and
+`OcrWord`. Other dictionaries returned by the API are plain `dict` objects,
+described for type checkers by `TypedDict` classes such as `DrawingInfo`,
+`ImageInfo`, `LinkInfo`, `FormFieldInfo`, and `DocumentMetadata`, and
+`ImageItem` and `OutlineEntry` are named tuples.
 
 ## Exceptions and warnings { #exceptions }
 

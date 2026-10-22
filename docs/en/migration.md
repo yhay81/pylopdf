@@ -9,9 +9,9 @@ pylopdf aims to do everything pymupdf can do with PDF files, through an API
 of its own. It is not a drop-in replacement: it opens **PDF files only** (not
 XPS, EPUB, or images), changes a few behaviors on purpose, and its next release
 redesigns the API, which the migration tool follows as each part lands.
-Documents and their pages, saving, and reading text already use the new API:
-`pylopdf.open(source)`, `doc.pages`, `doc.save()`, `page.text()`, and
-`page.layout()`. This page lists what
+Documents and their pages, saving, reading text, tables, and OCR already use
+the new API: `pylopdf.open(source)`, `doc.pages`, `doc.save()`, `page.text()`,
+`page.layout()`, `page.tables()`, and `page.ocr()`. This page lists what
 carries over, what differs, and what to use instead of the parts pylopdf does
 not implement yet.
 
@@ -28,8 +28,8 @@ python -m pylopdf.migrate src/
 It replaces `import fitz` and `import pymupdf`, rewrites the replacements that
 are mechanical (such as opening documents, the page operations that
 `doc.pages` replaces, `get_toc`/`set_toc` with their page numbers,
-`embfile_*`, the `xref_*` stream readers, and the in-place
-`Rect`/`Point`/`Matrix` methods), and adds a `# TODO(pylopdf): …` comment above
+`embfile_*`, the `xref_*` stream readers, text and table reading, and the
+in-place `Rect`/`Point`/`Matrix` methods), and adds a `# TODO(pylopdf): …` comment above
 every statement that still needs a person. It then lists those places as
 `path:line: message`. The same command upgrades programs written for
 pylopdf 0.15.
@@ -91,7 +91,8 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `page.get_text("blocks")` | `page.layout().blocks` | `Block` records with `text`, `bbox`, and `lines` instead of tuples |
 | `page.get_text("dict")`, `get_text("rawdict")` | `page.layout().to_dict()`, `page.layout(chars=True).to_dict()` | The same dictionaries; `page.layout()` itself returns records. No `html` or `xml` |
 | `page.search_for(text)` | `page.search(text)` | Returns rectangles; no `quads=`; at most 4,096 results unless `max_hits=` is raised |
-| `page.get_textpage_ocr()` | `page.get_text_ocr()`, `page.apply_ocr()` | Built-in offline OCR; see [Offline OCR](ocr.md) |
+| `page.find_tables()` | `page.tables()` | A list of `Table` records: `table.rows` replaces `extract()`, `len(table.rows)` replaces `row_count`, and `table.cells` holds the boxes row by row. No tuning keywords, `header`, or `to_pandas()` yet |
+| `page.get_textpage_ocr()` | `page.ocr()`, `page.apply_ocr()` | Built-in offline OCR; see [Offline OCR](ocr.md) |
 | `pymupdf4llm.to_markdown(doc)` | `doc.markdown()` | Built in |
 | `page.get_pixmap(matrix=…, dpi=…)` | Same | Only scaling matrices; no `colorspace=` or `annots=` yet; `doc.get_page_pixmap(i)` is `doc.pages[i].get_pixmap()` |
 | `pix.samples`, `width`, `height`, `n`, `alpha`, `stride`, `colorspace`, `save()` | Same | `save()` and `tobytes()` write PNG only |
@@ -151,7 +152,7 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
   default `widgets=True`. Fields whose names already exist in the receiving
   document are renamed `name+1`, `name+2`, and so on, so copies of one form
   keep separate values.
-- **Tables and Markdown.** `find_tables()` detects tables drawn with lines by
+- **Tables and Markdown.** `tables()` detects tables drawn with lines by
   default; pass `strategy="text"` for borderless tables. `markdown()`
   places detected tables in reading order and removes their text from the
   surrounding paragraphs.

@@ -344,14 +344,6 @@ class DocumentComplexity(TypedDict):
     max_object_depth: int
 
 
-class OcrWord(TypedDict):
-    """One OCR result in rotation-resolved page display coordinates."""
-
-    bbox: Rect
-    text: str
-    confidence: float
-
-
 # The package re-exports these names; reprs, pickles, and documentation name it.
 for _public in (
     OutlineEntry,
@@ -373,6 +365,5 @@ for _public in (
     MetadataUpdate,
     MarkInfo,
     DocumentComplexity,
-    OcrWord,
 ):
     _public.__module__ = "pylopdf"

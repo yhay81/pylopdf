@@ -22,21 +22,18 @@ def test_search_takes_the_text_keyword() -> None:
         page.search("")
 
 
-def test_find_tables_takes_keyword_only_strategy_with_none_default() -> None:
+def test_tables_takes_keyword_only_strategy_with_lines_default() -> None:
     page = pylopdf.open(_bordered_table_pdf()).pages[0]
 
-    default = page.find_tables()
-    explicit_none = page.find_tables(strategy=None)
-    lines = page.find_tables(strategy="lines")
+    default = page.tables()
 
-    assert default.strategy == explicit_none.strategy == lines.strategy == "lines"
+    assert default == page.tables(strategy="lines")
     assert default[0].diagnostics.strategy == "lines"
-    assert [table.extract() for table in default] == [table.extract() for table in lines]
-    assert [table.extract() for table in explicit_none] == [table.extract() for table in lines]
     with pytest.raises(TypeError):
-        page.find_tables("lines")  # ty: ignore[too-many-positional-arguments]
-    clipped = page.find_tables(clip=(0, 0, 340, 300), strategy="lines")
-    assert len(clipped) == 1
+        page.tables("lines")  # ty: ignore[too-many-positional-arguments]
+    with pytest.raises(ValueError, match="strategy"):
+        page.tables(strategy=None)  # ty: ignore[invalid-argument-type]
+    assert len(page.tables(clip=(0, 0, 340, 300), strategy="lines")) == 1
 
 
 def test_show_pdf_page_takes_pymupdf_docsrc_keyword() -> None:

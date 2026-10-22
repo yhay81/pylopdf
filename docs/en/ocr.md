@@ -23,19 +23,18 @@ OCR is not available in the [WebAssembly](wasm.md) build.
 
 ## Recognize without editing { #recognize }
 
-`Page.get_text_ocr()` returns the words it finds and leaves the document
-unchanged:
+`Page.ocr()` returns the words it finds and leaves the document unchanged:
 
 ```python
 import pylopdf
 
 with pylopdf.open("scan.pdf") as doc:
-    for word in doc.pages[0].get_text_ocr():
-        print(word["bbox"], word["text"], word["confidence"])
+    for word in doc.pages[0].ocr():
+        print(word.bbox, word.text, word.confidence)
 ```
 
-Each `OcrWord` has a `bbox` in the same page coordinates as text extraction
-and rendering. `confidence` is useful for ranking and filtering, but it is not
+Each `OcrWord` record has a `bbox` in the same page coordinates as text
+extraction and rendering. `confidence` is useful for ranking and filtering, but it is not
 a calibrated probability.
 
 ## Make a scan searchable { #searchable }
@@ -60,16 +59,22 @@ text. Pass `skip_existing=False` to add OCR text regardless.
 
 ## Use another OCR engine { #other-engines }
 
-`Page.insert_ocr_text_layer(words)` adds words from any OCR engine or cloud
-service. Each word is `(x0, y0, x1, y1, text)` in page coordinates; extra
-items after `text` are ignored:
+`Page.apply_ocr(words=...)` adds words from any OCR engine or cloud service
+instead of recognizing the page. Give each word as an `OcrWord` with its box
+in page coordinates:
 
 ```python
-words = [(72, 90, 140, 104, "Invoice"), (146, 90, 190, 104, "#1024")]
-doc.pages[0].insert_ocr_text_layer(words)
+from pylopdf import OcrWord, Rect
+
+words = [
+    OcrWord(text="Invoice", bbox=Rect(72, 90, 140, 104), confidence=0.98),
+    OcrWord(text="#1024", bbox=Rect(146, 90, 190, 104), confidence=0.95),
+]
+doc.pages[0].apply_ocr(words=words)
 ```
 
-The layer uses no embedded font, so it adds very little to the file size.
+It skips a page that already has text, as recognition does. The layer uses no
+embedded font, so it adds very little to the file size.
 
 ## Rotated scans { #rotation }
 
@@ -77,7 +82,7 @@ If a page is scanned sideways or upside down, pass `rotation=90`, `180`, or
 `270` to turn the image clockwise before recognition:
 
 ```python
-words = page.get_text_ocr(rotation=270)
+words = page.ocr(rotation=270)
 page.apply_ocr(rotation=270)
 ```
 
@@ -94,7 +99,7 @@ our measurements. To use less memory, lower `threads` and `tile_size`:
 
 ```python
 engine = pylopdf.OcrEngine(threads=2)
-words = page.get_text_ocr(engine=engine, tile_size=1280, min_confidence=0.6)
+words = page.ocr(engine=engine, tile_size=1280, min_confidence=0.6)
 ```
 
 `clip=` also saves time and memory, because only the selected area is

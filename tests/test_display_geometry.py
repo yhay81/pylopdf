@@ -19,7 +19,7 @@ import zlib
 from pathlib import Path
 
 import pytest
-from conftest import build_raw_pdf, drawn_images
+from conftest import build_raw_pdf, drawn_images, ocr_words
 
 import pylopdf
 
@@ -159,7 +159,7 @@ def test_text_drawn_at_a_display_point_is_extracted_there(name: str, rotation: i
         # The first baseline lies one ascender below the top of the box.
         point = (40.0, 40.0 + pylopdf.Font("helv").ascender * 12)
     else:
-        page.insert_ocr_text_layer([(40.0, 40.0, 100.0, 52.0, "Probe")])
+        page.apply_ocr(words=ocr_words([(40.0, 40.0, 100.0, 52.0, "Probe")]), skip_existing=False)
         assert page.search("Probe") == [pytest.approx((40.0, 40.0, 100.0, 52.0), abs=0.1)]
         return
 

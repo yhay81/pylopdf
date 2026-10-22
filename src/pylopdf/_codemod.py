@@ -677,6 +677,33 @@ def _search_for(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     return f"{receiver}.search({', '.join(arguments)})"
 
 
+#: The strategies of ``find_tables`` that ``tables`` takes as they are.
+TABLE_STRATEGIES = frozenset({"lines", "text"})
+OCR_RECORD_MESSAGE = "page.ocr() returns OcrWord records; read word.text, word.bbox, and word.confidence."
+
+
+def _find_tables(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``find_tables(clip=..., strategy=...)``; pymupdf's tuning keywords come with Understanding."""
+    bound = args.bind(("clip", "strategy"))
+    if bound is None:
+        return None
+    arguments = []
+    strategy = bound.get("strategy")
+    if strategy is not None and strategy != "None":
+        if _string_literal(strategy) not in TABLE_STRATEGIES:
+            return None
+        arguments.append(f"strategy={strategy}")
+    if "clip" in bound:
+        arguments.append(f"clip={bound['clip']}")
+    return f"{receiver}.tables({', '.join(arguments)})"
+
+
+def _get_text_ocr(migrator: _Migrator, receiver: str, args: _Arguments) -> str:
+    """Rewrite pylopdf 0.15's ``get_text_ocr(...)`` to ``ocr(...)``, whose words are records now."""
+    migrator.todo(OCR_RECORD_MESSAGE)
+    return _call(receiver, "ocr", args)
+
+
 #: Calls rewritten wherever they appear.
 CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "get_toc": _get_toc,
@@ -714,6 +741,8 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "get_text": _get_text,
     "search_for": _search_for,
     "to_markdown": _renamed("markdown"),
+    "find_tables": _find_tables,
+    "get_text_ocr": _get_text_ocr,
 }
 
 
@@ -858,6 +887,19 @@ ASSIGNING_RULES = frozenset(
 
 #: Page properties that the API reset renamed, rewritten on names bound only to pages.
 PAGE_RENAMES = {"number": "index", "parent": "document"}
+#: Members of a ``find_tables`` result and of its tables that have no mechanical replacement.
+TABLE_FINDER_MEMBERS = frozenset({"cells", "clip", "page", "strategy"})
+TABLE_UNDERSTANDING_MEMBERS = frozenset({"header", "to_pandas"})
+TABLE_UNDERSTANDING_MESSAGE = (
+    "pymupdf's Table.header and Table.to_pandas() come with the Understanding milestone; read table.rows meanwhile."
+)
+#: Table attributes of pymupdf and pylopdf 0.15 and what reads them now.
+TABLE_RENAMES = {
+    "row_count": "len({table}.rows)",
+    "col_count": "len({table}.rows[0])",
+    "confidence": "{table}.diagnostics.confidence",
+    "strategy": "{table}.diagnostics.strategy",
+}
 PROBE_MESSAGE = (
     "probe() returns a Probe record with page_count, version, needs_password, is_repaired, and metadata, "
     "whose keys are title, author, subject, keywords, creator, producer, created, and modified."
@@ -1080,7 +1122,7 @@ class _Scanner(cst.CSTVisitor):
     scan runs once for documents and once more for pages.
     """
 
-    def __init__(self, documents: frozenset[str] | None = None) -> None:
+    def __init__(self, documents: frozenset[str] | None = None, tables: frozenset[str] | None = None) -> None:
         self.found = False
         #: Whether the module imports fitz or pymupdf, not only pylopdf.
         self.pymupdf = False
@@ -1091,6 +1133,7 @@ class _Scanner(cst.CSTVisitor):
         #: The kinds of value that each name is bound to.
         self.bindings: dict[str, set[str]] = {}
         self._documents = documents
+        self._tables = tables
 
     def names(self, kind: str) -> frozenset[str]:
         """Return the names that only values of ``kind`` are bound to."""
@@ -1107,6 +1150,14 @@ class _Scanner(cst.CSTVisitor):
     def is_document(self, node: cst.BaseExpression) -> bool:
         return self._documents is not None and isinstance(node, cst.Name) and node.value in self._documents
 
+    def is_tables(self, node: cst.BaseExpression) -> bool:
+        """Return whether ``node`` is a ``find_tables`` result: the call, its ``tables``, or a name of one."""
+        if isinstance(node, cst.Attribute) and node.attr.value == "tables":
+            node = node.value
+        if isinstance(node, cst.Call):
+            return isinstance(node.func, cst.Attribute) and node.func.attr.value == "find_tables"
+        return self._tables is not None and isinstance(node, cst.Name) and node.value in self._tables
+
     def is_pages(self, node: cst.BaseExpression) -> bool:
         """Return whether ``node`` is a document name or its ``pages``, possibly sliced."""
         if isinstance(node, cst.Subscript) and all(isinstance(element.slice, cst.Slice) for element in node.slice):
@@ -1118,25 +1169,29 @@ class _Scanner(cst.CSTVisitor):
     def kind(self, node: cst.BaseExpression | None) -> str:
         """Classify the value bound to a name."""
         if isinstance(node, cst.Call):
-            member = self.member(node.func)
-            if member in DOCUMENT_FACTORIES:
-                return "document"
-            if member in OTHER_FACTORIES:
-                return "factory"
-            function = node.func
-            if isinstance(function, cst.Attribute) and (
-                (function.attr.value in PAGE_METHODS and self.is_document(function.value))
-                or (function.attr.value == "new" and self.is_pages(function.value))
-            ):
+            return self._call_kind(node)
+        if isinstance(node, cst.Subscript) and len(node.slice) == 1 and isinstance(node.slice[0].slice, cst.Index):
+            if self.is_pages(node.value):
                 return "page"
-        if (
-            isinstance(node, cst.Subscript)
-            and len(node.slice) == 1
-            and isinstance(node.slice[0].slice, cst.Index)
-            and self.is_pages(node.value)
+            if self.is_tables(node.value):
+                return "table"
+        return "other"
+
+    def _call_kind(self, node: cst.Call) -> str:
+        """Classify the value that a call returns."""
+        member = self.member(node.func)
+        if member in DOCUMENT_FACTORIES:
+            return "document"
+        if member in OTHER_FACTORIES:
+            return "factory"
+        function = node.func
+        if not isinstance(function, cst.Attribute):
+            return "other"
+        if (function.attr.value in PAGE_METHODS and self.is_document(function.value)) or (
+            function.attr.value == "new" and self.is_pages(function.value)
         ):
             return "page"
-        return "other"
+        return "tables" if function.attr.value == "find_tables" else "other"
 
     def bind(self, target: cst.BaseExpression | cst.BaseAssignTargetExpression, kind: str) -> None:
         if isinstance(target, cst.Name):
@@ -1150,6 +1205,9 @@ class _Scanner(cst.CSTVisitor):
     def _bind_loop(self, target: cst.BaseAssignTargetExpression, iterable: cst.BaseExpression) -> None:
         if self.is_pages(iterable):
             self.bind(target, "page")
+            return
+        if self.is_tables(iterable):
+            self.bind(target, "table")
             return
         if (
             isinstance(iterable, cst.Call)
@@ -1231,7 +1289,7 @@ class _Scanner(cst.CSTVisitor):
 class _Migrator(cst.CSTTransformer):
     """Rewrite one module; each hint comment attaches to the innermost enclosing statement."""
 
-    def __init__(self, scan: _Scanner, documents: frozenset[str], pages: frozenset[str]) -> None:
+    def __init__(self, scan: _Scanner, documents: frozenset[str], items: _Scanner) -> None:
         super().__init__()
         self.rewrites = 0
         #: Local names bound to the package, after the rewrite.
@@ -1242,7 +1300,10 @@ class _Migrator(cst.CSTTransformer):
         self.imported: set[str] = set()
         self._scan = scan
         self._documents = documents
-        self._pages = pages
+        #: The second scan, which knows the names bound to pages, ``find_tables`` results, and tables.
+        self._items = items
+        self._pages = items.names("page")
+        self._tables = items.names("table")
         #: Names bound to a value that a module factory returned that is not a document.
         self._factories = scan.names("factory")
         self._todos: list[list[str]] = [[]]
@@ -1319,6 +1380,17 @@ class _Migrator(cst.CSTTransformer):
 
     def _is_document(self, node: cst.BaseExpression) -> bool:
         return isinstance(node, cst.Name) and node.value in self._documents
+
+    def _is_table(self, node: cst.BaseExpression) -> bool:
+        """Return whether ``node`` is one table of a ``find_tables`` result."""
+        if isinstance(node, cst.Name):
+            return node.value in self._tables
+        return (
+            isinstance(node, cst.Subscript)
+            and len(node.slice) == 1
+            and isinstance(node.slice[0].slice, cst.Index)
+            and self._items.is_tables(node.value)
+        )
 
     def _pages_of(self, node: cst.BaseExpression) -> cst.BaseExpression:
         """Return ``node.pages`` for a document name, and ``node`` otherwise."""
@@ -1512,6 +1584,10 @@ class _Migrator(cst.CSTTransformer):
         called = id(original_node) in self._call_functions
         if isinstance(original_node.value, cst.Name) and original_node.value.value in self._scan.modules:
             return self._module_attribute(original_node, updated_node, called=called)
+        table_hint = self._table_member_hint(original_node)
+        if table_hint is not None:
+            self.todo(table_hint)
+            return updated_node
         if not called:
             replacement = self._attribute_rule(original_node, updated_node)
             if replacement is not None:
@@ -1523,6 +1599,18 @@ class _Migrator(cst.CSTTransformer):
             return updated_node
         self._member_todo(name)
         return updated_node
+
+    def _table_member_hint(self, node: cst.Attribute) -> str | None:
+        """Return the hint for a table member without a mechanical replacement, or None."""
+        name = node.attr.value
+        if name in TABLE_FINDER_MEMBERS and self._items.is_tables(node.value):
+            return migration_hint(f"TableFinder.{name}")
+        if self._is_table(node.value):
+            if name == "page":
+                return migration_hint("Table.page")
+            if name in TABLE_UNDERSTANDING_MEMBERS:
+                return TABLE_UNDERSTANDING_MESSAGE
+        return None
 
     def _module_attribute(
         self, original_node: cst.Attribute, updated_node: cst.Attribute, *, called: bool
@@ -1557,6 +1645,11 @@ class _Migrator(cst.CSTTransformer):
             return updated_node.with_changes(attr=cst.Name("needs_password"))
         if isinstance(receiver, cst.Name) and receiver.value in self._pages and name in PAGE_RENAMES:
             return updated_node.with_changes(attr=cst.Name(PAGE_RENAMES[name]))
+        if name == "tables" and self._items.is_tables(receiver):
+            # page.tables() returns the list that find_tables(...).tables held.
+            return updated_node.value
+        if self._is_table(receiver) and name in TABLE_RENAMES:
+            return cst.parse_expression(TABLE_RENAMES[name].format(table=_receiver(updated_node.value)))
         return None
 
     def _module_call(self, member: str, updated_node: cst.Call) -> cst.BaseExpression:
@@ -1590,6 +1683,15 @@ class _Migrator(cst.CSTTransformer):
             )
         if not isinstance(function, cst.Attribute) or id(original_node) in self._statement_calls:
             return updated_node
+        original_function = original_node.func
+        if (
+            function.attr.value == "extract"
+            and not updated_node.args
+            and isinstance(original_function, cst.Attribute)
+            and self._is_table(original_function.value)
+        ):
+            self.rewrites += 1
+            return cst.Attribute(value=function.value, attr=cst.Name("rows"))
         return self._method_call(function, updated_node)
 
     def _method_call(self, function: cst.Attribute, updated_node: cst.Call) -> cst.BaseExpression:
@@ -1620,9 +1722,9 @@ def migrate_source(source: str) -> Migration:
     if not scanner.found:
         return Migration(source, 0, ())
     documents = scanner.names("document")
-    pages = _Scanner(documents)
-    module.visit(pages)
-    migrator = _Migrator(scanner, documents, pages.names("page"))
+    items = _Scanner(documents, scanner.names("tables"))
+    module.visit(items)
+    migrator = _Migrator(scanner, documents, items)
     code = module.visit(migrator).code
     marker = f"# {TODO}: "
     todos = tuple(

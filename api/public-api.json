@@ -171,7 +171,6 @@
     "TEXT_ALIGN_RIGHT",
     "Table",
     "TableDiagnostics",
-    "TableFinder",
     "TagRole",
     "TextAlign",
     "TextFit",
@@ -5145,18 +5144,48 @@
       "target": "Literal[0, 90, 180, 270]"
     },
     "OcrWord": {
-      "fields": {
+      "annotations": {
         "bbox": "Rect",
         "confidence": "float",
         "text": "str"
       },
-      "kind": "typed-dict",
-      "optional_keys": [],
-      "required_keys": [
+      "dataclass_fields": [
+        "text",
         "bbox",
-        "confidence",
-        "text"
-      ]
+        "confidence"
+      ],
+      "kind": "class",
+      "members": {
+        "bbox": {
+          "kind": "property"
+        },
+        "confidence": {
+          "kind": "property"
+        },
+        "text": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "keyword_only",
+            "name": "text"
+          },
+          {
+            "annotation": "Rect",
+            "kind": "keyword_only",
+            "name": "bbox"
+          },
+          {
+            "annotation": "float",
+            "kind": "keyword_only",
+            "name": "confidence"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "OutlineEntry": {
       "annotations": {
@@ -5459,16 +5488,40 @@
                 "name": "self"
               },
               {
-                "annotation": "float",
-                "default": 300,
+                "annotation": "Iterable[OcrWord] | None",
+                "default": null,
                 "kind": "keyword_only",
-                "name": "dpi"
+                "name": "words"
               },
               {
                 "annotation": "OcrEngine | None",
                 "default": null,
                 "kind": "keyword_only",
                 "name": "engine"
+              },
+              {
+                "annotation": "float",
+                "default": 300,
+                "kind": "keyword_only",
+                "name": "dpi"
+              },
+              {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              },
+              {
+                "annotation": "OcrRotation",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "rotation"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "skip_existing"
               },
               {
                 "annotation": "int",
@@ -5487,24 +5540,6 @@
                 "default": 0.5,
                 "kind": "keyword_only",
                 "name": "min_confidence"
-              },
-              {
-                "annotation": "OcrRotation",
-                "default": 0,
-                "kind": "keyword_only",
-                "name": "rotation"
-              },
-              {
-                "annotation": "Sequence[float] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "clip"
-              },
-              {
-                "annotation": "bool",
-                "default": true,
-                "kind": "keyword_only",
-                "name": "skip_existing"
               }
             ],
             "returns": "list[OcrWord]"
@@ -6454,30 +6489,6 @@
             "returns": "Point"
           }
         },
-        "find_tables": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Sequence[float] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "clip"
-              },
-              {
-                "annotation": "Literal['lines', 'text'] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "strategy"
-              }
-            ],
-            "returns": "TableFinder"
-          }
-        },
         "get_drawings": {
           "kind": "method",
           "signature": {
@@ -6628,60 +6639,6 @@
             "returns": "str"
           }
         },
-        "get_text_ocr": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "float",
-                "default": 300,
-                "kind": "keyword_only",
-                "name": "dpi"
-              },
-              {
-                "annotation": "OcrEngine | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "engine"
-              },
-              {
-                "annotation": "int",
-                "default": 1408,
-                "kind": "keyword_only",
-                "name": "tile_size"
-              },
-              {
-                "annotation": "int",
-                "default": 192,
-                "kind": "keyword_only",
-                "name": "overlap"
-              },
-              {
-                "annotation": "float",
-                "default": 0.5,
-                "kind": "keyword_only",
-                "name": "min_confidence"
-              },
-              {
-                "annotation": "OcrRotation",
-                "default": 0,
-                "kind": "keyword_only",
-                "name": "rotation"
-              },
-              {
-                "annotation": "Sequence[float] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "clip"
-              }
-            ],
-            "returns": "list[OcrWord]"
-          }
-        },
         "index": {
           "kind": "property",
           "returns": "int"
@@ -6763,29 +6720,6 @@
                 "annotation": "Mapping[str, Any]",
                 "kind": "positional_only",
                 "name": "link"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "insert_ocr_text_layer": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Iterable[Sequence[Any]]",
-                "kind": "positional_or_keyword",
-                "name": "words"
-              },
-              {
-                "annotation": "OcrRotation",
-                "default": 0,
-                "kind": "keyword_only",
-                "name": "rotation"
               }
             ],
             "returns": "None"
@@ -7061,6 +6995,60 @@
           "kind": "property",
           "returns": "Dictionary"
         },
+        "ocr": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "OcrEngine | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "engine"
+              },
+              {
+                "annotation": "float",
+                "default": 300,
+                "kind": "keyword_only",
+                "name": "dpi"
+              },
+              {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              },
+              {
+                "annotation": "OcrRotation",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "rotation"
+              },
+              {
+                "annotation": "int",
+                "default": 1408,
+                "kind": "keyword_only",
+                "name": "tile_size"
+              },
+              {
+                "annotation": "int",
+                "default": 192,
+                "kind": "keyword_only",
+                "name": "overlap"
+              },
+              {
+                "annotation": "float",
+                "default": 0.5,
+                "kind": "keyword_only",
+                "name": "min_confidence"
+              }
+            ],
+            "returns": "list[OcrWord]"
+          }
+        },
         "rect": {
           "kind": "property",
           "returns": "Rect"
@@ -7215,6 +7203,30 @@
               }
             ],
             "returns": "int"
+          }
+        },
+        "tables": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Literal['lines', 'text']",
+                "default": "lines",
+                "kind": "keyword_only",
+                "name": "strategy"
+              },
+              {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              }
+            ],
+            "returns": "list[Table]"
           }
         },
         "text": {
@@ -10053,28 +10065,29 @@
     },
     "Table": {
       "annotations": {
+        "_anchors": "tuple[int, ...] | None",
         "bbox": "Rect",
-        "cells": "list[Rect | None]",
-        "col_count": "int",
-        "confidence": "float",
+        "cells": "tuple[tuple[Rect | None, ...], ...]",
         "diagnostics": "TableDiagnostics",
-        "page": "Page",
-        "row_count": "int",
-        "strategy": "Literal['lines', 'text']"
+        "rows": "tuple[tuple[str | None, ...], ...]"
       },
+      "dataclass_fields": [
+        "bbox",
+        "rows",
+        "cells",
+        "diagnostics",
+        "_anchors"
+      ],
       "kind": "class",
       "members": {
-        "extract": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "list[list[str | None]]"
-          }
+        "bbox": {
+          "kind": "property"
+        },
+        "cells": {
+          "kind": "property"
+        },
+        "diagnostics": {
+          "kind": "property"
         },
         "markdown": {
           "kind": "method",
@@ -10099,44 +10112,38 @@
             ],
             "returns": "str"
           }
+        },
+        "rows": {
+          "kind": "property"
         }
       },
       "signature": {
         "parameters": [
           {
-            "annotation": "Page",
-            "kind": "positional_or_keyword",
-            "name": "page"
-          },
-          {
             "annotation": "Rect",
-            "kind": "positional_or_keyword",
+            "kind": "keyword_only",
             "name": "bbox"
           },
           {
-            "annotation": "int",
-            "kind": "positional_or_keyword",
-            "name": "row_count"
+            "annotation": "tuple[tuple[str | None, ...], ...]",
+            "kind": "keyword_only",
+            "name": "rows"
           },
           {
-            "annotation": "int",
-            "kind": "positional_or_keyword",
-            "name": "col_count"
-          },
-          {
-            "annotation": "list[tuple[Rect, str] | None]",
-            "kind": "positional_or_keyword",
+            "annotation": "tuple[tuple[Rect | None, ...], ...]",
+            "kind": "keyword_only",
             "name": "cells"
           },
           {
-            "annotation": "list[int]",
-            "kind": "positional_or_keyword",
-            "name": "cell_anchors"
+            "annotation": "TableDiagnostics",
+            "kind": "keyword_only",
+            "name": "diagnostics"
           },
           {
-            "annotation": "TableDiagnostics",
-            "kind": "positional_or_keyword",
-            "name": "diagnostics"
+            "annotation": "tuple[int, ...] | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "_anchors"
           }
         ],
         "returns": "None"
@@ -10150,6 +10157,13 @@
         "row_gap_variation_em": "float | None",
         "strategy": "Literal['lines', 'text']"
       },
+      "dataclass_fields": [
+        "strategy",
+        "confidence",
+        "alignment_error_em",
+        "minimum_gutter_em",
+        "row_gap_variation_em"
+      ],
       "kind": "class",
       "members": {
         "alignment_error_em": {
@@ -10168,116 +10182,32 @@
           "kind": "property"
         }
       },
-      "named_tuple_fields": [
-        "strategy",
-        "confidence",
-        "alignment_error_em",
-        "minimum_gutter_em",
-        "row_gap_variation_em"
-      ],
       "signature": {
         "parameters": [
           {
             "annotation": "Literal['lines', 'text']",
-            "kind": "positional_or_keyword",
+            "kind": "keyword_only",
             "name": "strategy"
           },
           {
             "annotation": "float",
-            "kind": "positional_or_keyword",
+            "kind": "keyword_only",
             "name": "confidence"
           },
           {
             "annotation": "float | None",
-            "kind": "positional_or_keyword",
+            "kind": "keyword_only",
             "name": "alignment_error_em"
           },
           {
             "annotation": "float | None",
-            "kind": "positional_or_keyword",
+            "kind": "keyword_only",
             "name": "minimum_gutter_em"
           },
           {
             "annotation": "float | None",
-            "kind": "positional_or_keyword",
+            "kind": "keyword_only",
             "name": "row_gap_variation_em"
-          }
-        ]
-      }
-    },
-    "TableFinder": {
-      "annotations": {
-        "cells": "list[Rect | None]",
-        "clip": "Rect | None",
-        "page": "Page",
-        "strategy": "Literal['lines', 'text']",
-        "tables": "list[Table]"
-      },
-      "kind": "class",
-      "members": {
-        "__getitem__": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int | slice",
-                "kind": "positional_or_keyword",
-                "name": "index"
-              }
-            ],
-            "returns": "Table | list[Table]"
-          }
-        },
-        "__iter__": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "Iterator[Table]"
-          }
-        },
-        "__len__": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "int"
-          }
-        }
-      },
-      "signature": {
-        "parameters": [
-          {
-            "annotation": "Page",
-            "kind": "positional_or_keyword",
-            "name": "page"
-          },
-          {
-            "annotation": "list[Table]",
-            "kind": "positional_or_keyword",
-            "name": "tables"
-          },
-          {
-            "annotation": "Literal['lines', 'text']",
-            "kind": "positional_or_keyword",
-            "name": "strategy"
-          },
-          {
-            "annotation": "Rect | None",
-            "kind": "positional_or_keyword",
-            "name": "clip"
           }
         ],
         "returns": "None"

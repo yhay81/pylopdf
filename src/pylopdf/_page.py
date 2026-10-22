@@ -40,10 +40,10 @@ from pylopdf._limits import (
     _validate_utf8_text_input,
 )
 from pylopdf._objects import Dictionary
-from pylopdf._ocr import OcrEngine, _default_ocr_engine, _validate_ocr_rotation
+from pylopdf._ocr import OcrEngine, OcrWord, _default_ocr_engine, _validate_ocr_rotation
 from pylopdf._pixmap import _render_background, _render_scale
 from pylopdf._shape import Shape
-from pylopdf._tables import Table, TableDiagnostics, TableFinder
+from pylopdf._tables import Table, build_tables
 from pylopdf._types import (
     LINK_GOTO,
     LINK_GOTOR,
@@ -74,7 +74,6 @@ if TYPE_CHECKING:
         ImageInfo,
         LinkInfo,
         OcrRotation,
-        OcrWord,
         PageLabelInfo,
     )
 
@@ -88,6 +87,8 @@ _MAX_SEARCH_INPUT_BYTES = 4096
 _DEFAULT_MAX_SEARCH_HITS = 4096
 _MAX_OCR_LAYER_WORDS = 4096
 _MAX_OCR_LAYER_TEXT_BYTES = 1024 * 1024
+#: The defaults of the recognition options of :meth:`Page.apply_ocr`, which ``words`` excludes.
+_DEFAULT_OCR_RECOGNITION = (300, 1408, 192, 0.5)
 _MAX_TEXT_REPLACEMENT_INPUT_BYTES = 4096
 _DRAWING_LINE_POINT_COUNT = 2
 _DRAWING_CUBIC_POINT_COUNT = 4
@@ -135,6 +136,32 @@ def _resolve_image_source(
         msg = f"pixmap must be a Pixmap, not {type(pixmap).__name__}"
         raise TypeError(msg)
     return pixmap
+
+
+def _ocr_layer_words(words: Iterable[OcrWord]) -> list[OcrWord]:
+    """Return the words with text of an OCR layer, stopping at the first word over the limits."""
+    accepted: list[OcrWord] = []
+    text_bytes = 0
+    for word in words:
+        if not isinstance(word, OcrWord):
+            msg = f"words must be OcrWord records: {word!r}"
+            raise TypeError(msg)
+        _validate_rect(word.bbox, name="word bbox")
+        if not isinstance(word.text, str):
+            msg = f"word text must be a string: {word.text!r}"
+            raise TypeError(msg)
+        if not word.text:
+            continue
+        if len(accepted) >= _MAX_OCR_LAYER_WORDS:
+            msg = f"words cannot contain more than {_MAX_OCR_LAYER_WORDS} entries with text"
+            raise ValueError(msg)
+        encoded_bytes = _bounded_utf8_size(word.text, _MAX_OCR_LAYER_TEXT_BYTES - text_bytes)
+        if encoded_bytes is None:
+            msg = f"word text cannot exceed {_MAX_OCR_LAYER_TEXT_BYTES} UTF-8 bytes per call"
+            raise ValueError(msg)
+        text_bytes += encoded_bytes
+        accepted.append(word)
+    return accepted
 
 
 def _validate_image_rotation(rotate: int) -> int:
@@ -421,24 +448,24 @@ class Page:
             return _text.build_layout(*self._document._page_raw_layout(page_number))
         return _text.build_layout(*self._document._page_layout(page_number))
 
-    def get_text_ocr(  # noqa: PLR0913 - OCR resource controls are keyword-only.
+    def ocr(  # noqa: PLR0913 - OCR resource controls are keyword-only.
         self,
         *,
-        dpi: float = 300,
         engine: OcrEngine | None = None,
+        dpi: float = 300,
+        clip: Sequence[float] | None = None,
+        rotation: OcrRotation = 0,
         tile_size: int = 1408,
         overlap: int = 192,
         min_confidence: float = 0.5,
-        rotation: OcrRotation = 0,
-        clip: Sequence[float] | None = None,
     ) -> list[OcrWord]:
-        """Recognize rasterized page text without modifying the document.
+        """Recognize the rendered page's text without changing the document.
 
         The default engine is loaded lazily from ``pylopdf[ocr]`` and reused.
         Pass an explicit :class:`OcrEngine` to control the model set or its
-        lifetime. ``clip`` recognizes one display-coordinate region and
-        returns boxes in full-page coordinates. ``rotation`` corrects sideways
-        input clockwise without editing the page.
+        lifetime. ``clip`` recognizes one display-space region and returns
+        boxes in full-page display space. ``rotation`` corrects sideways input
+        clockwise without editing the page.
         """
         resolved_engine = _default_ocr_engine() if engine is None else engine
         if not isinstance(resolved_engine, OcrEngine):
@@ -457,59 +484,74 @@ class Page:
     def apply_ocr(  # noqa: PLR0913 - OCR resource controls are keyword-only.
         self,
         *,
-        dpi: float = 300,
+        words: Iterable[OcrWord] | None = None,
         engine: OcrEngine | None = None,
+        dpi: float = 300,
+        clip: Sequence[float] | None = None,
+        rotation: OcrRotation = 0,
+        skip_existing: bool = True,
         tile_size: int = 1408,
         overlap: int = 192,
         min_confidence: float = 0.5,
-        rotation: OcrRotation = 0,
-        clip: Sequence[float] | None = None,
-        skip_existing: bool = True,
     ) -> list[OcrWord]:
-        """Recognize the page and insert an invisible searchable text layer.
+        """Add an invisible, searchable text layer and return the words it holds.
 
-        The recognized words are returned after insertion. An empty result is
-        a no-op. By default, a page with extractable text is skipped, making
-        repeated calls idempotent and avoiding duplicate text layers.
-        ``clip`` can select a scanned region on a mixed-content page; only
-        extractable text intersecting that region triggers the default skip.
-        Use ``skip_existing=False`` to append despite such text. Existing text
-        is preserved. ``rotation`` also orients the invisible text baseline
-        after correcting sideways input.
+        Without ``words``, the page is recognized as :meth:`ocr` recognizes it.
+        ``words`` takes the :class:`OcrWord` records that another engine, such
+        as Tesseract or a cloud service, recognized, with boxes in display
+        space; the recognition options do not apply to them. The text is not
+        drawn and appears only in extraction and search. An Identity-H
+        reference font with ToUnicode is used without embedding font data, so
+        any language, including CJK, adds almost no file size. One call takes
+        at most 4,096 words with text and 1 MiB of UTF-8 text.
+
+        By default, a page with extractable text is skipped, which makes
+        repeated calls idempotent and avoids duplicate text layers; with
+        ``clip``, only text that meets the region counts. Use
+        ``skip_existing=False`` to add the layer anyway; existing text is kept.
+        ``rotation`` is the clockwise correction that reads sideways input and
+        orients the invisible baselines. An empty result changes nothing.
         """
         if not isinstance(skip_existing, bool):
             msg = f"skip_existing must be a bool: {skip_existing!r}"
             raise TypeError(msg)
         resolved_rotation = _validate_ocr_rotation(rotation)
         clip_rect = None if clip is None else _validate_rect(clip, name="clip")
-        if skip_existing:
-            if clip_rect is None:
-                if self.text().strip():
-                    return []
-            elif any(
-                word.text.strip()
-                and word.bbox.x0 < clip_rect[2]
-                and word.bbox.x1 > clip_rect[0]
-                and word.bbox.y0 < clip_rect[3]
-                and word.bbox.y1 > clip_rect[1]
-                for word in self.words()
-            ):
-                return []
-        words = self.get_text_ocr(
-            dpi=dpi,
-            engine=engine,
-            tile_size=tile_size,
-            overlap=overlap,
-            min_confidence=min_confidence,
-            rotation=resolved_rotation,
-            clip=clip_rect,
-        )
-        if words:
-            self.insert_ocr_text_layer(
-                [(*word["bbox"], word["text"]) for word in words],
+        if words is not None and (
+            engine is not None or (dpi, tile_size, overlap, min_confidence) != _DEFAULT_OCR_RECOGNITION
+        ):
+            msg = "engine, dpi, tile_size, overlap, and min_confidence apply to recognition, not to words"
+            raise TypeError(msg)
+        if skip_existing and self._has_text(clip_rect):
+            return []
+        if words is None:
+            words = self.ocr(
+                engine=engine,
+                dpi=dpi,
+                clip=clip_rect,
                 rotation=resolved_rotation,
+                tile_size=tile_size,
+                overlap=overlap,
+                min_confidence=min_confidence,
             )
-        return words
+        accepted = _ocr_layer_words(words)
+        if accepted:
+            payload = [(*word.bbox, word.text) for word in accepted]
+            self._document._doc.insert_ocr_layer(self._page_number(), payload, resolved_rotation)
+        return accepted
+
+    def _has_text(self, clip: Sequence[float] | None) -> bool:
+        """Return whether the page has extractable text, inside ``clip`` when given."""
+        if clip is None:
+            return bool(self.text().strip())
+        return any(
+            word.text.strip()
+            and word.bbox.x0 < clip[2]
+            and word.bbox.x1 > clip[0]
+            and word.bbox.y0 < clip[3]
+            and word.bbox.y1 > clip[1]
+            for word in self.words()
+        )
 
     def markdown(
         self,
@@ -560,62 +602,41 @@ class Page:
         self._document._emit_warnings()
         return [Rect(*hit) for hit in hits]
 
-    def find_tables(
+    def tables(
         self,
         *,
+        strategy: Literal["lines", "text"] = "lines",
         clip: Sequence[float] | None = None,
-        strategy: Literal["lines", "text"] | None = None,
-    ) -> TableFinder:
+    ) -> list[Table]:
         """Find high-confidence tables from vector borders or aligned text.
 
-        ``strategy=None`` selects ``"lines"``, as in pymupdf. The ``"lines"``
-        strategy is deterministic and does not rasterize
-        the page. It accepts stroked rules and thin filled rectangles, requires
-        an outer grid with at least two rows and two columns, and reconstructs
+        The ``"lines"`` strategy is deterministic and does not rasterize the
+        page. It accepts stroked rules and thin filled rectangles, requires an
+        outer grid with at least two rows and two columns, and reconstructs
         rectangular merged cells. Coarse grid spans are conservatively split
         when at least three evenly led text records occupy the same set of
         cross-axis cells.
 
-        The opt-in ``"text"`` strategy detects borderless tables only when at
-        least three consecutive rows have the same segment count, aligned
-        column edges, compatible leading, and clear inter-column gaps. It may
+        The ``"text"`` strategy detects borderless tables only when at least
+        three consecutive rows have the same segment count, aligned column
+        edges, compatible leading, and clear inter-column gaps. It may
         interpret aligned multicolumn prose as a table, so use it when the page
         region is known to contain tabular data.
 
-        ``clip`` is an optional display-coordinate rectangle. Only tables whose
-        complete bounding box lies inside it are returned; partial tables are
-        not synthesized. Each result exposes ``confidence`` plus inspectable
-        em-normalized alignment, gutter, and row-spacing evidence through
-        :class:`TableDiagnostics`. Confidence ranks this deterministic
-        detector's results and is not a statistical probability.
+        ``clip`` is an optional display-space rectangle. Only tables whose
+        complete box lies inside it are returned; partial tables are not
+        synthesized. Each table carries :class:`TableDiagnostics` with a
+        ``confidence`` that ranks this deterministic detector's results and is
+        not a statistical probability, and em-normalized alignment, gutter,
+        and row-spacing evidence.
         """
-        if strategy is None:
-            strategy = "lines"
+        if strategy not in {"lines", "text"}:
+            msg = f"strategy must be 'lines' or 'text': {strategy!r}"
+            raise ValueError(msg)
         clip_rect = None if clip is None else _validate_rect(clip, name="clip")
         raw = self._document._doc.find_tables(self._page_number(), strategy, clip_rect)
         self._document._emit_warnings()
-        tables = []
-        for bbox, row_count, col_count, cells, cell_anchors, diagnostic_values in raw:
-            confidence, alignment_error, minimum_gutter, row_gap_variation = diagnostic_values
-            diagnostics = TableDiagnostics(
-                strategy,
-                confidence,
-                alignment_error,
-                minimum_gutter,
-                row_gap_variation,
-            )
-            tables.append(
-                Table(
-                    self,
-                    Rect(*bbox),
-                    row_count,
-                    col_count,
-                    [None if cell is None else (Rect(*cell[0]), cell[1]) for cell in cells],
-                    cell_anchors,
-                    diagnostics,
-                )
-            )
-        return TableFinder(self, tables, strategy, None if clip_rect is None else Rect(*clip_rect))
+        return build_tables(raw, strategy)
 
     @overload
     def get_images(self, *, full: Literal[False] = False) -> list[ImageItem]: ...
@@ -1686,49 +1707,6 @@ class Page:
             stroke_opacity=stroke_opacity,
             fill_opacity=fill_opacity,
         )
-
-    def insert_ocr_text_layer(
-        self,
-        words: Iterable[Sequence[Any]],
-        *,
-        rotation: OcrRotation = 0,
-    ) -> None:
-        """Insert OCR output as an invisible, searchable text layer.
-
-        Each item in ``words`` begins with ``(x0, y0, x1, y1, text, ...)``;
-        only the first five values are used. This accepts :meth:`get_text`
-        ``"words"`` output and common OCR API results directly. Coordinates use
-        top-left-origin display space. Text is not drawn and appears only in
-        extraction and search. An Identity-H reference font with ToUnicode is
-        used without embedding font data, so any language, including CJK, adds
-        almost no file size. The primitive is engine-neutral and accepts cloud
-        APIs, Tesseract, or any equivalent source. ``rotation`` describes the
-        clockwise correction used to read sideways input and orients the
-        invisible baseline while retaining the supplied display-coordinate
-        boxes. One call accepts at most 4,096 non-empty words and 1 MiB of
-        aggregate UTF-8 text.
-        """
-        payload: list[tuple[float, float, float, float, str]] = []
-        text_bytes = 0
-        for entry in words:
-            x0, y0, x1, y1 = _validate_rect(entry[:4])
-            text = str(entry[4])
-            if text:
-                if len(payload) >= _MAX_OCR_LAYER_WORDS:
-                    msg = f"words cannot contain more than {_MAX_OCR_LAYER_WORDS} non-empty entries"
-                    raise ValueError(msg)
-                remaining = _MAX_OCR_LAYER_TEXT_BYTES - text_bytes
-                encoded_bytes = _bounded_utf8_size(text, remaining)
-                if encoded_bytes is None:
-                    msg = f"word text cannot exceed {_MAX_OCR_LAYER_TEXT_BYTES} UTF-8 bytes per call"
-                    raise ValueError(msg)
-                text_bytes += encoded_bytes
-                payload.append((x0, y0, x1, y1, text))
-        if not payload:
-            msg = "words must contain at least one word with text"
-            raise ValueError(msg)
-        resolved_rotation = _validate_ocr_rotation(rotation)
-        self._document._doc.insert_ocr_layer(self._page_number(), payload, resolved_rotation)
 
     def replace_text(
         self,

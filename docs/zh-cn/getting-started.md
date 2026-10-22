@@ -75,7 +75,7 @@ with pylopdf.open("input.pdf") as doc:
     words = page.words()                   # Word记录，含text、bbox、block、line、index
     layout = page.layout()                 # blocks → lines → spans，含bbox、size、font
     hits = page.search("total")            # 不区分大小写；返回Rect列表
-    tables = page.find_tables()
+    tables = page.tables()                 # Table记录，含bbox、rows、cells
 ```
 
 坐标以点（1/72英寸）为单位，原点位于页面显示时的左上角。搜索结果、提取的文本、绘制和渲染都使用同一套坐标，旋转页面也不例外。

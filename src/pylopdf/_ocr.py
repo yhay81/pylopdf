@@ -6,6 +6,7 @@ import functools
 import math
 import os
 import threading
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from pylopdf._limits import _validate_optional_positive_int, _validate_rect
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from pylopdf._page import Page
-    from pylopdf._types import OcrRotation, OcrWord
+    from pylopdf._types import OcrRotation
 
 
 _DEFAULT_MAX_OCR_MODEL_SIZE = 64 * 1024 * 1024
@@ -25,6 +26,21 @@ _OCR_MAX_CONCURRENT = 16
 _OCR_MIN_TILE_SIZE = 256
 _OCR_MAX_TILE_SIZE = 2048
 _OCR_TILE_MULTIPLE = 32
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OcrWord:
+    """One recognized word: its text, its box, and the engine's confidence from 0 to 1.
+
+    :meth:`Page.ocr` and :meth:`Page.apply_ocr` give boxes in the page's
+    display space and :meth:`OcrEngine.recognize` in the pixmap's pixels.
+    Words that another OCR engine recognized go to :meth:`Page.apply_ocr` as
+    ``OcrWord`` records in display space.
+    """
+
+    text: str
+    bbox: Rect
+    confidence: float
 
 
 def _validate_ocr_dpi(dpi: float) -> float:
@@ -192,7 +208,7 @@ class OcrEngine:
         uses bounded, overlapping tiles so A4 scans do not require a
         gigabyte-scale detector tensor. ``rotation`` turns the raster
         clockwise for recognition, then maps boxes back. To recognize a page
-        in page coordinates, use :meth:`Page.get_text_ocr`.
+        in page coordinates, use :meth:`Page.ocr`.
         """
         if not isinstance(pixmap, Pixmap):
             msg = f"pixmap must be a pylopdf.Pixmap: {pixmap!r}"
@@ -209,7 +225,7 @@ class OcrEngine:
                 rotation=resolved_rotation,
             )
         return [
-            {"bbox": Rect(x0, y0, x1, y1), "text": text, "confidence": confidence}
+            OcrWord(text=text, bbox=Rect(x0, y0, x1, y1), confidence=confidence)
             for x0, y0, x1, y1, text, confidence in raster_results
         ]
 
@@ -253,16 +269,16 @@ class OcrEngine:
             offset_x = math.floor(max(clip_rect[0], page_rect.x0) / pixel_to_page) * pixel_to_page
             offset_y = math.floor(max(clip_rect[1], page_rect.y0) / pixel_to_page) * pixel_to_page
         return [
-            {
-                "bbox": Rect(
+            OcrWord(
+                text=text,
+                bbox=Rect(
                     offset_x + x0 * pixel_to_page,
                     offset_y + y0 * pixel_to_page,
                     offset_x + x1 * pixel_to_page,
                     offset_y + y1 * pixel_to_page,
                 ),
-                "text": text,
-                "confidence": confidence,
-            }
+                confidence=confidence,
+            )
             for x0, y0, x1, y1, text, confidence in raster_results
         ]
 
@@ -273,5 +289,6 @@ def _default_ocr_engine() -> OcrEngine:
     return OcrEngine()
 
 
-# The package re-exports this class; reprs, pickles, and documentation name it.
+# The package re-exports these classes; reprs, pickles, and documentation name them.
 OcrEngine.__module__ = "pylopdf"
+OcrWord.__module__ = "pylopdf"

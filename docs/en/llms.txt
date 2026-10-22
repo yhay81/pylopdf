@@ -153,6 +153,7 @@ replacement, and the migration hint):
 - Matrix.preshear -> Matrix.__mul__: Use pylopdf.Matrix(h, v, 1) * m, which returns a new Matrix.
 - Matrix.pretranslate -> Matrix.__mul__: Use pylopdf.Matrix(1, 0, 0, 1, tx, ty) * m, which returns a new Matrix.
 - PDF_ENCRYPT_* -> Encryption: Pass encryption=Encryption(user_password=..., owner_password=..., permissions=...) to save() or to_bytes(), which writes AES-256 encryption; encryption=None writes none.
+- Page.find_tables -> Page.tables: Use page.tables(strategy=..., clip=...), which returns a list of Table records; table.rows replaces extract().
 - Page.get_bboxlog -> Page.content: Call page.content(); every item has a bbox and a kind, and its context lists the clips around it.
 - Page.get_cdrawings -> Page.content: Read page.content().paths, whose segments, paints, and strokes are immutable values.
 - Page.get_displaylist -> Page.content: Call page.content(), which returns the page's painted items as an immutable Content sequence.
@@ -210,6 +211,8 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - MetadataProbe.subject -> Probe.metadata: Read probe.metadata["subject"].
 - MetadataProbe.title -> Probe.metadata: Read probe.metadata["title"].
 - Page.add_link_annot -> Page.insert_link: Use page.insert_link({"kind": pylopdf.LinkKind.URI, "from": rect, "uri": uri}).
+- Page.get_text_ocr -> Page.ocr: Call page.ocr(...), which returns OcrWord records with text, bbox, and confidence.
+- Page.insert_ocr_text_layer -> Page.apply_ocr: Call page.apply_ocr(words=[OcrWord(text=..., bbox=..., confidence=...), ...], skip_existing=False).
 - Page.render -> Page.get_pixmap: Use page.get_pixmap(...).tobytes() for PNG.
 - Page.render_svg -> Page.get_svg_image: Use page.get_svg_image().
 - Page.to_markdown -> Page.markdown: Call page.markdown(...).
@@ -237,7 +240,22 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - RawTextSpan.font -> Span.font: Read span.font.
 - RawTextSpan.origin -> Span.origin: Read span.origin.
 - RawTextSpan.size -> Span.size: Read span.size.
+- Table.col_count -> Table.rows: Use len(table.rows[0]).
+- Table.confidence -> TableDiagnostics.confidence: Read table.diagnostics.confidence.
+- Table.extract -> Table.rows: Read table.rows, the cell text row by row.
+- Table.page -> Page.tables: Keep the page whose tables() returned the table.
+- Table.row_count -> Table.rows: Use len(table.rows).
+- Table.strategy -> TableDiagnostics.strategy: Read table.diagnostics.strategy.
 - Table.to_markdown -> Table.markdown: Call table.markdown(...).
+- TableFinder -> Page.tables: page.tables() returns a list of Table records.
+- TableFinder.__getitem__ -> Page.tables: Index the list that page.tables() returns.
+- TableFinder.__iter__ -> Page.tables: Iterate over the list that page.tables() returns.
+- TableFinder.__len__ -> Page.tables: Take len() of the list that page.tables() returns.
+- TableFinder.cells -> Table.cells: Read the cells of each table that page.tables() returns.
+- TableFinder.clip -> Page.tables: page.tables(clip=...) returns only the tables inside the clip; keep the clip you passed.
+- TableFinder.page -> Page.tables: Keep the page whose tables() you called.
+- TableFinder.strategy -> TableDiagnostics.strategy: Read table.diagnostics.strategy of each table.
+- TableFinder.tables -> Page.tables: page.tables() returns the list itself.
 - TextBlock -> Block: page.layout().blocks holds Block records.
 - TextBlock.bbox -> Block.bbox: Read block.bbox.
 - TextBlock.lines -> Block.lines: Read block.lines.

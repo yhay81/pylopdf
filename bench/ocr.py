@@ -161,7 +161,7 @@ def _recognize_case(
     """Recognize one distinct document and return its word count and text."""
     with pylopdf.open(case.fixture) as document:
         page_results = [
-            page.get_text_ocr(
+            page.ocr(
                 dpi=controls.dpi,
                 engine=engine,
                 tile_size=controls.tile_size,
@@ -171,7 +171,7 @@ def _recognize_case(
             for page in document.pages
         ]
     words = [word for page_words in page_results for word in page_words]
-    return len(words), "\n".join(word["text"] for word in words)
+    return len(words), "\n".join(word.text for word in words)
 
 
 def main() -> None:

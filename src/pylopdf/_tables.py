@@ -2,19 +2,34 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, NamedTuple, cast, overload
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Literal, NamedTuple, cast
 
 from pylopdf import _markdown
+from pylopdf._geometry import Rect
+from pylopdf._hints import hinted_getattr
 from pylopdf._limits import _DEFAULT_MAX_MARKDOWN_SIZE, _validate_optional_positive_int
 from pylopdf.pylopdf_core import LimitError
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Sequence
 
     from pylopdf._page import Page
     from pylopdf._text import TextPageDict
     from pylopdf._text import TextWord as Word
-    from pylopdf._types import Rect
+
+    _Box = tuple[float, float, float, float]
+    #: The core's table: ``(bbox, row count, column count, row-major cells,
+    #: anchor of every slot, (confidence, alignment, gutter, row gap))``, where
+    #: a cell is ``(bbox, text)`` or ``None`` for a slot that a merged cell covers.
+    _CoreTable = tuple[
+        _Box,
+        int,
+        int,
+        list[tuple[_Box, str] | None],
+        list[int],
+        tuple[float, float | None, float | None, float | None],
+    ]
 
 
 def _markdown_output_limit_error(max_size: int) -> LimitError:
@@ -25,12 +40,13 @@ def _markdown_output_limit_error(max_size: int) -> LimitError:
     )
 
 
-class TableDiagnostics(NamedTuple):
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TableDiagnostics:
     """Inspectable geometric evidence for one detected table.
 
     ``confidence`` is a deterministic ranking heuristic in the range 0–1, not
     a calibrated probability. The em-normalized metrics are present for the
-    ``"text"`` strategy and ``None`` for vector-grid strategies.
+    ``"text"`` strategy and ``None`` for vector grids.
     """
 
     strategy: Literal["lines", "text"]
@@ -40,53 +56,26 @@ class TableDiagnostics(NamedTuple):
     row_gap_variation_em: float | None
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Table:
-    """A detected table with row-major cells, owned text, and diagnostics.
+    """A table that :meth:`Page.tables` detected, in display space.
 
-    A merged cell occupies its top-left slot. Continuation slots are ``None``.
+    ``rows`` holds the text of every cell and ``cells`` its box, both row by
+    row. A merged cell keeps its text and its spanning box in its top-left
+    slot; the slots it covers are ``None``.
     """
 
-    page: Page
     bbox: Rect
-    row_count: int
-    col_count: int
-    cells: list[Rect | None]
+    rows: tuple[tuple[str | None, ...], ...]
+    cells: tuple[tuple[Rect | None, ...], ...]
     diagnostics: TableDiagnostics
-    strategy: Literal["lines", "text"]
-    confidence: float
+    #: The row-major index of the top-left slot of the cell that covers each
+    #: slot, from the detector; without it, Markdown repeats the text above or
+    #: to the left of an empty slot.
+    _anchors: tuple[int, ...] | None = field(default=None, repr=False, compare=False)
 
-    def __init__(  # noqa: PLR0913, PLR0917 - internal owned result constructor
-        self,
-        page: Page,
-        bbox: Rect,
-        row_count: int,
-        col_count: int,
-        cells: list[tuple[Rect, str] | None],
-        cell_anchors: list[int],
-        diagnostics: TableDiagnostics,
-    ) -> None:
-        """Build a table from the internal geometry detector."""
-        self.page = page
-        self.bbox = bbox
-        self.row_count = row_count
-        self.col_count = col_count
-        self.cells = [cell[0] if cell is not None else None for cell in cells]
-        self._values = [cell[1] if cell is not None else None for cell in cells]
-        self._cell_anchors = cell_anchors
-        self.diagnostics = diagnostics
-        self.strategy = diagnostics.strategy
-        self.confidence = diagnostics.confidence
-
-    def extract(self) -> list[list[str | None]]:
-        """Return copied cell text as rows.
-
-        Embedded line breaks are preserved. Slots covered by a merged cell are
-        ``None``.
-        """
-        return [
-            self._values[offset : offset + self.col_count].copy()
-            for offset in range(0, len(self._values), self.col_count)
-        ]
+    if not TYPE_CHECKING:
+        __getattr__ = hinted_getattr
 
     def markdown(
         self,
@@ -96,61 +85,46 @@ class Table:
     ) -> str:
         """Render the table as Markdown, treating the first row as the header.
 
-        When ``fill_empty`` is true, merged-cell continuation slots inherit the
-        anchor value because Markdown has no row/column spans. ``max_size``
+        When ``fill_empty`` is true, the slots that a merged cell covers repeat
+        its text, because Markdown has no row or column spans. ``max_size``
         caps UTF-8 output before escaped cell strings are allocated and defaults
         to 64 MiB; ``None`` explicitly opts out.
         """
         _validate_optional_positive_int("max_size", max_size)
         try:
             return _markdown.table_to_markdown(
-                self.extract(),
+                [list(row) for row in self.rows],
                 fill_empty=fill_empty,
-                cell_anchors=self._cell_anchors,
+                cell_anchors=self._anchors,
                 max_size=max_size,
             )
         except _markdown.MarkdownOutputLimitError:
             raise _markdown_output_limit_error(cast("int", max_size)) from None
 
 
-class TableFinder:
-    """Sequence-like result with the strategy and optional clip used."""
-
-    page: Page
-    tables: list[Table]
-    cells: list[Rect | None]
-    strategy: Literal["lines", "text"]
-    clip: Rect | None
-
-    def __init__(
-        self,
-        page: Page,
-        tables: list[Table],
-        strategy: Literal["lines", "text"],
-        clip: Rect | None,
-    ) -> None:
-        """Store table results independently of the Rust interpretation cache."""
-        self.page = page
-        self.tables = tables
-        self.cells = [cell for table in tables for cell in table.cells]
-        self.strategy = strategy
-        self.clip = clip
-
-    def __len__(self) -> int:
-        """Return the number of detected tables."""
-        return len(self.tables)
-
-    @overload
-    def __getitem__(self, index: int) -> Table: ...
-    @overload
-    def __getitem__(self, index: slice) -> list[Table]: ...
-    def __getitem__(self, index: int | slice) -> Table | list[Table]:
-        """Return one table or a sliced list."""
-        return self.tables[index]
-
-    def __iter__(self) -> Iterator[Table]:
-        """Iterate over detected tables in page order."""
-        return iter(self.tables)
+def build_tables(raw: Sequence[_CoreTable], strategy: Literal["lines", "text"]) -> list[Table]:
+    """Build :meth:`Page.tables` from the core's row-major tables."""
+    tables = []
+    for bbox, row_count, col_count, cells, anchors, (confidence, alignment, gutter, row_gap) in raw:
+        boxes = [None if cell is None else Rect(*cell[0]) for cell in cells]
+        texts = [None if cell is None else cell[1] for cell in cells]
+        starts = range(0, row_count * col_count, col_count)
+        tables.append(
+            Table(
+                bbox=Rect(*bbox),
+                rows=tuple(tuple(texts[start : start + col_count]) for start in starts),
+                cells=tuple(tuple(boxes[start : start + col_count]) for start in starts),
+                diagnostics=TableDiagnostics(
+                    strategy=strategy,
+                    confidence=confidence,
+                    alignment_error_em=alignment,
+                    minimum_gutter_em=gutter,
+                    row_gap_variation_em=row_gap,
+                ),
+                _anchors=tuple(anchors),
+            )
+        )
+    return tables
 
 
 def _table_overlap_ratio(left: Rect, right: Rect) -> float:
@@ -169,9 +143,9 @@ def _markdown_page_tables(
     strategy: Literal["lines", "text"],
 ) -> list[Table]:
     """Return bordered tables, optionally extended by non-overlapping text tables."""
-    tables = list(page.find_tables(strategy="lines"))
+    tables = page.tables(strategy="lines")
     if strategy == "text":
-        for candidate in page.find_tables(strategy="text"):
+        for candidate in page.tables(strategy="text"):
             if all(
                 _table_overlap_ratio(candidate.bbox, table.bbox) < _MARKDOWN_TABLE_OVERLAP_LIMIT for table in tables
             ):
@@ -195,9 +169,9 @@ def _markdown_table_output(
         table_budget = None if remaining_size is None else max(0, remaining_size - rendered_bytes)
         try:
             table_markdown = _markdown.table_to_markdown(
-                table.extract(),
+                [list(row) for row in table.rows],
                 orientation=_markdown.table_orientation(layout, bbox),
-                cell_anchors=table._cell_anchors,
+                cell_anchors=table._anchors,
                 max_size=table_budget,
             )
         except _markdown.MarkdownOutputLimitError:
@@ -235,9 +209,5 @@ def _bounded_markdown_page_output(
 
 
 # The package re-exports these names; reprs, pickles, and documentation name it.
-for _public in (
-    TableDiagnostics,
-    Table,
-    TableFinder,
-):
+for _public in (TableDiagnostics, Table):
     _public.__module__ = "pylopdf"

@@ -133,9 +133,9 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 순서를 뒤집음
 | `words()` | 읽기 순서대로 된 단어를 `Word` 레코드로 |
 | `layout(*, chars=False)` | 블록, 줄, 스팬을 `Layout`으로. [위치가 있는 텍스트](#positioned-text) 참고 |
 | `search(text, *, max_hits=4096)` | 대소문자 구분 없는 검색. `Rect` 리스트를 반환 |
-| `find_tables(*, clip=None, strategy=None)` | 표를 `TableFinder`로. [표](#tables) 참고 |
+| `tables(*, strategy="lines", clip=None)` | 표를 `Table` 레코드 리스트로. [표](#tables) 참고 |
 | `markdown(*, table_strategy="lines")` | 이 페이지의 Markdown |
-| `get_text_ocr(...)`, `apply_ocr(...)`, `insert_ocr_text_layer(words)` | OCR. [오프라인 OCR](ocr.md) 참고 |
+| `ocr(...)`, `apply_ocr(*, words=None, ...)` | OCR, 그리고 그 결과나 다른 엔진의 단어로 만드는 보이지 않는 텍스트 레이어. [오프라인 OCR](ocr.md) 참고 |
 | `content(*, clip=None, annotations=True)` | 페이지가 그리는 모든 텍스트 런, 경로, 이미지. [페이지 내용](#content) 참고 |
 | `get_drawings()` | 벡터 경로. [벡터 그림](#drawings) 참고 |
 | `get_links()` | 링크와 그 대상 |
@@ -346,9 +346,15 @@ Path("report.pdf").write_bytes(builder.to_bytes())
 
 ## 표 { #tables }
 
-`page.find_tables()`는 병합된 셀을 포함해 괘선으로 그린 표를 찾습니다. `strategy="text"`는 행과 열이 분명히 정렬된 테두리 없는 표도 감지합니다. 정렬된 다단 본문이 표처럼 보일 수 있으므로 기본값은 아닙니다. `clip=`은 사각형 안에 완전히 들어가는 표만 남깁니다.
+`page.tables()`는 병합된 셀을 포함해 괘선으로 그린 표를 찾습니다. `strategy="text"`는 행과 열이 분명히 정렬된 테두리 없는 표도 감지합니다. 정렬된 다단 본문이 표처럼 보일 수 있으므로 기본값은 아닙니다. `clip=`은 사각형 안에 완전히 들어가는 표만 남깁니다.
 
-결과는 `TableFinder`이며, 그 `tables`는 `bbox`, `row_count`, `col_count`, `cells`, `extract()`(행별 셀 텍스트, 병합 셀이 덮는 셀은 `None`), `markdown()`을 가진 `Table` 객체입니다. `Table.confidence`는 후보 순위를 매기기 위한 0–1 점수이며 확률은 아닙니다. `Table.diagnostics`가 그 근거를 설명합니다.
+결과는 `bbox`, `rows`(행별 셀 텍스트), `cells`(같은 모양으로 담은 각 셀의 `Rect`), `diagnostics`, `markdown()`을 가진 `Table` 레코드의 리스트입니다. 병합 셀은 텍스트와 상자를 왼쪽 위 슬롯에 두고, 그 셀이 덮는 슬롯은 `None`입니다. `diagnostics.confidence`는 후보 순위를 매기기 위한 0–1 점수이며 확률은 아닙니다. 나머지 진단 항목이 그 근거를 설명합니다.
+
+```python
+for table in page.tables():
+    header, *body = table.rows
+    print(table.bbox, header, len(body))
+```
 
 ## 텍스트와 글꼴 { #fonts }
 
@@ -562,7 +568,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 
 상수는 pymupdf의 이름을 유지하며 열거형으로도 묶여 있습니다. `Permissions`(`PDF_PERM_*`), `LinkKind`(`LINK_*`), `TextAlign`(`TEXT_ALIGN_*`), `AnnotType`(`PDF_ANNOT_*`), `AnnotFlags`(`PDF_ANNOT_IS_*`)입니다. `Access`의 멤버는 `USER`와 `OWNER`이고, `Encryption`은 저장하는 파일을 암호화하는 방법을 나타냅니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
 
-텍스트 결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout` 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 반환하는 그 밖의 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `DrawingInfo`, `ImageInfo`, `LinkInfo`, `FormFieldInfo`, `DocumentMetadata`, `OcrWord` 같은 `TypedDict` 클래스로 기술됩니다. `ImageItem`과 `OutlineEntry`는 네임드 튜플입니다.
+텍스트, 표, OCR 결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord` 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 반환하는 그 밖의 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `DrawingInfo`, `ImageInfo`, `LinkInfo`, `FormFieldInfo`, `DocumentMetadata` 같은 `TypedDict` 클래스로 기술됩니다. `ImageItem`과 `OutlineEntry`는 네임드 튜플입니다.
 
 ## 예외와 경고 { #exceptions }
 

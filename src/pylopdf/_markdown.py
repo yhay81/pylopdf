@@ -28,7 +28,7 @@ from collections import Counter
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from pylopdf._text import TextLine, TextPageDict, TextSpan
     from pylopdf._text import TextWord as Word
@@ -108,7 +108,7 @@ def table_to_markdown(
     *,
     fill_empty: bool = True,
     orientation: _AxisOrientation = "right",
-    cell_anchors: list[int] | None = None,
+    cell_anchors: Sequence[int] | None = None,
     max_size: int | None = None,
 ) -> str:
     """Render table rows after bounded normalization of their text direction."""
@@ -175,7 +175,7 @@ def utf8_size(value: str) -> int:
 
 def _fill_merged_cells(
     rows: list[list[str | None]],
-    cell_anchors: list[int] | None,
+    cell_anchors: Sequence[int] | None,
 ) -> None:
     """Copy merged-cell anchors into covered slots in place."""
     column_count = len(rows[0])

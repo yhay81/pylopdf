@@ -133,9 +133,9 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 順序を逆にす�
 | `words()` | 読み順に並べた語を`Word`レコードで |
 | `layout(*, chars=False)` | ブロック、行、スパンを`Layout`で。[位置付きテキスト](#positioned-text)を参照 |
 | `search(text, *, max_hits=4096)` | 大文字小文字を区別しない検索。`Rect`のリストを返します |
-| `find_tables(*, clip=None, strategy=None)` | 表を`TableFinder`で。[表](#tables)を参照 |
+| `tables(*, strategy="lines", clip=None)` | 表を`Table`レコードのリストで。[表](#tables)を参照 |
 | `markdown(*, table_strategy="lines")` | このページのMarkdown |
-| `get_text_ocr(...)`, `apply_ocr(...)`, `insert_ocr_text_layer(words)` | OCR。[オフラインOCR](ocr.md)を参照 |
+| `ocr(...)`, `apply_ocr(*, words=None, ...)` | OCRと、その結果またはほかのエンジンの単語から作る不可視のテキスト層。[オフラインOCR](ocr.md)を参照 |
 | `content(*, clip=None, annotations=True)` | ページが描くすべてのテキストラン、パス、画像。[ページの内容](#content)を参照 |
 | `get_drawings()` | ベクタのパス。[ベクタ図形](#drawings)を参照 |
 | `get_links()` | リンクとそのリンク先 |
@@ -346,9 +346,15 @@ Path("report.pdf").write_bytes(builder.to_bytes())
 
 ## 表 { #tables }
 
-`page.find_tables()`は、結合セルも含め、罫線で描かれた表を検出します。`strategy="text"`を指定すると、行と列が明確に揃っている罫線のない表も検出します。揃った段組みの文章が表に見えることがあるため、既定にはしていません。`clip=`は、矩形の中に完全に収まる表だけを残します。
+`page.tables()`は、結合セルも含め、罫線で描かれた表を検出します。`strategy="text"`を指定すると、行と列が明確に揃っている罫線のない表も検出します。揃った段組みの文章が表に見えることがあるため、既定にはしていません。`clip=`は、矩形の中に完全に収まる表だけを残します。
 
-結果は`TableFinder`で、その`tables`は`Table`オブジェクトです。`Table`は`bbox`、`row_count`、`col_count`、`cells`、`extract()`（行ごとのセルのテキスト。結合セルに覆われたセルは`None`）、`markdown()`を持ちます。`Table.confidence`は候補を順位付けするための0–1のスコアで、確率ではありません。その根拠は`Table.diagnostics`で確認できます。
+結果は`Table`レコードのリストです。`Table`は`bbox`、`rows`（行ごとのセルのテキスト）、`cells`（各セルの`Rect`を同じ形で）、`diagnostics`、`markdown()`を持ちます。結合セルはそのテキストと矩形を左上のスロットに持ち、それが覆うスロットは`None`です。`diagnostics.confidence`は候補を順位付けするための0–1のスコアで、確率ではありません。その根拠はほかの診断項目で確認できます。
+
+```python
+for table in page.tables():
+    header, *body = table.rows
+    print(table.bbox, header, len(body))
+```
 
 ## テキストとフォント { #fonts }
 
@@ -562,7 +568,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 
 定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）、`AnnotFlags`（`PDF_ANNOT_IS_*`）です。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
 
-テキストの結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`などの変更できないデータクラス（frozen dataclass）です。APIが返すそのほかの辞書はただの`dict`で、型チェッカー向けに`DrawingInfo`、`ImageInfo`、`LinkInfo`、`FormFieldInfo`、`DocumentMetadata`、`OcrWord`などの`TypedDict`クラスで記述しています。`ImageItem`と`OutlineEntry`は名前付きタプルです。
+テキスト、表、OCRの結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`などの変更できないデータクラス（frozen dataclass）です。APIが返すそのほかの辞書はただの`dict`で、型チェッカー向けに`DrawingInfo`、`ImageInfo`、`LinkInfo`、`FormFieldInfo`、`DocumentMetadata`などの`TypedDict`クラスで記述しています。`ImageItem`と`OutlineEntry`は名前付きタプルです。
 
 ## 例外と警告 { #exceptions }
 

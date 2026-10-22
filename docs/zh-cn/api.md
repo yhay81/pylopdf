@@ -133,9 +133,9 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 颠倒页面顺序
 | `words()` | 按阅读顺序返回单词，形式为`Word`记录 |
 | `layout(*, chars=False)` | 以`Layout`返回区块、行和span；参见[带位置的文本](#positioned-text) |
 | `search(text, *, max_hits=4096)` | 不区分大小写的搜索；返回`Rect`列表 |
-| `find_tables(*, clip=None, strategy=None)` | 以`TableFinder`返回表格；参见[表格](#tables) |
+| `tables(*, strategy="lines", clip=None)` | 以`Table`记录列表返回表格；参见[表格](#tables) |
 | `markdown(*, table_strategy="lines")` | 本页的Markdown |
-| `get_text_ocr(...)`、`apply_ocr(...)`、`insert_ocr_text_layer(words)` | OCR；参见[离线OCR](ocr.md) |
+| `ocr(...)`、`apply_ocr(*, words=None, ...)` | OCR，以及由其结果或其他引擎的单词生成的不可见文本层；参见[离线OCR](ocr.md) |
 | `content(*, clip=None, annotations=True)` | 页面绘制的所有文本段、路径和图像；参见[页面内容](#content) |
 | `get_drawings()` | 矢量路径；参见[矢量绘图](#drawings) |
 | `get_links()` | 链接及其目标 |
@@ -346,9 +346,15 @@ Path("report.pdf").write_bytes(builder.to_bytes())
 
 ## 表格 { #tables }
 
-`page.find_tables()`查找以框线绘制的表格，包括合并单元格。`strategy="text"`在行和列对齐明确时还能检测无边框表格；它不是默认选项，因为对齐的多栏正文可能看起来像表格。`clip=`只保留完全位于某个矩形内的表格。
+`page.tables()`查找以框线绘制的表格，包括合并单元格。`strategy="text"`在行和列对齐明确时还能检测无边框表格；它不是默认选项，因为对齐的多栏正文可能看起来像表格。`clip=`只保留完全位于某个矩形内的表格。
 
-返回结果为`TableFinder`，其`tables`为`Table`对象，带有`bbox`、`row_count`、`col_count`、`cells`、`extract()`（按行返回单元格文本，被合并单元格覆盖的单元格为`None`）和`markdown()`。`Table.confidence`是用于给候选结果排序的0–1分数，并非概率；`Table.diagnostics`给出其依据。
+返回结果为`Table`记录列表，带有`bbox`、`rows`（逐行排列的单元格文本）、`cells`（以相同形状排列的各单元格`Rect`）、`diagnostics`和`markdown()`。合并单元格的文本和框保存在其左上角的槽位中，被它覆盖的槽位为`None`。`diagnostics.confidence`是用于给候选结果排序的0–1分数，并非概率；其他诊断项给出其依据。
+
+```python
+for table in page.tables():
+    header, *body = table.rows
+    print(table.bbox, header, len(body))
+```
 
 ## 文本与字体 { #fonts }
 
@@ -562,7 +568,7 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 
 常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）和`AnnotFlags`（`PDF_ANNOT_IS_*`）。`Access`的成员是`USER`和`OWNER`，`Encryption`描述如何加密保存的文件。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
 
-文本结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`和`Layout`等不可变的数据类（frozen dataclass）。API返回的其他字典都是普通的`dict`对象，并通过`DrawingInfo`、`ImageInfo`、`LinkInfo`、`FormFieldInfo`、`DocumentMetadata`和`OcrWord`等`TypedDict`类向类型检查器描述；`ImageItem`和`OutlineEntry`是具名元组。
+文本、表格和OCR结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`和`OcrWord`等不可变的数据类（frozen dataclass）。API返回的其他字典都是普通的`dict`对象，并通过`DrawingInfo`、`ImageInfo`、`LinkInfo`、`FormFieldInfo`和`DocumentMetadata`等`TypedDict`类向类型检查器描述；`ImageItem`和`OutlineEntry`是具名元组。
 
 ## 异常与警告 { #exceptions }
 

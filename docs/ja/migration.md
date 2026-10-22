@@ -5,7 +5,7 @@ description: 移行ツール、名前ごとの対応表、注意すべき挙動�
 
 # pymupdfからの移行
 
-pylopdfは、pymupdfがPDFファイルでできることをすべて、独自のAPIで実現することを目指しています。ただし、そのまま置き換えられるものではありません。開けるのは**PDFファイルだけ**で（XPS、EPUB、画像は不可）、いくつかの挙動は意図的に変えており、次のリリースではAPIを作り直します。移行ツールも、作り直した部分が入るたびにそれに追従します。文書とそのページ、保存、テキストの読み取りはすでに新しいAPI（`pylopdf.open(source)`、`doc.pages`、`doc.save()`、`page.text()`、`page.layout()`）を使っています。このページでは、そのまま使えるもの、異なるもの、pylopdfがまだ実装していない部分の代わりに使うものをまとめます。
+pylopdfは、pymupdfがPDFファイルでできることをすべて、独自のAPIで実現することを目指しています。ただし、そのまま置き換えられるものではありません。開けるのは**PDFファイルだけ**で（XPS、EPUB、画像は不可）、いくつかの挙動は意図的に変えており、次のリリースではAPIを作り直します。移行ツールも、作り直した部分が入るたびにそれに追従します。文書とそのページ、保存、テキストの読み取り、表、OCRはすでに新しいAPI（`pylopdf.open(source)`、`doc.pages`、`doc.save()`、`page.text()`、`page.layout()`、`page.tables()`、`page.ocr()`）を使っています。このページでは、そのまま使えるもの、異なるもの、pylopdfがまだ実装していない部分の代わりに使うものをまとめます。
 
 ## 自動移行 { #codemod }
 
@@ -16,7 +16,7 @@ pip install "pylopdf[migrate]"
 python -m pylopdf.migrate src/
 ```
 
-`import fitz`と`import pymupdf`を置き換え、機械的に置き換えられるもの（文書を開く処理、`doc.pages`に置き換わるページ操作、ページ番号を含む`get_toc`/`set_toc`、`embfile_*`、`xref_*`のストリーム読み出し、その場で値を変える`Rect`/`Point`/`Matrix`のメソッドなど）を書き換え、人手が必要な文の上には`# TODO(pylopdf): …`コメントを付けます。最後に、それらの箇所を`path:line: message`の形で一覧表示します。同じコマンドで、pylopdf 0.15向けに書かれたプログラムも更新できます。
+`import fitz`と`import pymupdf`を置き換え、機械的に置き換えられるもの（文書を開く処理、`doc.pages`に置き換わるページ操作、ページ番号を含む`get_toc`/`set_toc`、`embfile_*`、`xref_*`のストリーム読み出し、テキストと表の読み取り、その場で値を変える`Rect`/`Point`/`Matrix`のメソッドなど）を書き換え、人手が必要な文の上には`# TODO(pylopdf): …`コメントを付けます。最後に、それらの箇所を`path:line: message`の形で一覧表示します。同じコマンドで、pylopdf 0.15向けに書かれたプログラムも更新できます。
 
 - `--diff`は書き込まずに変更内容を表示します。
 - `--check`は変更されるファイルがあると終了コード1を返します。CI向けです。
@@ -69,7 +69,8 @@ python -m pylopdf.migrate src/
 | `page.get_text("blocks")` | `page.layout().blocks` | タプルではなく、`text`、`bbox`、`lines`を持つ`Block`レコード |
 | `page.get_text("dict")`, `get_text("rawdict")` | `page.layout().to_dict()`, `page.layout(chars=True).to_dict()` | 同じ辞書を返します。`page.layout()`自体はレコードを返します。`html`と`xml`はありません |
 | `page.search_for(text)` | `page.search(text)` | 矩形を返します。`quads=`はありません。`max_hits=`を上げない限り結果は最大4,096件 |
-| `page.get_textpage_ocr()` | `page.get_text_ocr()`, `page.apply_ocr()` | 組み込みのオフラインOCR。[オフラインOCR](ocr.md)を参照 |
+| `page.find_tables()` | `page.tables()` | `Table`レコードのリスト。`table.rows`が`extract()`に、`len(table.rows)`が`row_count`に代わり、`table.cells`は各セルの矩形を行ごとに持ちます。調整用のキーワード、`header`、`to_pandas()`はまだありません |
+| `page.get_textpage_ocr()` | `page.ocr()`, `page.apply_ocr()` | 組み込みのオフラインOCR。[オフラインOCR](ocr.md)を参照 |
 | `pymupdf4llm.to_markdown(doc)` | `doc.markdown()` | 組み込み |
 | `page.get_pixmap(matrix=…, dpi=…)` | 同じ | 拡大縮小の行列のみ。`colorspace=`と`annots=`はまだありません。`doc.get_page_pixmap(i)`は`doc.pages[i].get_pixmap()`になります |
 | `pix.samples`, `width`, `height`, `n`, `alpha`, `stride`, `colorspace`, `save()` | 同じ | `save()`と`tobytes()`はPNGのみを書き出します |
@@ -111,7 +112,7 @@ python -m pylopdf.migrate src/
 - **ページ下端付近の`insert_text`。** pylopdfはどの行が収まるかをページの見える領域（`page.rect`）で判断しますが、pymupdfは回転前のページの下端までで測ります。通常の回転していないページでは両者は一致します。
 - **フォントの扱いは厳格です。** pylopdfは黙って別のフォントを使わず、例外を送出します。たとえば、フォントに文字がない場合や、`is_bold=True`でインストールされていない太字を求めた場合です。
 - **フォームの結合。** `doc.pages.insert()`と`extend()`は、pymupdfの既定の`widgets=True`と同じく、常にフォームフィールドをコピーします。受け取る側の文書に同じ名前のフィールドがあれば`name+1`、`name+2`のように改名するので、同じフォームのコピーはそれぞれ別の値を持ちます。
-- **表とMarkdown。** `find_tables()`は既定で罫線で描かれた表を検出します。罫線のない表には`strategy="text"`を渡してください。`markdown()`は検出した表を読み順の位置に置き、周囲の段落からその表のテキストを取り除きます。
+- **表とMarkdown。** `tables()`は既定で罫線で描かれた表を検出します。罫線のない表には`strategy="text"`を渡してください。`markdown()`は検出した表を読み順の位置に置き、周囲の段落からその表のテキストを取り除きます。
 
 ## 実装しない機能: 代わりに使うもの { #deliberate-scope }
 

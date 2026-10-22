@@ -16,7 +16,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf, drawn_images
+from conftest import build_pdf, drawn_images, ocr_words
 
 import pylopdf
 
@@ -130,7 +130,9 @@ _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
     "add_link_annot": lambda doc: doc.pages[0].insert_link(
         {"kind": pylopdf.LINK_URI, "from": (10, 10, 100, 30), "uri": "https://example.com/"}
     ),
-    "insert_ocr_text_layer": lambda doc: doc.pages[0].insert_ocr_text_layer([(10, 10, 100, 30, "Word")]),
+    "insert_ocr_text_layer": lambda doc: doc.pages[0].apply_ocr(
+        words=ocr_words([(10, 10, 100, 30, "Word")]), skip_existing=False
+    ),
     "insert_pdf": lambda doc: doc.pages.extend(pylopdf.open(build_pdf(["Source"])).pages),
     "show_pdf_page": lambda doc: doc.pages[0].show_pdf_page((0, 0, 100, 100), pylopdf.open(build_pdf(["Source"])), 0),
     "new_page": lambda doc: doc.pages.new(),

@@ -40,7 +40,7 @@ OPERATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
     "get_text_dict": lambda doc: doc.pages[0].layout().to_dict(),
     "get_text_rawdict": lambda doc: doc.pages[0].layout(chars=True).to_dict(),
     "search_for": lambda doc: doc.pages[0].search("PAGE"),
-    "find_tables": lambda doc: doc.pages[0].find_tables(),
+    "find_tables": lambda doc: doc.pages[0].tables(),
     "get_drawings": lambda doc: doc.pages[0].get_drawings(),
     "get_image_info": lambda doc: doc.pages[0].get_image_info(),
     "get_pixmap": lambda doc: doc.pages[0].get_pixmap(alpha=True),

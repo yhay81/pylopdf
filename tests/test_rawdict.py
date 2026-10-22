@@ -311,7 +311,7 @@ def test_rawdict_shares_admission_with_other_text_and_table_views() -> None:
     assert page.text() == "AB\n"
     assert page.words()[0].text == "AB"
     assert page.layout().to_dict()["blocks"][0]["lines"][0]["spans"][0]["text"] == "AB"
-    assert page.find_tables().tables == []
+    assert page.tables() == []
     with pytest.raises(pylopdf.LimitError) as caught:
         doc.pages[1].layout(chars=True).to_dict()
     assert caught.value.code == "text_glyph_count"

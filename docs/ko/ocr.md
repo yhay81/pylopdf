@@ -17,17 +17,17 @@ pip install "pylopdf[ocr]"
 
 ## 편집하지 않고 인식하기 { #recognize }
 
-`Page.get_text_ocr()`은 찾은 단어를 반환하며 문서는 변경하지 않습니다.
+`Page.ocr()`은 찾은 단어를 반환하며 문서는 변경하지 않습니다.
 
 ```python
 import pylopdf
 
 with pylopdf.open("scan.pdf") as doc:
-    for word in doc.pages[0].get_text_ocr():
-        print(word["bbox"], word["text"], word["confidence"])
+    for word in doc.pages[0].ocr():
+        print(word.bbox, word.text, word.confidence)
 ```
 
-각 `OcrWord`의 `bbox`는 텍스트 추출, 렌더링과 같은 페이지 좌표를 사용합니다. `confidence`는 순위를 매기거나 거를 때 유용하지만 보정된 확률은 아닙니다.
+각 `OcrWord` 레코드의 `bbox`는 텍스트 추출, 렌더링과 같은 페이지 좌표를 사용합니다. `confidence`는 순위를 매기거나 거를 때 유용하지만 보정된 확률은 아닙니다.
 
 ## 스캔 문서를 검색 가능하게 만들기 { #searchable }
 
@@ -47,21 +47,26 @@ with pylopdf.open("scan.pdf") as doc:
 
 ## 다른 OCR 엔진 사용하기 { #other-engines }
 
-`Page.insert_ocr_text_layer(words)`는 어떤 OCR 엔진이나 클라우드 서비스의 단어든 추가합니다. 각 단어는 페이지 좌표의 `(x0, y0, x1, y1, text)`이며, `text` 뒤의 추가 항목은 무시됩니다.
+`Page.apply_ocr(words=...)`는 페이지를 인식하는 대신 어떤 OCR 엔진이나 클라우드 서비스의 단어든 추가합니다. 각 단어는 페이지 좌표의 상자를 가진 `OcrWord`로 전달합니다.
 
 ```python
-words = [(72, 90, 140, 104, "Invoice"), (146, 90, 190, 104, "#1024")]
-doc.pages[0].insert_ocr_text_layer(words)
+from pylopdf import OcrWord, Rect
+
+words = [
+    OcrWord(text="Invoice", bbox=Rect(72, 90, 140, 104), confidence=0.98),
+    OcrWord(text="#1024", bbox=Rect(146, 90, 190, 104), confidence=0.95),
+]
+doc.pages[0].apply_ocr(words=words)
 ```
 
-이 레이어는 글꼴을 포함하지 않으므로 파일 크기가 거의 늘지 않습니다.
+인식할 때와 마찬가지로 이미 텍스트가 있는 페이지는 건너뜁니다. 이 레이어는 글꼴을 포함하지 않으므로 파일 크기가 거의 늘지 않습니다.
 
 ## 회전된 스캔 { #rotation }
 
 페이지가 옆으로 눕거나 뒤집혀 스캔되었다면, 인식 전에 이미지를 시계 방향으로 돌리도록 `rotation=90`, `180`, `270`을 전달합니다.
 
 ```python
-words = page.get_text_ocr(rotation=270)
+words = page.ocr(rotation=270)
 page.apply_ocr(rotation=270)
 ```
 
@@ -73,7 +78,7 @@ page.apply_ocr(rotation=270)
 
 ```python
 engine = pylopdf.OcrEngine(threads=2)
-words = page.get_text_ocr(engine=engine, tile_size=1280, min_confidence=0.6)
+words = page.ocr(engine=engine, tile_size=1280, min_confidence=0.6)
 ```
 
 `clip=`도 선택한 영역만 인식하므로 시간과 메모리를 절약합니다.

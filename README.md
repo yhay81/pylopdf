@@ -57,7 +57,7 @@ page = doc.pages[0]
 text = page.text()                     # plain text
 words = page.words()                   # words with their positions
 hits = page.search("invoice")          # rectangles of each match
-tables = page.find_tables()
+tables = page.tables()                 # tables with their cell text
 markdown = doc.markdown()              # whole document as Markdown
 
 # Render
