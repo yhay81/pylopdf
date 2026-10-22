@@ -100,6 +100,7 @@ pylopdf.Document(filename=None, stream=None, filetype=None, *,
 | `find_tables(*, clip=None, strategy=None)` | 표를 `TableFinder`로. [표](#tables) 참고 |
 | `to_markdown(*, table_strategy="lines")` | 이 페이지의 Markdown |
 | `get_text_ocr(...)`, `apply_ocr(...)`, `insert_ocr_text_layer(words)` | OCR. [오프라인 OCR](ocr.md) 참고 |
+| `content(*, clip=None, annotations=True)` | 페이지가 그리는 모든 텍스트 런, 경로, 이미지. [페이지 내용](#content) 참고 |
 | `get_drawings()` | 벡터 경로. [벡터 그림](#drawings) 참고 |
 | `get_links()` | 링크와 그 대상 |
 | `get_label()` | `"iv"` 같은 페이지 레이블 |
@@ -177,9 +178,46 @@ with pylopdf.open("report.pdf") as doc:
 
 구조는 [pymupdf의 rawdict](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs)와 비슷하지만 텍스트 블록만 반환하며, 이미지나 벡터 블록, 색상, 불투명도, 추가 글꼴 메트릭은 없습니다. [오버레이 예제](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)는 글리프 경계와 원점을 HTML 미리보기로 그립니다.
 
+## 페이지 내용 { #content }
+
+`page.content()`는 페이지가 그리는 것을 hayro가 해석한 그대로 그리는 순서대로 반환합니다. 표시 좌표의 `TextRun`, `Path`, `Image`로 이루어진 `Content` 시퀀스이며, 모든 값은 불변입니다.
+
+```python
+with pylopdf.open("report.pdf") as doc:
+    content = doc[0].content()
+    for run in content.text_runs:
+        print(run.text, run.font.name, run.size, run.fill)
+        for glyph in run.glyphs:
+            print(glyph.text, glyph.origin, glyph.bbox)
+    for path in content.paths:
+        print(path.bbox, path.fill, path.stroke)
+    for image in content.images:
+        print(image.xref, image.bbox, image.width, image.height)
+```
+
+| 항목 | 필드 |
+|---|---|
+| `TextRun` | `glyphs`, `font`, `render_mode`, `fill`, `stroke`, `bbox`. `text`와 `size`는 이들에서 구함 |
+| `Glyph` | `glyph_id`, `text`, `matrix`, `advance`, `bbox`. `origin`과 `size`는 행렬에서 구함 |
+| `Path` | `segments`(`MoveTo`, `LineTo`, `CurveTo`, `ClosePath`), `fill`, `fill_rule`, `stroke`, `bbox` |
+| `Image` | `xref`, `width`, `height`, `bits`, `colorspace`, `components`, `is_stencil`, `mask`, `encoded_size`, `resolution`, `matrix`, `bbox` |
+
+모든 항목에는 `blend_mode`, `soft_mask`, `context`도 있습니다. `context`는 항목을 둘러싼 클립(`clips`), 투명 그룹(`groups`), 마크된 콘텐츠(`marked_content`)를 바깥쪽부터 나열한 `GraphicsContext`이며, `opacity`와 `clip_bbox`는 이들을 합친 값입니다. 같은 컨텍스트에서 그린 항목은 컨텍스트 객체 하나를 공유합니다.
+
+페인트는 `Color`(sRGB와 알파), `ShadingPattern`, `TilingPattern` 중 하나입니다. `Stroke`는 `paint`, `width`, `cap`, `join`, `miter_limit`, `dashes`, `dash_offset`을 표시 공간 크기로 가집니다. 텍스트 런의 `font`는 폰트 프로그램의 `name`, `weight`, 스타일 플래그를 가진 `FontRef`입니다.
+
+- 글리프 상자는 글리프 윤곽선의 정확한 외접 상자이므로 공백에는 상자가 없습니다. Type 3 글리프의 상자는 그 프로시저가 그리는 범위입니다.
+- 클립을 함께 하는 렌더링 모드의 텍스트는 채우기나 선으로 그려지며, 클립만 하는 텍스트는 항목이 되지 않습니다. 같은 경로를 채운 직후에 선을 그으면 `B`와 마찬가지로 경로 하나가 됩니다.
+- `sh`로 그린 셰이딩은 클립된 영역을 덮고 `ShadingPattern`으로 채우는 `Path`입니다.
+- hayro는 모든 이미지를 그 시점의 불투명도, 블렌드 모드, 소프트 마스크를 가진 투명 그룹 안에 그리므로 이미지의 컨텍스트는 그 그룹으로 끝납니다. 보이는 영역 전체를 덮는 클립은 hayro와 마찬가지로 넣지 않습니다.
+
+`clip=`은 외접 상자가 주어진 사각형에 닿는 항목만 남기고, `annotations=False`는 주석의 모양을 뺍니다. 한 번의 호출이 읽는 글리프, 경로와 클립의 세그먼트, 항목은 합쳐서 `max_elements`까지이며 기본값은 262,144입니다.
+
+hayro가 아직 알려 주지 않는 정보는 모델에 없습니다. 색의 색 공간과 성분, 레이어 이름 같은 마크된 콘텐츠의 속성, `FontRef`가 가리키는 폰트 딕셔너리, 이미지 마스크의 객체입니다. 이들은 [엔진 작업](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#engine-work)에 나열되어 있습니다.
+
 ## 벡터 그림 { #drawings }
 
-`page.get_drawings()`는 채우거나 선을 그은 경로마다 pymupdf 형식의 `DrawingInfo` 딕셔너리를 하나씩 반환합니다. `type`(`"f"`, `"s"`, `"fs"`), `items`(직선과 3차 곡선), `rect`, 색상, 불투명도, 선 너비, 끝 모양(cap), 연결 모양(join), 대시, `seqno`를 포함합니다. 패턴으로 채운 경로의 색상은 `None`입니다. 클리핑 경로, 그룹, 레이어 이름은 반환하지 않습니다.
+`page.get_drawings()`는 채우거나 선을 그은 경로마다 pymupdf 형식의 `DrawingInfo` 딕셔너리를 하나씩 반환합니다. `type`(`"f"`, `"s"`, `"fs"`), `items`(직선과 3차 곡선), `rect`, 색상, 불투명도, 선 너비, 끝 모양(cap), 연결 모양(join), 대시, `seqno`를 포함합니다. 패턴으로 채운 경로의 색상은 `None`입니다. [`page.content()`](#content)의 경로에는 클립, 그룹, 마크된 콘텐츠도 있습니다.
 
 ## 표 { #tables }
 
@@ -392,9 +430,10 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 | `Font`, `Shape` | [Font](#font)와 [도형](#shapes) 참고 |
 | `Base14_fontnames`, `Base14_fontdict` | `fontname=`이 받는 Standard 14 글꼴 이름 |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [저수준 객체](#low-level-objects) |
+| `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext` 등 내용 타입 | [페이지 내용](#content) |
 | `Colorspace`, `csRGB`, `csGRAY`, `csCMYK` | pymupdf의 장치 색 공간 |
 
-상수는 pymupdf의 이름을 유지하며 열거형으로도 묶여 있습니다. `Permissions`(`PDF_PERM_*`), `EncryptionMethod`(`PDF_ENCRYPT_*`), `LinkKind`(`LINK_*`), `TextAlign`(`TEXT_ALIGN_*`), `AnnotType`(`PDF_ANNOT_*`), `AnnotFlags`(`PDF_ANNOT_IS_*`)입니다.
+상수는 pymupdf의 이름을 유지하며 열거형으로도 묶여 있습니다. `Permissions`(`PDF_PERM_*`), `EncryptionMethod`(`PDF_ENCRYPT_*`), `LinkKind`(`LINK_*`), `TextAlign`(`TEXT_ALIGN_*`), `AnnotType`(`PDF_ANNOT_*`), `AnnotFlags`(`PDF_ANNOT_IS_*`)입니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
 
 API가 반환하는 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `TextPageDict`, `RawTextPageDict`, `DrawingInfo`, `ImageInfo`, `LinkInfo`, `FormFieldInfo`, `DocumentMetadata`, `OcrWord` 같은 `TypedDict` 클래스로 기술됩니다. `Word`, `Block`, `ImageItem`, `OutlineEntry` 같은 튜플은 네임드 튜플입니다.
 

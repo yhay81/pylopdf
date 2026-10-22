@@ -100,6 +100,7 @@ pylopdf.Document(filename=None, stream=None, filetype=None, *,
 | `find_tables(*, clip=None, strategy=None)` | 表を`TableFinder`で。[表](#tables)を参照 |
 | `to_markdown(*, table_strategy="lines")` | このページのMarkdown |
 | `get_text_ocr(...)`, `apply_ocr(...)`, `insert_ocr_text_layer(words)` | OCR。[オフラインOCR](ocr.md)を参照 |
+| `content(*, clip=None, annotations=True)` | ページが描くすべてのテキストラン、パス、画像。[ページの内容](#content)を参照 |
 | `get_drawings()` | ベクタのパス。[ベクタ図形](#drawings)を参照 |
 | `get_links()` | リンクとそのリンク先 |
 | `get_label()` | `"iv"`のようなページラベル |
@@ -177,9 +178,46 @@ with pylopdf.open("report.pdf") as doc:
 
 構造は[pymupdfのrawdict](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs)に似ていますが、返すのはテキストブロックだけです。画像やベクタのブロック、色、不透明度、追加のフォントメトリクスは含みません。[オーバーレイの例](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)は、グリフの範囲と始点をHTMLのプレビューとして描きます。
 
+## ページの内容 { #content }
+
+`page.content()`は、ページが描くものをhayroの解釈どおりに描画順で返します。表示座標の`TextRun`、`Path`、`Image`を並べた`Content`シーケンスで、値はすべて不変です。
+
+```python
+with pylopdf.open("report.pdf") as doc:
+    content = doc[0].content()
+    for run in content.text_runs:
+        print(run.text, run.font.name, run.size, run.fill)
+        for glyph in run.glyphs:
+            print(glyph.text, glyph.origin, glyph.bbox)
+    for path in content.paths:
+        print(path.bbox, path.fill, path.stroke)
+    for image in content.images:
+        print(image.xref, image.bbox, image.width, image.height)
+```
+
+| 項目 | フィールド |
+|---|---|
+| `TextRun` | `glyphs`、`font`、`render_mode`、`fill`、`stroke`、`bbox`。`text`と`size`はこれらから求める |
+| `Glyph` | `glyph_id`、`text`、`matrix`、`advance`、`bbox`。`origin`と`size`は行列から求める |
+| `Path` | `segments`（`MoveTo`、`LineTo`、`CurveTo`、`ClosePath`）、`fill`、`fill_rule`、`stroke`、`bbox` |
+| `Image` | `xref`、`width`、`height`、`bits`、`colorspace`、`components`、`is_stencil`、`mask`、`encoded_size`、`resolution`、`matrix`、`bbox` |
+
+どの項目も`blend_mode`、`soft_mask`、`context`を持ちます。`context`は、その項目を囲むクリップ（`clips`）、透明グループ（`groups`）、マーク付きコンテンツ（`marked_content`）を外側から順に並べた`GraphicsContext`で、`opacity`と`clip_bbox`はそれらを合わせた値です。同じコンテキストで描かれた項目は、1つのコンテキストオブジェクトを共有します。
+
+ペイントは`Color`（sRGBとアルファ）、`ShadingPattern`、`TilingPattern`のいずれかです。`Stroke`は`paint`、`width`、`cap`、`join`、`miter_limit`、`dashes`、`dash_offset`を表示空間の大きさで持ちます。テキストランの`font`は、フォントプログラムの`name`、`weight`、スタイルのフラグを持つ`FontRef`です。
+
+- グリフの矩形はアウトラインの正確な外接矩形なので、空白には矩形がありません。Type 3グリフの矩形は、その手続きが描く範囲です。
+- クリップを伴う描画モードのテキストは塗りまたは線として描かれ、クリップだけを行うテキストは項目になりません。同じパスの塗りの直後に線を描くと、`B`と同じく1つのパスになります。
+- `sh`で描かれたシェーディングは、クリップされた範囲を覆い`ShadingPattern`で塗る`Path`です。
+- hayroはすべての画像を、その時点の不透明度、ブレンドモード、ソフトマスクを持つ透明グループの中に描くため、画像のコンテキストはそのグループで終わります。表示範囲全体を覆うクリップは、hayroと同じく含めません。
+
+`clip=`は外接矩形が指定の矩形に接する項目だけを残し、`annotations=False`は注釈の外観を除きます。1回の呼び出しで読むグリフ、パスとクリップのセグメント、項目は合わせて`max_elements`まで、既定では262,144です。
+
+hayroがまだ報告しない情報はモデルにありません。色の色空間と成分、レイヤー名などマーク付きコンテンツのプロパティ、`FontRef`の元になるフォント辞書、画像マスクのオブジェクトです。これらは[エンジンの作業](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#engine-work)に挙げています。
+
 ## ベクタ図形 { #drawings }
 
-`page.get_drawings()`は、塗りまたは線で描かれたパスごとに`DrawingInfo`辞書を1つ、pymupdfの形式で返します。`type`（`"f"`、`"s"`、`"fs"`）、`items`（直線と3次曲線）、`rect`、色、不透明度、線幅、線端、角の形、破線、`seqno`を持ちます。パターンで塗られたパスの色は`None`です。クリッピングパス、グループ、レイヤー名は返しません。
+`page.get_drawings()`は、塗りまたは線で描かれたパスごとに`DrawingInfo`辞書を1つ、pymupdfの形式で返します。`type`（`"f"`、`"s"`、`"fs"`）、`items`（直線と3次曲線）、`rect`、色、不透明度、線幅、線端、角の形、破線、`seqno`を持ちます。パターンで塗られたパスの色は`None`です。[`page.content()`](#content)のパスは、クリップ、グループ、マーク付きコンテンツも持ちます。
 
 ## 表 { #tables }
 
@@ -392,9 +430,10 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | `Font`, `Shape` | [Font](#font)と[Shape](#shapes)を参照 |
 | `Base14_fontnames`, `Base14_fontdict` | `fontname=`が受け付けるStandard 14フォントの名前 |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [低レベルオブジェクト](#low-level-objects) |
+| `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`ほかの内容の型 | [ページの内容](#content) |
 | `Colorspace`, `csRGB`, `csGRAY`, `csCMYK` | pymupdfと同じデバイス色空間 |
 
-定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`EncryptionMethod`（`PDF_ENCRYPT_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）、`AnnotFlags`（`PDF_ANNOT_IS_*`）です。
+定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`EncryptionMethod`（`PDF_ENCRYPT_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）、`AnnotFlags`（`PDF_ANNOT_IS_*`）です。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
 
 APIが返す辞書はただの`dict`で、型チェッカー向けに`TextPageDict`、`RawTextPageDict`、`DrawingInfo`、`ImageInfo`、`LinkInfo`、`FormFieldInfo`、`DocumentMetadata`、`OcrWord`などの`TypedDict`クラスで記述しています。`Word`、`Block`、`ImageItem`、`OutlineEntry`などのタプルは名前付きタプルです。
 

@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from pylopdf import DocumentComplexity
 
@@ -30,6 +30,7 @@ _ASSETS = (
     "tests/assets/real_world/f1040.pdf",
     "tests/assets/real_world/senate-expenditures.pdf",
     "tests/assets/real_world/bunka-kokugo-series-019-p4.pdf",
+    "tests/assets/real_world/pdfium-type3.pdf",
     "tests/assets/encrypted/user-aes-256.pdf",
     "fonts/pylopdf-fonts-jp/src/pylopdf_fonts_jp/NotoSansJP-Regular.otf",
     "fonts/pylopdf-fonts-he/src/pylopdf_fonts_he/NotoSansHebrew-Variable.ttf",
@@ -1281,6 +1282,32 @@ def _document_property_results(root: Path) -> dict[str, Any]:
     }
 
 
+def _content_model_results(root: Path) -> dict[str, Any]:
+    """Read a form page and a Type 3 page through the content model."""
+    import pylopdf  # noqa: PLC0415
+
+    def rounded(items: Sequence[Any]) -> list[list[float]]:
+        return [[round(value, 2) for value in item.bbox] for item in items]
+
+    form = pylopdf.Document(root / "tests/assets/real_world/f1040.pdf")[0].content()
+    runs = form.text_runs
+    glyphs = [glyph for run in runs for glyph in run.glyphs]
+    _require(len(runs) > _MIN_FORM_DRAWINGS, "Form 1040 content has too few text runs")
+    _require(all(glyph.bbox is None or glyph.bbox.is_valid for glyph in glyphs), "a glyph box is invalid")
+    marked = sorted({mark.tag for run in runs for mark in run.context.marked_content})
+    type3 = pylopdf.Document(root / "tests/assets/real_world/pdfium-type3.pdf")[0].content()
+    return {
+        "form_counts": [len(runs), len(form.paths), len(form.images)],
+        "form_text": _digest("".join(run.text for run in runs)),
+        "form_boxes": _digest(repr(rounded(runs) + rounded(form.paths))),
+        "form_marked_content": marked,
+        "type3": [
+            [run.font.is_type3, [round(value, 2) for value in run.bbox], [glyph.text for glyph in run.glyphs]]
+            for run in type3.text_runs
+        ],
+    }
+
+
 def collect_results(root: Path) -> dict[str, Any]:
     """Run compatibility assertions and return stable native/Wasm comparison data."""
     import pylopdf  # noqa: PLC0415
@@ -1302,6 +1329,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "content_isolation": _content_isolation_results(),
         "object_model": _object_model_results(),
         "document_properties": _document_property_results(root),
+        "content_model": _content_model_results(root),
         "threads": {
             "render_pages_workers_4": "serial on Emscripten; bounded rayon pool on native",
         },

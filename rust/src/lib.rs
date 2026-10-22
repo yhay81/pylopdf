@@ -3,6 +3,7 @@ mod acroform_import;
 mod bundled_font_cache;
 mod content;
 mod content_guard;
+mod content_model;
 mod content_scan;
 mod document;
 mod draw;

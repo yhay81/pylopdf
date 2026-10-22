@@ -9,12 +9,19 @@
     "Attachments",
     "Base14_fontdict",
     "Base14_fontnames",
+    "BlendMode",
     "Block",
     "CS_CMYK",
     "CS_GRAY",
     "CS_RGB",
     "CjkFontLanguage",
+    "Clip",
+    "ClosePath",
+    "Color",
     "Colorspace",
+    "Content",
+    "ContentItem",
+    "CurveTo",
     "Dictionary",
     "Document",
     "DocumentClosedError",
@@ -33,20 +40,26 @@
     "FZ_MAX_INF_RECT",
     "FZ_MIN_INF_RECT",
     "FileDataError",
+    "FillRule",
     "Font",
     "FontLanguage",
+    "FontRef",
     "FormFieldInfo",
     "FormFieldType",
+    "Glyph",
+    "GraphicsContext",
     "INFINITE_IRECT",
     "INFINITE_QUAD",
     "INFINITE_RECT",
     "IRect",
     "Identity",
     "IdentityMatrix",
+    "Image",
     "ImageCompressionResult",
     "ImageInfo",
     "ImageItem",
     "ImageItemFull",
+    "ImageMask",
     "LINK_GOTO",
     "LINK_GOTOR",
     "LINK_LAUNCH",
@@ -54,12 +67,17 @@
     "LINK_NONE",
     "LINK_URI",
     "LimitError",
+    "LineCap",
+    "LineJoin",
+    "LineTo",
     "LinkInfo",
     "LinkKind",
     "MarkInfo",
+    "MarkedContent",
     "Matrix",
     "MetadataProbe",
     "MetadataUpdate",
+    "MoveTo",
     "Name",
     "Objects",
     "OcrEngine",
@@ -124,7 +142,9 @@
     "Page",
     "PageLabelInfo",
     "PageLabelSpec",
+    "Paint",
     "PasswordError",
+    "Path",
     "PdfError",
     "Permissions",
     "Pixmap",
@@ -136,11 +156,17 @@
     "RawTextPageDict",
     "RawTextSpan",
     "Rect",
+    "Segment",
+    "ShadingPattern",
+    "ShadingType",
     "Shape",
+    "SoftMask",
+    "SoftMaskType",
     "StaleObjectError",
     "StalePageError",
     "Stream",
     "String",
+    "Stroke",
     "TEXT_ALIGN_CENTER",
     "TEXT_ALIGN_JUSTIFY",
     "TEXT_ALIGN_LEFT",
@@ -153,7 +179,11 @@
     "TextChar",
     "TextLine",
     "TextPageDict",
+    "TextRenderMode",
+    "TextRun",
     "TextSpan",
+    "TilingPattern",
+    "TransparencyGroup",
     "Word",
     "csCMYK",
     "csGRAY",
@@ -578,6 +608,27 @@
         "ZapfDingbats"
       ]
     },
+    "BlendMode": {
+      "kind": "enum",
+      "members": {
+        "COLOR": "color",
+        "COLOR_BURN": "color_burn",
+        "COLOR_DODGE": "color_dodge",
+        "DARKEN": "darken",
+        "DIFFERENCE": "difference",
+        "EXCLUSION": "exclusion",
+        "HARD_LIGHT": "hard_light",
+        "HUE": "hue",
+        "LIGHTEN": "lighten",
+        "LUMINOSITY": "luminosity",
+        "MULTIPLY": "multiply",
+        "NORMAL": "normal",
+        "OVERLAY": "overlay",
+        "SATURATION": "saturation",
+        "SCREEN": "screen",
+        "SOFT_LIGHT": "soft_light"
+      }
+    },
     "Block": {
       "annotations": {
         "block_no": "int",
@@ -677,6 +728,118 @@
       "kind": "type-alias",
       "target": "Literal['ja', 'ko', 'zh-CN', 'zh-TW']"
     },
+    "Clip": {
+      "annotations": {
+        "bbox": "Rect",
+        "fill_rule": "FillRule",
+        "segments": "tuple[Segment, ...]"
+      },
+      "dataclass_fields": [
+        "segments",
+        "fill_rule",
+        "bbox"
+      ],
+      "kind": "class",
+      "members": {
+        "bbox": {
+          "kind": "property"
+        },
+        "fill_rule": {
+          "kind": "property"
+        },
+        "segments": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "tuple[Segment, ...]",
+            "kind": "keyword_only",
+            "name": "segments"
+          },
+          {
+            "annotation": "FillRule",
+            "kind": "keyword_only",
+            "name": "fill_rule"
+          },
+          {
+            "annotation": "Rect",
+            "kind": "keyword_only",
+            "name": "bbox"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "ClosePath": {
+      "dataclass_fields": [],
+      "kind": "class",
+      "members": {},
+      "signature": {
+        "parameters": [],
+        "returns": "None"
+      }
+    },
+    "Color": {
+      "annotations": {
+        "alpha": "float",
+        "blue": "float",
+        "green": "float",
+        "red": "float"
+      },
+      "dataclass_fields": [
+        "red",
+        "green",
+        "blue",
+        "alpha"
+      ],
+      "kind": "class",
+      "members": {
+        "alpha": {
+          "kind": "property"
+        },
+        "blue": {
+          "kind": "property"
+        },
+        "green": {
+          "kind": "property"
+        },
+        "red": {
+          "kind": "property"
+        },
+        "rgb": {
+          "kind": "property",
+          "returns": "tuple[float, float, float]"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "float",
+            "kind": "positional_or_keyword",
+            "name": "red"
+          },
+          {
+            "annotation": "float",
+            "kind": "positional_or_keyword",
+            "name": "green"
+          },
+          {
+            "annotation": "float",
+            "kind": "positional_or_keyword",
+            "name": "blue"
+          },
+          {
+            "annotation": "float",
+            "default": 1.0,
+            "kind": "positional_or_keyword",
+            "name": "alpha"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "Colorspace": {
       "annotations": {
         "_type": "int"
@@ -698,6 +861,131 @@
             "annotation": "int",
             "kind": "positional_only",
             "name": "type"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "Content": {
+      "annotations": {
+        "items": "tuple[ContentItem, ...]"
+      },
+      "dataclass_fields": [
+        "items"
+      ],
+      "kind": "class",
+      "members": {
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | slice",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              }
+            ],
+            "returns": "ContentItem | tuple[ContentItem, ...]"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[ContentItem]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        },
+        "images": {
+          "kind": "property",
+          "returns": "tuple[Image, ...]"
+        },
+        "items": {
+          "kind": "property"
+        },
+        "paths": {
+          "kind": "property",
+          "returns": "tuple[Path, ...]"
+        },
+        "text_runs": {
+          "kind": "property",
+          "returns": "tuple[TextRun, ...]"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "tuple[ContentItem, ...]",
+            "kind": "positional_or_keyword",
+            "name": "items"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "ContentItem": {
+      "kind": "type-alias",
+      "target": "pylopdf.TextRun | pylopdf.Path | pylopdf.Image"
+    },
+    "CurveTo": {
+      "annotations": {
+        "c1": "Point",
+        "c2": "Point",
+        "to": "Point"
+      },
+      "dataclass_fields": [
+        "c1",
+        "c2",
+        "to"
+      ],
+      "kind": "class",
+      "members": {
+        "c1": {
+          "kind": "property"
+        },
+        "c2": {
+          "kind": "property"
+        },
+        "to": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Point",
+            "kind": "positional_or_keyword",
+            "name": "c1"
+          },
+          {
+            "annotation": "Point",
+            "kind": "positional_or_keyword",
+            "name": "c2"
+          },
+          {
+            "annotation": "Point",
+            "kind": "positional_or_keyword",
+            "name": "to"
           }
         ],
         "returns": "None"
@@ -2312,6 +2600,13 @@
       "kind": "exception",
       "members": {}
     },
+    "FillRule": {
+      "kind": "enum",
+      "members": {
+        "EVEN_ODD": "even_odd",
+        "NONZERO": "nonzero"
+      }
+    },
     "Font": {
       "kind": "class",
       "members": {
@@ -2480,6 +2775,80 @@
       "kind": "type-alias",
       "target": "Literal['ar', 'he', 'hi', 'ja', 'ko', 'th', 'zh-CN', 'zh-TW']"
     },
+    "FontRef": {
+      "annotations": {
+        "is_italic": "bool",
+        "is_monospace": "bool",
+        "is_serif": "bool",
+        "is_type3": "bool",
+        "name": "str",
+        "weight": "int | None"
+      },
+      "dataclass_fields": [
+        "name",
+        "is_type3",
+        "weight",
+        "is_italic",
+        "is_serif",
+        "is_monospace"
+      ],
+      "kind": "class",
+      "members": {
+        "is_italic": {
+          "kind": "property"
+        },
+        "is_monospace": {
+          "kind": "property"
+        },
+        "is_serif": {
+          "kind": "property"
+        },
+        "is_type3": {
+          "kind": "property"
+        },
+        "name": {
+          "kind": "property"
+        },
+        "weight": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "keyword_only",
+            "name": "name"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_type3"
+          },
+          {
+            "annotation": "int | None",
+            "kind": "keyword_only",
+            "name": "weight"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_italic"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_serif"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_monospace"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "FormFieldInfo": {
       "fields": {
         "name": "str",
@@ -2497,6 +2866,130 @@
     "FormFieldType": {
       "kind": "type-alias",
       "target": "Literal['text', 'checkbox', 'radio', 'button', 'combobox', 'listbox', 'signature', 'unknown']"
+    },
+    "Glyph": {
+      "annotations": {
+        "advance": "float | None",
+        "bbox": "Rect | None",
+        "glyph_id": "int | None",
+        "matrix": "Matrix",
+        "text": "str | None"
+      },
+      "dataclass_fields": [
+        "glyph_id",
+        "text",
+        "matrix",
+        "advance",
+        "bbox"
+      ],
+      "kind": "class",
+      "members": {
+        "advance": {
+          "kind": "property"
+        },
+        "bbox": {
+          "kind": "property"
+        },
+        "glyph_id": {
+          "kind": "property"
+        },
+        "matrix": {
+          "kind": "property"
+        },
+        "origin": {
+          "kind": "property",
+          "returns": "Point"
+        },
+        "size": {
+          "kind": "property",
+          "returns": "float"
+        },
+        "text": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "int | None",
+            "kind": "keyword_only",
+            "name": "glyph_id"
+          },
+          {
+            "annotation": "str | None",
+            "kind": "keyword_only",
+            "name": "text"
+          },
+          {
+            "annotation": "Matrix",
+            "kind": "keyword_only",
+            "name": "matrix"
+          },
+          {
+            "annotation": "float | None",
+            "kind": "keyword_only",
+            "name": "advance"
+          },
+          {
+            "annotation": "Rect | None",
+            "kind": "keyword_only",
+            "name": "bbox"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "GraphicsContext": {
+      "annotations": {
+        "clips": "tuple[Clip, ...]",
+        "groups": "tuple[TransparencyGroup, ...]",
+        "marked_content": "tuple[MarkedContent, ...]"
+      },
+      "dataclass_fields": [
+        "clips",
+        "groups",
+        "marked_content"
+      ],
+      "kind": "class",
+      "members": {
+        "clip_bbox": {
+          "kind": "property",
+          "returns": "Rect | None"
+        },
+        "clips": {
+          "kind": "property"
+        },
+        "groups": {
+          "kind": "property"
+        },
+        "marked_content": {
+          "kind": "property"
+        },
+        "opacity": {
+          "kind": "property",
+          "returns": "float"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "tuple[Clip, ...]",
+            "kind": "keyword_only",
+            "name": "clips"
+          },
+          {
+            "annotation": "tuple[TransparencyGroup, ...]",
+            "kind": "keyword_only",
+            "name": "groups"
+          },
+          {
+            "annotation": "tuple[MarkedContent, ...]",
+            "kind": "keyword_only",
+            "name": "marked_content"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "INFINITE_IRECT": {
       "kind": "function",
@@ -2969,6 +3462,170 @@
         "returns": "Self"
       }
     },
+    "Image": {
+      "annotations": {
+        "bbox": "Rect",
+        "bits": "int",
+        "blend_mode": "BlendMode",
+        "colorspace": "str",
+        "components": "int",
+        "context": "GraphicsContext",
+        "encoded_size": "int",
+        "height": "int",
+        "is_stencil": "bool",
+        "mask": "ImageMask | None",
+        "matrix": "Matrix",
+        "resolution": "tuple[int, int]",
+        "soft_mask": "SoftMask | None",
+        "width": "int",
+        "xref": "int"
+      },
+      "dataclass_fields": [
+        "xref",
+        "width",
+        "height",
+        "bits",
+        "colorspace",
+        "components",
+        "is_stencil",
+        "mask",
+        "encoded_size",
+        "resolution",
+        "matrix",
+        "bbox",
+        "context",
+        "blend_mode",
+        "soft_mask"
+      ],
+      "kind": "class",
+      "members": {
+        "bbox": {
+          "kind": "property"
+        },
+        "bits": {
+          "kind": "property"
+        },
+        "blend_mode": {
+          "kind": "property"
+        },
+        "colorspace": {
+          "kind": "property"
+        },
+        "components": {
+          "kind": "property"
+        },
+        "context": {
+          "kind": "property"
+        },
+        "encoded_size": {
+          "kind": "property"
+        },
+        "height": {
+          "kind": "property"
+        },
+        "is_stencil": {
+          "kind": "property"
+        },
+        "mask": {
+          "kind": "property"
+        },
+        "matrix": {
+          "kind": "property"
+        },
+        "resolution": {
+          "kind": "property"
+        },
+        "soft_mask": {
+          "kind": "property"
+        },
+        "width": {
+          "kind": "property"
+        },
+        "xref": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "xref"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "width"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "height"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "bits"
+          },
+          {
+            "annotation": "str",
+            "kind": "keyword_only",
+            "name": "colorspace"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "components"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_stencil"
+          },
+          {
+            "annotation": "ImageMask | None",
+            "kind": "keyword_only",
+            "name": "mask"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "encoded_size"
+          },
+          {
+            "annotation": "tuple[int, int]",
+            "kind": "keyword_only",
+            "name": "resolution"
+          },
+          {
+            "annotation": "Matrix",
+            "kind": "keyword_only",
+            "name": "matrix"
+          },
+          {
+            "annotation": "Rect",
+            "kind": "keyword_only",
+            "name": "bbox"
+          },
+          {
+            "annotation": "GraphicsContext",
+            "kind": "keyword_only",
+            "name": "context"
+          },
+          {
+            "annotation": "BlendMode",
+            "kind": "keyword_only",
+            "name": "blend_mode"
+          },
+          {
+            "annotation": "SoftMask | None",
+            "kind": "keyword_only",
+            "name": "soft_mask"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "ImageCompressionResult": {
       "fields": {
         "bytes_after": "int",
@@ -3240,6 +3897,14 @@
         ]
       }
     },
+    "ImageMask": {
+      "kind": "enum",
+      "members": {
+        "COLOR_KEY": "color_key",
+        "EXPLICIT": "explicit",
+        "SOFT": "soft"
+      }
+    },
     "LINK_GOTO": {
       "kind": "constant",
       "value": 1
@@ -3274,6 +3939,46 @@
           "kind": "property",
           "returns": "str"
         }
+      }
+    },
+    "LineCap": {
+      "kind": "enum",
+      "members": {
+        "BUTT": "butt",
+        "ROUND": "round",
+        "SQUARE": "square"
+      }
+    },
+    "LineJoin": {
+      "kind": "enum",
+      "members": {
+        "BEVEL": "bevel",
+        "MITER": "miter",
+        "ROUND": "round"
+      }
+    },
+    "LineTo": {
+      "annotations": {
+        "to": "Point"
+      },
+      "dataclass_fields": [
+        "to"
+      ],
+      "kind": "class",
+      "members": {
+        "to": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Point",
+            "kind": "positional_or_keyword",
+            "name": "to"
+          }
+        ],
+        "returns": "None"
       }
     },
     "LinkInfo": {
@@ -3331,6 +4036,40 @@
         "UserProperties"
       ],
       "required_keys": []
+    },
+    "MarkedContent": {
+      "annotations": {
+        "mcid": "int | None",
+        "tag": "str"
+      },
+      "dataclass_fields": [
+        "tag",
+        "mcid"
+      ],
+      "kind": "class",
+      "members": {
+        "mcid": {
+          "kind": "property"
+        },
+        "tag": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "keyword_only",
+            "name": "tag"
+          },
+          {
+            "annotation": "int | None",
+            "kind": "keyword_only",
+            "name": "mcid"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "Matrix": {
       "annotations": {
@@ -3625,6 +4364,30 @@
         "trapped"
       ],
       "required_keys": []
+    },
+    "MoveTo": {
+      "annotations": {
+        "to": "Point"
+      },
+      "dataclass_fields": [
+        "to"
+      ],
+      "kind": "class",
+      "members": {
+        "to": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Point",
+            "kind": "positional_or_keyword",
+            "name": "to"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "Name": {
       "kind": "class",
@@ -4249,6 +5012,36 @@
               }
             ],
             "returns": "list[OcrWord]"
+          }
+        },
+        "content": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "annotations"
+              },
+              {
+                "annotation": "int | None",
+                "default": 262144,
+                "kind": "keyword_only",
+                "name": "max_elements"
+              }
+            ],
+            "returns": "Content"
           }
         },
         "cropbox": {
@@ -5964,12 +6757,110 @@
         "startpage"
       ]
     },
+    "Paint": {
+      "kind": "type-alias",
+      "target": "pylopdf.Color | pylopdf.ShadingPattern | pylopdf.TilingPattern"
+    },
     "PasswordError": {
       "bases": [
         "pylopdf.PdfError"
       ],
       "kind": "exception",
       "members": {}
+    },
+    "Path": {
+      "annotations": {
+        "bbox": "Rect",
+        "blend_mode": "BlendMode",
+        "context": "GraphicsContext",
+        "fill": "Paint | None",
+        "fill_rule": "FillRule",
+        "segments": "tuple[Segment, ...]",
+        "soft_mask": "SoftMask | None",
+        "stroke": "Stroke | None"
+      },
+      "dataclass_fields": [
+        "segments",
+        "fill",
+        "fill_rule",
+        "stroke",
+        "bbox",
+        "context",
+        "blend_mode",
+        "soft_mask"
+      ],
+      "kind": "class",
+      "members": {
+        "bbox": {
+          "kind": "property"
+        },
+        "blend_mode": {
+          "kind": "property"
+        },
+        "context": {
+          "kind": "property"
+        },
+        "fill": {
+          "kind": "property"
+        },
+        "fill_rule": {
+          "kind": "property"
+        },
+        "segments": {
+          "kind": "property"
+        },
+        "soft_mask": {
+          "kind": "property"
+        },
+        "stroke": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "tuple[Segment, ...]",
+            "kind": "keyword_only",
+            "name": "segments"
+          },
+          {
+            "annotation": "Paint | None",
+            "kind": "keyword_only",
+            "name": "fill"
+          },
+          {
+            "annotation": "FillRule",
+            "kind": "keyword_only",
+            "name": "fill_rule"
+          },
+          {
+            "annotation": "Stroke | None",
+            "kind": "keyword_only",
+            "name": "stroke"
+          },
+          {
+            "annotation": "Rect",
+            "kind": "keyword_only",
+            "name": "bbox"
+          },
+          {
+            "annotation": "GraphicsContext",
+            "kind": "keyword_only",
+            "name": "context"
+          },
+          {
+            "annotation": "BlendMode",
+            "kind": "keyword_only",
+            "name": "blend_mode"
+          },
+          {
+            "annotation": "SoftMask | None",
+            "kind": "keyword_only",
+            "name": "soft_mask"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "PdfError": {
       "bases": [
@@ -7045,6 +7936,65 @@
         "returns": "Self"
       }
     },
+    "Segment": {
+      "kind": "type-alias",
+      "target": "pylopdf.MoveTo | pylopdf.LineTo | pylopdf.CurveTo | pylopdf.ClosePath"
+    },
+    "ShadingPattern": {
+      "annotations": {
+        "matrix": "Matrix",
+        "opacity": "float",
+        "shading_type": "ShadingType | None"
+      },
+      "dataclass_fields": [
+        "shading_type",
+        "matrix",
+        "opacity"
+      ],
+      "kind": "class",
+      "members": {
+        "matrix": {
+          "kind": "property"
+        },
+        "opacity": {
+          "kind": "property"
+        },
+        "shading_type": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "ShadingType | None",
+            "kind": "keyword_only",
+            "name": "shading_type"
+          },
+          {
+            "annotation": "Matrix",
+            "kind": "keyword_only",
+            "name": "matrix"
+          },
+          {
+            "annotation": "float",
+            "kind": "keyword_only",
+            "name": "opacity"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "ShadingType": {
+      "kind": "enum",
+      "members": {
+        "AXIAL": 2,
+        "COONS_PATCH_MESH": 6,
+        "FUNCTION": 1,
+        "RADIAL": 3,
+        "TENSOR_PATCH_MESH": 7,
+        "TRIANGLE_MESH": 4
+      }
+    },
     "Shape": {
       "annotations": {
         "doc": "Document",
@@ -7686,6 +8636,47 @@
         "returns": "None"
       }
     },
+    "SoftMask": {
+      "annotations": {
+        "subtype": "SoftMaskType",
+        "xref": "int"
+      },
+      "dataclass_fields": [
+        "xref",
+        "subtype"
+      ],
+      "kind": "class",
+      "members": {
+        "subtype": {
+          "kind": "property"
+        },
+        "xref": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "xref"
+          },
+          {
+            "annotation": "SoftMaskType",
+            "kind": "keyword_only",
+            "name": "subtype"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "SoftMaskType": {
+      "kind": "enum",
+      "members": {
+        "ALPHA": "alpha",
+        "LUMINOSITY": "luminosity"
+      }
+    },
     "StaleObjectError": {
       "bases": [
         "pylopdf.PdfError"
@@ -7794,6 +8785,96 @@
         }
       },
       "signature": null
+    },
+    "Stroke": {
+      "annotations": {
+        "cap": "LineCap",
+        "dash_offset": "float",
+        "dashes": "tuple[float, ...]",
+        "join": "LineJoin",
+        "miter_limit": "float",
+        "paint": "Paint",
+        "width": "float"
+      },
+      "dataclass_fields": [
+        "paint",
+        "width",
+        "cap",
+        "join",
+        "miter_limit",
+        "dashes",
+        "dash_offset"
+      ],
+      "kind": "class",
+      "members": {
+        "cap": {
+          "kind": "property"
+        },
+        "dash_offset": {
+          "kind": "property"
+        },
+        "dashes": {
+          "kind": "property"
+        },
+        "join": {
+          "kind": "property"
+        },
+        "miter_limit": {
+          "kind": "property"
+        },
+        "paint": {
+          "kind": "property"
+        },
+        "width": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Paint",
+            "kind": "keyword_only",
+            "name": "paint"
+          },
+          {
+            "annotation": "float",
+            "default": 1.0,
+            "kind": "keyword_only",
+            "name": "width"
+          },
+          {
+            "annotation": "LineCap",
+            "default": "butt",
+            "kind": "keyword_only",
+            "name": "cap"
+          },
+          {
+            "annotation": "LineJoin",
+            "default": "miter",
+            "kind": "keyword_only",
+            "name": "join"
+          },
+          {
+            "annotation": "float",
+            "default": 10.0,
+            "kind": "keyword_only",
+            "name": "miter_limit"
+          },
+          {
+            "annotation": "tuple[float, ...]",
+            "default": [],
+            "kind": "keyword_only",
+            "name": "dashes"
+          },
+          {
+            "annotation": "float",
+            "default": 0.0,
+            "kind": "keyword_only",
+            "name": "dash_offset"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "TEXT_ALIGN_CENTER": {
       "kind": "constant",
@@ -8112,6 +9193,127 @@
         "width"
       ]
     },
+    "TextRenderMode": {
+      "kind": "enum",
+      "members": {
+        "FILL": "fill",
+        "FILL_STROKE": "fill_stroke",
+        "INVISIBLE": "invisible",
+        "STROKE": "stroke"
+      }
+    },
+    "TextRun": {
+      "annotations": {
+        "bbox": "Rect",
+        "blend_mode": "BlendMode",
+        "context": "GraphicsContext",
+        "fill": "Paint | None",
+        "font": "FontRef",
+        "glyphs": "tuple[Glyph, ...]",
+        "render_mode": "TextRenderMode",
+        "soft_mask": "SoftMask | None",
+        "stroke": "Stroke | None"
+      },
+      "dataclass_fields": [
+        "glyphs",
+        "font",
+        "render_mode",
+        "fill",
+        "stroke",
+        "bbox",
+        "context",
+        "blend_mode",
+        "soft_mask"
+      ],
+      "kind": "class",
+      "members": {
+        "bbox": {
+          "kind": "property"
+        },
+        "blend_mode": {
+          "kind": "property"
+        },
+        "context": {
+          "kind": "property"
+        },
+        "fill": {
+          "kind": "property"
+        },
+        "font": {
+          "kind": "property"
+        },
+        "glyphs": {
+          "kind": "property"
+        },
+        "render_mode": {
+          "kind": "property"
+        },
+        "size": {
+          "kind": "property",
+          "returns": "float"
+        },
+        "soft_mask": {
+          "kind": "property"
+        },
+        "stroke": {
+          "kind": "property"
+        },
+        "text": {
+          "kind": "property",
+          "returns": "str"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "tuple[Glyph, ...]",
+            "kind": "keyword_only",
+            "name": "glyphs"
+          },
+          {
+            "annotation": "FontRef",
+            "kind": "keyword_only",
+            "name": "font"
+          },
+          {
+            "annotation": "TextRenderMode",
+            "kind": "keyword_only",
+            "name": "render_mode"
+          },
+          {
+            "annotation": "Paint | None",
+            "kind": "keyword_only",
+            "name": "fill"
+          },
+          {
+            "annotation": "Stroke | None",
+            "kind": "keyword_only",
+            "name": "stroke"
+          },
+          {
+            "annotation": "Rect",
+            "kind": "keyword_only",
+            "name": "bbox"
+          },
+          {
+            "annotation": "GraphicsContext",
+            "kind": "keyword_only",
+            "name": "context"
+          },
+          {
+            "annotation": "BlendMode",
+            "kind": "keyword_only",
+            "name": "blend_mode"
+          },
+          {
+            "annotation": "SoftMask | None",
+            "kind": "keyword_only",
+            "name": "soft_mask"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "TextSpan": {
       "fields": {
         "bbox": "tuple[float, float, float, float]",
@@ -8131,6 +9333,104 @@
         "size",
         "text"
       ]
+    },
+    "TilingPattern": {
+      "annotations": {
+        "bbox": "Rect",
+        "matrix": "Matrix",
+        "x_step": "float",
+        "y_step": "float"
+      },
+      "dataclass_fields": [
+        "bbox",
+        "x_step",
+        "y_step",
+        "matrix"
+      ],
+      "kind": "class",
+      "members": {
+        "bbox": {
+          "kind": "property"
+        },
+        "matrix": {
+          "kind": "property"
+        },
+        "x_step": {
+          "kind": "property"
+        },
+        "y_step": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Rect",
+            "kind": "keyword_only",
+            "name": "bbox"
+          },
+          {
+            "annotation": "float",
+            "kind": "keyword_only",
+            "name": "x_step"
+          },
+          {
+            "annotation": "float",
+            "kind": "keyword_only",
+            "name": "y_step"
+          },
+          {
+            "annotation": "Matrix",
+            "kind": "keyword_only",
+            "name": "matrix"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "TransparencyGroup": {
+      "annotations": {
+        "blend_mode": "BlendMode",
+        "opacity": "float",
+        "soft_mask": "SoftMask | None"
+      },
+      "dataclass_fields": [
+        "opacity",
+        "blend_mode",
+        "soft_mask"
+      ],
+      "kind": "class",
+      "members": {
+        "blend_mode": {
+          "kind": "property"
+        },
+        "opacity": {
+          "kind": "property"
+        },
+        "soft_mask": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "float",
+            "kind": "keyword_only",
+            "name": "opacity"
+          },
+          {
+            "annotation": "BlendMode",
+            "kind": "keyword_only",
+            "name": "blend_mode"
+          },
+          {
+            "annotation": "SoftMask | None",
+            "kind": "keyword_only",
+            "name": "soft_mask"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "Word": {
       "annotations": {

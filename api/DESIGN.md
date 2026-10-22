@@ -179,28 +179,36 @@ krilla.
 
 | Item | Fields | hayro `Device` | krilla `Surface` |
 | --- | --- | --- | --- |
-| `TextRun` | glyphs (glyph ID, Unicode, origin, advance, bbox), font, size, transform, render mode, fill and stroke paint | `draw_glyph_run` | `draw_glyphs` |
-| `Path` | segments (move, line, cubic, close), fill paint and rule, stroke paint and line style | `draw_path`, `draw_rect` | `draw_path` |
-| `Image` | image object or inline image, width, height, bits per component, color space, transform, mask kind | `draw_image` | `draw_image` |
-| `Shading` | shading type, color space, extent | `draw_path` with a shading paint | `draw_path` with a gradient fill |
+| `TextRun` | `glyphs` (`Glyph`: glyph ID, Unicode, matrix, advance, ink box), `font`, `render_mode`, `fill` paint, `stroke` | `draw_glyph_run` | `draw_glyphs` |
+| `Path` | `segments` (`MoveTo`, `LineTo`, `CurveTo`, `ClosePath`), `fill` paint, `fill_rule`, `stroke` | `draw_path`, `draw_rect` | `draw_path` |
+| `Image` | `xref` (0 for inline images and masks), size, bits per component, color space, stencil flag, mask kind, encoded size, `matrix` | `draw_image` | `draw_image` |
 
-Every item also carries:
+Every item also carries its `bbox` in display space, its own `blend_mode` and
+`soft_mask`, and a `context`: a `GraphicsContext` that lists, outermost
+first, the `clips` (from `push_clip_path`; written with `push_clip_path`),
+the transparency `groups` with their opacity, blend mode, and soft mask (from
+`push_transparency_group`; written with `push_opacity`, `push_blend_mode`,
+and `push_mask`), and the `marked_content` with tags and MCIDs (from
+`begin_marked_content`; written with `start_tagged`). Items painted in the
+same context share one context object, so `Content` stays a flat sequence and
+the nesting is recovered by comparing contexts.
 
-- `bbox` in display space;
-- its graphics context: the clip, opacity, blend mode, and soft mask that
-  apply to it (from `push_clip_path` and `push_transparency_group`; written
-  with `push_clip_path`, `push_opacity`, `push_blend_mode`, and `push_mask`);
-- its marked-content stack: tags, MCIDs, and properties, among them
-  optional-content layers and `/ActualText` (from `begin_marked_content`;
-  written with `start_tagged`).
+Paints are a `Color` (an sRGB approximation with alpha), a `ShadingPattern`,
+or a `TilingPattern`; a shading painted with `sh` is a `Path` that fills the
+clipped area with a `ShadingPattern`. A `Stroke` holds a paint and the line
+style in display space. Fonts are `FontRef` values with the font program's
+PostScript name, weight, and style flags. `Content` is a sequence of items in
+paint order with typed views (`content.text_runs`, `content.paths`,
+`content.images`).
 
-Paints are a `Color` (the color space, its components, and an sRGB
-approximation), a `Pattern`, or a `Shading`. Fonts are `FontRef` values that
-name the font object, its type, its PostScript name, and whether it is
-embedded. `Content` is a sequence of items in paint order with typed views
-(`content.text_runs`, `content.paths`, `content.images`), and its interpretation
-is cached with the page's text, so the derived views in section 6 agree with
-it.
+What hayro does not report yet joins these values as engine work lands: a
+color's color space and components, marked-content properties (optional
+content layers and `/ActualText`), the font dictionary's object, subtype, and
+embedding, the clipping text render modes, the source Form XObject or
+annotation of an item, a separate callback for `sh`, and the stream and paint
+of image masks. Until the text, word, drawing, and image views derive from
+the same interpretation ([Content model](../ROADMAP.md#content-model)), they
+interpret the page separately and agree with it on the bundled corpus.
 
 ## 4. Documents
 
@@ -273,7 +281,7 @@ return one from `builder.page(size)`.
 
 | Canvas API | Notes |
 | --- | --- |
-| `path(path, *, fill=None, stroke=None, fill_rule="nonzero")` | `path` is a `Path` item or a geometry built with `PathBuilder`, whose constructors also cover sectors, wavy lines, and zigzag lines. |
+| `path(path, *, fill=None, stroke=None, fill_rule=FillRule.NONZERO)` | `path` is a `Path` item or a geometry built with `PathBuilder`, whose constructors also cover sectors, wavy lines, and zigzag lines. |
 | `line`, `rect(rect, *, radius=0, ...)`, `circle`, `ellipse`, `polygon`, `bezier` | Shortcuts that build one path. |
 | `text(text, at, *, font=None, size=11, fill=..., stroke=None, render_mode="fill", rotate=0)` | Shaped with HarfRust and embedded as a subset by krilla. |
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` → `TextFit` | Wraps with UAX #14; on overflow it draws nothing and reports the shortfall. |
@@ -282,8 +290,9 @@ return one from `builder.page(size)`.
 | `clip(path)`, `transform(matrix)`, `opacity(alpha)`, `blend(mode)`, `mask(...)`, `layer(layer)`, `tag(role, ...)` | Context managers that scope a graphics state. |
 | `draw(item)` | Paints a content item. |
 
-Strokes take a color or a `Stroke(color, width=1, dash=(), cap="butt",
-join="miter")` value. Fonts are `Font` values: `Font.standard(name)` for the
+Strokes take a paint or a `Stroke(paint=..., width=1.0, cap=LineCap.BUTT,
+join=LineJoin.MITER, miter_limit=10.0, dashes=(), dash_offset=0.0)` value,
+the type that content items carry. Fonts are `Font` values: `Font.standard(name)` for the
 Standard 14 fonts, `Font.from_file(path, *, index=0, weight=None)`,
 `Font.from_bytes(data, *, index=0, weight=None)`, and
 `Font.installed(*, language=None, family=None, weight=None, italic=False)`
@@ -368,6 +377,11 @@ The typed object model exposes lopdf's graph.
 | `PageMode`, `PageLayout` | the catalog's `/PageMode` and `/PageLayout` names |
 | `TextAlign` | `LEFT`, `CENTER`, `RIGHT`, `JUSTIFY` |
 | `Colorspace` | `GRAY`, `RGB`, `CMYK` |
+| `BlendMode` | the sixteen blend modes of ISO 32000-2 §11.3.5 |
+| `FillRule`, `LineCap`, `LineJoin` | `NONZERO`, `EVEN_ODD`; `BUTT`, `ROUND`, `SQUARE`; `MITER`, `ROUND`, `BEVEL` |
+| `TextRenderMode` | `FILL`, `STROKE`, `FILL_STROKE`, `INVISIBLE` |
+| `ShadingType` | the shading types of ISO 32000-2 §8.7.4.5 |
+| `SoftMaskType`, `ImageMask` | `ALPHA`, `LUMINOSITY`; `SOFT`, `EXPLICIT`, `COLOR_KEY` |
 | `FontLanguage` | the languages of the installed font extras |
 
 ## 13. Migration
@@ -450,8 +464,6 @@ section 11, `attachments`, `limits`, `complexity`, `DocumentLimits`,
 
 ## 15. Open questions
 
-- Whether `Content` stays a flat sequence whose items carry their graphics
-  context, or also offers the nesting of clips and groups as a tree.
 - How `doc.metadata` represents dates: `datetime` where the string parses,
   and the raw string otherwise, or always the raw string.
 - Whether `save()` prunes unreachable objects and compresses streams by

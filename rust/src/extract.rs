@@ -4596,7 +4596,7 @@ pub(crate) type ImageInfoTuple = (
 );
 
 /// The resolution pymupdf reports for an image that states none.
-const DEFAULT_IMAGE_RESOLUTION: u32 = 96;
+pub(crate) const DEFAULT_IMAGE_RESOLUTION: u32 = 96;
 
 /// Return the dots-per-inch density of a JFIF header, or the default.
 pub(crate) fn jpeg_resolution(data: &[u8]) -> (u32, u32) {
@@ -4653,7 +4653,7 @@ pub(crate) fn png_components(data: &[u8]) -> Option<u8> {
 /// Return an image dictionary's color components and color space name.
 ///
 /// Inline images may abbreviate the keys and the device names.
-fn image_color_space(dict: &hayro::hayro_syntax::object::Dict<'_>) -> (u8, String) {
+pub(crate) fn image_color_space(dict: &hayro::hayro_syntax::object::Dict<'_>) -> (u8, String) {
     use hayro::hayro_syntax::object::{Array, Name, Stream};
     let expand = |name: &str| -> String {
         match name {
@@ -4814,7 +4814,7 @@ pub(crate) fn extract_page_image_info(
 ///
 /// Use the renderer's `initial_transform(true)` so Device coordinates are in
 /// top-left-origin display space with rotation resolved.
-fn extraction_context<'a>(
+pub(crate) fn extraction_context<'a>(
     pdf: &'a Pdf,
     page: &Page<'a>,
     cache: &InterpreterCache<'a>,

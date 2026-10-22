@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast, overload
 
 from pylopdf._annots import _SUBTYPE_TYPES, Annot, AnnotType
+from pylopdf._content import Content, _content_from_core
 from pylopdf._errors import StalePageError
 from pylopdf._fonts import (
     _SYMBOLIC_BASE14_NAMES,
@@ -78,6 +79,7 @@ if TYPE_CHECKING:
 
 
 _DEFAULT_MAX_TEXT_REPLACEMENT_SIZE = 64 * 1024 * 1024
+_DEFAULT_MAX_CONTENT_ELEMENTS = 262_144
 _DEFAULT_MAX_IMAGE_INPUT_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_IMAGE_PIXELS = 64_000_000
 _MAX_HIGHLIGHT_RECTS = 4096
@@ -662,6 +664,45 @@ class Page:
                 info["xref"] = xref
             infos.append(info)
         return infos
+
+    def content(
+        self,
+        *,
+        clip: Sequence[float] | None = None,
+        annotations: bool = True,
+        max_elements: int | None = _DEFAULT_MAX_CONTENT_ELEMENTS,
+    ) -> Content:
+        """Return the text runs, paths, and images that the page paints.
+
+        Items come in paint order, in display coordinates, as hayro
+        interprets the page, with optional-content visibility applied. Each
+        carries its paints, its blend mode and soft mask, and the
+        :class:`GraphicsContext` of clips, transparency groups, and marked
+        content that encloses it. Glyph boxes are the exact boxes of the glyph
+        outlines. hayro paints every image inside a transparency group that
+        holds the graphics state's opacity, blend mode, and soft mask, so an
+        image's context ends with that group. A shading painted with ``sh``
+        is a :class:`Path` that covers the clip region and fills with a
+        :class:`ShadingPattern`.
+
+        ``clip`` keeps the items whose box meets a display-coordinate
+        rectangle. ``annotations=False`` leaves out annotation appearances,
+        which otherwise follow the page content. Items whose geometry or paint
+        is not finite, which hayro cannot paint either, are left out.
+
+        ``max_elements`` bounds the glyphs, path and clip segments, and items
+        of one interpretation, before ``clip`` applies; above it the call
+        raises :class:`LimitError` with code ``content_element_count``.
+        ``None`` removes the bound for trusted input.
+        """
+        if not isinstance(annotations, bool):
+            msg = f"annotations must be a bool: {annotations!r}"
+            raise TypeError(msg)
+        _validate_optional_positive_int("max_elements", max_elements)
+        clip_rect = None if clip is None else _validate_rect(clip, name="clip")
+        raw = self._document._doc.page_content(self._page_number(), annotations, clip_rect, max_elements)
+        self._document._emit_warnings()
+        return _content_from_core(raw)
 
     def get_drawings(self) -> list[DrawingInfo]:
         """Extract interpreted vector paint operations in display coordinates.

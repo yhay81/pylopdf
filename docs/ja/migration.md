@@ -58,7 +58,8 @@ python -m pylopdf.migrate src/
 | `pix.samples`, `width`, `height`, `n`, `alpha`, `stride`, `colorspace`, `save()` | 同じ | `save()`と`tobytes()`はPNGのみを書き出します |
 | `page.get_svg_image()` | 同じ | テキストは常にパスとして描きます |
 | `page.get_images()`, `get_image_info()`, `doc.extract_image()` | 同じ | `get_image_info(hashes=True)`にはまだ対応していません |
-| `page.get_drawings()` | 同じ | `extended=`のクリッピングとグループの情報はありません |
+| `page.get_drawings()` | 同じ | `extended=`はありません。`page.content().paths`がクリップ、グループ、マーク付きコンテンツを持ちます |
+| `page.get_texttrace()`, `get_bboxlog()`, `get_cdrawings()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | グリフを持つテキストラン、パス、画像を不変の値で返します。[ページの内容](api.md#content)を参照 |
 | `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | 同じ | JPEGへの再エンコードのみなので、再サンプリングには`quality`が必要です。`None`ではなく統計情報を返します |
 
 ### 描き込みと注釈 { #mapping-drawing }
