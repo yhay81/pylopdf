@@ -60,6 +60,10 @@ python -m pylopdf.migrate src/
 | `doc.set_toc_item(i, ...)`、`del_toc_item(i)` | 为`OutlineItem`的`title`、`destination`、`color`、`bold`、`italic`或`is_open`赋值 | `del_toc_item`会将条目变灰并移除其目标 |
 | `doc.get_page_labels()`、`set_page_labels(rules)`、`page.get_label()` | `doc.page_labels`、`page.label` | 使用`PageLabelRange(start, style, prefix, first)`记录而不是字典 |
 | `doc.get_page_numbers(label)` | `doc.pages.labeled(label)` | |
+| `page.set_rotation(deg)` | `page.rotation = deg` | |
+| `page.mediabox`、`set_mediabox(r)` | `page.boxes.media`、`page.boxes.media = r` | |
+| `page.cropbox`、`artbox`、`bleedbox`、`trimbox`、`set_cropbox(r)`、`set_artbox(r)`等 | `page.boxes.crop`、`.art`、`.bleed`、`.trim`，均可赋值 | 使用按存储值表示的PDF用户空间，而pymupdf以MediaBox顶边为基准翻转y |
+| `page.transformation_matrix`、`rotation_matrix`、`derotation_matrix` | `page.user_to_display` | 将PDF用户空间映射到显示坐标，包含旋转 |
 | `doc.embfile_add/names/get/del/upd/info/count` | `doc.attachments` | 一个映射：`add(name, data, description=…)`、`list(…)`、`[name].read()`、`del …[name]`、`[name].write(data)`、`len(…)`；`desc=`改为`description=` |
 | `doc.xref_*`、`pdf_catalog()`、`pdf_trailer()` | `doc.objects`、`doc.catalog`、`doc.trailer` | 使用带类型的Python值而非PDF语法；参见[底层对象](api.md#low-level-objects) |
 

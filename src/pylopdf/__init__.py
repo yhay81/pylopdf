@@ -63,6 +63,7 @@ from pylopdf._annots import (
     AnnotType,
 )
 from pylopdf._attachments import Attachment, Attachments
+from pylopdf._boxes import PageBoxes
 from pylopdf._canvas import Canvas, PathBuilder, TagRole, TextFit
 from pylopdf._content import (
     BlendMode,
@@ -306,6 +307,7 @@ __all__ = [
     "OutlineEntry",
     "OutlineItem",
     "Page",
+    "PageBoxes",
     "PageLabelRange",
     "PageLabelStyle",
     "PageLayout",

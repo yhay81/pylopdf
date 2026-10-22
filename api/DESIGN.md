@@ -237,7 +237,7 @@ interpret the page separately and agree with it on the bundled corpus.
 | `doc.pages.move(index, to)` | The page ends at index `to` and keeps its page object. |
 | `doc.pages.labeled(label)` → `list[int]` | The indexes of pages with a label. |
 | `page.index`, `page.document`, `page.xref`, `page.obj` | Two `Page` views are equal when they share document, generation, and index. |
-| `page.rect`, `page.rotation`, `page.boxes`, `page.label` | `rotation` is assignable. `boxes` has `media`, `crop`, `bleed`, `trim`, and `art`, assignable in PDF user space and validated against the MediaBox. |
+| `page.rect`, `page.rotation`, `page.boxes`, `page.user_to_display`, `page.label` | `rotation` is assignable. `boxes` has `media`, `crop`, `bleed`, `trim`, and `art`, assignable in PDF user space and validated against the MediaBox. `user_to_display` is the `Matrix` from PDF user space to display space. |
 | `page.resources` | The fonts, images, Form XObjects, color spaces, and graphics states that the page's resources reach, as handles. |
 | `doc.metadata` | A live mutable mapping of the Info entries present: `title`, `author`, `subject`, `keywords`, `creator`, `producer`, `created`, `modified`, and `trapped`, the dates as the PDF date strings stored ([D7](../ROADMAP.md#decisions)). Values are non-empty strings; `del` removes an entry, and assigning a mapping replaces every entry. |
 | `doc.version`, `doc.encryption_method`, `doc.pdfa_claim` | The header version, such as `"1.7"`; the encryption the document was opened with, or `None`; and the PDF/A self-declaration as a `PdfaClaim(part, conformance)` record, or `None`. |
@@ -442,7 +442,8 @@ hint.
 | `set_fallback_font(...)` | `doc.fallback_fonts`, an assignable mapping from CJK language to `Font` |
 | `Page.number`, `Page.parent` | `page.index`, `page.document` |
 | `set_rotation()` | assignment to `page.rotation` |
-| `mediabox`, `set_mediabox()`, `cropbox`, `set_cropbox()` | `page.boxes` in PDF user space |
+| `mediabox`, `set_mediabox()`, `cropbox`, `set_cropbox()`, `artbox`, `bleedbox`, `trimbox` and their setters | `page.boxes` in PDF user space |
+| `transformation_matrix`, `rotation_matrix`, `derotation_matrix` | `page.user_to_display` |
 | `get_text("text")`, `get_text("words")`, `get_text("blocks" / "dict" / "rawdict")` | `text()`, `words()`, `layout()` |
 | `search_for(text, ...)` | `search(text, ...)` |
 | `find_tables(...)` → `TableFinder` | `tables(...)` → `list[Table]`; `Table.extract()` and `to_markdown()` become `rows` and `markdown()` |

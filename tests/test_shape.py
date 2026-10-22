@@ -293,7 +293,7 @@ def test_one_commit_embeds_each_font_once(regular: pylopdf.Font) -> None:
 @pytest.mark.parametrize("rotation", [0, 90, 180, 270])
 def test_shapes_use_display_coordinates_on_rotated_pages(rotation: int, regular: pylopdf.Font) -> None:
     _, page = _new_page(400, 300)
-    page.set_rotation(rotation)
+    page.rotation = rotation
     width, height = page.rect.width, page.rect.height
     with page.new_shape() as shape:
         shape.draw_rect((20, 30, 120, 80))

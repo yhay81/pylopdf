@@ -210,9 +210,18 @@ pixmap은 기본적으로 72 dpi, 흰 바탕의 RGB이고, `alpha=True`이면 RG
 |---|---|
 | `index`, `document` | 문서 안에서 페이지의 인덱스와, 그 문서 |
 | `rect` | 회전이 반영된, 보이는 페이지 영역 |
-| `rotation` / `set_rotation(deg)` | 90의 배수인 표시 회전 |
-| `mediabox`, `cropbox` / `set_mediabox(r)`, `set_cropbox(r)` | pymupdf 규약의 페이지 박스 |
+| `rotation` | 0, 90, 180, 270 중 하나. 90의 배수를 대입하면 페이지를 시계 방향으로 회전합니다 |
+| `boxes` | MediaBox, CropBox, BleedBox, TrimBox, ArtBox를 PDF 사용자 공간의 `Rect`로. 각각 대입 가능 |
+| `user_to_display` | PDF 사용자 공간을 표시 좌표로 옮기는 `Matrix` |
 | `xref`, `obj` | 페이지 객체의 번호와 [저수준 핸들](#low-level-objects) |
+
+페이지 박스는 표시 좌표를 정의하므로 PDF 사용자 공간(MediaBox 아래쪽에서 위로 향하는 y)을 쓰는 유일한 곳입니다. `page.boxes`는 저장된 그대로 모서리 순서만 정리해 읽습니다. `media`가 없으면 원점의 A4, `crop`이 없으면 MediaBox, `bleed`, `trim`, `art`가 없으면 CropBox가 됩니다. `media`에 대입하면 pymupdf의 `set_mediabox`처럼 다른 박스를 제거합니다. 다른 박스에 대입하려면 MediaBox 안에 있고 면적이 있는 사각형이 필요하며, `del page.boxes.crop`(`bleed`, `trim`, `art`도 마찬가지)은 기본값으로 되돌립니다. `page.user_to_display`는 사용자 공간을 표시 좌표로, `~page.user_to_display`는 그 반대로 옮깁니다.
+
+```python
+page.boxes.crop = (36, 36, 576, 756)                # show a Letter page without its half-inch margin
+trim_on_screen = page.boxes.trim * page.user_to_display
+page.rotation = 90
+```
 
 ### 콘텐츠 추가 { #page-content }
 
@@ -638,6 +647,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext` 등 내용 타입 | [페이지 내용](#content) |
 | `Colorspace` | [`Pixmap`](#pixmap)의 색 공간. `GRAY`와 `RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [목차와 페이지 레이블](#outline) |
+| `PageBoxes` | [페이지 기하](#page-geometry) |
 
 상수는 pymupdf의 이름을 유지하며 열거형으로도 묶여 있습니다. `Permissions`(`PDF_PERM_*`), `LinkKind`(`LINK_*`), `TextAlign`(`TEXT_ALIGN_*`), `AnnotType`(`PDF_ANNOT_*`), `AnnotFlags`(`PDF_ANNOT_IS_*`)입니다. `Access`의 멤버는 `USER`와 `OWNER`이고, `Encryption`은 저장하는 파일을 암호화하는 방법을 나타냅니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
 

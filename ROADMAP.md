@@ -390,8 +390,13 @@ the canvas.
   `RemoteDestination`, `Launch`, `NamedAction`, or a URI string, the targets
   that links will share. `doc.page_labels` holds `PageLabelRange` records with
   the `PageLabelStyle` enum, and `page.label` reads one page's label.
-- Still to come, each with its codemod rules: page geometry and fallback
-  fonts, interaction, writing, and the remaining constants and records.
+- Done: page geometry. `page.rotation` is assigned, `page.boxes` holds the
+  MediaBox, CropBox, BleedBox, TrimBox, and ArtBox in PDF user space, each
+  assignable and deletable, and `page.user_to_display` maps user space to
+  display space in place of pymupdf's transformation, rotation, and
+  derotation matrices.
+- Still to come, each with its codemod rules: fallback fonts, interaction,
+  writing, and the remaining constants and records.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs
@@ -546,7 +551,7 @@ Workstream Structure.
 
 - Page operations on `doc.pages`: moving, copying, and inserting pages from
   any document together with their links, annotations, and form fields.
-- The ArtBox, BleedBox, and TrimBox.
+- The ArtBox, BleedBox, and TrimBox (done).
 - Outline items as handles with destinations, color, style, and collapse
   state (done).
 - Optional content: groups, configurations, membership dictionaries,

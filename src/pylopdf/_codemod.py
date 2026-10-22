@@ -87,9 +87,15 @@ COMPOUND_STATEMENTS = (
     cst.Match,
 )
 ROTATION_NAMES = frozenset({"rotation_matrix", "derotation_matrix"})
+#: pymupdf's page boxes besides the MediaBox, and the ``page.boxes`` attribute of each.
+PAGE_BOX_NAMES = {"cropbox": "crop", "artbox": "art", "bleedbox": "bleed", "trimbox": "trim"}
+PAGE_BOX_MESSAGE = (
+    "pymupdf's cropbox, artbox, bleedbox, and trimbox flip y against the top of the MediaBox; page.boxes "
+    "reads and takes PDF user space as stored, so each y there is page.boxes.media.y1 - y here."
+)
 ROTATION_MESSAGE = (
     "pylopdf extracts and inserts in display coordinates with the page rotation resolved; "
-    "drop any rotation_matrix or derotation_matrix step."
+    "drop any rotation_matrix or derotation_matrix step, and map PDF user space with page.user_to_display."
 )
 
 
@@ -1004,6 +1010,28 @@ def _assign_property(prop: str, parameter: str) -> Callable[[_Migrator, str, _Ar
     return rule
 
 
+def _set_rotation(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite a page's ``set_rotation(rotation)``; pymupdf's annotations have one too."""
+    bound = args.bind(("rotation",))
+    if bound is None or set(bound) != {"rotation"} or not migrator.is_page(receiver):
+        return None
+    return f"{receiver}.rotation = {bound['rotation']}"
+
+
+def _set_page_box(attribute: str) -> Callable[[_Migrator, str, _Arguments], str | None]:
+    """Rewrite ``set_mediabox(rect)`` and its siblings to an assignment of a ``page.boxes`` attribute."""
+
+    def rule(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+        bound = args.bind(("rect",))
+        if bound is None or set(bound) != {"rect"}:
+            return None
+        if attribute != "media" and migrator.pymupdf():
+            migrator.todo(PAGE_BOX_MESSAGE)
+        return f"{receiver}.boxes.{attribute} = {bound['rect']}"
+
+    return rule
+
+
 def _delete_property(prop: str) -> Callable[[_Migrator, str, _Arguments], str | None]:
     """Rewrite a call that removes an entry to ``del`` of ``prop``."""
 
@@ -1236,6 +1264,12 @@ STATEMENT_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] =
     "set_pagelayout": _set_catalog_name("page_layout", PAGE_LAYOUT_NAMES),
     "set_toc": _set_toc,
     "set_page_labels": _set_page_labels,
+    "set_rotation": _set_rotation,
+    "set_mediabox": _set_page_box("media"),
+    "set_cropbox": _set_page_box("crop"),
+    "set_artbox": _set_page_box("art"),
+    "set_bleedbox": _set_page_box("bleed"),
+    "set_trimbox": _set_page_box("trim"),
 }
 #: Statement rules that assign to their receiver, which must therefore be a name or an attribute.
 ASSIGNING_RULES = frozenset(
@@ -1715,6 +1749,17 @@ class _Migrator(cst.CSTTransformer):
         """Return whether the module imports pymupdf rather than pylopdf 0.15."""
         return self._scan.pymupdf
 
+    def is_page(self, receiver: str) -> bool:
+        """Return whether ``receiver`` is a name bound only to pages or an item of a document's ``pages``."""
+        expression = cst.parse_expression(receiver)
+        if isinstance(expression, cst.Name):
+            return expression.value in self._pages
+        return (
+            isinstance(expression, cst.Subscript)
+            and isinstance(expression.value, cst.Attribute)
+            and expression.value.attr.value == "pages"
+        )
+
     def is_document(self, receiver: str) -> bool:
         """Return whether ``receiver`` is a known document name or document factory call."""
         if receiver in self._documents:
@@ -2053,9 +2098,7 @@ class _Migrator(cst.CSTTransformer):
             self.todo(migration_hint(name) or f"pylopdf does not provide pymupdf's {name}.")
         return updated_node
 
-    def _attribute_rule(  # noqa: PLR0911 - one return per renamed property.
-        self, original_node: cst.Attribute, updated_node: cst.Attribute
-    ) -> cst.BaseExpression | None:
+    def _attribute_rule(self, original_node: cst.Attribute, updated_node: cst.Attribute) -> cst.BaseExpression | None:
         """Rewrite a renamed property that is read rather than called."""
         name = original_node.attr.value
         receiver = original_node.value
@@ -2073,9 +2116,19 @@ class _Migrator(cst.CSTTransformer):
             return updated_node.value
         if self._is_table(receiver) and name in TABLE_RENAMES:
             return cst.parse_expression(TABLE_RENAMES[name].format(table=_receiver(updated_node.value)))
+        return self._property_rule(name, updated_node)
+
+    def _property_rule(self, name: str, updated_node: cst.Attribute) -> cst.BaseExpression | None:
+        """Rewrite a document, page, or pixmap property that the API reset renamed, whatever its receiver."""
         if name == "outline" and self._scan.pymupdf:
             self.todo(OUTLINE_MESSAGE)
             return None
+        if name == "mediabox":
+            return cst.parse_expression(f"{_code(updated_node.value)}.boxes.media")
+        if name in PAGE_BOX_NAMES:
+            if self._scan.pymupdf:
+                self.todo(PAGE_BOX_MESSAGE)
+            return cst.parse_expression(f"{_code(updated_node.value)}.boxes.{PAGE_BOX_NAMES[name]}")
         if name in DOCUMENT_PROPERTY_RENAMES:
             if name == "markinfo":
                 self.todo(MARK_INFO_MESSAGE)

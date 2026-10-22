@@ -227,26 +227,26 @@ def test_a_placed_page_shows_what_rendering_shows_of_it(name: str, rotation: int
     assert tuple(page.rect) == pytest.approx((0, 0, width, height), abs=1e-3)
 
 
-def test_page_boxes_follow_pymupdf_box_convention() -> None:
+def test_page_boxes_read_as_stored_in_user_space() -> None:
     page = _page("cropbox-overlaps", 90)
 
-    assert page.mediabox == pylopdf.Rect(0, 0, 600, 800)
-    # The stored CropBox [300 400 900 1200], with y flipped against the MediaBox top.
-    assert page.cropbox == pylopdf.Rect(300, -400, 900, 400)
+    assert page.boxes.media == pylopdf.Rect(0, 0, 600, 800)
+    # The stored CropBox, unclipped; the visible area is its overlap with the MediaBox.
+    assert page.boxes.crop == pylopdf.Rect(300, 400, 900, 1200)
     assert page.rect == pylopdf.Rect(0, 0, 400, 300)
-    assert _page("mediabox-missing", 0).mediabox == pylopdf.Rect(0, 0, *A4)
+    assert _page("mediabox-missing", 0).boxes.media == pylopdf.Rect(0, 0, *A4)
 
 
 def test_setting_a_cropbox_past_the_mediabox_clips_the_page() -> None:
     doc = pylopdf.Document()
     page = doc.pages.new((600, 800))
 
-    # set_cropbox refuses such a box, as pymupdf does; a file can still hold one.
-    with pytest.raises(ValueError, match="CropBox not in MediaBox"):
-        page.set_cropbox((-50, -50, 650, 840))
+    # Assigning such a box raises, as pymupdf's set_cropbox does; a file can still hold one.
+    with pytest.raises(ValueError, match="CropBox must lie inside the MediaBox"):
+        page.boxes.crop = (-50, -40, 650, 850)
     page.obj["CropBox"] = [-50, -40, 650, 850]
 
-    assert page.cropbox == pylopdf.Rect(-50, -50, 650, 840)
+    assert page.boxes.crop == pylopdf.Rect(-50, -40, 650, 850)
     assert page.rect == pylopdf.Rect(0, 0, 600, 800)
     page.insert_text((40, 50), "Probe", fontsize=12)
     assert _origins(page, "Probe") == [pytest.approx((40, 50), abs=1e-3)]

@@ -180,7 +180,7 @@ def test_a_copy_is_independent_of_the_original() -> None:
     doc.pages.extend(doc.pages[0])
 
     doc.pages[1].insert_text((20, 40), "Only on the copy")
-    doc.pages[1].set_rotation(90)
+    doc.pages[1].rotation = 90
 
     assert doc.pages[0].xref == xref
     assert doc.pages[1].xref != xref

@@ -135,6 +135,7 @@
     "PDF_PERM_PRINT",
     "PDF_PERM_PRINT_HQ",
     "Page",
+    "PageBoxes",
     "PageLabelRange",
     "PageLabelStyle",
     "PageLayout",
@@ -5615,6 +5616,10 @@
             "returns": "list[OcrWord]"
           }
         },
+        "boxes": {
+          "kind": "property",
+          "returns": "PageBoxes"
+        },
         "content": {
           "kind": "method",
           "signature": {
@@ -5662,10 +5667,6 @@
             ],
             "returns": "Content"
           }
-        },
-        "cropbox": {
-          "kind": "property",
-          "returns": "Rect"
         },
         "document": {
           "kind": "property",
@@ -6929,10 +6930,6 @@
             "returns": "str"
           }
         },
-        "mediabox": {
-          "kind": "property",
-          "returns": "Rect"
-        },
         "new_shape": {
           "kind": "method",
           "signature": {
@@ -7126,57 +7123,6 @@
             "returns": "list[Rect]"
           }
         },
-        "set_cropbox": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Sequence[float]",
-                "kind": "positional_or_keyword",
-                "name": "rect"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "set_mediabox": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Sequence[float]",
-                "kind": "positional_or_keyword",
-                "name": "rect"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "set_rotation": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "rotation"
-              }
-            ],
-            "returns": "None"
-          }
-        },
         "show_pdf_page": {
           "kind": "method",
           "signature": {
@@ -7277,6 +7223,10 @@
             "returns": "str"
           }
         },
+        "user_to_display": {
+          "kind": "property",
+          "returns": "Matrix"
+        },
         "words": {
           "kind": "method",
           "signature": {
@@ -7305,6 +7255,41 @@
             "annotation": "int",
             "kind": "positional_or_keyword",
             "name": "pno"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "PageBoxes": {
+      "kind": "class",
+      "members": {
+        "art": {
+          "kind": "property",
+          "returns": "Rect"
+        },
+        "bleed": {
+          "kind": "property",
+          "returns": "Rect"
+        },
+        "crop": {
+          "kind": "property",
+          "returns": "Rect"
+        },
+        "media": {
+          "kind": "property",
+          "returns": "Rect"
+        },
+        "trim": {
+          "kind": "property",
+          "returns": "Rect"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Page",
+            "kind": "positional_or_keyword",
+            "name": "page"
           }
         ],
         "returns": "None"

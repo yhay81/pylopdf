@@ -707,7 +707,7 @@ def _shape_results(font: bytes) -> dict[str, Any]:
     face = pylopdf.Font(fontbuffer=font)
     document = pylopdf.Document()
     page = document.pages.new((300, 200))
-    page.set_rotation(90)
+    page.rotation = 90
     with page.new_shape() as shape:
         ends = [
             shape.draw_rect((20, 20, 180, 120), radius=0.1),
@@ -1155,16 +1155,19 @@ def _rectangle_results() -> dict[str, Any]:
     _require(Quad(quad) == quad and abs(rect.quad) == abs(rect), "quad round trip changed")
     with Document() as document:
         page = document.pages.new((300, 200))
-        page.set_rotation(90)
+        page.rotation = 90
         box = page.rect * Matrix(0.5, 0.5) + 20
         page.insert_text(box.tl + Point(10, 30), "Boxed")
         (hit,) = page.search("Boxed")
         boxed = document.pages.new((600, 800))
-        boxed.set_cropbox((100, 50, 500, 350))
-        cropbox = list(boxed.cropbox)
+        boxed.boxes.crop = (100, 450, 500, 750)
+        boxed.boxes.trim = (110, 460, 490, 740)
+        cropbox = list(boxed.boxes.crop)
         crop_rect = list(boxed.rect)
-        boxed.set_mediabox((0, 0, 200, 300))
-        reset_cropbox = list(boxed.cropbox)
+        display_matrix = list(boxed.user_to_display)
+        trimmed = list(Rect(boxed.boxes.trim) * boxed.user_to_display)
+        boxed.boxes.media = (0, 0, 200, 300)
+        reset_cropbox = list(boxed.boxes.crop)
         image_xref = boxed.insert_image(
             (10, 10, 60, 60), pixmap=document.pages[0].pixmap(matrix=Matrix(0.1, 0.1), alpha=True)
         )
@@ -1177,13 +1180,16 @@ def _rectangle_results() -> dict[str, Any]:
         boxed.insert_text((20, 250), "Full name", fontname="Times-Bold")
         full_name = "/BaseFont/Times-Bold" in document.to_bytes().decode("latin-1")
     _require(isinstance(hit, Rect) and hit in box and hit.intersects(box), "search hit left its box")
-    _require(cropbox == [100, 50, 500, 350] and crop_rect == [0, 0, 400, 300], "the CropBox convention changed")
-    _require(reset_cropbox == [0, 0, 200, 300], "set_mediabox kept the CropBox")
+    _require(cropbox == [100, 450, 500, 750] and crop_rect == [0, 0, 400, 300], "the CropBox changed")
+    _require(display_matrix == [1, 0, 0, -1, -100, 750], "user_to_display changed")
+    _require(trimmed == [10, 10, 390, 290], "the TrimBox did not map to display space")
+    _require(reset_cropbox == [0, 0, 200, 300], "assigning the MediaBox kept the CropBox")
     _require(placed == ["Image", "Form"], "placement did not return the placed XObject")
     _require(annotations == [("Highlight", "note"), ("Link", "")], "annotation handles changed")
     _require(full_name, "a full Standard 14 name did not select its font")
     return {
         "cropbox": cropbox,
+        "display_matrix": display_matrix,
         "reset_cropbox": reset_cropbox,
         "rect_union": list(rect | Rect(0, 0, 2, 2)),
         "rect_torect": list(rect.torect(Rect(0, 0, 10, 10))),

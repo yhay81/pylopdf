@@ -507,7 +507,7 @@ def test_reads_leave_is_dirty_false() -> None:
     [
         lambda doc: doc.metadata.update(title="t"),
         lambda doc: setattr(doc, "metadata", {**doc.metadata, "author": "a"}),
-        lambda doc: doc.pages[0].set_rotation(90),
+        lambda doc: setattr(doc.pages[0], "rotation", 90),
         lambda doc: doc.pages[0].insert_text((72, 72), "x"),
         lambda doc: doc.pages.select([0]),
         lambda doc: setattr(doc, "page_mode", "UseOutlines"),

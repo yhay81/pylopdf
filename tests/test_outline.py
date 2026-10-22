@@ -185,7 +185,7 @@ def test_every_target_kind_round_trips(three_page_pdf: bytes) -> None:
 @pytest.mark.parametrize("rotation", [0, 90, 180, 270])
 def test_destination_points_use_display_coordinates(rotation: int) -> None:
     doc = pylopdf.open(build_pdf(["a"]))
-    doc.pages[0].set_rotation(rotation)
+    doc.pages[0].rotation = rotation
     doc.outline = [OutlineEntry(1, "spot", Destination(0, (12.5, 30)))]
     (entry,) = doc.outline.entries()
     assert entry.destination == Destination(0, (12.5, 30))

@@ -11,5 +11,5 @@ textpage = page.get_textpage()
 # TODO(pylopdf): pylopdf plans the capability of pymupdf's TextPage.extractBLOCKS in the Reading milestone of ROADMAP.md.
 for block in textpage.extractBLOCKS():
     print(block)
-# TODO(pylopdf): pylopdf extracts and inserts in display coordinates with the page rotation resolved; drop any rotation_matrix or derotation_matrix step.
+# TODO(pylopdf): pylopdf extracts and inserts in display coordinates with the page rotation resolved; drop any rotation_matrix or derotation_matrix step, and map PDF user space with page.user_to_display.
 point = pylopdf.Point(10, 20) * page.rotation_matrix

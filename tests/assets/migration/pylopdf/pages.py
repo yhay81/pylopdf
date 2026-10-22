@@ -25,7 +25,7 @@ doc.language = "zh-TW"
 doc.page_mode = "UseThumbs"
 assert doc.page_mode == "UseThumbs"
 
-doc.pages[0].set_rotation(90)
+doc.pages[0].rotation = 90
 pixmap = doc.pages[0].pixmap(dpi=36)
 assert (pixmap.width, pixmap.height) == (100, 100)
 

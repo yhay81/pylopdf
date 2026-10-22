@@ -100,7 +100,7 @@ with pylopdf.open("input.pdf") as doc:
     doc.pages.new()                        # 在末尾添加空白A4页面
     doc.pages.insert(1, doc.pages[0])      # 在索引1处插入第0页的副本
     doc.pages.move(0, -1)                  # 将第一页移到末尾
-    doc.pages[0].set_rotation(90)
+    doc.pages[0].rotation = 90
     doc.outline = [
         pylopdf.OutlineEntry(1, "Chapter 1", pylopdf.Destination(0)),
         pylopdf.OutlineEntry(2, "Section 1.1", pylopdf.Destination(1)),

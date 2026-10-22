@@ -350,6 +350,13 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ("import fitz\ndoc = fitz.open()\nlabel = doc[0].get_label()\n", "label = doc.pages[0].label"),
         ("import fitz\ndef f(item: fitz.Outline) -> None: ...\n", "def f(item: pylopdf.OutlineItem) -> None: ..."),
         ("from fitz import Outline\nitem: Outline\n", "from pylopdf import OutlineItem\nitem: OutlineItem"),
+        ("import fitz\ndoc = fitz.open()\ndoc[0].set_rotation(90)\n", "doc.pages[0].rotation = 90"),
+        ("import fitz\ndoc = fitz.open()\nfor page in doc:\n    page.set_rotation(r)\n", "    page.rotation = r"),
+        ("import fitz\nsize = (page.mediabox.width, page.mediabox.height)\n", "page.boxes.media.width"),
+        (
+            "import fitz\npage.set_mediabox(fitz.Rect(0, 0, 200, 300))\n",
+            "page.boxes.media = pylopdf.Rect(0, 0, 200, 300)",
+        ),
     ],
 )
 def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> None:
@@ -402,6 +409,11 @@ def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> N
         ),
         ("import pylopdf\ncreated = doc.metadata['creationDate']\n", 'created = doc.metadata.get("created", "")'),
         ("import pylopdf\nlabel = page.get_label()\n", "label = page.label"),
+        ("import pylopdf\ndoc = pylopdf.open(path)\ndoc[0].set_rotation(90)\n", "doc.pages[0].rotation = 90"),
+        (
+            "import pylopdf\npage.set_cropbox((0, 0, 10, 10))\ncrop = page.cropbox\n",
+            "page.boxes.crop = (0, 0, 10, 10)\ncrop = page.boxes.crop",
+        ),
         (
             "import pylopdf\nlabels = doc.get_page_labels()\n",
             (
@@ -464,6 +476,17 @@ def test_codemod_migrates_outline_and_page_label_calls(migrate_source: Migrate) 
         {"startpage": 2, "style": "D", "prefix": "A-", "firstpagenum": 1},
     ]
     assert namespace["labels"] == ["i", "ii", "A-1", "A-2"]
+
+
+def test_codemod_marks_pymupdf_page_boxes_for_their_coordinates(migrate_source: Migrate) -> None:
+    result = migrate_source("import fitz\ncrop = page.cropbox\npage.set_trimbox(rect)\nannot.set_rotation(90)\n")
+
+    assert "crop = page.boxes.crop\n" in result.code
+    assert "page.boxes.trim = rect\n" in result.code
+    assert "annot.set_rotation(90)" in result.code  # Only a page's rotation is an attribute.
+    messages = [message for _, message in result.todos]
+    assert all("flip y against the top of the MediaBox" in message for message in messages[:2])
+    assert "set_rotation" in messages[2]
 
 
 def test_codemod_migrates_a_document_named_pages(migrate_source: Migrate) -> None:

@@ -122,7 +122,7 @@ with pylopdf.open("input.pdf") as doc:
     doc.pages.new()                        # blank A4 page at the end
     doc.pages.insert(1, doc.pages[0])      # a copy of page 0 at index 1
     doc.pages.move(0, -1)                  # move the first page to the end
-    doc.pages[0].set_rotation(90)
+    doc.pages[0].rotation = 90
     doc.outline = [
         pylopdf.OutlineEntry(1, "Chapter 1", pylopdf.Destination(0)),
         pylopdf.OutlineEntry(2, "Section 1.1", pylopdf.Destination(1)),

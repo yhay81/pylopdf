@@ -60,6 +60,10 @@ python -m pylopdf.migrate src/
 | `doc.set_toc_item(i, ...)`, `del_toc_item(i)` | `OutlineItem`の`title`、`destination`、`color`、`bold`、`italic`、`is_open`に代入 | `del_toc_item`は項目を灰色にして行き先を外していました |
 | `doc.get_page_labels()`, `set_page_labels(rules)`, `page.get_label()` | `doc.page_labels`, `page.label` | 辞書ではなく`PageLabelRange(start, style, prefix, first)`レコード |
 | `doc.get_page_numbers(label)` | `doc.pages.labeled(label)` | |
+| `page.set_rotation(deg)` | `page.rotation = deg` | |
+| `page.mediabox`, `set_mediabox(r)` | `page.boxes.media`, `page.boxes.media = r` | |
+| `page.cropbox`, `artbox`, `bleedbox`, `trimbox`, `set_cropbox(r)`, `set_artbox(r)`, ... | `page.boxes.crop`, `.art`, `.bleed`, `.trim`。それぞれ代入できます | 保存されているとおりのPDFのユーザー空間。pymupdfはMediaBoxの上端を基準にyを反転していました |
+| `page.transformation_matrix`, `rotation_matrix`, `derotation_matrix` | `page.user_to_display` | 回転を含めて、PDFのユーザー空間を表示座標に写します |
 | `doc.embfile_add/names/get/del/upd/info/count` | `doc.attachments` | マッピングです: `add(name, data, description=…)`、`list(…)`、`[name].read()`、`del …[name]`、`[name].write(data)`、`len(…)`。`desc=`は`description=`になります |
 | `doc.xref_*`, `pdf_catalog()`, `pdf_trailer()` | `doc.objects`, `doc.catalog`, `doc.trailer` | PDF構文ではなく型付きのPythonの値。[低レベルオブジェクト](api.md#low-level-objects)を参照 |
 

@@ -212,6 +212,30 @@ impl _Document {
         let Some(obj) = self.resolve_page_attr(page_id, key.as_bytes())? else {
             return Ok(None);
         };
+        self.page_box_value(&obj, key).map(Some)
+    }
+
+    /// Return a box of the page dictionary itself, or None when absent:
+    /// ISO 32000-2 Table 31 lets only the MediaBox and CropBox inherit.
+    fn own_page_box(&self, page_id: ObjectId, key: &str) -> PyResult<Option<PageBox>> {
+        let Some(page) = inheritance_node(&self.doc, page_id)? else {
+            return Ok(None);
+        };
+        if !page_attribute_has_value(&self.doc, page, key.as_bytes()) {
+            return Ok(None);
+        }
+        let Ok(value) = page.get(key.as_bytes()) else {
+            return Ok(None);
+        };
+        let resolved = match value {
+            Object::Reference(id) => self.doc.get_object(*id).map_err(to_py_err)?,
+            other => other,
+        };
+        self.page_box_value(resolved, key).map(Some)
+    }
+
+    /// Read a page box value, an array of four numbers.
+    fn page_box_value(&self, obj: &Object, key: &str) -> PyResult<PageBox> {
         let arr = obj.as_array().map_err(to_py_err)?;
         if arr.len() != 4 {
             return Err(PdfError::new_err(format!(
@@ -227,8 +251,85 @@ impl _Document {
             };
             *slot = f64::from(resolved.as_float().map_err(to_py_err)?);
         }
-        Ok(Some((values[0], values[1], values[2], values[3])))
+        Ok((values[0], values[1], values[2], values[3]))
     }
+}
+
+/// A page box as `(x0, y0, x1, y1)` in PDF user space, as stored.
+pub(super) type PageBox = (f64, f64, f64, f64);
+
+/// The MediaBox, CropBox, BleedBox, TrimBox, and ArtBox of one page.
+pub(super) type PageBoxes = (
+    Option<PageBox>,
+    Option<PageBox>,
+    Option<PageBox>,
+    Option<PageBox>,
+    Option<PageBox>,
+);
+
+/// Implements [`_Document::page_boxes`]: the MediaBox and CropBox as the
+/// page inherits them, and the BleedBox, TrimBox, and ArtBox of the page
+/// dictionary itself.
+pub(super) fn page_boxes(this: &_Document, page_number: u32) -> PyResult<PageBoxes> {
+    let page_id = this.page_id(page_number)?;
+    Ok((
+        this.resolve_page_box(page_id, "MediaBox")?,
+        this.resolve_page_box(page_id, "CropBox")?,
+        this.own_page_box(page_id, "BleedBox")?,
+        this.own_page_box(page_id, "TrimBox")?,
+        this.own_page_box(page_id, "ArtBox")?,
+    ))
+}
+
+/// Implements [`_Document::remove_page_box`]: remove a CropBox, BleedBox,
+/// TrimBox, or ArtBox from the page dictionary. When an ancestor would
+/// still give the page a CropBox, the page takes its MediaBox as its
+/// CropBox instead, so that removing the CropBox shows the whole MediaBox.
+pub(super) fn remove_page_box(this: &mut _Document, page_number: u32, key: &str) -> PyResult<()> {
+    if !matches!(key, "CropBox" | "BleedBox" | "TrimBox" | "ArtBox") {
+        return Err(PdfError::new_err(format!(
+            "a page's {key} cannot be removed"
+        )));
+    }
+    let page_id = this.page_id(page_number)?;
+    let parent = inheritance_node(&this.doc, page_id)?
+        .and_then(|page| page.get(b"Parent").and_then(Object::as_reference).ok());
+    let replacement = match parent {
+        Some(parent) if key == "CropBox" && this.resolve_page_box(parent, "CropBox")?.is_some() => {
+            let (x0, y0, x1, y1) = this.resolve_page_box(page_id, "MediaBox")?.unwrap_or((
+                0.0,
+                0.0,
+                draw::A4_WIDTH,
+                draw::A4_HEIGHT,
+            ));
+            Some(Object::Array(vec![
+                Object::Real(checked_pdf_real(x0, "x0")?),
+                Object::Real(checked_pdf_real(y0, "y0")?),
+                Object::Real(checked_pdf_real(x1, "x1")?),
+                Object::Real(checked_pdf_real(y1, "y1")?),
+            ]))
+        }
+        _ => None,
+    };
+    this.invalidate_hayro_pdf_keeping_placements();
+    match replacement {
+        Some(mediabox) => this.doc.set_page_object_entry(page_id, key, mediabox),
+        None => this.doc.remove_page_box_entry(page_id, key),
+    }
+}
+
+/// Implements [`_Document::page_display_matrix`]: the matrix that maps
+/// PDF user space to the page's display space, as `draw::pdf_to_display`
+/// maps points.
+pub(super) fn page_display_matrix(
+    this: &_Document,
+    page_number: u32,
+) -> PyResult<(f64, f64, f64, f64, f64, f64)> {
+    let (display, rotation) = this.page_display_geometry(page_number)?;
+    let (e, f) = draw::pdf_to_display(display, rotation, 0.0, 0.0);
+    let (ax, ay) = draw::pdf_to_display(display, rotation, 1.0, 0.0);
+    let (cx, cy) = draw::pdf_to_display(display, rotation, 0.0, 1.0);
+    Ok((ax - e, ay - f, cx - e, cy - f, e, f))
 }
 
 /// Implements [`_Document::set_page_box`].

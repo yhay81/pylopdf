@@ -328,7 +328,7 @@ def test_pixmap_clip_rejects_invalid_or_non_intersecting_rect(one_page_pdf: byte
 
 def test_pixmap_clip_uses_rotated_display_coordinates(one_page_pdf: bytes) -> None:
     page = pylopdf.open(one_page_pdf).pages[0]
-    page.set_rotation(90)
+    page.rotation = 90
     full = page.pixmap(alpha=True)
     clipped = page.pixmap(clip=(0, 0, 100, 50), alpha=True)
 

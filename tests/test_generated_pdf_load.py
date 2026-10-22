@@ -186,7 +186,7 @@ def test_generated_imports_parse_on_the_calling_thread() -> None:
     with pylopdf.Document() as doc:
         doc.pages.new((595, 842))
         doc.pages.new((842, 595))
-        doc.pages[1].set_rotation(90)
+        doc.pages[1].rotation = 90
         page = doc.pages[0]
         page.insert_text((50, 100), "日本語テキスト (かっこ) \\ 100%", fontsize=14, fontfile=NOTO_SANS_JP)
         page.insert_textbox(
