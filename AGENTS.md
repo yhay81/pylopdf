@@ -244,7 +244,7 @@ the concept and API overview.
   support samples, established-line geometry, and owned splits also grow
   fallibly. Glyph, line, size, and gutter ordering uses in-place unstable sorts
   with explicit source-order or geometry tie-breakers so admitted extraction
-  does not require hidden stable-sort scratch allocation. `find_tables` uses a
+  does not require hidden stable-sort scratch allocation. `Page.tables` uses a
   separate bounded, generation-invalidated `TablePage` cache so normal text
   extraction does not collect or analyze vector rules. It collects at most
   4096 axis-aligned candidates from strokes or thin filled polygons. A table
@@ -273,9 +273,12 @@ the concept and API overview.
   exposes no partial result and preserves the cache. The text strategy
   intentionally does not run as the default because aligned multicolumn prose
   is geometrically ambiguous.
-  `find_tables(clip=)` returns only complete candidate bboxes inside the
+  `tables(clip=)` returns only complete candidate bboxes inside the
   display-coordinate region; it does not synthesize partial tables or reduce
-  the cached full-page interpretation cost. `TableDiagnostics.confidence` is a
+  the cached full-page interpretation cost. `_tables.build_tables` turns the
+  core's row-major slots into `Table` records whose `rows` and `cells` are
+  tuples of rows, and keeps the anchor map in the private `_anchors` field,
+  which neither equality nor the repr reads. `TableDiagnostics.confidence` is a
   deterministic ranking heuristic, not a probability. Text diagnostics retain
   em-normalized alignment error, minimum gutter, and row-gap variation.
   `Document.markdown()` inserts complete bordered tables by default and
@@ -451,7 +454,7 @@ the concept and API overview.
   admit at most one byte beyond the remaining bounded budget. Dictionary
   materialization stops at 65,536 entries. Loading and inference release the
   GIL. `OcrEngine.recognize(pixmap)` reads any Pixmap in pixel
-  coordinates, and `Page.get_text_ocr` renders opaque RGBA on white and maps
+  coordinates, and `Page.ocr` renders opaque RGBA on white and maps
   boxes back to the page. OCR clones the Pixmap's shared immutable RGBA
   backing, expands an RGB Pixmap to opaque RGBA in one fallible copy,
   composites RGBA onto white, and uses overlapping detector tiles bounded to 256–2048
@@ -486,8 +489,11 @@ the concept and API overview.
   raster copy inside the complete-call admission limit. Arbitrary skew,
   automatic page orientation, ruby, warichu, and mixed-orientation typography
   are not interpreted.
-- `Page.insert_ocr_text_layer` stops iterable materialization at 4,096
-  non-empty words or 1 MiB of aggregate UTF-8 text per call. The Rust boundary
+- `Page.apply_ocr` adds the invisible layer from `Page.ocr` or from the
+  `OcrWord` records of `words=`, which exclude the recognition options, and
+  skips a page with text in either case unless `skip_existing=False`.
+  `_ocr_layer_words` stops iterable materialization at 4,096 words with text
+  or 1 MiB of aggregate UTF-8 text per call. The Rust boundary
   repeats both checks, CID assignment stops before a 65,535th distinct
   character, and Python counts UTF-8 without allocating a complete encoded
   copy. CID maps, ToUnicode data, and content operators are prepared before
@@ -2531,7 +2537,7 @@ the concept and API overview.
   but runs serially; native targets retain bounded rayon execution. Emscripten
   also omits RTen inference while exposing an API-compatible `_OcrEngine` stub
   that raises `OcrError` and directs callers to external OCR plus
-  `Page.insert_ocr_text_layer()`. Keep artifact sections, staged Pyodide
+  `Page.apply_ocr(words=...)`. Keep artifact sections, staged Pyodide
   startup/workload timing, linear-memory checkpoints, and Wrangler bundle
   measurements in CI. The 2026-07-26 LTO artifact is a 3.772 MiB wheel and
   3.817 MiB compressed Cloudflare bundle; it fits the paid plan, not the Free
@@ -2553,8 +2559,9 @@ the concept and API overview.
   `render_pages(workers=1/4)`, virtual-filesystem save, merge/select, typed
   error recovery, lopdf cross-reference recovery reporting, unchanged
   extraction after an edit for a skipped bare-keyword form and a non-page
-  page-tree kid, text drawn on content that leaves `q` and `Q` unbalanced,
-  and XMP, page-mode, page-layout, and MarkInfo round trips.
+  page-tree kid, text drawn on content that leaves `q` and `Q` unbalanced, an
+  OCR text layer from another engine's words, and XMP, page-mode,
+  page-layout, and MarkInfo round trips.
   Add only small redistributable PDFs listed in
   `tests/assets/real_world/README.md`; non-PDF inputs such as the existing CJK
   font may be supplied from already licensed repository assets. Do not claim

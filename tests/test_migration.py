@@ -255,6 +255,18 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "import fitz\nfor x0, y0, x1, y1, word, *_ in page.get_text('words'):\n    print(word, x0)\n",
             "for item in page.words():\n    print(item.text, item.bbox.x0)",
         ),
+        (
+            (
+                "import fitz\ntabs = page.find_tables()\n"
+                "for tab in tabs.tables:\n    print(tab.extract(), tab.row_count, tab.col_count)\n"
+            ),
+            "tabs = page.tables()\nfor tab in tabs:\n    print(tab.rows, len(tab.rows), len(tab.rows[0]))",
+        ),
+        (
+            "import fitz\nrows = page.find_tables(clip=r, strategy='text')[0].extract()\n",
+            "rows = page.tables(strategy='text', clip=r)[0].rows",
+        ),
+        ("import fitz\nn = len(page.find_tables().tables)\n", "n = len(page.tables())"),
     ],
 )
 def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> None:
@@ -297,6 +309,10 @@ def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> N
             "md = doc.markdown(pages=[0], table_strategy=None)",
         ),
         ("import pylopdf\nhits = page.search_for(text='a', max_hits=None)\n", "hits = page.search('a', max_hits=None)"),
+        (
+            "import pylopdf\ntable = page.find_tables(strategy=None)[0]\nscore = (table.confidence, table.strategy)\n",
+            "table = page.tables()[0]\nscore = (table.diagnostics.confidence, table.diagnostics.strategy)",
+        ),
     ],
 )
 def test_codemod_migrates_pylopdf_015_programs(migrate_source: Migrate, source: str, expected: str) -> None:
@@ -397,6 +413,10 @@ def test_codemod_marks_probe_results_for_review(migrate_source: Migrate) -> None
         "import pylopdf\ndoc.save(path, encryption=None)\ndata = pixmap.tobytes(max_size=None)\n",
         "import pylopdf\npages = doc.pages\npages.select([0])\n",
         "import pylopdf\ntext = page.text()\nmd = doc.markdown()\nhits = page.search('a')\n",
+        (
+            "import pylopdf\nfor table in page.tables():\n    print(table.rows, table.cells)\n"
+            "page.apply_ocr(words=page.ocr())\n"
+        ),
     ],
 )
 def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, source: str) -> None:
@@ -429,6 +449,14 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import fitz\nfor w in page.get_text('words'):\n    print(w)\n", "Word records with text, bbox, block"),
         ("import fitz\nhtml = page.get_text('html')\n", "Page.get_text is Page.text in pylopdf"),
         ("import fitz\nhits = page.search_for('a', quads=True)\n", "Page.search_for is Page.search in pylopdf"),
+        ("import fitz\ntables = page.find_tables(vertical_strategy='text')\n", "Page.find_tables is Page.tables"),
+        ("import fitz\ntables = page.find_tables(strategy='explicit')\n", "Page.find_tables is Page.tables"),
+        ("import fitz\nfor tab in page.find_tables():\n    frame = tab.to_pandas()\n", "come with the Understanding"),
+        ("import fitz\ntab = page.find_tables()[0]\nnames = tab.header.names\n", "come with the Understanding"),
+        ("import pylopdf\nwords = page.get_text_ocr(dpi=200)\n", "read word.text, word.bbox, and word.confidence"),
+        ("import pylopdf\npage.insert_ocr_text_layer(words)\n", "page.apply_ocr(words=[OcrWord("),
+        ("import pylopdf\nfinder = page.find_tables()\nregion = finder.clip\n", "keep the clip you passed"),
+        ("import pylopdf\ntable = page.find_tables()[0]\nsource = table.page\n", "Keep the page whose tables()"),
     ],
 )
 def test_codemod_marks_what_it_cannot_rewrite(migrate_source: Migrate, source: str, hint: str) -> None:

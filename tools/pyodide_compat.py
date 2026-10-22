@@ -440,7 +440,7 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
     form = pylopdf.open(form_bytes)
     form_text = form.pages[0].text()
     form_markdown = form.pages[0].markdown()
-    form_tables = form.pages[0].find_tables()
+    form_tables = form.pages[0].tables()
     form_drawings = form.pages[0].get_drawings()
     seqnos = [drawing["seqno"] for drawing in form_drawings]
     _require(seqnos == sorted(set(seqnos)), "drawing paint order is not strictly increasing")
@@ -448,23 +448,23 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
     _require("U.S. Individual Income Tax Return" in form_text, "Form 1040 text is incomplete")
     _require(len(form_tables) == 1, "Form 1040 bordered table was not detected")
     form_table = form_tables[0]
-    _require((form_table.row_count, form_table.col_count) == (2, 7), "Form 1040 table shape changed")
+    _require((len(form_table.rows), len(form_table.rows[0])) == (2, 7), "Form 1040 table shape changed")
     _require("Full-time<br>student" in form_markdown, "Form 1040 table was not integrated into Markdown")
     _require(len(form_drawings) >= _MIN_FORM_DRAWINGS, "Form 1040 vector extraction is incomplete")
 
     senate = pylopdf.open((real_world / "senate-expenditures.pdf").read_bytes())
-    senate_lines = senate.pages[0].find_tables()
-    senate_text = senate.pages[0].find_tables(strategy="text")
+    senate_lines = senate.pages[0].tables()
+    senate_text = senate.pages[0].tables(strategy="text")
     _require(senate.pages[0].rotation == _SENATE_ROTATION, "Senate fixture lost its page rotation")
     _require(
-        len(senate_lines) == 1 and (senate_lines[0].row_count, senate_lines[0].col_count) == (2, 7),
+        len(senate_lines) == 1 and (len(senate_lines[0].rows), len(senate_lines[0].rows[0])) == (2, 7),
         "Senate bordered header changed",
     )
     _require(
-        len(senate_text) == 1 and (senate_text[0].row_count, senate_text[0].col_count) == (10, 3),
+        len(senate_text) == 1 and (len(senate_text[0].rows), len(senate_text[0].rows[0])) == (10, 3),
         "Senate borderless table changed",
     )
-    first_senate_row = senate_text[0].extract()[0]
+    first_senate_row = list(senate_text[0].rows[0])
     _require(
         first_senate_row == ["BAIN, J MATTHEW", "DISTRICT DIRECTOR", "37,499.96"],
         "Senate rotated reading order changed",
@@ -527,15 +527,15 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
             "pages": len(form.pages),
             "text_sha256": _digest(form_text),
             "markdown_sha256": _digest(form_markdown),
-            "shape": [form_table.row_count, form_table.col_count],
-            "confidence": round(form_table.confidence, 6),
+            "shape": [len(form_table.rows), len(form_table.rows[0])],
+            "confidence": round(form_table.diagnostics.confidence, 6),
             "drawing_count": len(form_drawings),
             "drawing_types": sorted({drawing["type"] for drawing in form_drawings}),
         },
         "rotated_tables": {
             "rotation": senate.pages[0].rotation,
-            "bordered_shape": [senate_lines[0].row_count, senate_lines[0].col_count],
-            "borderless_shape": [senate_text[0].row_count, senate_text[0].col_count],
+            "bordered_shape": [len(senate_lines[0].rows), len(senate_lines[0].rows[0])],
+            "borderless_shape": [len(senate_text[0].rows), len(senate_text[0].rows[0])],
             "first_row": first_senate_row,
         },
         "image_only": {
@@ -1204,6 +1204,30 @@ def _content_isolation_results() -> dict[str, Any]:
     return results
 
 
+def _ocr_layer_results() -> dict[str, Any]:
+    """Add another engine's words as an invisible layer, the OCR path that Wasm offers."""
+    import pylopdf  # noqa: PLC0415
+
+    document = pylopdf.Document()
+    document.pages.new((300, 200))
+    page = document.pages[0]
+    words = [
+        pylopdf.OcrWord(text="Invoice", bbox=pylopdf.Rect(40, 40, 120, 56), confidence=0.98),
+        pylopdf.OcrWord(text="請求書", bbox=pylopdf.Rect(40, 70, 110, 90), confidence=0.95),
+    ]
+    added = page.apply_ocr(words=words)
+    _require(added == words, "the OCR layer did not take every word")
+    _require(page.apply_ocr(words=words) == [], "a page with text did not skip a second layer")
+    hits = page.search("請求書")
+    _require(len(hits) == 1, "the OCR layer is not searchable")
+    reopened = pylopdf.open(document.to_bytes())
+    return {
+        "text": reopened.pages[0].text(),
+        "hit": [round(value, 1) for value in hits[0]],
+        "content_items": len(reopened.pages[0].content().items),
+    }
+
+
 def _object_model_results() -> dict[str, Any]:
     """Read and write the object graph through the typed low-level object model."""
     import pylopdf  # noqa: PLC0415
@@ -1396,6 +1420,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "structure_page_deletion": _structure_page_deletion_results(),
         "save_options": _save_option_results(),
         "content_isolation": _content_isolation_results(),
+        "ocr_layer": _ocr_layer_results(),
         "object_model": _object_model_results(),
         "document_properties": _document_property_results(root),
         "content_model": _content_model_results(root),

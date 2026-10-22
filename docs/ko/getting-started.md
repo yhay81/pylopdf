@@ -83,7 +83,7 @@ with pylopdf.open("input.pdf") as doc:
     words = page.words()                   # text, bbox, block, line, index를 가진 Word 레코드
     layout = page.layout()                 # blocks → lines → spans(bbox, size, font 포함)
     hits = page.search("total")            # 대소문자 구분 없음. Rect 리스트
-    tables = page.find_tables()
+    tables = page.tables()                 # bbox, rows, cells를 가진 Table 레코드
 ```
 
 좌표 단위는 포인트(1/72인치)이며, 원점은 화면에 표시되는 페이지의 왼쪽 위입니다. 검색 결과, 추출한 텍스트, 그리기, 렌더링이 모두 같은 좌표를 사용하며 회전된 페이지에서도 마찬가지입니다.

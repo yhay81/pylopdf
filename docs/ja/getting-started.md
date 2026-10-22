@@ -75,7 +75,7 @@ with pylopdf.open("input.pdf") as doc:
     words = page.words()                   # text・bbox・block・line・index付きのWordレコード
     layout = page.layout()                 # blocks → lines → spans（bbox・size・font付き）
     hits = page.search("total")            # 大文字小文字を区別しない。Rectのリスト
-    tables = page.find_tables()
+    tables = page.tables()                 # bbox・rows・cells付きのTableレコード
 ```
 
 座標の単位はポイント（1/72インチ）で、表示されたページの左上が原点です。検索結果、抽出したテキスト、描き込み、レンダリングはすべて同じ座標を使い、回転したページでも一致します。

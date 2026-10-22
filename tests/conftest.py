@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 import pytest
@@ -61,6 +61,12 @@ def with_xref_entry_offset(data: bytes, number: int, offset: int) -> bytes:
     entry = data.index(b"\n", data.index(b"\n", xref) + 1) + 1 + number * 20
     assert data[entry + 10 : entry + 18] == b" 00000 n", data[entry : entry + 20]
     return data[:entry] + f"{offset:010d}".encode() + data[entry + 10 :]
+
+
+def ocr_words(entries: Iterable[tuple[float, float, float, float, str]]) -> Iterator[pylopdf.OcrWord]:
+    """Yield an OCR record for each ``(x0, y0, x1, y1, text)`` entry, lazily, as another engine would."""
+    for x0, y0, x1, y1, text in entries:
+        yield pylopdf.OcrWord(text=text, bbox=pylopdf.Rect(x0, y0, x1, y1), confidence=1.0)
 
 
 def build_pdf(page_texts: list[str], page_size: tuple[int, int] = (612, 792)) -> bytes:

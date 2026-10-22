@@ -20,7 +20,7 @@ type OcrTuple = (f32, f32, f32, f32, String, f32);
 
 fn unavailable() -> PyErr {
     OcrError::new_err(
-        "native OCR inference is unavailable on Emscripten; run OCR outside Wasm and use Page.insert_ocr_text_layer()",
+        "native OCR inference is unavailable on Emscripten; run OCR outside Wasm and pass its words to Page.apply_ocr(words=...)",
     )
 }
 

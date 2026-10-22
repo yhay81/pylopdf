@@ -355,9 +355,12 @@ the canvas.
   `markdown()`, `doc.text()` and `doc.markdown()`, and the `Word`, `Layout`,
   `Block`, `Line`, `Span`, and `Char` records, with `Layout.to_dict()` for
   pymupdf's dictionary shape.
-- Still to come, each with its codemod rules: reading tables, OCR, drawings,
-  and images; rendering, document properties, interaction, writing, and the
-  constants and records.
+- Done: tables and OCR. `page.tables()` returning `Table` records with
+  `rows`, `cells`, and `TableDiagnostics`, and `page.ocr()` and
+  `page.apply_ocr(words=...)` with `OcrWord` records.
+- Still to come, each with its codemod rules: drawings and images;
+  rendering, document properties, interaction, writing, and the constants and
+  records.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs

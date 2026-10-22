@@ -58,7 +58,6 @@ def test_typed_dict_required_and_optional_keys() -> None:
         pylopdf.ImageInfo,
         pylopdf.LinkInfo,
         pylopdf.MetadataUpdate,
-        pylopdf.OcrWord,
         pylopdf.PageLabelInfo,
         pylopdf.PageLabelSpec,
     )
@@ -70,6 +69,7 @@ def test_typed_dict_required_and_optional_keys() -> None:
     assert pylopdf.MetadataUpdate.__required_keys__ == frozenset()
     assert get_type_hints(pylopdf.ImageInfo)["bbox"] is pylopdf.Rect
     assert get_type_hints(pylopdf.OcrWord)["bbox"] is pylopdf.Rect
+    assert get_type_hints(pylopdf.Table)["diagnostics"] is pylopdf.TableDiagnostics
 
 
 def test_public_return_annotations_describe_real_values() -> None:

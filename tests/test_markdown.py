@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
-from conftest import build_raw_pdf
+from conftest import build_raw_pdf, ocr_words
 
 import pylopdf
 
@@ -209,11 +209,14 @@ def test_cjk_lines_join_without_space() -> None:
     doc = pylopdf.Document()
     doc.pages.new((300, 200))
     page = doc.pages[0]
-    page.insert_ocr_text_layer(
-        [
-            (50, 50, 200, 64, "日本語の折り返しは"),
-            (50, 66, 200, 80, "空白なしで繋がる"),
-        ]
+    page.apply_ocr(
+        words=ocr_words(
+            [
+                (50, 50, 200, 64, "日本語の折り返しは"),
+                (50, 66, 200, 80, "空白なしで繋がる"),
+            ]
+        ),
+        skip_existing=False,
     )
     md = doc.markdown()
     assert "日本語の折り返しは空白なしで繋がる" in md
@@ -231,11 +234,14 @@ def test_cjk_lines_join_without_space() -> None:
 def test_no_space_scripts_join_wrapped_lines_without_ascii_gap(first: str, second: str) -> None:
     doc = pylopdf.Document()
     doc.pages.new((300, 200))
-    doc.pages[0].insert_ocr_text_layer(
-        [
-            (50, 50, 200, 64, first),
-            (50, 66, 200, 80, second),
-        ]
+    doc.pages[0].apply_ocr(
+        words=ocr_words(
+            [
+                (50, 50, 200, 64, first),
+                (50, 66, 200, 80, second),
+            ]
+        ),
+        skip_existing=False,
     )
 
     markdown = doc.markdown()
@@ -247,11 +253,14 @@ def test_no_space_scripts_join_wrapped_lines_without_ascii_gap(first: str, secon
 def test_latin_lines_join_with_space() -> None:
     doc = pylopdf.Document()
     doc.pages.new((300, 200))
-    doc.pages[0].insert_ocr_text_layer(
-        [
-            (50, 50, 200, 64, "Latin lines"),
-            (50, 66, 200, 80, "join spaced"),
-        ]
+    doc.pages[0].apply_ocr(
+        words=ocr_words(
+            [
+                (50, 50, 200, 64, "Latin lines"),
+                (50, 66, 200, 80, "join spaced"),
+            ]
+        ),
+        skip_existing=False,
     )
     assert "Latin lines join spaced" in doc.markdown()
 
@@ -323,8 +332,8 @@ def test_markdown_bounds_utf8_output_without_partial_result() -> None:
     doc = pylopdf.Document()
     doc.pages.new((300, 200))
     doc.pages.new((300, 200))
-    doc.pages[0].insert_ocr_text_layer([(20, 20, 200, 40, "First page")])
-    doc.pages[1].insert_ocr_text_layer([(20, 20, 200, 40, "日本語の二ページ目")])
+    doc.pages[0].apply_ocr(words=ocr_words([(20, 20, 200, 40, "First page")]), skip_existing=False)
+    doc.pages[1].apply_ocr(words=ocr_words([(20, 20, 200, 40, "日本語の二ページ目")]), skip_existing=False)
     expected = doc.markdown(max_size=None)
     exact_size = len(expected.encode())
     expected_page = doc.pages[1].markdown(max_size=None)

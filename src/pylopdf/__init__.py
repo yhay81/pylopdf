@@ -9,7 +9,7 @@ from __future__ import annotations
 
 # typing.get_type_hints() evaluates a public class's annotations in the module
 # that the class reports, which is this package, so the Literal annotations of
-# Table, TableDiagnostics, and TableFinder resolve through this import.
+# Table and TableDiagnostics resolve through this import.
 from typing import (
     TYPE_CHECKING,
     Literal,  # noqa: F401 - read by typing.get_type_hints(); see above.
@@ -122,12 +122,12 @@ from pylopdf._geometry import (
 from pylopdf._hints import missing_attribute
 from pylopdf._limits import DocumentLimits
 from pylopdf._objects import Array, Dictionary, Name, Objects, Stream, String
-from pylopdf._ocr import OcrEngine
+from pylopdf._ocr import OcrEngine, OcrWord
 from pylopdf._page import Page
 from pylopdf._pages import Pages
 from pylopdf._pixmap import CS_CMYK, CS_GRAY, CS_RGB, Colorspace, csCMYK, csGRAY, csRGB
 from pylopdf._shape import Shape
-from pylopdf._tables import Table, TableDiagnostics, TableFinder
+from pylopdf._tables import Table, TableDiagnostics
 from pylopdf._text import Block, Char, Layout, Line, Span, Word
 from pylopdf._types import (
     LINK_GOTO,
@@ -162,7 +162,6 @@ from pylopdf._types import (
     LinkKind,
     MarkInfo,
     MetadataUpdate,
-    OcrWord,
     OutlineEntry,
     PageLabelInfo,
     PageLabelSpec,
@@ -343,7 +342,6 @@ __all__ = [
     "Stroke",
     "Table",
     "TableDiagnostics",
-    "TableFinder",
     "TagRole",
     "TextAlign",
     "TextFit",

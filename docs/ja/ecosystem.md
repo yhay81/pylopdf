@@ -71,16 +71,17 @@ signed_pdf: bytes = out.getvalue()
 
 ## ほかのエンジンでOCRする { #ocr }
 
-pylopdfには[組み込みのOCR](ocr.md)があります。代わりにTesseractやクラウドサービスなど別のエンジンを使う場合は、その単語を`(x0, y0, x1, y1, text)`として`Page.insert_ocr_text_layer(words)`に渡してください。pylopdfはそれを不可視のテキスト層として追加します。これでスキャンが検索可能になり、`markdown()`でも読み取れるようになり、ファイルサイズもほとんど増えません。
+pylopdfには[組み込みのOCR](ocr.md)があります。代わりにTesseractやクラウドサービスなど別のエンジンを使う場合は、その単語を`OcrWord`レコードとして`Page.apply_ocr(words=...)`に渡してください。pylopdfはそれを不可視のテキスト層として追加します。これでスキャンが検索可能になり、`markdown()`でも読み取れるようになり、ファイルサイズもほとんど増えません。
 
 ```python
 import pylopdf
+from pylopdf import OcrWord, Rect
 
 words = [  # from your OCR engine, in page coordinates
-    (72, 90, 140, 104, "Invoice"),
-    (146, 90, 190, 104, "#1024"),
+    OcrWord(text="Invoice", bbox=Rect(72, 90, 140, 104), confidence=0.98),
+    OcrWord(text="#1024", bbox=Rect(146, 90, 190, 104), confidence=0.95),
 ]
 with pylopdf.open("scan.pdf") as doc:
-    doc.pages[0].insert_ocr_text_layer(words)
+    doc.pages[0].apply_ocr(words=words)
     doc.save("searchable.pdf")
 ```

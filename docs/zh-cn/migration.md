@@ -5,7 +5,7 @@ description: 借助迁移工具、逐个名称的对照表以及需要注意的�
 
 # 从pymupdf迁移
 
-pylopdf的目标是用自己的API完成pymupdf对PDF文件能做的一切。但它不能直接替代pymupdf：它**只能打开PDF文件**（不支持XPS、EPUB或图像），有意改变了少数行为，而且下一个版本将重新设计API，迁移工具会随着各部分的落地而跟进。文档及其页面、保存和文本读取已经采用新API：`pylopdf.open(source)`、`doc.pages`、`doc.save()`、`page.text()`和`page.layout()`。本页列出可以直接沿用的部分、存在差异的部分，以及pylopdf尚未实现的功能应改用什么。
+pylopdf的目标是用自己的API完成pymupdf对PDF文件能做的一切。但它不能直接替代pymupdf：它**只能打开PDF文件**（不支持XPS、EPUB或图像），有意改变了少数行为，而且下一个版本将重新设计API，迁移工具会随着各部分的落地而跟进。文档及其页面、保存、文本读取、表格和OCR已经采用新API：`pylopdf.open(source)`、`doc.pages`、`doc.save()`、`page.text()`、`page.layout()`、`page.tables()`和`page.ocr()`。本页列出可以直接沿用的部分、存在差异的部分，以及pylopdf尚未实现的功能应改用什么。
 
 ## 自动迁移 { #codemod }
 
@@ -16,7 +16,7 @@ pip install "pylopdf[migrate]"
 python -m pylopdf.migrate src/
 ```
 
-它会替换`import fitz`和`import pymupdf`，改写可以机械替换的部分（例如打开文档、由`doc.pages`取代的页面操作、带页码换算的`get_toc`/`set_toc`、`embfile_*`、`xref_*`流读取方法，以及`Rect`/`Point`/`Matrix`的就地修改方法），并在每条仍需人工处理的语句上方添加`# TODO(pylopdf): …`注释，最后以`path:line: message`的形式列出这些位置。同一命令也能升级为pylopdf 0.15编写的程序。
+它会替换`import fitz`和`import pymupdf`，改写可以机械替换的部分（例如打开文档、由`doc.pages`取代的页面操作、带页码换算的`get_toc`/`set_toc`、`embfile_*`、`xref_*`流读取方法、文本与表格读取，以及`Rect`/`Point`/`Matrix`的就地修改方法），并在每条仍需人工处理的语句上方添加`# TODO(pylopdf): …`注释，最后以`path:line: message`的形式列出这些位置。同一命令也能升级为pylopdf 0.15编写的程序。
 
 - `--diff`只打印变更，不写入文件。
 - `--check`在有文件会被修改时以状态1退出，适合在CI中使用。
@@ -69,7 +69,8 @@ python -m pylopdf.migrate src/
 | `page.get_text("blocks")` | `page.layout().blocks` | 返回带有`text`、`bbox`和`lines`的`Block`记录，而非元组 |
 | `page.get_text("dict")`、`get_text("rawdict")` | `page.layout().to_dict()`、`page.layout(chars=True).to_dict()` | 返回相同的字典；`page.layout()`本身返回记录。没有`html`和`xml` |
 | `page.search_for(text)` | `page.search(text)` | 返回矩形；没有`quads=`；除非调大`max_hits=`，最多返回4,096个结果 |
-| `page.get_textpage_ocr()` | `page.get_text_ocr()`、`page.apply_ocr()` | 内置离线OCR；参见[离线OCR](ocr.md) |
+| `page.find_tables()` | `page.tables()` | 返回`Table`记录列表：`table.rows`取代`extract()`，`len(table.rows)`取代`row_count`，`table.cells`逐行保存各单元格的框。尚无调优用的关键字参数、`header`和`to_pandas()` |
+| `page.get_textpage_ocr()` | `page.ocr()`、`page.apply_ocr()` | 内置离线OCR；参见[离线OCR](ocr.md) |
 | `pymupdf4llm.to_markdown(doc)` | `doc.markdown()` | 内置 |
 | `page.get_pixmap(matrix=…, dpi=…)` | 相同 | 仅支持缩放矩阵；尚无`colorspace=`和`annots=`；`doc.get_page_pixmap(i)`改为`doc.pages[i].get_pixmap()` |
 | `pix.samples`、`width`、`height`、`n`、`alpha`、`stride`、`colorspace`、`save()` | 相同 | `save()`和`tobytes()`只输出PNG |
@@ -111,7 +112,7 @@ python -m pylopdf.migrate src/
 - **页面底部附近的`insert_text`。**pylopdf依据可见页面区域（`page.rect`）判断哪些行放得下，而pymupdf测量到未旋转页面的底边为止。在普通的未旋转页面上，两者结果一致。
 - **字体处理严格。**pylopdf不会悄悄改用其他字体，而是抛出异常：例如字体缺少某个字符时，或`is_bold=True`请求的粗体字体未安装时。
 - **合并表单。**`doc.pages.insert()`和`extend()`总是复制表单字段，与pymupdf默认的`widgets=True`相同。接收文档中已存在的同名字段会被重命名为`name+1`、`name+2`等，因此同一表单的各个副本保持各自的值。
-- **表格与Markdown。**`find_tables()`默认检测以线条绘制的表格；无边框表格请传入`strategy="text"`。`markdown()`按阅读顺序放置检测到的表格，并从周围段落中移除表格文本。
+- **表格与Markdown。**`tables()`默认检测以线条绘制的表格；无边框表格请传入`strategy="text"`。`markdown()`按阅读顺序放置检测到的表格，并从周围段落中移除表格文本。
 
 ## 未实现的功能及替代方案 { #deliberate-scope }
 

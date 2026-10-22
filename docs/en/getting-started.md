@@ -95,7 +95,7 @@ with pylopdf.open("input.pdf") as doc:
     words = page.words()                   # Word records with text, bbox, block, line, index
     layout = page.layout()                 # blocks → lines → spans with bbox, size, font
     hits = page.search("total")            # case-insensitive; a list of Rect
-    tables = page.find_tables()
+    tables = page.tables()                 # Table records with bbox, rows, and cells
 ```
 
 Coordinates are in points (1/72 inch) with the origin at the top left of the

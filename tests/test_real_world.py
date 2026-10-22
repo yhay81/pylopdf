@@ -839,11 +839,11 @@ def test_f1040_page_deletion_drops_the_page_from_the_structure_tree(edit: str) -
 
 def test_f1040_bordered_table() -> None:
     """Extract a real stroked dependency grid without rasterization."""
-    tables = pylopdf.open(ASSETS / "f1040.pdf").pages[0].find_tables()
+    tables = pylopdf.open(ASSETS / "f1040.pdf").pages[0].tables()
     assert len(tables) >= 1
     table = tables[0]
-    assert (table.row_count, table.col_count) == (2, 7)
-    text = "\n".join(cell for row in table.extract() for cell in row if cell is not None)
+    assert (len(table.rows), len(table.rows[0])) == (2, 7)
+    text = "\n".join(cell for row in table.rows for cell in row if cell is not None)
     assert "Full-time\nstudent" in text
     assert "Child tax\ncredit" in text
 
@@ -871,20 +871,20 @@ def test_f1040_markdown_integrates_bordered_table_once() -> None:
 
 def test_f1040_borderless_text_table() -> None:
     """Extract aligned form rows that have no complete surrounding grid."""
-    tables = pylopdf.open(ASSETS / "f1040.pdf").pages[0].find_tables(strategy="text")
-    extracted = [table.extract() for table in tables]
+    tables = pylopdf.open(ASSETS / "f1040.pdf").pages[0].tables(strategy="text")
+    extracted = [table.rows for table in tables]
 
     assert any(any(cell == "Filing Status" for row in table for cell in row) for table in extracted)
 
 
 def test_nics_sparse_grid_infers_individual_rows() -> None:
     """Split dense records inside coarse vector row spans."""
-    table = pylopdf.open(ASSETS / "nics-background-checks-2015-11.pdf").pages[0].find_tables()[0]
-    rows = table.extract()
+    table = pylopdf.open(ASSETS / "nics-background-checks-2015-11.pdf").pages[0].tables()[0]
+    rows = table.rows
 
-    assert (table.row_count, table.col_count) == (58, 25)
-    assert table.confidence == 0.95
-    assert rows[2] == [
+    assert (len(table.rows), len(table.rows[0])) == (58, 25)
+    assert table.diagnostics.confidence == 0.95
+    assert list(rows[2]) == [
         "Alabama",
         "18,870",
         "23,022",
@@ -922,10 +922,10 @@ def test_nics_markdown_preserves_sparse_grid_reading_order(rotation: int) -> Non
     """Expand merged headers without duplicating adjacent data after rotation."""
     document = pylopdf.open(ASSETS / "nics-background-checks-2015-11.pdf")
     document.pages[0].set_rotation(rotation)
-    table = document.pages[0].find_tables()[0]
+    table = document.pages[0].tables()[0]
 
     expected_shape = (58, 25) if rotation in (0, 180) else (25, 58)
-    assert (table.row_count, table.col_count) == expected_shape
+    assert (len(table.rows), len(table.rows[0])) == expected_shape
 
     markdown = document.markdown()
     assert "| Alabama | 18,870 | 23,022 |" in markdown
@@ -938,13 +938,13 @@ def test_rotated_senate_header_and_borderless_body() -> None:
     """Keep a merged vector header separate from aligned expenditure rows."""
     page = pylopdf.open(ASSETS / "senate-expenditures.pdf").pages[0]
 
-    header = page.find_tables()[0]
-    assert (header.row_count, header.col_count) == (2, 7)
-    assert header.confidence == 1.0
+    header = page.tables()[0]
+    assert (len(header.rows), len(header.rows[0])) == (2, 7)
+    assert header.diagnostics.confidence == 1.0
 
-    body = page.find_tables(strategy="text")[0]
-    assert (body.row_count, body.col_count) == (10, 3)
-    assert body.extract()[0] == ["BAIN, J MATTHEW", "DISTRICT DIRECTOR", "37,499.96"]
+    body = page.tables(strategy="text")[0]
+    assert (len(body.rows), len(body.rows[0])) == (10, 3)
+    assert body.rows[0] == ("BAIN, J MATTHEW", "DISTRICT DIRECTOR", "37,499.96")
 
 
 def test_manuscript_scan_has_no_text_layer() -> None:

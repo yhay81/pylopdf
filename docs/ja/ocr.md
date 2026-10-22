@@ -17,17 +17,17 @@ pip install "pylopdf[ocr]"
 
 ## 編集せずに認識する { #recognize }
 
-`Page.get_text_ocr()`は見つけた単語を返し、文書は変更しません。
+`Page.ocr()`は見つけた単語を返し、文書は変更しません。
 
 ```python
 import pylopdf
 
 with pylopdf.open("scan.pdf") as doc:
-    for word in doc.pages[0].get_text_ocr():
-        print(word["bbox"], word["text"], word["confidence"])
+    for word in doc.pages[0].ocr():
+        print(word.bbox, word.text, word.confidence)
 ```
 
-各`OcrWord`の`bbox`は、テキスト抽出やレンダリングと同じページ座標です。`confidence`は順位付けや絞り込みに役立ちますが、校正された確率ではありません。
+各`OcrWord`レコードの`bbox`は、テキスト抽出やレンダリングと同じページ座標です。`confidence`は順位付けや絞り込みに役立ちますが、校正された確率ではありません。
 
 ## スキャンを検索可能にする { #searchable }
 
@@ -47,21 +47,26 @@ with pylopdf.open("scan.pdf") as doc:
 
 ## ほかのOCRエンジンを使う { #other-engines }
 
-`Page.insert_ocr_text_layer(words)`は、任意のOCRエンジンやクラウドサービスの単語を追加します。各単語はページ座標の`(x0, y0, x1, y1, text)`で、`text`の後の追加項目は無視されます。
+`Page.apply_ocr(words=...)`は、ページを認識する代わりに、任意のOCRエンジンやクラウドサービスの単語を追加します。各単語は、ページ座標の矩形を持つ`OcrWord`として渡します。
 
 ```python
-words = [(72, 90, 140, 104, "Invoice"), (146, 90, 190, 104, "#1024")]
-doc.pages[0].insert_ocr_text_layer(words)
+from pylopdf import OcrWord, Rect
+
+words = [
+    OcrWord(text="Invoice", bbox=Rect(72, 90, 140, 104), confidence=0.98),
+    OcrWord(text="#1024", bbox=Rect(146, 90, 190, 104), confidence=0.95),
+]
+doc.pages[0].apply_ocr(words=words)
 ```
 
-このテキスト層はフォントを埋め込まないので、ファイルサイズはほとんど増えません。
+認識するときと同じく、すでにテキストがあるページは読み飛ばします。このテキスト層はフォントを埋め込まないので、ファイルサイズはほとんど増えません。
 
 ## 回転したスキャン { #rotation }
 
 ページが横向きや上下逆さまにスキャンされている場合は、`rotation=90`、`180`、`270`を渡すと、認識の前に画像を時計回りに回転します。
 
 ```python
-words = page.get_text_ocr(rotation=270)
+words = page.ocr(rotation=270)
 page.apply_ocr(rotation=270)
 ```
 
@@ -73,7 +78,7 @@ page.apply_ocr(rotation=270)
 
 ```python
 engine = pylopdf.OcrEngine(threads=2)
-words = page.get_text_ocr(engine=engine, tile_size=1280, min_confidence=0.6)
+words = page.ocr(engine=engine, tile_size=1280, min_confidence=0.6)
 ```
 
 `clip=`も時間とメモリを節約します。選んだ領域だけを認識するためです。

@@ -84,19 +84,20 @@ invalidates the signature. `set_form_field()` refuses to fill signature fields.
 ## OCR with another engine { #ocr }
 
 pylopdf has [built-in OCR](ocr.md). To use another engine instead, such as
-Tesseract or a cloud service, pass its words as `(x0, y0, x1, y1, text)` to
-`Page.insert_ocr_text_layer(words)`. pylopdf adds them as an invisible text
-layer, which makes the scan searchable and lets `markdown()` read it, while
-adding very little to the file size.
+Tesseract or a cloud service, pass its words as `OcrWord` records to
+`Page.apply_ocr(words=...)`. pylopdf adds them as an invisible text layer,
+which makes the scan searchable and lets `markdown()` read it, while adding
+very little to the file size.
 
 ```python
 import pylopdf
+from pylopdf import OcrWord, Rect
 
 words = [  # from your OCR engine, in page coordinates
-    (72, 90, 140, 104, "Invoice"),
-    (146, 90, 190, 104, "#1024"),
+    OcrWord(text="Invoice", bbox=Rect(72, 90, 140, 104), confidence=0.98),
+    OcrWord(text="#1024", bbox=Rect(146, 90, 190, 104), confidence=0.95),
 ]
 with pylopdf.open("scan.pdf") as doc:
-    doc.pages[0].insert_ocr_text_layer(words)
+    doc.pages[0].apply_ocr(words=words)
     doc.save("searchable.pdf")
 ```

@@ -11,7 +11,7 @@ import zlib
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf, build_raw_pdf, drawn_images
+from conftest import build_pdf, build_raw_pdf, drawn_images, ocr_words
 
 import pylopdf
 
@@ -491,7 +491,7 @@ def test_drawing_preflights_contents_before_mutation(operation: str) -> None:
         if operation == "image":
             page.insert_image((0, 0, 10, 10), stream=b"not an image")
         elif operation == "ocr":
-            page.insert_ocr_text_layer([(10, 10, 50, 20, "Text")])
+            page.apply_ocr(words=ocr_words([(10, 10, 50, 20, "Text")]), skip_existing=False)
         elif operation == "pdf":
             page.show_pdf_page((0, 0, 10, 10), _new_page_doc())
         elif operation == "text":

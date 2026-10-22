@@ -350,7 +350,7 @@ def test_text_budget_remains_active_on_generated_documents() -> None:
 def test_text_glyph_budget_is_cumulative_without_double_charging_pages() -> None:
     exact = pylopdf.open(build_pdf(["ABC"]), limits=pylopdf.DocumentLimits(max_text_glyphs=3))
     assert exact.pages[0].words()
-    assert exact.pages[0].find_tables().tables == []
+    assert exact.pages[0].tables() == []
 
     cumulative = pylopdf.open(build_pdf(["ABC", "DEF", ""]), limits=pylopdf.DocumentLimits(max_text_glyphs=5))
     assert "ABC" in cumulative.pages[0].text()
