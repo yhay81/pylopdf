@@ -67,15 +67,7 @@ if TYPE_CHECKING:
     from pylopdf._document import Document
     from pylopdf._fonts import Font
     from pylopdf._text import Layout, Word
-    from pylopdf._types import (
-        DrawingInfo,
-        DrawingItem,
-        FontLanguage,
-        ImageInfo,
-        LinkInfo,
-        OcrRotation,
-        PageLabelInfo,
-    )
+    from pylopdf._types import FontLanguage, LinkInfo, OcrRotation, PageLabelInfo
 
 
 _DEFAULT_MAX_TEXT_REPLACEMENT_SIZE = 64 * 1024 * 1024
@@ -90,8 +82,6 @@ _MAX_OCR_LAYER_TEXT_BYTES = 1024 * 1024
 #: The defaults of the recognition options of :meth:`Page.apply_ocr`, which ``words`` excludes.
 _DEFAULT_OCR_RECOGNITION = (300, 1408, 192, 0.5)
 _MAX_TEXT_REPLACEMENT_INPUT_BYTES = 4096
-_DRAWING_LINE_POINT_COUNT = 2
-_DRAWING_CUBIC_POINT_COUNT = 4
 
 #: Portrait A4 in PDF units, used for damaged PDFs without a MediaBox.
 _DEFAULT_MEDIABOX = (0.0, 0.0, 210.0 * 72.0 / 25.4, 297.0 * 72.0 / 25.4)
@@ -652,8 +642,8 @@ class Page:
         page's resources and, depth first, those of the Form XObjects they
         list are read in resource order, and each image appears once. Inline
         images and images that only annotations draw are not listed, and an
-        image need not be drawn to be listed. Use :meth:`get_image_info` for
-        drawn placements and :meth:`Document.extract_image` for image data. A
+        image need not be drawn to be listed. ``content().images`` lists
+        drawn placements and :meth:`Document.extract_image` returns image data. A
         page that lists more than 4,096 images or 4,096 Form XObjects raises
         :class:`LimitError` with code ``image_inventory_count``.
         """
@@ -662,60 +652,12 @@ class Page:
             return [ImageItemFull(*item) for item in raw]
         return [ImageItem(*item[:9]) for item in raw]
 
-    def get_image_info(self, *, hashes: bool = False, xrefs: bool = False) -> list[ImageInfo]:
-        """Describe each image drawn on the page, in drawing order, as pymupdf does.
-
-        Each dictionary has pymupdf's keys: ``number``, ``bbox`` in display
-        coordinates, ``transform`` (the :class:`Matrix` that maps the unit
-        square to ``bbox``), ``width`` and ``height`` in pixels,
-        ``colorspace`` (its number of components), ``cs-name``, ``xres`` and
-        ``yres``, ``bpc``, ``size`` (encoded bytes), and ``has-mask``.
-        ``xrefs=True`` adds ``xref``, 0 for an inline image or an image mask.
-        ``hashes=True`` raises :class:`PdfError` until pylopdf computes image
-        digests. More than 4,096 placements on one page raise
-        :class:`PdfError` instead of returning a partial list.
-        """
-        if hashes:
-            msg = "hashes=True is not supported yet"
-            raise PdfError(msg)
-        raw = self._document._doc.page_image_info(self._page_number())
-        self._document._emit_warnings()
-        infos: list[ImageInfo] = []
-        for number, (
-            xref,
-            bbox,
-            transform,
-            width,
-            height,
-            components,
-            cs_name,
-            bpc,
-            size,
-            has_mask,
-            (xres, yres),
-        ) in enumerate(raw):
-            info: ImageInfo = {
-                "number": number,
-                "bbox": Rect(*bbox),
-                "transform": Matrix(*transform),
-                "width": width,
-                "height": height,
-                "colorspace": components,
-                "cs-name": cs_name,
-                "xres": xres,
-                "yres": yres,
-                "bpc": bpc,
-                "size": size,
-                "has-mask": has_mask,
-            }
-            if xrefs:
-                info["xref"] = xref
-            infos.append(info)
-        return infos
-
-    def content(
+    def content(  # noqa: PLR0913 - the item kinds and the reading options are all keyword-only
         self,
         *,
+        text_runs: bool = True,
+        paths: bool = True,
+        images: bool = True,
         clip: Sequence[float] | None = None,
         annotations: bool = True,
         max_elements: int | None = _DEFAULT_MAX_CONTENT_ELEMENTS,
@@ -733,96 +675,36 @@ class Page:
         is a :class:`Path` that covers the clip region and fills with a
         :class:`ShadingPattern`.
 
+        ``text_runs=False``, ``paths=False``, and ``images=False`` leave out
+        that kind of item without building it, which makes reading only the
+        paths or only the images of a text-heavy page many times faster.
         ``clip`` keeps the items whose box meets a display-coordinate
         rectangle. ``annotations=False`` leaves out annotation appearances,
         which otherwise follow the page content. Items whose geometry or paint
         is not finite, which hayro cannot paint either, are left out.
 
-        ``max_elements`` bounds the glyphs, path and clip segments, and items
-        of one interpretation, before ``clip`` applies; above it the call
-        raises :class:`LimitError` with code ``content_element_count``.
-        ``None`` removes the bound for trusted input.
+        ``max_elements`` bounds the glyphs, path and clip segments, stroke
+        dash lengths, and items of one interpretation, before ``clip``
+        applies; above it the call raises :class:`LimitError` with code
+        ``content_element_count``. ``None`` removes the bound for trusted
+        input.
         """
-        if not isinstance(annotations, bool):
-            msg = f"annotations must be a bool: {annotations!r}"
-            raise TypeError(msg)
+        for name, value in (
+            ("text_runs", text_runs),
+            ("paths", paths),
+            ("images", images),
+            ("annotations", annotations),
+        ):
+            if not isinstance(value, bool):
+                msg = f"{name} must be a bool: {value!r}"
+                raise TypeError(msg)
         _validate_optional_positive_int("max_elements", max_elements)
         clip_rect = None if clip is None else _validate_rect(clip, name="clip")
-        raw = self._document._doc.page_content(self._page_number(), annotations, clip_rect, max_elements)
+        raw = self._document._doc.page_content(
+            self._page_number(), (text_runs, paths, images), annotations, clip_rect, max_elements
+        )
         self._document._emit_warnings()
         return _content_from_core(raw)
-
-    def get_drawings(self) -> list[DrawingInfo]:
-        """Extract interpreted vector paint operations in display coordinates.
-
-        Results use pymupdf-style path dictionaries with ``type`` equal to
-        ``"f"``, ``"s"``, or ``"fs"``. ``items`` contains self-contained line
-        and cubic Bézier commands. Quadratic curves are converted exactly to
-        cubics. Stroke colors use ``color``; fill colors use ``fill``. Exotic
-        pattern paints do not have one representative RGB value and return
-        ``None`` for color and opacity. ``seqno`` is the paint operation's
-        zero-based position among the page's paint operations, which count
-        paths, text runs, and images in drawing order, as pymupdf numbers them;
-        a combined fill-and-stroke keeps the number of its fill.
-
-        Clipping paths and clip-resolved visibility, transparency-group
-        structure, optional-content layer names (pymupdf's ``layer`` key), text
-        outlines, and images are not returned. The interpreter still applies optional-content visibility
-        before reporting a paint operation. Output is bounded to 8,192 paths and
-        131,072 commands; exceeding either limit raises :class:`PdfError` instead
-        of returning partial results.
-        """
-        raw = self._document._doc.extract_drawings(self._page_number())
-        self._document._emit_warnings()
-        drawings: list[DrawingInfo] = []
-        for (
-            bbox,
-            kind,
-            raw_items,
-            close_path,
-            stroke,
-            fill,
-            seqno,
-        ) in raw:
-            stroke_color, stroke_opacity, width, line_cap, line_join, dashes = stroke
-            fill_color, fill_opacity, even_odd = fill
-            items: list[DrawingItem] = []
-            for command, points in raw_items:
-                converted = [Point(*point) for point in points]
-                if command == "l" and len(converted) == _DRAWING_LINE_POINT_COUNT:
-                    items.append(("l", converted[0], converted[1]))
-                elif command == "c" and len(converted) == _DRAWING_CUBIC_POINT_COUNT:
-                    items.append(
-                        (
-                            "c",
-                            converted[0],
-                            converted[1],
-                            converted[2],
-                            converted[3],
-                        )
-                    )
-                else:  # pragma: no cover - guarded by the native extractor.
-                    msg = f"invalid native drawing command: {command!r}"
-                    raise PdfError(msg)
-            drawings.append(
-                {
-                    "rect": Rect(*bbox),
-                    "type": cast("Literal['f', 's', 'fs']", kind),
-                    "items": items,
-                    "closePath": close_path,
-                    "color": stroke_color,
-                    "fill": fill_color,
-                    "stroke_opacity": stroke_opacity,
-                    "fill_opacity": fill_opacity,
-                    "even_odd": even_odd,
-                    "width": width,
-                    "lineCap": line_cap,
-                    "lineJoin": line_join,
-                    "dashes": dashes,
-                    "seqno": seqno,
-                }
-            )
-        return drawings
 
     def insert_image(  # noqa: PLR0913 - mirrors pymupdf's keyword-oriented drawing API
         self,

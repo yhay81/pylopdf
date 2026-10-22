@@ -704,6 +704,41 @@ def _get_text_ocr(migrator: _Migrator, receiver: str, args: _Arguments) -> str:
     return _call(receiver, "ocr", args)
 
 
+PATH_RECORD_MESSAGE = (
+    "page.content(...).paths returns Path records instead of dictionaries: read path.bbox, path.segments, "
+    "path.fill, path.fill_rule, and path.stroke, whose paint, width, cap, join, and dashes style the stroke."
+)
+EXTENDED_PATH_MESSAGE = (
+    "page.content(...).paths returns Path records instead of dictionaries; each path's context holds the clips, "
+    "transparency groups, and marked content around it, which extended=True listed as entries of their own."
+)
+IMAGE_RECORD_MESSAGE = (
+    "page.content(...).images returns Image records instead of dictionaries: read image.xref, bbox, matrix, "
+    "width, height, bits, colorspace, components, mask, encoded_size, and resolution."
+)
+
+
+def _get_drawings(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``get_drawings(extended=...)`` and ``get_cdrawings(extended=...)`` to the content model."""
+    bound = args.bind(("extended", "callback", "method"))
+    if bound is None or {"callback", "method"} & set(bound):
+        return None
+    extended = bound.get("extended", "False")
+    if extended not in _FALSE | _TRUE:
+        return None
+    migrator.todo(EXTENDED_PATH_MESSAGE if extended in _TRUE else PATH_RECORD_MESSAGE)
+    return f"{receiver}.content(text_runs=False, images=False).paths"
+
+
+def _get_image_info(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``get_image_info(xrefs=...)``; image digests have no counterpart yet."""
+    bound = args.bind(("hashes", "xrefs"))
+    if bound is None or bound.get("hashes", "False") not in _FALSE:
+        return None
+    migrator.todo(IMAGE_RECORD_MESSAGE)
+    return f"{receiver}.content(text_runs=False, paths=False).images"
+
+
 #: Calls rewritten wherever they appear.
 CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "get_toc": _get_toc,
@@ -743,6 +778,9 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "to_markdown": _renamed("markdown"),
     "find_tables": _find_tables,
     "get_text_ocr": _get_text_ocr,
+    "get_drawings": _get_drawings,
+    "get_cdrawings": _get_drawings,
+    "get_image_info": _get_image_info,
 }
 
 

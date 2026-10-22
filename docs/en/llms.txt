@@ -157,7 +157,9 @@ replacement, and the migration hint):
 - Page.get_bboxlog -> Page.content: Call page.content(); every item has a bbox and a kind, and its context lists the clips around it.
 - Page.get_cdrawings -> Page.content: Read page.content().paths, whose segments, paints, and strokes are immutable values.
 - Page.get_displaylist -> Page.content: Call page.content(), which returns the page's painted items as an immutable Content sequence.
+- Page.get_drawings -> Page.content: Read page.content(text_runs=False, images=False).paths: Path records with segments, fill, fill_rule, stroke, and bbox, in paint order; a path with both a fill and a stroke is pymupdf's fs type, and each path's context holds what extended=True listed.
 - Page.get_image_bbox -> Page.content: Keep the items of page.content().images whose xref is the image's object number, and read their bbox and matrix.
+- Page.get_image_info -> Page.content: Read page.content(text_runs=False, paths=False).images: Image records with xref, bbox, matrix (pymupdf's transform), width, height, bits, colorspace, components, mask, encoded_size, and resolution.
 - Page.get_image_rects -> Page.content: Keep the items of page.content().images whose xref is the image's object number, and read their bbox and matrix.
 - Page.get_text -> Page.text: Use page.text() for "text", page.words() for "words", page.layout().blocks for "blocks", and page.layout().to_dict() or page.layout(chars=True).to_dict() for "dict" and "rawdict".
 - Page.get_text_blocks -> Page.layout: Read page.layout().blocks, Block records with text, bbox, and lines.
@@ -195,8 +197,27 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - Document.render_page -> Page.get_pixmap: Use doc.pages[i].get_pixmap(...); its tobytes() gives the PNG.
 - Document.render_page_svg -> Page.get_svg_image: Use doc.pages[i].get_svg_image().
 - Document.to_markdown -> Document.markdown: Call doc.markdown(...).
-- ImageInfo.ext -> Document.extract_image: Document.extract_image(xref) returns an image's data and ext; Page.get_image_info describes placements.
-- ImageInfo.image -> Document.extract_image: Document.extract_image(xref) returns an image's data and ext; Page.get_image_info describes placements.
+- DrawingInfo -> Path: page.content(text_runs=False, images=False).paths returns Path records instead of DrawingInfo dictionaries.
+- DrawingInfo.closePath -> Path.segments: A path is closed where its segments hold a ClosePath.
+- DrawingInfo.color -> Stroke.paint: Read path.stroke.paint.rgb; path.stroke is None for a path that is not stroked.
+- DrawingInfo.dashes -> Stroke.dashes: Read path.stroke.dashes and path.stroke.dash_offset.
+- DrawingInfo.even_odd -> Path.fill_rule: Compare path.fill_rule with FillRule.EVEN_ODD.
+- DrawingInfo.fill -> Path.fill: Read path.fill.rgb; path.fill is None for a path that is not filled.
+- DrawingInfo.fill_opacity -> Color.alpha: Read path.fill.alpha.
+- DrawingInfo.items -> Path.segments: Read path.segments: MoveTo, LineTo, CurveTo, and ClosePath records.
+- DrawingInfo.lineCap -> Stroke.cap: Read path.stroke.cap, a LineCap.
+- DrawingInfo.lineJoin -> Stroke.join: Read path.stroke.join, a LineJoin.
+- DrawingInfo.rect -> Path.bbox: Read path.bbox.
+- DrawingInfo.stroke_opacity -> Color.alpha: Read path.stroke.paint.alpha.
+- DrawingInfo.type -> Path.fill: A path fills when path.fill is not None and strokes when path.stroke is not None.
+- DrawingInfo.width -> Stroke.width: Read path.stroke.width.
+- DrawingItem -> Segment: path.segments holds MoveTo, LineTo, CurveTo, and ClosePath records.
+- ImageInfo -> Image: page.content(text_runs=False, paths=False).images lists drawn images as Image records; Document.extract_image(xref) returns an image's data.
+- ImageInfo.bbox -> Image.bbox: Read image.bbox of page.content().images.
+- ImageInfo.ext -> Document.extract_image: Document.extract_image(xref) returns an image's data and ext; page.content().images describes placements.
+- ImageInfo.height -> Image.height: Read image.height of page.content().images.
+- ImageInfo.image -> Document.extract_image: Document.extract_image(xref) returns an image's data and ext; page.content().images describes placements.
+- ImageInfo.width -> Image.width: Read image.width of page.content().images.
 - MetadataProbe -> Probe: probe(source) returns a Probe record.
 - MetadataProbe.author -> Probe.metadata: Read probe.metadata["author"].
 - MetadataProbe.creationDate -> Probe.metadata: Read probe.metadata["created"].

@@ -15,12 +15,9 @@ def test_public_type_contracts_are_runtime_importable() -> None:
         "DocumentComplexity",
         "DocumentLimits",
         "DocumentMetadata",
-        "DrawingInfo",
-        "DrawingItem",
         "FormFieldInfo",
         "FormFieldType",
         "ImageCompressionResult",
-        "ImageInfo",
         "LinkInfo",
         "LimitError",
         "MetadataUpdate",
@@ -52,10 +49,8 @@ def test_typed_dict_required_and_optional_keys() -> None:
     typed_dicts = (
         pylopdf.DocumentComplexity,
         pylopdf.DocumentMetadata,
-        pylopdf.DrawingInfo,
         pylopdf.FormFieldInfo,
         pylopdf.ImageCompressionResult,
-        pylopdf.ImageInfo,
         pylopdf.LinkInfo,
         pylopdf.MetadataUpdate,
         pylopdf.PageLabelInfo,
@@ -67,7 +62,7 @@ def test_typed_dict_required_and_optional_keys() -> None:
     assert pylopdf.PageLabelSpec.__required_keys__ == frozenset({"startpage"})
     assert pylopdf.PageLabelSpec.__optional_keys__ == frozenset({"style", "prefix", "firstpagenum"})
     assert pylopdf.MetadataUpdate.__required_keys__ == frozenset()
-    assert get_type_hints(pylopdf.ImageInfo)["bbox"] is pylopdf.Rect
+    assert get_type_hints(pylopdf.Image)["bbox"] is pylopdf.Rect
     assert get_type_hints(pylopdf.OcrWord)["bbox"] is pylopdf.Rect
     assert get_type_hints(pylopdf.Table)["diagnostics"] is pylopdf.TableDiagnostics
 
@@ -79,7 +74,7 @@ def test_public_return_annotations_describe_real_values() -> None:
     complexity: pylopdf.DocumentComplexity = doc.complexity
     labels: list[pylopdf.PageLabelInfo] = doc.get_page_labels()
     fields: list[pylopdf.FormFieldInfo] = doc.get_form_fields()
-    drawings: list[pylopdf.DrawingInfo] = doc.pages[0].get_drawings()
+    content: pylopdf.Content = doc.pages[0].content()
     compression: pylopdf.ImageCompressionResult = doc.rewrite_images(quality=75)
 
     assert layout["blocks"][0]["lines"][0]["spans"][0]["text"] == "Typed layout"
@@ -87,5 +82,5 @@ def test_public_return_annotations_describe_real_values() -> None:
     assert complexity["page_count"] == 1
     assert labels == []
     assert fields == []
-    assert drawings == []
+    assert content.paths == ()
     assert compression["rewritten"] == 0

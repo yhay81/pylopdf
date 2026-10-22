@@ -136,8 +136,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 颠倒页面顺序
 | `tables(*, strategy="lines", clip=None)` | 以`Table`记录列表返回表格；参见[表格](#tables) |
 | `markdown(*, table_strategy="lines")` | 本页的Markdown |
 | `ocr(...)`、`apply_ocr(*, words=None, ...)` | OCR，以及由其结果或其他引擎的单词生成的不可见文本层；参见[离线OCR](ocr.md) |
-| `content(*, clip=None, annotations=True)` | 页面绘制的所有文本段、路径和图像；参见[页面内容](#content) |
-| `get_drawings()` | 矢量路径；参见[矢量绘图](#drawings) |
+| `content(*, text_runs=True, paths=True, images=True, clip=None, annotations=True)` | 页面绘制的所有文本段、路径和图像；参见[页面内容](#content) |
 | `get_links()` | 链接及其目标 |
 | `get_label()` | 页码标签，例如`"iv"` |
 
@@ -152,7 +151,6 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 颠倒页面顺序
 | `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` | 渲染为[`Pixmap`](#pixmap) |
 | `get_svg_image(*, matrix=None, text_as_path=True)` | 渲染为SVG字符串 |
 | `get_images(*, full=False)` | 页面使用的图像对象，以`ImageItem`元组返回 |
-| `get_image_info(*, hashes=False, xrefs=False)` | 每个图像的绘制位置及其尺寸和变换 |
 
 与pymupdf相同，pixmap默认为白底RGB，`alpha=True`时为RGBA。`dpi`优先于`matrix`，而`matrix`必须是缩放矩阵，例如`Matrix(2, 2)`。`clip`只渲染页面的一部分。
 
@@ -251,13 +249,9 @@ with pylopdf.open("report.pdf") as doc:
 - 用`sh`绘制的着色是一条覆盖裁剪区域并以`ShadingPattern`填充的`Path`。
 - hayro把每幅图像都绘制在一个带有当时的不透明度、混合模式和软蒙版的透明组中，因此图像的上下文以该组结尾。覆盖整个可见区域的裁剪与hayro一样不包含在内。
 
-`clip=`只保留外接框与给定矩形相接的项，`annotations=False`不包含注释外观。一次调用读取的字形、路径与裁剪的线段以及项合计最多为`max_elements`，默认为262,144。
+`text_runs=False`、`paths=False`和`images=False`不构建对应种类的项，因此只读取文本密集页面的路径或图像时会快很多倍。`clip=`只保留外接框与给定矩形相接的项，`annotations=False`不包含注释外观。一次调用读取的字形、路径与裁剪的线段、描边的虚线长度以及项合计最多为`max_elements`，默认为262,144。
 
 hayro尚未报告的信息不在模型中：颜色的色彩空间和分量、图层名称等标记内容属性、`FontRef`背后的字体字典，以及图像蒙版的对象。它们列在[引擎工作](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#engine-work)中。
-
-## 矢量绘图 { #drawings }
-
-`page.get_drawings()`为每条填充或描边的路径返回一个`DrawingInfo`字典，格式与pymupdf相同：`type`（`"f"`、`"s"`或`"fs"`）、`items`（直线和三次曲线）、`rect`、颜色、不透明度、线宽、线帽、连接方式、虚线和`seqno`。以图案（pattern）填充的路径，其颜色为`None`。[`page.content()`](#content)的路径还带有裁剪、分组和标记内容。
 
 ## 画布 { #canvas }
 
@@ -568,7 +562,7 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 
 常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）和`AnnotFlags`（`PDF_ANNOT_IS_*`）。`Access`的成员是`USER`和`OWNER`，`Encryption`描述如何加密保存的文件。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
 
-文本、表格和OCR结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`和`OcrWord`等不可变的数据类（frozen dataclass）。API返回的其他字典都是普通的`dict`对象，并通过`DrawingInfo`、`ImageInfo`、`LinkInfo`、`FormFieldInfo`和`DocumentMetadata`等`TypedDict`类向类型检查器描述；`ImageItem`和`OutlineEntry`是具名元组。
+文本、表格、OCR和页面内容的结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`和`Image`等不可变的数据类（frozen dataclass）。API返回的其他字典都是普通的`dict`对象，并通过`LinkInfo`、`FormFieldInfo`和`DocumentMetadata`等`TypedDict`类向类型检查器描述；`ImageItem`和`OutlineEntry`是具名元组。
 
 ## 异常与警告 { #exceptions }
 

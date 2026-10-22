@@ -457,10 +457,50 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import pylopdf\npage.insert_ocr_text_layer(words)\n", "page.apply_ocr(words=[OcrWord("),
         ("import pylopdf\nfinder = page.find_tables()\nregion = finder.clip\n", "keep the clip you passed"),
         ("import pylopdf\ntable = page.find_tables()[0]\nsource = table.page\n", "Keep the page whose tables()"),
+        ("import fitz\ninfos = page.get_image_info(hashes=True)\n", "Page.get_image_info is Page.content"),
+        ("import fitz\npaths = page.get_cdrawings(callback=print)\n", "Read page.content().paths"),
     ],
 )
 def test_codemod_marks_what_it_cannot_rewrite(migrate_source: Migrate, source: str, hint: str) -> None:
     result = migrate_source(source)
+    assert any(hint in message for _, message in result.todos), result.code
+
+
+@pytest.mark.parametrize(
+    ("source", "expected", "hint"),
+    [
+        (
+            "import fitz\npaths = page.get_drawings()\n",
+            "paths = page.content(text_runs=False, images=False).paths",
+            "returns Path records",
+        ),
+        (
+            "import fitz\npaths = page.get_cdrawings(extended=None)\n",
+            "paths = page.content(text_runs=False, images=False).paths",
+            "returns Path records",
+        ),
+        (
+            "import fitz\nitems = page.get_drawings(extended=True)\n",
+            "items = page.content(text_runs=False, images=False).paths",
+            "which extended=True listed",
+        ),
+        (
+            "import fitz\ninfos = page.get_image_info(xrefs=True)\n",
+            "infos = page.content(text_runs=False, paths=False).images",
+            "returns Image records",
+        ),
+        (
+            "import pylopdf\npaths = page.get_drawings()\n",
+            "paths = page.content(text_runs=False, images=False).paths",
+            "returns Path records",
+        ),
+    ],
+)
+def test_codemod_moves_drawings_and_image_info_to_the_content_model(
+    migrate_source: Migrate, source: str, expected: str, hint: str
+) -> None:
+    result = migrate_source(source)
+    assert expected in result.code
     assert any(hint in message for _, message in result.todos), result.code
 
 

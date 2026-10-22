@@ -123,7 +123,7 @@ def test_draw_methods_return_pymupdfs_end_points_and_bounds(
         assert shape.rect == pytest.approx(rect, abs=1e-9)
     shape.finish()
     shape.commit()
-    assert len(page.get_drawings()) == 1
+    assert len(page.content().paths) == 1
 
 
 def test_zigzag_and_squiggle_bounds_match_pymupdf_within_float_precision() -> None:
@@ -155,12 +155,20 @@ def test_connected_segments_continue_one_subpath() -> None:
     shape.draw_line((150, 150), (200, 150))
     shape.finish(closePath=False)
     shape.commit()
-    (drawing,) = page.get_drawings()
-    assert [item[0] for item in drawing["items"]] == ["l", "l", "l"]
-    first, second, third = drawing["items"]
-    assert first[2] == second[1]
-    assert third[1] != second[2]
-    assert drawing["rect"] == pytest.approx((10, 10, 200, 150))
+    (path,) = page.content().paths
+    assert [type(segment).__name__ for segment in path.segments] == [
+        "MoveTo",
+        "LineTo",
+        "LineTo",
+        "MoveTo",
+        "LineTo",
+    ]
+    assert path.bbox == pytest.approx((10, 10, 200, 150))
+
+
+def _rgba(paint: pylopdf.Paint | None) -> tuple[float, float, float, float]:
+    assert isinstance(paint, pylopdf.Color)
+    return (paint.red, paint.green, paint.blue, paint.alpha)
 
 
 def test_finish_applies_pymupdfs_styles() -> None:
@@ -176,25 +184,34 @@ def test_finish_applies_pymupdfs_styles() -> None:
     shape.draw_polyline(points)
     shape.finish(color=None, fill=(1, 1, 0), fill_opacity=0.25, even_odd=True)
     shape.commit()
-    gray, cmyk, dashed, filled = page.get_drawings()
-    cmyk_color, cmyk_fill = cmyk["color"], cmyk["fill"]
-    assert cmyk_color is not None
-    assert cmyk_fill is not None
-    assert gray["type"] == "s"
-    assert gray["color"] == pytest.approx((0.502, 0.502, 0.502), abs=1e-3)
-    assert (gray["width"], gray["lineCap"], gray["lineJoin"], gray["closePath"]) == (3, (1, 1, 1), 2, False)
-    assert cmyk["type"] == "fs"
+    gray, cmyk, dashed, filled = page.content().paths
+    assert gray.fill is None
+    assert gray.stroke is not None
+    assert isinstance(gray.stroke.paint, pylopdf.Color)
+    assert gray.stroke.paint.red == pytest.approx(0.502, abs=1e-3)
+    assert (gray.stroke.width, gray.stroke.cap, gray.stroke.join) == (
+        3,
+        pylopdf.LineCap.ROUND,
+        pylopdf.LineJoin.BEVEL,
+    )
+    assert not isinstance(gray.segments[-1], pylopdf.ClosePath)
+    assert cmyk.stroke is not None
+    cmyk_color, cmyk_fill = cmyk.stroke.paint, cmyk.fill
+    assert isinstance(cmyk_color, pylopdf.Color)
+    assert isinstance(cmyk_fill, pylopdf.Color)
     # The renderer converts CMYK magenta and a 20 % black to RGB.
-    assert cmyk_color[0] > 0.8 > cmyk_color[2] > cmyk_color[1] == 0
-    assert min(cmyk_fill) > 0.7
-    assert max(cmyk_fill) - min(cmyk_fill) < 0.03
-    assert (cmyk["width"], cmyk["lineJoin"], cmyk["closePath"]) == (2, 1, True)
-    assert dashed["dashes"] == "[3 4] 1"
-    assert dashed["stroke_opacity"] == pytest.approx(0.5, abs=1e-2)
-    assert filled["type"] == "f"
-    assert filled["even_odd"] is True
-    assert filled["fill"] == (1, 1, 0)
-    assert filled["fill_opacity"] == pytest.approx(0.25, abs=1e-2)
+    assert cmyk_color.red > 0.8 > cmyk_color.blue > cmyk_color.green == 0
+    fill_channels = (cmyk_fill.red, cmyk_fill.green, cmyk_fill.blue)
+    assert min(fill_channels) > 0.7
+    assert max(fill_channels) - min(fill_channels) < 0.03
+    assert (cmyk.stroke.width, cmyk.stroke.join) == (2, pylopdf.LineJoin.ROUND)
+    assert isinstance(cmyk.segments[-1], pylopdf.ClosePath)
+    assert dashed.stroke is not None
+    assert (dashed.stroke.dashes, dashed.stroke.dash_offset) == ((3, 4), 1)
+    assert _rgba(dashed.stroke.paint) == pytest.approx((1, 0, 0, 0.5), abs=1e-2)
+    assert filled.stroke is None
+    assert filled.fill_rule is pylopdf.FillRule.EVEN_ODD
+    assert _rgba(filled.fill) == pytest.approx((1, 1, 0, 0.25), abs=1e-2)
 
 
 def test_finish_without_drawing_is_a_no_op_and_refuses_styles_that_draw_nothing() -> None:
@@ -208,7 +225,9 @@ def test_finish_without_drawing_is_a_no_op_and_refuses_styles_that_draw_nothing(
         shape.finish(width=0)
     shape.finish(width=0, fill=(0, 0, 1))
     shape.commit()
-    assert page.get_drawings()[0]["type"] == "f"
+    (path,) = page.content().paths
+    assert path.fill is not None
+    assert path.stroke is None
 
 
 def test_commit_refuses_drawing_that_finish_did_not_style() -> None:
@@ -281,8 +300,8 @@ def test_shapes_use_display_coordinates_on_rotated_pages(rotation: int, regular:
         shape.finish(color=(0, 0, 1), width=2)
         shape.insert_text((40, 60), "見出し", font=regular, fontsize=16)
         shape.insert_text((40, 120), "Standard", fontsize=12)
-    (drawing,) = page.get_drawings()
-    assert drawing["rect"] == pytest.approx((20, 30, 120, 80), abs=0.01)
+    (path,) = page.content().paths
+    assert path.bbox == pytest.approx((20, 30, 120, 80), abs=0.01)
     words = {word.text: word for word in page.words()}
     assert words["見出し"].bbox.x0 == pytest.approx(40, abs=0.5)
     assert words["Standard"].bbox.x0 == pytest.approx(40, abs=0.5)
@@ -315,7 +334,7 @@ def test_a_context_manager_commits_or_draws_nothing_after_an_exception() -> None
     with page.new_shape() as shape:
         shape.draw_circle((100, 100), 20)
         shape.finish(fill=(0, 1, 0))
-    assert len(page.get_drawings()) == 1
+    assert len(page.content().paths) == 1
 
     before = doc.to_bytes()
     with warnings.catch_warnings(record=True) as caught:
@@ -361,7 +380,7 @@ def test_a_shape_can_commit_again_after_it_is_emptied() -> None:
     shape.draw_line((10, 50), (100, 50))
     shape.finish()
     shape.commit()
-    assert len(page.get_drawings()) == 2
+    assert len(page.content().paths) == 2
 
 
 def test_a_shape_on_a_stale_page_cannot_commit() -> None:
@@ -453,11 +472,10 @@ def test_page_drawing_methods_draw_one_finished_path_each() -> None:
     assert page.draw_sector((60, 180), (90, 180), 90, fill=(1, 0, 1)) == pytest.approx((60, 150))
     assert page.draw_squiggle((100, 180), (200, 180), breadth=3) == (200, 180)
     assert page.draw_zigzag((200, 180), (290, 180), breadth=3) == (290, 180)
-    drawings = page.get_drawings()
-    assert len(drawings) == 11
-    assert drawings[0]["color"] == (1, 0, 0)
-    assert drawings[2]["color"] == (0, 0, 0)
-    assert drawings[2]["width"] == 1
+    paths = page.content().paths
+    assert len(paths) == 11
+    assert paths[0].stroke == pylopdf.Stroke(paint=pylopdf.Color(1, 0, 0), width=2, dashes=(2, 2))
+    assert paths[2].stroke == pylopdf.Stroke(paint=pylopdf.Color(0, 0, 0), width=1)
 
 
 def test_page_drawing_options_are_keyword_only_and_omit_morph_and_oc() -> None:
@@ -477,7 +495,7 @@ def test_page_drawing_options_are_keyword_only_and_omit_morph_and_oc() -> None:
     with pytest.raises(TypeError):
         shape.insert_text((10, 10), "x", fill=(0, 0, 0))  # ty: ignore[unknown-argument]
     shape._discard()  # noqa: SLF001 - drops drawing a refusal left behind.
-    assert page.get_drawings() == []
+    assert page.content().paths == ()
 
 
 def test_breadth_and_full_sector_keep_pymupdfs_positions() -> None:
@@ -504,7 +522,7 @@ def test_breadth_and_full_sector_keep_pymupdfs_positions() -> None:
         page.draw_zigzag((10, 10), (100, 10), 3, (1, 0, 0))  # ty: ignore[too-many-positional-arguments]
     with pytest.raises(TypeError):
         page.draw_sector((50, 50), (80, 50), 90, False)  # ty: ignore[too-many-positional-arguments]
-    assert len(page.get_drawings()) == 6
+    assert len(page.content().paths) == 6
 
 
 @pytest.mark.parametrize(
@@ -686,7 +704,7 @@ def test_report_pages_with_measured_labels_and_photo_marks(regular: pylopdf.Font
         colon = next(char for char in chars if char["c"] == "：")
         # The value starts where the measured label ends.
         assert colon["origin"][0] == pytest.approx(end, abs=0.01)
-        assert len(page.get_drawings()) == 4
+        assert len(page.content().paths) == 4
 
     # Each commit embeds one subset of each face it uses.
     assert _font_files(doc) == 4

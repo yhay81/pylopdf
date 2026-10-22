@@ -32,8 +32,6 @@
     "DocumentComplexity",
     "DocumentLimits",
     "DocumentMetadata",
-    "DrawingInfo",
-    "DrawingItem",
     "EMPTY_IRECT",
     "EMPTY_QUAD",
     "EMPTY_RECT",
@@ -58,7 +56,6 @@
     "IdentityMatrix",
     "Image",
     "ImageCompressionResult",
-    "ImageInfo",
     "ImageItem",
     "ImageItemFull",
     "ImageMask",
@@ -2866,46 +2863,6 @@
         "trapped"
       ]
     },
-    "DrawingInfo": {
-      "fields": {
-        "closePath": "bool",
-        "color": "tuple[float, float, float] | None",
-        "dashes": "str | None",
-        "even_odd": "bool | None",
-        "fill": "tuple[float, float, float] | None",
-        "fill_opacity": "float | None",
-        "items": "list[DrawingItem]",
-        "lineCap": "tuple[int, int, int] | None",
-        "lineJoin": "int | None",
-        "rect": "Rect",
-        "seqno": "int",
-        "stroke_opacity": "float | None",
-        "type": "Literal['f', 's', 'fs']",
-        "width": "float | None"
-      },
-      "kind": "typed-dict",
-      "optional_keys": [],
-      "required_keys": [
-        "closePath",
-        "color",
-        "dashes",
-        "even_odd",
-        "fill",
-        "fill_opacity",
-        "items",
-        "lineCap",
-        "lineJoin",
-        "rect",
-        "seqno",
-        "stroke_opacity",
-        "type",
-        "width"
-      ]
-    },
-    "DrawingItem": {
-      "kind": "type-alias",
-      "target": "tuple[Literal['l'], pylopdf.Point, pylopdf.Point] | tuple[Literal['c'], pylopdf.Point, pylopdf.Point, pylopdf.Point, pylopdf.Point]"
-    },
     "EMPTY_IRECT": {
       "kind": "function",
       "signature": {
@@ -4072,41 +4029,6 @@
         "considered",
         "rewritten",
         "skipped"
-      ]
-    },
-    "ImageInfo": {
-      "fields": {
-        "bbox": "pylopdf.Rect",
-        "bpc": "int",
-        "colorspace": "int",
-        "cs-name": "str",
-        "has-mask": "bool",
-        "height": "int",
-        "number": "int",
-        "size": "int",
-        "transform": "pylopdf.Matrix",
-        "width": "int",
-        "xref": "int",
-        "xres": "int",
-        "yres": "int"
-      },
-      "kind": "typed-dict",
-      "optional_keys": [
-        "xref"
-      ],
-      "required_keys": [
-        "bbox",
-        "bpc",
-        "colorspace",
-        "cs-name",
-        "has-mask",
-        "height",
-        "number",
-        "size",
-        "transform",
-        "width",
-        "xres",
-        "yres"
       ]
     },
     "ImageItem": {
@@ -5554,6 +5476,24 @@
                 "name": "self"
               },
               {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "text_runs"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "paths"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "images"
+              },
+              {
                 "annotation": "Sequence[float] | None",
                 "default": null,
                 "kind": "keyword_only",
@@ -6487,42 +6427,6 @@
               }
             ],
             "returns": "Point"
-          }
-        },
-        "get_drawings": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "list[DrawingInfo]"
-          }
-        },
-        "get_image_info": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "bool",
-                "default": false,
-                "kind": "keyword_only",
-                "name": "hashes"
-              },
-              {
-                "annotation": "bool",
-                "default": false,
-                "kind": "keyword_only",
-                "name": "xrefs"
-              }
-            ],
-            "returns": "list[ImageInfo]"
           }
         },
         "get_images": {

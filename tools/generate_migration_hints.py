@@ -102,9 +102,10 @@ def hints(manifest: dict[str, object], release: dict[str, object], public: set[s
 
 
 def _literal(text: str) -> str:
-    """Render a string literal as ruff formats it: double quotes unless that needs escapes."""
-    if '"' in text and "'" not in text:
-        return "'" + json.dumps(text, ensure_ascii=False)[1:-1].replace('\\"', '"') + "'"
+    """Render a string literal as ruff formats it: double quotes unless that needs more escapes."""
+    if text.count('"') > text.count("'"):
+        body = json.dumps(text, ensure_ascii=False)[1:-1].replace('\\"', '"').replace("'", "\\'")
+        return "'" + body + "'"
     return json.dumps(text, ensure_ascii=False)
 
 

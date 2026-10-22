@@ -102,7 +102,7 @@ a default that is safe for most uses. Raise it with the keyword shown, or pass
 | `markdown()`, `Table.markdown()` | 64 MiB of output | `max_size` |
 | `Pixmap.tobytes()`, `Page.get_svg_image()` | 64 MiB of output | `max_size` |
 | `Page.search()` | 4,096 results | `max_hits` |
-| `Page.content()` | 262,144 glyphs, path and clip segments, and items | `max_elements` |
+| `Page.content()` | 262,144 glyphs, path and clip segments, stroke dash lengths, and items | `max_elements` |
 | `Page.insert_text()`, `insert_textbox()` | 1 MiB of text and 4,096 lines | `max_text_size` |
 | Font input to drawing, forms, and `Font` | 64 MiB per font | `max_font_size` |
 | `Page.insert_image()` | 64 MiB of input and 64 million pixels | `max_size`, `max_pixels` |
@@ -134,7 +134,7 @@ change.
 | `file_size`, `page_count`, `object_count`, `object_depth` | The document exceeds a structural limit of its `DocumentLimits` |
 | `decompressed_size`, `page_content_size`, `total_decompressed_size`, `decompression_unverifiable`, `stream_filter_count` | A stream decodes to more than allowed, or uses filters whose output cannot be bounded (including more than 16 chained filters) |
 | `text_size`, `text_glyph_count`, `interpretation_size` | Extraction or rendering would read more than the policy allows |
-| `content_element_count` | A page paints more glyphs, segments, and items than `max_elements` |
+| `content_element_count` | A page paints more glyphs, segments, dash lengths, and items than `max_elements` |
 | `recovery_scan_size` | Repairing a damaged file would take an unreasonable amount of work |
 | `content_nesting_depth`, `resource_nesting_depth` | A page is built so deeply nested that interpreting it is unsafe; see [below](#built-in-protections) |
 | `pdf_output_size`, `render_output_size`, `markdown_output_size`, `svg_output_size`, `pixmap_output_size`, `replacement_output_size` | Output would exceed `max_size` |

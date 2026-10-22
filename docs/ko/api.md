@@ -136,8 +136,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 순서를 뒤집음
 | `tables(*, strategy="lines", clip=None)` | 표를 `Table` 레코드 리스트로. [표](#tables) 참고 |
 | `markdown(*, table_strategy="lines")` | 이 페이지의 Markdown |
 | `ocr(...)`, `apply_ocr(*, words=None, ...)` | OCR, 그리고 그 결과나 다른 엔진의 단어로 만드는 보이지 않는 텍스트 레이어. [오프라인 OCR](ocr.md) 참고 |
-| `content(*, clip=None, annotations=True)` | 페이지가 그리는 모든 텍스트 런, 경로, 이미지. [페이지 내용](#content) 참고 |
-| `get_drawings()` | 벡터 경로. [벡터 그림](#drawings) 참고 |
+| `content(*, text_runs=True, paths=True, images=True, clip=None, annotations=True)` | 페이지가 그리는 모든 텍스트 런, 경로, 이미지. [페이지 내용](#content) 참고 |
 | `get_links()` | 링크와 그 대상 |
 | `get_label()` | `"iv"` 같은 페이지 레이블 |
 
@@ -152,7 +151,6 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 순서를 뒤집음
 | `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` | [`Pixmap`](#pixmap)으로 렌더링 |
 | `get_svg_image(*, matrix=None, text_as_path=True)` | SVG 문자열로 렌더링 |
 | `get_images(*, full=False)` | 페이지가 사용하는 이미지 객체를 `ImageItem` 튜플로 |
-| `get_image_info(*, hashes=False, xrefs=False)` | 각 이미지가 그려지는 위치와 그 크기, 변환 |
 
 pymupdf와 마찬가지로 pixmap은 기본적으로 흰 바탕의 RGB이고, `alpha=True`이면 RGBA입니다. `dpi`가 `matrix`보다 우선하며, `matrix`는 `Matrix(2, 2)` 같은 배율 행렬이어야 합니다. `clip`은 페이지의 일부만 렌더링합니다.
 
@@ -251,13 +249,9 @@ with pylopdf.open("report.pdf") as doc:
 - `sh`로 그린 셰이딩은 클립된 영역을 덮고 `ShadingPattern`으로 채우는 `Path`입니다.
 - hayro는 모든 이미지를 그 시점의 불투명도, 블렌드 모드, 소프트 마스크를 가진 투명 그룹 안에 그리므로 이미지의 컨텍스트는 그 그룹으로 끝납니다. 보이는 영역 전체를 덮는 클립은 hayro와 마찬가지로 넣지 않습니다.
 
-`clip=`은 외접 상자가 주어진 사각형에 닿는 항목만 남기고, `annotations=False`는 주석의 모양을 뺍니다. 한 번의 호출이 읽는 글리프, 경로와 클립의 세그먼트, 항목은 합쳐서 `max_elements`까지이며 기본값은 262,144입니다.
+`text_runs=False`, `paths=False`, `images=False`는 그 종류의 항목을 만들지 않고 뺍니다. 그래서 텍스트가 많은 페이지에서 경로나 이미지만 읽으면 몇 배나 빨라집니다. `clip=`은 외접 상자가 주어진 사각형에 닿는 항목만 남기고, `annotations=False`는 주석의 모양을 뺍니다. 한 번의 호출이 읽는 글리프, 경로와 클립의 세그먼트, 선의 대시 길이, 항목은 합쳐서 `max_elements`까지이며 기본값은 262,144입니다.
 
 hayro가 아직 알려 주지 않는 정보는 모델에 없습니다. 색의 색 공간과 성분, 레이어 이름 같은 마크된 콘텐츠의 속성, `FontRef`가 가리키는 폰트 딕셔너리, 이미지 마스크의 객체입니다. 이들은 [엔진 작업](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#engine-work)에 나열되어 있습니다.
-
-## 벡터 그림 { #drawings }
-
-`page.get_drawings()`는 채우거나 선을 그은 경로마다 pymupdf 형식의 `DrawingInfo` 딕셔너리를 하나씩 반환합니다. `type`(`"f"`, `"s"`, `"fs"`), `items`(직선과 3차 곡선), `rect`, 색상, 불투명도, 선 너비, 끝 모양(cap), 연결 모양(join), 대시, `seqno`를 포함합니다. 패턴으로 채운 경로의 색상은 `None`입니다. [`page.content()`](#content)의 경로에는 클립, 그룹, 마크된 콘텐츠도 있습니다.
 
 ## 캔버스 { #canvas }
 
@@ -568,7 +562,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 
 상수는 pymupdf의 이름을 유지하며 열거형으로도 묶여 있습니다. `Permissions`(`PDF_PERM_*`), `LinkKind`(`LINK_*`), `TextAlign`(`TEXT_ALIGN_*`), `AnnotType`(`PDF_ANNOT_*`), `AnnotFlags`(`PDF_ANNOT_IS_*`)입니다. `Access`의 멤버는 `USER`와 `OWNER`이고, `Encryption`은 저장하는 파일을 암호화하는 방법을 나타냅니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
 
-텍스트, 표, OCR 결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord` 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 반환하는 그 밖의 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `DrawingInfo`, `ImageInfo`, `LinkInfo`, `FormFieldInfo`, `DocumentMetadata` 같은 `TypedDict` 클래스로 기술됩니다. `ImageItem`과 `OutlineEntry`는 네임드 튜플입니다.
+텍스트, 표, OCR, 페이지 내용의 결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord`, `Path`, `Image` 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 반환하는 그 밖의 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `LinkInfo`, `FormFieldInfo`, `DocumentMetadata` 같은 `TypedDict` 클래스로 기술됩니다. `ImageItem`과 `OutlineEntry`는 네임드 튜플입니다.
 
 ## 예외와 경고 { #exceptions }
 

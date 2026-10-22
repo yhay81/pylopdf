@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import pickle
+import warnings
 from collections import Counter
 from contextlib import nullcontext
 from pathlib import Path
@@ -354,12 +355,43 @@ def test_max_elements_bounds_the_interpretation() -> None:
         dense.content()
 
 
+def _smallest_budget(page: pylopdf.Page) -> int:
+    budget = 1
+    while True:
+        try:
+            page.content(max_elements=budget)
+        except pylopdf.LimitError:
+            budget += 1
+        else:
+            return budget
+
+
+@pytest.mark.parametrize("operator", ["S", "B"])
+def test_max_elements_counts_dash_lengths(operator: str) -> None:
+    # A dash array repeated by every stroke must not multiply memory, so each
+    # stroke charges its dash lengths along with its segments.
+    dashes = " ".join(["1"] * 100)
+    plain = page_with(f"0 0 m 10 10 l {operator}")
+    dashed = page_with(f"[{dashes}] 0 d 0 0 m 10 10 l {operator}")
+    assert _smallest_budget(dashed) == _smallest_budget(plain) + 100
+    (path,) = dashed.content().paths
+    assert path.stroke is not None
+    assert len(path.stroke.dashes) == 100
+
+
+def test_text_paints_no_paths() -> None:
+    assert page_with("BT /F1 12 Tf 10 50 Td (Text only) Tj ET").content().paths == ()
+
+
 @pytest.mark.parametrize(
     ("options", "error"),
     [
         ({"max_elements": 0}, ValueError),
         ({"max_elements": True}, TypeError),
         ({"annotations": 1}, TypeError),
+        ({"text_runs": 0}, TypeError),
+        ({"paths": None}, TypeError),
+        ({"images": "no"}, TypeError),
         ({"clip": (0, 0, 1)}, ValueError),
     ],
 )
@@ -401,69 +433,50 @@ def test_content_reflects_edits() -> None:
     assert path.bbox == pytest.approx(Rect(10, 10, 50, 30))
 
 
-def _paint_operations(page: pylopdf.Page) -> tuple[list[tuple[object, ...]], list[tuple[object, ...]]]:
-    """List get_drawings() and content() paths as single fill or stroke operations."""
+@pytest.mark.parametrize("path", CORPUS, ids=lambda path: path.name)
+def test_selected_kinds_equal_the_full_content_filtered(path: Path) -> None:
+    doc = pylopdf.open(path)
+    for page in doc.pages[:3]:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", pylopdf.PylopdfWarning)
+            full = page.content()
+            for text_runs, paths, images in (
+                (False, True, True),
+                (True, False, True),
+                (True, True, False),
+                (False, True, False),
+            ):
+                kept = tuple(
+                    item
+                    for item in full
+                    if (text_runs or not isinstance(item, pylopdf.TextRun))
+                    and (paths or not isinstance(item, pylopdf.Path))
+                    and (images or not isinstance(item, pylopdf.Image))
+                )
+                selected = page.content(text_runs=text_runs, paths=paths, images=images)
+                assert selected.items == kept, (text_runs, paths, images)
 
-    def rounded(values: tuple[float, ...]) -> tuple[float, ...]:
-        return tuple(round(value, 6) for value in values)
 
-    drawn: list[tuple[object, ...]] = []
-    for drawing in page.get_drawings():
-        if "f" in drawing["type"]:
-            fill = drawing["fill"]
-            drawn.append(("f", rounded(drawing["rect"]), None if fill is None else rounded(fill)))
-        if "s" in drawing["type"]:
-            color = drawing["color"]
-            width = drawing["width"]
-            assert width is not None
-            drawn.append(("s", rounded(drawing["rect"]), None if color is None else rounded(color), round(width, 6)))
-    painted: list[tuple[object, ...]] = []
-    for path in page.content().paths:
-        if path.fill is not None:
-            fill = rounded(path.fill.rgb) if isinstance(path.fill, Color) else None
-            painted.append(("f", rounded(path.bbox), fill))
-        if path.stroke is not None:
-            paint = path.stroke.paint
-            color = rounded(paint.rgb) if isinstance(paint, Color) else None
-            painted.append(("s", rounded(path.bbox), color, round(path.stroke.width, 6)))
-    return drawn, painted
+def test_no_kinds_give_empty_content() -> None:
+    page = page_with("10 10 20 20 re f BT /F1 12 Tf 10 50 Td (Text) Tj ET")
+    assert page.content(text_runs=False, paths=False, images=False).items == ()
 
 
 @pytest.mark.parametrize("path", CORPUS, ids=lambda path: path.name)
-def test_content_agrees_with_the_extraction_views(path: Path) -> None:
+def test_glyph_origins_agree_with_the_layout(path: Path) -> None:
     doc = pylopdf.open(path)
     for page in doc.pages:
         content = page.content()
-
-        drawn, painted = _paint_operations(page)
-        assert painted == drawn
-
-        infos = page.get_image_info(xrefs=True)
-        assert len(content.images) == len(infos)
-        for info, image in zip(infos, content.images, strict=True):
-            assert image.xref == info["xref"]
-            assert image.bbox == pytest.approx(info["bbox"])
-            assert image.matrix == pytest.approx(info["transform"])
-            assert (image.width, image.height) == (info["width"], info["height"])
-            assert (image.components, image.colorspace, image.bits) == (
-                info["colorspace"],
-                info["cs-name"],
-                info["bpc"],
-            )
-            assert image.encoded_size == info["size"]
-            assert (image.mask is not None) == info["has-mask"]
-            assert image.resolution == (info["xres"], info["yres"])
-
         expected = pytest.warns(pylopdf.PylopdfWarning) if path.name == "pdfium-type3.pdf" else nullcontext()
         with expected:
-            layout = page.layout(chars=True).to_dict()
+            layout = page.layout(chars=True)
         characters = Counter(
-            (char["c"], round(char["origin"][0], 3), round(char["origin"][1], 3))
-            for block in layout["blocks"]
-            for line in block["lines"]
-            for span in line["spans"]
-            for char in span["chars"]
-            if char["c"].strip()
+            (char.text, round(char.origin.x, 3), round(char.origin.y, 3))
+            for block in layout.blocks
+            for line in block.lines
+            for span in line.spans
+            for char in span.chars
+            if char.text.strip()
         )
         glyphs = Counter(
             (glyph.text, round(glyph.origin.x, 3), round(glyph.origin.y, 3))

@@ -86,7 +86,7 @@ limits = pylopdf.DocumentLimits(
 | `markdown()`、`Table.markdown()` | 输出64 MiB | `max_size` |
 | `Pixmap.tobytes()`、`Page.get_svg_image()` | 输出64 MiB | `max_size` |
 | `Page.search()` | 4,096个结果 | `max_hits` |
-| `Page.content()` | 字形、路径与裁剪的线段以及项合计262,144个 | `max_elements` |
+| `Page.content()` | 字形、路径与裁剪的线段、描边的虚线长度以及项合计262,144个 | `max_elements` |
 | `Page.insert_text()`、`insert_textbox()` | 文本1 MiB、4,096行 | `max_text_size` |
 | 传给绘制、表单和`Font`的字体 | 每个字体64 MiB | `max_font_size` |
 | `Page.insert_image()` | 输入64 MiB、6,400万像素 | `max_size`、`max_pixels` |
@@ -109,7 +109,7 @@ limits = pylopdf.DocumentLimits(
 | `file_size`、`page_count`、`object_count`、`object_depth` | 文档超出其`DocumentLimits`的结构上限 |
 | `decompressed_size`、`page_content_size`、`total_decompressed_size`、`decompression_unverifiable`、`stream_filter_count` | 流解码后超出允许的大小，或使用了输出大小无法限定的过滤器（包括串联超过16个过滤器） |
 | `text_size`、`text_glyph_count`、`interpretation_size` | 提取或渲染要读取的数据超出策略允许的范围 |
-| `content_element_count` | 页面绘制的字形、线段和项多于`max_elements` |
+| `content_element_count` | 页面绘制的字形、线段、虚线长度和项多于`max_elements` |
 | `recovery_scan_size` | 修复损坏文件所需的工作量过大 |
 | `content_nesting_depth`、`resource_nesting_depth` | 页面的嵌套过深，解析它并不安全；参见[下文](#built-in-protections) |
 | `pdf_output_size`、`render_output_size`、`markdown_output_size`、`svg_output_size`、`pixmap_output_size`、`replacement_output_size` | 输出会超过`max_size` |

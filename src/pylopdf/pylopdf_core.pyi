@@ -499,51 +499,15 @@ class _Document:
     def page_image_inventory(
         self, page_number: int
     ) -> list[tuple[int, int, int, int, int, str, str, str, str, int]]: ...
-    def page_image_info(
-        self, page_number: int
-    ) -> list[
-        tuple[
-            int,
-            tuple[float, float, float, float],
-            tuple[float, float, float, float, float, float],
-            int,
-            int,
-            int,
-            str,
-            int,
-            int,
-            bool,
-            tuple[int, int],
-        ]
-    ]: ...
     def extract_image(self, xref: int) -> tuple[str, int, int, int, str, int, int, tuple[int, int], bytes]: ...
     def page_content(
         self,
         page_number: int,
+        kinds: tuple[bool, bool, bool],
         annotations: bool,
         clip: tuple[float, float, float, float] | None,
         max_elements: int | None,
     ) -> _ContentTuple: ...
-    def extract_drawings(
-        self, page_number: int
-    ) -> list[
-        tuple[
-            tuple[float, float, float, float],
-            str,
-            list[tuple[str, list[tuple[float, float]]]],
-            bool,
-            tuple[
-                tuple[float, float, float] | None,
-                float | None,
-                float | None,
-                tuple[int, int, int] | None,
-                int | None,
-                str | None,
-            ],
-            tuple[tuple[float, float, float] | None, float | None, bool | None],
-            int,
-        ]
-    ]: ...
     def rewrite_images(
         self,
         dpi_threshold: float | None,

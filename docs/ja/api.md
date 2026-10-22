@@ -136,8 +136,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 順序を逆にす�
 | `tables(*, strategy="lines", clip=None)` | 表を`Table`レコードのリストで。[表](#tables)を参照 |
 | `markdown(*, table_strategy="lines")` | このページのMarkdown |
 | `ocr(...)`, `apply_ocr(*, words=None, ...)` | OCRと、その結果またはほかのエンジンの単語から作る不可視のテキスト層。[オフラインOCR](ocr.md)を参照 |
-| `content(*, clip=None, annotations=True)` | ページが描くすべてのテキストラン、パス、画像。[ページの内容](#content)を参照 |
-| `get_drawings()` | ベクタのパス。[ベクタ図形](#drawings)を参照 |
+| `content(*, text_runs=True, paths=True, images=True, clip=None, annotations=True)` | ページが描くすべてのテキストラン、パス、画像。[ページの内容](#content)を参照 |
 | `get_links()` | リンクとそのリンク先 |
 | `get_label()` | `"iv"`のようなページラベル |
 
@@ -152,7 +151,6 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 順序を逆にす�
 | `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` | [`Pixmap`](#pixmap)へレンダリング |
 | `get_svg_image(*, matrix=None, text_as_path=True)` | SVG文字列へレンダリング |
 | `get_images(*, full=False)` | ページが使う画像オブジェクトを`ImageItem`タプルで |
-| `get_image_info(*, hashes=False, xrefs=False)` | 各画像が描かれる位置と、そのサイズ・変換行列 |
 
 pymupdfと同じく、ピクセルマップは既定で白地のRGB、`alpha=True`でRGBAです。`dpi`は`matrix`より優先され、`matrix`は`Matrix(2, 2)`のような拡大縮小の行列でなければなりません。`clip`はページの一部だけをレンダリングします。
 
@@ -251,13 +249,9 @@ with pylopdf.open("report.pdf") as doc:
 - `sh`で描かれたシェーディングは、クリップされた範囲を覆い`ShadingPattern`で塗る`Path`です。
 - hayroはすべての画像を、その時点の不透明度、ブレンドモード、ソフトマスクを持つ透明グループの中に描くため、画像のコンテキストはそのグループで終わります。表示範囲全体を覆うクリップは、hayroと同じく含めません。
 
-`clip=`は外接矩形が指定の矩形に接する項目だけを残し、`annotations=False`は注釈の外観を除きます。1回の呼び出しで読むグリフ、パスとクリップのセグメント、項目は合わせて`max_elements`まで、既定では262,144です。
+`text_runs=False`、`paths=False`、`images=False`はその種類の項目を作らずに除きます。テキストの多いページのパスや画像だけを読むなら、何倍も速くなります。`clip=`は外接矩形が指定の矩形に接する項目だけを残し、`annotations=False`は注釈の外観を除きます。1回の呼び出しで読むグリフ、パスとクリップのセグメント、線の破線の長さ、項目は合わせて`max_elements`まで、既定では262,144です。
 
 hayroがまだ報告しない情報はモデルにありません。色の色空間と成分、レイヤー名などマーク付きコンテンツのプロパティ、`FontRef`の元になるフォント辞書、画像マスクのオブジェクトです。これらは[エンジンの作業](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#engine-work)に挙げています。
-
-## ベクタ図形 { #drawings }
-
-`page.get_drawings()`は、塗りまたは線で描かれたパスごとに`DrawingInfo`辞書を1つ、pymupdfの形式で返します。`type`（`"f"`、`"s"`、`"fs"`）、`items`（直線と3次曲線）、`rect`、色、不透明度、線幅、線端、角の形、破線、`seqno`を持ちます。パターンで塗られたパスの色は`None`です。[`page.content()`](#content)のパスは、クリップ、グループ、マーク付きコンテンツも持ちます。
 
 ## キャンバス { #canvas }
 
@@ -568,7 +562,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 
 定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）、`AnnotFlags`（`PDF_ANNOT_IS_*`）です。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
 
-テキスト、表、OCRの結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`などの変更できないデータクラス（frozen dataclass）です。APIが返すそのほかの辞書はただの`dict`で、型チェッカー向けに`DrawingInfo`、`ImageInfo`、`LinkInfo`、`FormFieldInfo`、`DocumentMetadata`などの`TypedDict`クラスで記述しています。`ImageItem`と`OutlineEntry`は名前付きタプルです。
+テキスト、表、OCR、ページの内容の結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`などの変更できないデータクラス（frozen dataclass）です。APIが返すそのほかの辞書はただの`dict`で、型チェッカー向けに`LinkInfo`、`FormFieldInfo`、`DocumentMetadata`などの`TypedDict`クラスで記述しています。`ImageItem`と`OutlineEntry`は名前付きタプルです。
 
 ## 例外と警告 { #exceptions }
 

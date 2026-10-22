@@ -1,4 +1,4 @@
-"""pymupdf's image inventory: get_images, get_image_info, and extract_image."""
+"""pymupdf's image inventory: get_images, drawn placements, and extract_image."""
 
 from __future__ import annotations
 
@@ -84,48 +84,24 @@ def test_get_images_is_empty_without_image_xobjects() -> None:
     assert pylopdf.open(build_pdf(["Text only"])).pages[0].get_images() == []
 
 
-def test_get_image_info_describes_each_placement() -> None:
-    page = pylopdf.open(_inventory_pdf()).pages[0]
+def test_content_images_describe_each_placement() -> None:
+    images = pylopdf.open(_inventory_pdf()).pages[0].content().images
 
-    infos = page.get_image_info(xrefs=True)
-
-    assert [info["number"] for info in infos] == [0, 1, 2]
-    assert [info["xref"] for info in infos] == [5, 5, 9]
-    first = infos[0]
-    assert set(first) == {
-        "number",
-        "bbox",
-        "transform",
-        "width",
-        "height",
-        "colorspace",
-        "cs-name",
-        "xres",
-        "yres",
-        "bpc",
-        "size",
-        "has-mask",
-        "xref",
-    }
-    assert first["bbox"] == pytest.approx(pylopdf.Rect(0, 90, 20, 100))
-    assert pylopdf.Rect(0, 0, 1, 1) * first["transform"] == pytest.approx(first["bbox"])
-    assert (first["width"], first["height"], first["colorspace"], first["cs-name"], first["bpc"]) == (
+    assert [image.xref for image in images] == [5, 5, 9]
+    first = images[0]
+    assert first.bbox == pytest.approx(pylopdf.Rect(0, 90, 20, 100))
+    assert pylopdf.Rect(0, 0, 1, 1) * first.matrix == pytest.approx(first.bbox)
+    assert (first.width, first.height, first.components, first.colorspace, first.bits) == (
         2,
         1,
         1,
         "DeviceGray",
         8,
     )
-    assert first["has-mask"] is True
-    assert first["size"] > 0
-    assert (first["xres"], first["yres"]) == (96, 96)
-    assert infos[2]["cs-name"] == "Indexed"
-    assert "xref" not in page.get_image_info()[0]
-
-
-def test_get_image_info_hashes_raise_until_supported() -> None:
-    with pytest.raises(pylopdf.PdfError, match="hashes"):
-        pylopdf.open(_inventory_pdf()).pages[0].get_image_info(hashes=True)
+    assert first.mask is not None
+    assert first.encoded_size > 0
+    assert first.resolution == (96, 96)
+    assert images[2].colorspace == "Indexed"
 
 
 def test_extract_image_returns_the_image_without_its_mask() -> None:

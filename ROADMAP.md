@@ -252,13 +252,11 @@ Workstream Content, with Writing for the shared types.
 - Text, words, layout, search, drawings, and image placements derive from the
   same interpretation, so they agree by construction. Text and table
   extraction read the content model's device through its sink (done, which
-  also reads fill-and-stroke text once instead of twice); the drawing and
-  image-placement devices go when the [API reset](#api-reset) replaces
-  `get_drawings` and `get_image_info` with `content().paths` and
-  `content().images`. Until then they agree with `Page.content()` on the
-  bundled corpus, which a test pins. One cache shared by the views follows
-  when a measurement shows that interpreting a page once for all of them
-  pays for its memory.
+  also reads fill-and-stroke text once instead of twice), and
+  `content().paths` and `content().images` replaced `get_drawings` and
+  `get_image_info` and their devices in the [API reset](#api-reset) (done).
+  One cache shared by the views follows when a measurement shows that
+  interpreting a page once for all of them pays for its memory.
 - pylopdf exposes what hayro computes instead of recomputing it: glyph
   outlines for exact glyph boxes (done), font identity (object, name, type,
   embedding), and image object numbers, masks included.
@@ -358,9 +356,13 @@ the canvas.
 - Done: tables and OCR. `page.tables()` returning `Table` records with
   `rows`, `cells`, and `TableDiagnostics`, and `page.ocr()` and
   `page.apply_ocr(words=...)` with `OcrWord` records.
-- Still to come, each with its codemod rules: drawings and images;
-  rendering, document properties, interaction, writing, and the constants and
-  records.
+- Done: drawings and image placements. `page.content()` selects its item
+  kinds, and `content(text_runs=False, images=False).paths` and
+  `content(text_runs=False, paths=False).images` replace `get_drawings()` and
+  `get_image_info()`.
+- Still to come, each with its codemod rules: the image inventory
+  (`page.resources` and `doc.images`); rendering, document properties,
+  interaction, writing, and the constants and records.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs

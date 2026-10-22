@@ -16,7 +16,7 @@ pip install "pylopdf[migrate]"
 python -m pylopdf.migrate src/
 ```
 
-它会替换`import fitz`和`import pymupdf`，改写可以机械替换的部分（例如打开文档、由`doc.pages`取代的页面操作、带页码换算的`get_toc`/`set_toc`、`embfile_*`、`xref_*`流读取方法、文本与表格读取，以及`Rect`/`Point`/`Matrix`的就地修改方法），并在每条仍需人工处理的语句上方添加`# TODO(pylopdf): …`注释，最后以`path:line: message`的形式列出这些位置。同一命令也能升级为pylopdf 0.15编写的程序。
+它会替换`import fitz`和`import pymupdf`，改写可以机械替换的部分（例如打开文档、由`doc.pages`取代的页面操作、带页码换算的`get_toc`/`set_toc`、`embfile_*`、`xref_*`流读取方法、文本与表格读取、矢量绘图与图像位置，以及`Rect`/`Point`/`Matrix`的就地修改方法），并在每条仍需人工处理的语句上方添加`# TODO(pylopdf): …`注释，最后以`path:line: message`的形式列出这些位置。同一命令也能升级为pylopdf 0.15编写的程序。
 
 - `--diff`只打印变更，不写入文件。
 - `--check`在有文件会被修改时以状态1退出，适合在CI中使用。
@@ -75,9 +75,10 @@ python -m pylopdf.migrate src/
 | `page.get_pixmap(matrix=…, dpi=…)` | 相同 | 仅支持缩放矩阵；尚无`colorspace=`和`annots=`；`doc.get_page_pixmap(i)`改为`doc.pages[i].get_pixmap()` |
 | `pix.samples`、`width`、`height`、`n`、`alpha`、`stride`、`colorspace`、`save()` | 相同 | `save()`和`tobytes()`只输出PNG |
 | `page.get_svg_image()` | 相同 | 文本始终以路径绘制 |
-| `page.get_images()`、`get_image_info()`、`doc.extract_image()` | 相同 | 尚不支持`get_image_info(hashes=True)` |
-| `page.get_drawings()` | 相同 | 没有`extended=`；`page.content().paths`带有裁剪、分组和标记内容 |
-| `page.get_texttrace()`, `get_bboxlog()`, `get_cdrawings()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | 以不可变的值返回带字形的文本段、路径和图像；参见[页面内容](api.md#content) |
+| `page.get_images()`、`doc.extract_image()` | 相同 | |
+| `page.get_image_info()` | `page.content(text_runs=False, paths=False).images` | 带有`xref`、`bbox`、`matrix`（pymupdf的`transform`）、尺寸、颜色空间、蒙版和分辨率的`Image`记录；尚不支持`hashes=` |
+| `page.get_drawings()`、`get_cdrawings()` | `page.content(text_runs=False, images=False).paths` | 带有`segments`、`fill`、`fill_rule`、`stroke`和`bbox`的`Path`记录；`extended=True`作为单独条目返回的裁剪、分组和标记内容由每条路径的`context`持有 |
+| `page.get_texttrace()`, `get_bboxlog()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | 以不可变的值返回带字形的文本段、路径和图像；参见[页面内容](api.md#content) |
 | `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | 相同 | 只重新编码为JPEG，因此重新采样需要指定`quality`；返回统计信息而不是`None` |
 
 ### 绘制与批注 { #mapping-drawing }

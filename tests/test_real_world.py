@@ -672,11 +672,12 @@ def test_markdown_keeps_word_gaps_between_font_spans() -> None:
 
 
 @ALL
-def test_extract_drawings_page0(case: Case) -> None:
-    """Interpret real vector paths without returning malformed commands."""
-    drawings = pylopdf.open(ASSETS / case.name).pages[0].get_drawings()
-    assert all(drawing["type"] in {"f", "s", "fs"} for drawing in drawings)
-    assert all(item[0] in {"l", "c"} for drawing in drawings for item in drawing["items"])
+def test_content_paths_page0(case: Case) -> None:
+    """Interpret real vector paths into painted segments."""
+    paths = pylopdf.open(ASSETS / case.name).pages[0].content().paths
+    segments = (pylopdf.MoveTo, pylopdf.LineTo, pylopdf.CurveTo, pylopdf.ClosePath)
+    assert all(path.fill is not None or path.stroke is not None for path in paths)
+    assert all(isinstance(segment, segments) for path in paths for segment in path.segments)
 
 
 def test_pdf20_comment_streams_extract() -> None:
@@ -848,11 +849,12 @@ def test_f1040_bordered_table() -> None:
     assert "Child tax\ncredit" in text
 
 
-def test_f1040_drawing_extraction_retains_form_paths() -> None:
+def test_f1040_content_retains_form_paths() -> None:
     """Expose the dense vector structure underlying a real tax form."""
-    drawings = pylopdf.open(ASSETS / "f1040.pdf").pages[0].get_drawings()
-    assert len(drawings) >= 400
-    assert any(drawing["type"] == "fs" for drawing in drawings)
+    paths = pylopdf.open(ASSETS / "f1040.pdf").pages[0].content().paths
+    assert len(paths) >= 400
+    assert any(path.fill is not None for path in paths)
+    assert any(path.stroke is not None for path in paths)
 
 
 def test_f1040_markdown_integrates_bordered_table_once() -> None:
