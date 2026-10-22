@@ -178,7 +178,7 @@ del doc.fallback_fonts            # back to the installed font extras
 | `language` | 文档的语言，为完整的BCP 47标签，例如`zh-TW`或`sr-Latn-RS`，或为`None`。赋值标签即写入，`del doc.language`将其删除；格式不正确的标签会抛出异常 |
 | `page_mode`、`page_layout` | 阅读器打开文档的方式，为`PageMode`和`PageLayout`成员，例如`PageMode.USE_OUTLINES`或`PageLayout.TWO_COLUMN_LEFT`；未设置时为`USE_NONE`和`SINGLE_PAGE`。可赋值成员或其准确名称 |
 | `mark_info` | 以`MarkInfo(marked=, user_properties=, suspects=)`记录表示的标签PDF标志，不存在时为`None`。赋值时写入全部三个标志，`del`将其删除 |
-| `has_links()`、`has_annots()` | 是否有任何页面带有链接，或带有链接和表单控件以外的批注 |
+| `has_annots()` | 是否有任何页面带有链接和表单控件以外的批注；是否有页面带有链接，可用`any(page.links for page in doc.pages)`判断 |
 | `objects`、`trailer`、`catalog` | 直接访问PDF对象；参见[底层对象](#low-level-objects) |
 
 `language`保留完整的标签，而pymupdf的`language`最多只保留三个字母，因此在那里`zh-TW`和`zh-HK`都会被读成`zh-Hant`。写入XMP时，即使保存时压缩流也不会压缩数据包，因此在文件中搜索XMP的工具仍能找到它。
@@ -199,7 +199,6 @@ del doc.fallback_fonts            # back to the installed font extras
 | `markdown(*, table_strategy="lines")` | 本页的Markdown |
 | `ocr(...)`、`apply_ocr(*, words=None, ...)` | OCR，以及由其结果或其他引擎的单词生成的不可见文本层；参见[离线OCR](ocr.md) |
 | `content(*, text_runs=True, paths=True, images=True, clip=None, annotations=True)` | 页面绘制的所有文本段、路径和图像；参见[页面内容](#content) |
-| `get_links()` | 链接及其目标 |
 | `label` | 页码标签，例如`"iv"`；参见[书签与页码标签](#outline) |
 
 `Word`具有`text`、`bbox`，以及表示其在页面布局中位置的`block`、`line`和`index`：分别是其所在区块的索引、其所在行在该区块中的索引，以及该单词在该行中的索引。
@@ -256,9 +255,23 @@ page.rotation = 90
 |---|---|
 | `annots(*, types=None)` | 只读的`Annot`对象，含`type`、`rect`、`info`、`colors`、`flags`和`xref` |
 | `add_highlight_annot(quads, *, color=, opacity=0.4, content=None)` | 高亮一个或多个矩形或四边形，例如搜索结果 |
-| `insert_link(link)` | 添加网页链接（`kind=LINK_URI`） |
+| `links` | 页面的链接，按页面列出的顺序给出`Link`句柄 |
 
 批注类型和标志分别为`PDF_ANNOT_*`和`PDF_ANNOT_IS_*`常量。
+
+`page.links`是`Link`句柄的序列：`page.links.add(rect, target)`在显示坐标的矩形上添加链接并返回其句柄，`del page.links[i]`删除一个链接。句柄每次访问都读取文档，给`rect`或`target`赋值即编辑链接。链接目标与[书签](#outline)相同，是URI字符串、`Destination`、`RemoteDestination`、`Launch`或`NamedAction`之一。动作为JavaScript等pylopdf不读取的动作、或目标不指向任何页面的链接，其目标为`None`。`xref`和`obj`给出批注的对象编号及其在[对象模型](#low-level-objects)中的字典，边框、颜色和标志都在这个字典里。
+
+```python
+from pylopdf import Destination
+
+for rect in page.search("Chapter 2"):
+    page.links.add(rect, Destination(5))
+for link in page.links:
+    if isinstance(link.target, str) and link.target.startswith("http:"):
+        link.target = "https:" + link.target.removeprefix("http:")
+```
+
+读取链接时每页最多4,096个批注和1 MiB的目标文本，写入的目标文本最多1 MiB（`LimitError`代码`annotation_input_size`）。
 
 ## 带位置的文本与字形 { #positioned-text }
 
@@ -659,12 +672,13 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 | `Content`、`TextRun`、`Path`、`Image`、`Glyph`、`FontRef`、`Color`、`Stroke`、`GraphicsContext`及其他内容类型 | [页面内容](#content) |
 | `Colorspace` | [`Pixmap`](#pixmap)的颜色空间：`GRAY`和`RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [书签与页码标签](#outline) |
+| `Link`, `Links` | [批注与链接](#page-annotations) |
 | `PageBoxes` | [页面几何](#page-geometry) |
 | `FallbackFont`, `FallbackFonts` | [渲染与图像](#document-rendering) |
 
-常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）和`AnnotFlags`（`PDF_ANNOT_IS_*`）。`Access`的成员是`USER`和`OWNER`，`Encryption`描述如何加密保存的文件。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
+常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）和`AnnotFlags`（`PDF_ANNOT_IS_*`）。`Access`的成员是`USER`和`OWNER`，`Encryption`描述如何加密保存的文件。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
 
-文本、表格、OCR和页面内容的结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`和书签目标等不可变的数据类（frozen dataclass）。API返回的其他字典都是普通的`dict`对象，并通过`LinkInfo`和`FormFieldInfo`等`TypedDict`类向类型检查器描述。
+文本、表格、OCR和页面内容的结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`和书签目标等不可变的数据类（frozen dataclass）。API返回的其他字典都是普通的`dict`对象，并通过`FormFieldInfo`等`TypedDict`类向类型检查器描述。
 
 ## 异常与警告 { #exceptions }
 

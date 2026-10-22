@@ -5,7 +5,6 @@ from __future__ import annotations
 import enum
 
 import pytest
-from conftest import build_pdf
 
 import pylopdf
 
@@ -13,7 +12,6 @@ import pylopdf
 @pytest.mark.parametrize(
     ("group", "prefix", "values"),
     [
-        (pylopdf.LinkKind, "LINK_", {"NONE": 0, "GOTO": 1, "URI": 2, "LAUNCH": 3, "NAMED": 4, "GOTOR": 5}),
         (pylopdf.TextAlign, "TEXT_ALIGN_", {"LEFT": 0, "CENTER": 1, "RIGHT": 2, "JUSTIFY": 3}),
         (
             pylopdf.Permissions,
@@ -51,14 +49,10 @@ def test_permissions_drop_the_old_member_names() -> None:
         assert not hasattr(pylopdf.Permissions, old)
 
 
-def test_get_links_reports_link_kind_members() -> None:
-    page = pylopdf.open(build_pdf(["Link"])).pages[0]
-    page.insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 100, 30), "uri": "https://example.com/"})
-
-    (link,) = page.get_links()
-
-    assert link["kind"] is pylopdf.LINK_URI
-    assert repr(link["kind"]) == "<LinkKind.URI: 2>"
+def test_link_kinds_are_target_types() -> None:
+    for name in ("LinkKind", "LINK_NONE", "LINK_GOTO", "LINK_URI", "LINK_LAUNCH", "LINK_NAMED", "LINK_GOTOR"):
+        assert not hasattr(pylopdf, name)
+        assert name not in pylopdf.__all__
 
 
 def test_text_align_members_and_plain_integers_align_alike() -> None:

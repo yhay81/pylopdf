@@ -265,42 +265,44 @@ def test_mark_info_refuses_other_values_and_deletes() -> None:
 # --- links and annotations -------------------------------------------------
 
 
-def test_has_links_and_annots_on_documents_without_annotations() -> None:
+def _has_links(doc: pylopdf.Document) -> bool:
+    return any(page.links for page in doc.pages)
+
+
+def test_links_and_has_annots_on_documents_without_annotations() -> None:
     doc = pylopdf.open(build_pdf(["plain", "two"]))
-    assert doc.has_links() is False
+    assert _has_links(doc) is False
     assert doc.has_annots() is False
 
 
-def test_has_links_and_annots_follow_pymupdf_subtypes() -> None:
+def test_links_and_has_annots_follow_pymupdf_subtypes() -> None:
     links = pylopdf.open(_annotated_pdf("[4 0 R null 9 0 R]", "<< /Type /Annot /Subtype /Link /Rect [0 0 1 1] >>"))
-    assert (links.has_links(), links.has_annots()) == (True, False)
+    assert (_has_links(links), links.has_annots()) == (True, False)
 
     widgets = pylopdf.open(_annotated_pdf("[<< /Subtype /Widget /Rect [0 0 1 1] >>]"))
-    assert (widgets.has_links(), widgets.has_annots()) == (False, False)
+    assert (_has_links(widgets), widgets.has_annots()) == (False, False)
 
     # An annotation without a subtype counts, as MuPDF reads it as unknown.
     untyped = pylopdf.open(_annotated_pdf("4 0 R", "[<< /Rect [0 0 1 1] >>]"))
-    assert (untyped.has_links(), untyped.has_annots()) == (False, True)
+    assert (_has_links(untyped), untyped.has_annots()) == (False, True)
 
 
-def test_has_links_and_annots_on_real_world_files() -> None:
+def test_links_and_has_annots_on_real_world_files() -> None:
     # pymupdf 1.28.2 reports the same values for these files.
     annotated = pylopdf.open(REAL_WORLD / "pdfium-links-highlights-annots.pdf")
-    assert (annotated.has_links(), annotated.has_annots()) == (True, True)
+    assert (_has_links(annotated), annotated.has_annots()) == (True, True)
     manual = pylopdf.open(REAL_WORLD / "usrguide.pdf")
-    assert (manual.has_links(), manual.has_annots()) == (True, False)
+    assert (_has_links(manual), manual.has_annots()) == (True, False)
     form = pylopdf.open(REAL_WORLD / "f1040.pdf")
-    assert (form.has_links(), form.has_annots()) == (False, False)
+    assert (_has_links(form), form.has_annots()) == (False, False)
 
 
 def test_has_annots_sees_created_annotations() -> None:
     doc = pylopdf.open(build_pdf(["plain"]))
-    doc.pages[0].insert_link(
-        {"kind": pylopdf.LINK_URI, "from": pylopdf.Rect(10, 10, 50, 50), "uri": "https://example.com"}
-    )
-    assert (doc.has_links(), doc.has_annots()) == (True, False)
+    doc.pages[0].links.add(pylopdf.Rect(10, 10, 50, 50), "https://example.com")
+    assert (_has_links(doc), doc.has_annots()) == (True, False)
     doc.pages[0].add_highlight_annot(pylopdf.Rect(10, 10, 50, 50))
-    assert (doc.has_links(), doc.has_annots()) == (True, True)
+    assert (_has_links(doc), doc.has_annots()) == (True, True)
 
 
 # --- document state ------------------------------------------------------
@@ -315,7 +317,7 @@ def test_is_closed() -> None:
         _ = doc.pages
     for operation in (
         lambda: doc.xmp,
-        doc.has_links,
+        doc.has_annots,
         lambda: doc.page_mode,
         lambda: doc.mark_info,
         lambda: doc.metadata,
@@ -491,7 +493,7 @@ def test_reads_leave_is_dirty_false() -> None:
     page.text()
     page.layout().to_dict()
     page.pixmap()
-    page.get_links()
+    _ = [(link.rect, link.target) for link in page.links]
     page.content()
     page.search("a")
     doc.markdown()

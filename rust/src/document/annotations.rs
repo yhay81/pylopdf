@@ -797,33 +797,273 @@ pub(super) fn add_highlight_annotation(
     Ok(annot_id.0)
 }
 
-/// Implements [`_Document::add_link_annotation`].
-pub(super) fn add_link_annotation(
+/// Charge the texts of a link's target to the annotation input budget.
+fn validate_link_target(target: &TargetTuple) -> PyResult<()> {
+    let (_, _, _, _, text, name) = target;
+    validate_annotation_input(
+        [
+            b"Link".as_slice(),
+            text.as_deref().unwrap_or_default().as_bytes(),
+            name.as_deref().unwrap_or_default().as_bytes(),
+        ],
+        "target",
+    )
+}
+
+/// Return the PDF `/Rect` of a display rectangle on a page.
+fn link_rect(this: &_Document, page_id: ObjectId, rect: (f64, f64, f64, f64)) -> PyResult<Object> {
+    let (crop, rotation) = this.resolve_display_geometry(page_id)?;
+    let quad = draw::display_rect_quad_pdf(crop, rotation, [rect.0, rect.1, rect.2, rect.3]);
+    let bbox = draw::bounding_rect(&quad);
+    Ok(Object::Array(
+        bbox.iter()
+            .map(|&value| Object::Real(value as f32))
+            .collect(),
+    ))
+}
+
+/// Implements [`_Document::add_link`].
+pub(super) fn add_link(
     this: &mut _Document,
     page_number: u32,
     rect: (f64, f64, f64, f64),
-    uri: String,
-) -> PyResult<()> {
-    validate_annotation_input([b"Link".as_slice(), uri.as_bytes()], "URI")?;
-    let (crop, rotation) = this.page_display_geometry(page_number)?;
+    target: TargetTuple,
+) -> PyResult<u32> {
+    validate_link_target(&target)?;
     let page_id = this.page_id(page_number)?;
+    let rect = link_rect(this, page_id, rect)?;
+    let entry = target_entry(this, this.doc.page_ids()?, &target, &mut |_, _| Ok(()))?;
     let annotation_append = this.prepare_page_annotation_append(page_id)?;
-    let quad = draw::display_rect_quad_pdf(crop, rotation, [rect.0, rect.1, rect.2, rect.3]);
-    let bbox = draw::bounding_rect(&quad);
-    let annotation = dictionary! {
+    let mut annotation = dictionary! {
         "Type" => "Annot",
         "Subtype" => "Link",
-        "Rect" => Object::Array(bbox.iter().map(|&v| Object::Real(v as f32)).collect()),
+        "Rect" => rect,
         "Border" => Object::Array(vec![0.into(), 0.into(), 0.into()]),
         "F" => 4,
         "P" => page_id,
-        "A" => dictionary! {
-            "Type" => "Action",
-            "S" => "URI",
-            "URI" => Object::string_literal(uri),
-        },
     };
+    if let Some((key, value)) = entry {
+        annotation.set(key, value);
+    }
     this.invalidate_hayro_pdf_keeping_placements();
     let annot_id = this.doc.add_object(annotation);
-    this.commit_page_annotation_append(page_id, annotation_append, annot_id)
+    this.commit_page_annotation_append(page_id, annotation_append, annot_id)?;
+    Ok(annot_id.0)
+}
+
+impl _Document {
+    /// Return the current index and dictionary of the annotation that a
+    /// handle names: object `xref`, found at `index` or, after an edit moved
+    /// it, at its first position in the page's `/Annots`; or, for 0, the
+    /// direct dictionary at `index`.
+    pub(super) fn annotation_at(
+        &self,
+        page_id: ObjectId,
+        index: u32,
+        xref: u32,
+    ) -> PyResult<(u32, &Dictionary)> {
+        let stale = || {
+            StaleObjectError::new_err(format!(
+                "annotation {xref} is no longer in the page's /Annots"
+            ))
+        };
+        let items = self.page_annotation_items(page_id)?.ok_or_else(stale)?;
+        let position = match items.get(index as usize) {
+            Some(Object::Reference(id)) if id.0 == xref && xref != 0 => Some(index as usize),
+            Some(Object::Dictionary(_)) if xref == 0 => Some(index as usize),
+            _ if xref != 0 => items
+                .iter()
+                .position(|item| matches!(item, Object::Reference(id) if id.0 == xref)),
+            _ => None,
+        };
+        let position = position.ok_or_else(stale)?;
+        let dictionary = match &items[position] {
+            Object::Reference(id) => self
+                .doc
+                .get_object(*id)
+                .and_then(Object::as_dict)
+                .map_err(|_| stale())?,
+            Object::Dictionary(dictionary) => dictionary,
+            _ => return Err(stale()),
+        };
+        // The page index limits /Annots to MAX_PAGE_ANNOTATIONS entries.
+        Ok((u32::try_from(position).unwrap_or(u32::MAX), dictionary))
+    }
+
+    /// Borrow the page's own `/Annots` array for an in-place edit, first
+    /// detaching an indirect array that other pages share, so that the edit
+    /// cannot reach them.
+    fn own_page_annotations_mut(&mut self, page_id: ObjectId) -> PyResult<&mut Vec<Object>> {
+        let annots = self
+            .doc
+            .get_object(page_id)
+            .and_then(Object::as_dict)
+            .map_err(to_py_err)?
+            .get(b"Annots")
+            .ok()
+            .cloned();
+        match annots {
+            Some(Object::Reference(array_id)) => {
+                if self.doc.annotation_array_shared(page_id, array_id)? {
+                    let source = self
+                        .doc
+                        .get_object(array_id)
+                        .and_then(Object::as_array)
+                        .map_err(to_py_err)?;
+                    let mut detached = Vec::new();
+                    detached.try_reserve_exact(source.len()).map_err(|error| {
+                        PdfError::new_err(format!(
+                            "failed to allocate detached page annotations: {error}"
+                        ))
+                    })?;
+                    detached.extend(source.iter().cloned());
+                    self.doc.set_page_annotations(page_id, detached)?;
+                    self.doc.page_annotations_mut(page_id)
+                } else {
+                    self.doc.annotation_array_mut(array_id)
+                }
+            }
+            _ => self.doc.page_annotations_mut(page_id),
+        }
+    }
+
+    /// Store every annotation that the page's `/Annots` holds as a direct
+    /// dictionary as an object of its own, as MuPDF does when it loads the
+    /// annotations, and borrow the page's own array. A handle finds a direct
+    /// dictionary only by its position, so an edit that could shift or
+    /// rewrite one goes through here first: a handle made before then finds
+    /// a reference where it expects a dictionary and goes stale instead of
+    /// naming another annotation.
+    fn indirect_page_annotations_mut(&mut self, page_id: ObjectId) -> PyResult<&mut Vec<Object>> {
+        let mut direct = Vec::new();
+        for (position, item) in self
+            .page_annotation_items(page_id)?
+            .unwrap_or_default()
+            .iter()
+            .enumerate()
+        {
+            if let Object::Dictionary(dictionary) = item {
+                direct.try_reserve(1).map_err(|error| {
+                    PdfError::new_err(format!("failed to allocate direct annotations: {error}"))
+                })?;
+                direct.push((position, dictionary.clone()));
+            }
+        }
+        let mut references = Vec::new();
+        references
+            .try_reserve_exact(direct.len())
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate annotation references: {error}"))
+            })?;
+        for (position, dictionary) in direct {
+            references.push((
+                position,
+                self.doc.add_object(Object::Dictionary(dictionary)),
+            ));
+        }
+        let items = self.own_page_annotations_mut(page_id)?;
+        for (position, id) in references {
+            if let Some(item) = items.get_mut(position) {
+                *item = Object::Reference(id);
+            }
+        }
+        Ok(items)
+    }
+}
+
+/// Implements [`_Document::set_link`]: edit the link and return its object
+/// number, which a link stored as a direct dictionary gains here.
+pub(super) fn set_link(
+    this: &mut _Document,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+    rect: Option<(f64, f64, f64, f64)>,
+    target: Option<TargetTuple>,
+) -> PyResult<u32> {
+    let page_id = this.page_id(page_number)?;
+    let (index, link) = this.annotation_at(page_id, index, xref)?;
+    if !matches!(link.get(b"Subtype").and_then(Object::as_name), Ok(b"Link")) {
+        return Err(StaleObjectError::new_err(format!(
+            "annotation {xref} at index {index} is no longer a link"
+        )));
+    }
+    let rect = rect
+        .map(|rect| link_rect(this, page_id, rect))
+        .transpose()?;
+    let entry = match &target {
+        Some(target) => {
+            validate_link_target(target)?;
+            Some(target_entry(
+                this,
+                this.doc.page_ids()?,
+                target,
+                &mut |_, _| Ok(()),
+            )?)
+        }
+        None => None,
+    };
+    this.invalidate_hayro_pdf_keeping_placements();
+    if xref == 0 {
+        this.indirect_page_annotations_mut(page_id)?;
+    }
+    let id = match this
+        .page_annotation_items(page_id)?
+        .and_then(|items| items.get(index as usize))
+    {
+        Some(Object::Reference(id)) => *id,
+        _ => return Err(PdfError::new_err("the link changed while it was edited")),
+    };
+    let link = this
+        .doc
+        .get_object_mut(id)
+        .and_then(Object::as_dict_mut)
+        .map_err(|_| PdfError::new_err("the link changed while it was edited"))?;
+    if let Some(rect) = rect {
+        link.set("Rect", rect);
+    }
+    if let Some(entry) = entry {
+        link.remove(b"Dest");
+        link.remove(b"A");
+        if let Some((key, value)) = entry {
+            link.set(key, value);
+        }
+    }
+    Ok(id.0)
+}
+
+/// Implements [`_Document::remove_annotations`]: take the annotations out
+/// of the page's `/Annots` in one edit, after finding every one of them and
+/// storing the page's direct annotation dictionaries as objects, so that no
+/// later handle can shift onto another annotation. The objects stay until a
+/// pruning save.
+pub(super) fn remove_annotations(
+    this: &mut _Document,
+    page_number: u32,
+    handles: Vec<(u32, u32)>,
+) -> PyResult<()> {
+    let page_id = this.page_id(page_number)?;
+    let mut positions = Vec::new();
+    positions
+        .try_reserve_exact(handles.len())
+        .map_err(|error| {
+            PdfError::new_err(format!("failed to allocate removed annotations: {error}"))
+        })?;
+    for (index, xref) in handles {
+        positions.push(this.annotation_at(page_id, index, xref)?.0 as usize);
+    }
+    // Remove from the end, so that each removal keeps the earlier positions.
+    positions.sort_unstable_by(|a, b| b.cmp(a));
+    positions.dedup();
+    if positions.is_empty() {
+        return Ok(());
+    }
+    this.invalidate_hayro_pdf_keeping_placements();
+    let items = this.indirect_page_annotations_mut(page_id)?;
+    for position in positions {
+        if position < items.len() {
+            items.remove(position);
+        }
+    }
+    Ok(())
 }

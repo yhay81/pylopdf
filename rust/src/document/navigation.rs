@@ -32,24 +32,13 @@ pub(super) const MAX_TOC_DEST_DEPTH: usize = 32;
 
 pub(super) const MAX_TOC_TEXT_BYTES: usize = 16 * 1024 * 1024;
 
-/// One link returned by read_links: kind, display Rect, URI, one-based lopdf
-/// destination page, destination display point, zoom, external file, and named
-/// destination or Named action.
-pub(super) type LinkTuple = (
-    String,
-    (f64, f64, f64, f64),
-    Option<String>,
-    Option<u32>,
-    Option<(f64, f64)>,
-    Option<f64>,
-    Option<String>,
-    Option<String>,
-);
+/// One link annotation as `read_links` returns it: its index in the page's
+/// `/Annots`, its object number (0 for a direct dictionary), its display
+/// rectangle, and its target.
+pub(super) type LinkItem = (u32, u32, DisplayRect, TargetTuple);
 
-/// One link with the object number of its annotation (0 for a direct
-/// dictionary) and the annotation's `/NM` name ("" when absent), as pymupdf
-/// reports them in `xref` and `id`.
-pub(super) type IdentifiedLink = (LinkTuple, u32, String);
+/// A rectangle in display coordinates: `(x0, y0, x1, y1)`.
+type DisplayRect = (f64, f64, f64, f64);
 
 /// Resolved link destination: page number, display point, zoom, named destination.
 pub(super) type ResolvedDestination =
@@ -709,28 +698,14 @@ pub(super) fn prepare_imported_page_links<'a>(
 }
 
 impl _Document {
-    /// Resolve an array/name/string/or `/D` dictionary to a one-based lopdf page,
-    /// destination display point, zoom, and named destination.
+    /// Resolve an array, name, string, or `/D` dictionary to a one-based page,
+    /// a display point, a zoom, and a named destination, charging the name
+    /// through `name_text`, which returns it as text.
     ///
-    /// Convert `/XYZ` left/top, `/FitH` top, or `/FitV` left into the destination
-    /// page's rotated top-left-origin display space. Point-less `/Fit` or `/FitR`
-    /// destinations return None.
-    pub(super) fn resolve_dest(
-        &self,
-        dest: &Object,
-        cache: &mut LinkResolutionCache,
-        encoded_bytes: &mut usize,
-        returned_bytes: &mut usize,
-    ) -> PyResult<ResolvedDestination> {
-        self.resolve_destination(dest, cache, false, &mut |name| {
-            bounded_annotation_bytes(name, encoded_bytes, returned_bytes, "named destination")
-        })
-    }
-
-    /// Resolve a destination as [`Self::resolve_dest`] does, charging a
-    /// destination name through `name_text`, which returns it as text.
-    /// With `keep_unset`, a destination that leaves both of its coordinates
-    /// null, which keeps the viewer's position, has no point.
+    /// `/XYZ` left/top, `/FitH` top, and `/FitV` left convert into the
+    /// destination page's display space; `/Fit` and `/FitR` have no point.
+    /// With `keep_unset`, a destination that leaves its coordinates null,
+    /// which keeps the viewer's position, has no point either.
     pub(super) fn resolve_destination(
         &self,
         dest: &Object,
@@ -807,23 +782,15 @@ impl _Document {
         &self,
         page_number: u32,
         cache: &mut LinkResolutionCache,
-    ) -> PyResult<Vec<IdentifiedLink>> {
+    ) -> PyResult<Vec<LinkItem>> {
         let page_id = self.doc.page_id(page_number)?;
         let (crop, rotation) = self.resolve_display_geometry(page_id)?;
         let Some(annots) = self.page_annotation_items(page_id)? else {
             return Ok(Vec::new());
         };
         let mut out = Vec::new();
-        // The annotation that produced each link of `out`, filled in before
-        // the next annotation so that every early `continue` stays correct.
-        let mut identities: Vec<(u32, String)> = Vec::new();
-        let mut identity = (0u32, String::new());
-        let mut encoded_bytes = 0usize;
-        let mut returned_bytes = 0usize;
-        for item in annots {
-            while identities.len() < out.len() {
-                push_fallibly(&mut identities, identity.clone(), "link identities")?;
-            }
+        let mut budget = (0usize, 0usize);
+        for (index, item) in annots.iter().enumerate() {
             let (xref, dict) = match item {
                 Object::Reference(id) => match self.doc.get_object(*id).and_then(Object::as_dict) {
                     Ok(dict) => (id.0, dict),
@@ -832,194 +799,180 @@ impl _Document {
                 Object::Dictionary(dict) => (0, dict),
                 _ => continue,
             };
-            if !matches!(dict.get(b"Subtype").and_then(Object::as_name), Ok(b"Link")) {
-                continue;
-            }
-            let name = match dict.get(b"NM") {
-                Ok(name) => bounded_annotation_text(
-                    &self.doc,
-                    name,
-                    &mut encoded_bytes,
-                    &mut returned_bytes,
-                    "annotation name",
-                )?
-                .unwrap_or_default(),
-                Err(_) => String::new(),
-            };
-            identity = (xref, name);
-            let Some(rect) = resolve_box(&self.doc, dict, b"Rect") else {
+            let Some((rect, target)) =
+                self.link_item(dict, (crop, rotation), cache, &mut budget)?
+            else {
                 continue;
             };
-            let display = draw::pdf_rect_to_display(crop, rotation, rect);
-            let rect_tuple = (display[0], display[1], display[2], display[3]);
+            let index = u32::try_from(index).unwrap_or(u32::MAX);
+            push_fallibly(&mut out, (index, xref, rect, target), "returned links")?;
+        }
+        Ok(out)
+    }
 
-            let action = dict
-                .get(b"A")
-                .ok()
-                .and_then(|action| deref_object(&self.doc, action).as_dict().ok());
-            if let Some(action) = action {
-                match action.get(b"S").and_then(Object::as_name) {
-                    Ok(b"URI") => {
-                        let uri = match action
-                            .get(b"URI")
-                            .ok()
-                            .map(|object| deref_object(&self.doc, object))
-                            .and_then(|object| object.as_str().ok())
-                        {
-                            Some(bytes) => Some(bounded_annotation_bytes(
-                                bytes,
-                                &mut encoded_bytes,
-                                &mut returned_bytes,
-                                "URI text",
-                            )?),
-                            None => None,
-                        };
-                        out.push((
-                            "uri".to_string(),
-                            rect_tuple,
-                            uri,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                        ));
-                    }
-                    Ok(b"GoTo") => {
-                        if let Ok(dest) = action.get(b"D") {
-                            let (page, to, zoom, name) = self.resolve_dest(
-                                dest,
-                                cache,
-                                &mut encoded_bytes,
-                                &mut returned_bytes,
-                            )?;
-                            out.push((
-                                "goto".to_string(),
-                                rect_tuple,
-                                None,
-                                page,
-                                to,
-                                zoom,
-                                None,
-                                name,
-                            ));
-                        }
-                    }
-                    Ok(b"GoToR") => {
-                        let file = match action.get(b"F") {
-                            Ok(object) => bounded_annotation_filespec_name(
-                                &self.doc,
-                                object,
-                                &mut encoded_bytes,
-                                &mut returned_bytes,
-                            )?,
-                            Err(_) => None,
-                        };
-                        // External-document destinations retain names without page resolution.
-                        let name_bytes = action.get(b"D").ok().and_then(|destination| {
-                            match deref_object(&self.doc, destination) {
-                                Object::Name(name) | Object::String(name, _) => {
-                                    Some(name.as_slice())
-                                }
-                                _ => None,
-                            }
-                        });
-                        let name = match name_bytes {
-                            Some(bytes) => Some(bounded_annotation_bytes(
-                                bytes,
-                                &mut encoded_bytes,
-                                &mut returned_bytes,
-                                "named destination",
-                            )?),
-                            None => None,
-                        };
-                        out.push((
-                            "gotor".to_string(),
-                            rect_tuple,
-                            None,
-                            None,
-                            None,
-                            None,
-                            file,
-                            name,
-                        ));
-                    }
-                    Ok(b"Launch") => {
-                        let file = match action.get(b"F") {
-                            Ok(object) => bounded_annotation_filespec_name(
-                                &self.doc,
-                                object,
-                                &mut encoded_bytes,
-                                &mut returned_bytes,
-                            )?,
-                            Err(_) => None,
-                        };
-                        out.push((
-                            "launch".to_string(),
-                            rect_tuple,
-                            None,
-                            None,
-                            None,
-                            None,
-                            file,
-                            None,
-                        ));
-                    }
-                    Ok(b"Named") => {
-                        let name_bytes = action
-                            .get(b"N")
-                            .ok()
-                            .and_then(|object| deref_object(&self.doc, object).as_name().ok());
-                        let name = match name_bytes {
-                            Some(bytes) => Some(bounded_annotation_bytes(
-                                bytes,
-                                &mut encoded_bytes,
-                                &mut returned_bytes,
-                                "named action",
-                            )?),
-                            None => None,
-                        };
-                        out.push((
-                            "named".to_string(),
-                            rect_tuple,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            name,
-                        ));
-                    }
-                    _ => {}
-                }
-            } else if let Ok(dest) = dict.get(b"Dest") {
-                let (page, to, zoom, name) =
-                    self.resolve_dest(dest, cache, &mut encoded_bytes, &mut returned_bytes)?;
-                out.push((
-                    "goto".to_string(),
-                    rect_tuple,
-                    None,
-                    page,
-                    to,
-                    zoom,
-                    None,
-                    name,
-                ));
+    /// Read the link at `index` of a page's `/Annots`, which must be object
+    /// `xref`, or a direct dictionary for 0; an indirect link that moved is
+    /// found again by its object number.
+    pub(super) fn page_link(
+        &self,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+        cache: &mut LinkResolutionCache,
+    ) -> PyResult<LinkItem> {
+        let page_id = self.doc.page_id(page_number)?;
+        let (crop, rotation) = self.resolve_display_geometry(page_id)?;
+        let (index, dict) = self.annotation_at(page_id, index, xref)?;
+        let mut budget = (0usize, 0usize);
+        match self.link_item(dict, (crop, rotation), cache, &mut budget)? {
+            Some((rect, target)) => Ok((index, xref, rect, target)),
+            None => Err(StaleObjectError::new_err(format!(
+                "annotation {xref} at index {index} is no longer a link"
+            ))),
+        }
+    }
+
+    /// Return a link annotation's display rectangle and target, or `None`
+    /// for an annotation that is no link or has no rectangle. `budget` holds
+    /// the encoded and returned text bytes of the call.
+    fn link_item(
+        &self,
+        dict: &Dictionary,
+        (crop, rotation): ([f64; 4], i64),
+        cache: &mut LinkResolutionCache,
+        budget: &mut (usize, usize),
+    ) -> PyResult<Option<(DisplayRect, TargetTuple)>> {
+        if !matches!(dict.get(b"Subtype").and_then(Object::as_name), Ok(b"Link")) {
+            return Ok(None);
+        }
+        let Some(rect) = resolve_box(&self.doc, dict, b"Rect") else {
+            return Ok(None);
+        };
+        let display = draw::pdf_rect_to_display(crop, rotation, rect);
+        let target = self.link_target(dict, cache, &mut budget.0, &mut budget.1)?;
+        Ok(Some((
+            (display[0], display[1], display[2], display[3]),
+            target,
+        )))
+    }
+
+    /// Return where a link annotation leads: its `/A` action, else its
+    /// `/Dest`, or `"none"` for an action that pylopdf does not read, such
+    /// as JavaScript.
+    fn link_target(
+        &self,
+        link: &Dictionary,
+        cache: &mut LinkResolutionCache,
+        encoded_bytes: &mut usize,
+        returned_bytes: &mut usize,
+    ) -> PyResult<TargetTuple> {
+        let none = || ("none".to_owned(), None, None, None, None, None);
+        let Some(action) = link
+            .get(b"A")
+            .ok()
+            .and_then(|action| deref_object(&self.doc, action).as_dict().ok())
+        else {
+            return match link.get(b"Dest") {
+                Ok(dest) => self.link_destination(dest, cache, encoded_bytes, returned_bytes),
+                Err(_) => Ok(none()),
+            };
+        };
+        let mut bytes =
+            |object: Option<&Object>, name: bool, label: &str| -> PyResult<Option<String>> {
+                let resolved = object.map(|object| deref_object(&self.doc, object));
+                let raw = match resolved {
+                    Some(Object::Name(bytes)) if name => Some(bytes.as_slice()),
+                    Some(Object::String(bytes, _)) if !name => Some(bytes.as_slice()),
+                    _ => None,
+                };
+                raw.map(|raw| bounded_annotation_bytes(raw, encoded_bytes, returned_bytes, label))
+                    .transpose()
+            };
+        Ok(match action.get(b"S").and_then(Object::as_name) {
+            Ok(b"URI") => {
+                let uri = bytes(action.get(b"URI").ok(), false, "URI text")?;
+                ("uri".to_owned(), None, None, None, uri, None)
             }
-        }
-        while identities.len() < out.len() {
-            push_fallibly(&mut identities, identity.clone(), "link identities")?;
-        }
-        let mut identified = Vec::new();
-        identified.try_reserve_exact(out.len()).map_err(|error| {
-            PdfError::new_err(format!("failed to allocate returned links: {error}"))
+            Ok(b"GoTo") => match action.get(b"D") {
+                Ok(dest) => {
+                    return self.link_destination(dest, cache, encoded_bytes, returned_bytes);
+                }
+                Err(_) => none(),
+            },
+            Ok(b"GoToR") => {
+                let file = match action.get(b"F") {
+                    Ok(object) => bounded_annotation_filespec_name(
+                        &self.doc,
+                        object,
+                        encoded_bytes,
+                        returned_bytes,
+                    )?,
+                    Err(_) => None,
+                };
+                // A destination in another file is a name, or an array whose
+                // first element is a zero-based page index (ISO 32000-2 12.6.4.3).
+                let destination = action
+                    .get(b"D")
+                    .ok()
+                    .map(|dest| deref_object(&self.doc, dest));
+                let (page, name) = match destination {
+                    Some(Object::Name(name) | Object::String(name, _)) => (
+                        None,
+                        Some(bounded_annotation_bytes(
+                            name,
+                            encoded_bytes,
+                            returned_bytes,
+                            "named destination",
+                        )?),
+                    ),
+                    Some(Object::Array(items)) => (
+                        items
+                            .first()
+                            .and_then(|page| page.as_i64().ok())
+                            .and_then(|page| u32::try_from(page).ok()),
+                        None,
+                    ),
+                    _ => (None, None),
+                };
+                ("gotor".to_owned(), page, None, None, file, name)
+            }
+            Ok(b"Launch") => {
+                let file = match action.get(b"F") {
+                    Ok(object) => bounded_annotation_filespec_name(
+                        &self.doc,
+                        object,
+                        encoded_bytes,
+                        returned_bytes,
+                    )?,
+                    Err(_) => None,
+                };
+                ("launch".to_owned(), None, None, None, file, None)
+            }
+            Ok(b"Named") => {
+                let name = bytes(action.get(b"N").ok(), true, "named action")?;
+                ("named".to_owned(), None, None, None, None, name)
+            }
+            _ => none(),
+        })
+    }
+
+    /// Return a destination in this document as a `"goto"` target, without a
+    /// point where the destination leaves its coordinates unset, or `"none"`
+    /// when it names no page of this document.
+    fn link_destination(
+        &self,
+        dest: &Object,
+        cache: &mut LinkResolutionCache,
+        encoded_bytes: &mut usize,
+        returned_bytes: &mut usize,
+    ) -> PyResult<TargetTuple> {
+        let (page, to, zoom, _) = self.resolve_destination(dest, cache, true, &mut |name| {
+            bounded_annotation_bytes(name, encoded_bytes, returned_bytes, "named destination")
         })?;
-        identified.extend(
-            out.into_iter()
-                .zip(identities)
-                .map(|(link, (xref, name))| (link, xref, name)),
-        );
-        Ok(identified)
+        Ok(match page {
+            Some(page) => ("goto".to_owned(), Some(page), to, zoom, None, None),
+            None => ("none".to_owned(), None, None, None, None, None),
+        })
     }
 }
 
@@ -1032,12 +985,28 @@ fn push_fallibly<T>(values: &mut Vec<T>, value: T, label: &str) -> PyResult<()> 
     Ok(())
 }
 
+/// Implements [`_Document::read_link`].
+pub(super) fn read_link(
+    this: &mut _Document,
+    py: Python<'_>,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+) -> PyResult<LinkItem> {
+    py.detach(|| {
+        let mut cache = this.link_resolution.take().unwrap_or_default();
+        let link = this.page_link(page_number, index, xref, &mut cache);
+        this.link_resolution = Some(cache);
+        link
+    })
+}
+
 /// Implements [`_Document::read_links`].
 pub(super) fn read_links(
     this: &mut _Document,
     py: Python<'_>,
     page_number: u32,
-) -> PyResult<Vec<IdentifiedLink>> {
+) -> PyResult<Vec<LinkItem>> {
     py.detach(|| {
         // Detach the cache so link collection can borrow the document, and
         // restore it on success and failure because reads never edit.
@@ -1045,5 +1014,141 @@ pub(super) fn read_links(
         let links = this.page_links(page_number, &mut cache);
         this.link_resolution = Some(cache);
         links
+    })
+}
+
+fn finite(value: f64, label: &str) -> PyResult<f64> {
+    if value.is_finite() {
+        Ok(value)
+    } else {
+        Err(PdfError::new_err(format!(
+            "a destination's {label} must be finite"
+        )))
+    }
+}
+
+/// Return the key and value that make an outline item or a link lead to
+/// `target`: `/Dest` for a page of this document, `/A` for an action, or
+/// nothing. `charge` bounds each text that the target holds.
+pub(super) fn target_entry(
+    this: &_Document,
+    page_ids: &[ObjectId],
+    target: &TargetTuple,
+    charge: &mut dyn FnMut(&str, &str) -> PyResult<()>,
+) -> PyResult<Option<(&'static str, Object)>> {
+    let (kind, page, point, zoom, text, name) = target;
+    let text_value =
+        |label: &str, charge: &mut dyn FnMut(&str, &str) -> PyResult<()>| -> PyResult<Object> {
+            let text = text
+                .as_deref()
+                .filter(|text| !text.is_empty())
+                .ok_or_else(|| PdfError::new_err(format!("a {kind} target needs a {label}")))?;
+            charge(text, label)?;
+            if label == "file" {
+                try_info_metadata_text_string(text)
+            } else {
+                Ok(Object::String(
+                    text.as_bytes().to_vec(),
+                    StringFormat::Literal,
+                ))
+            }
+        };
+    Ok(match kind.as_str() {
+        "none" => None,
+        "goto" => {
+            let page_number =
+                page.ok_or_else(|| PdfError::new_err("a destination needs a page"))?;
+            let page_id = page_id_from_index(page_ids, page_number)?;
+            let zoom = zoom.map(|zoom| finite(zoom, "zoom")).transpose()?;
+            if zoom.is_some_and(|zoom| zoom < 0.0) {
+                return Err(PdfError::new_err(
+                    "a destination's zoom must not be negative",
+                ));
+            }
+            let zoom = zoom
+                .map(|zoom| checked_pdf_real(zoom, "destination zoom"))
+                .transpose()?;
+            let array = match (point, zoom) {
+                (None, None) => vec![Object::Reference(page_id), Object::Name(b"Fit".to_vec())],
+                _ => {
+                    let (left, top) = match point {
+                        Some((x, y)) => {
+                            let (crop, rotation) = this.resolve_display_geometry(page_id)?;
+                            let (left, top) = draw::display_to_pdf(
+                                crop,
+                                rotation,
+                                finite(*x, "point")?,
+                                finite(*y, "point")?,
+                            );
+                            (
+                                Object::Real(checked_pdf_real(left, "destination left")?),
+                                Object::Real(checked_pdf_real(top, "destination top")?),
+                            )
+                        }
+                        None => (Object::Null, Object::Null),
+                    };
+                    vec![
+                        Object::Reference(page_id),
+                        Object::Name(b"XYZ".to_vec()),
+                        left,
+                        top,
+                        zoom.map_or(Object::Null, Object::Real),
+                    ]
+                }
+            };
+            Some(("Dest", Object::Array(array)))
+        }
+        "uri" => Some((
+            "A",
+            Object::Dictionary(dictionary! {
+                "S" => Object::Name(b"URI".to_vec()),
+                "URI" => text_value("URI", charge)?,
+            }),
+        )),
+        "gotor" => {
+            let file = text_value("file", charge)?;
+            let destination = match (name.as_deref(), page) {
+                (Some(name), _) if !name.is_empty() => {
+                    charge(name, "destination name")?;
+                    Object::String(name.as_bytes().to_vec(), StringFormat::Literal)
+                }
+                (_, page) => Object::Array(vec![
+                    Object::Integer(i64::from(page.unwrap_or(0))),
+                    Object::Name(b"Fit".to_vec()),
+                ]),
+            };
+            Some((
+                "A",
+                Object::Dictionary(dictionary! {
+                    "S" => Object::Name(b"GoToR".to_vec()),
+                    "F" => file,
+                    "D" => destination,
+                }),
+            ))
+        }
+        "launch" => Some((
+            "A",
+            Object::Dictionary(dictionary! {
+                "S" => Object::Name(b"Launch".to_vec()),
+                "F" => text_value("file", charge)?,
+            }),
+        )),
+        "named" => {
+            let name = name
+                .as_deref()
+                .filter(|name| !name.is_empty())
+                .ok_or_else(|| PdfError::new_err("a named action needs a name"))?;
+            charge(name, "action name")?;
+            Some((
+                "A",
+                Object::Dictionary(dictionary! {
+                    "S" => Object::Name(b"Named".to_vec()),
+                    "N" => Object::Name(name.as_bytes().to_vec()),
+                }),
+            ))
+        }
+        other => {
+            return Err(PdfError::new_err(format!("unknown target kind {other:?}")));
+        }
     })
 }

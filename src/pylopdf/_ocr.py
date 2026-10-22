@@ -9,8 +9,8 @@ import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from pylopdf._geometry import Rect
 from pylopdf._limits import _validate_optional_positive_int, _validate_rect
-from pylopdf._types import Rect
 from pylopdf.pylopdf_core import OcrError, Pixmap, _OcrEngine
 
 if TYPE_CHECKING:

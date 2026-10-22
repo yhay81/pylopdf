@@ -93,7 +93,7 @@ def _snapshot(doc: pylopdf.Document) -> tuple[int, list[tuple[object, ...]], lis
             page.rotation,
             page.rect,
             [(annot.type, annot.rect, annot.xref) for annot in page.annots()],
-            page.get_links(),
+            [(link.rect, link.target) for link in page.links],
         )
         for page in views
     ]
@@ -131,9 +131,7 @@ EDITS: dict[str, tuple[Callable[[pylopdf.Document], object], list[int | str]]] =
     "show_pdf_page_self": (lambda doc: doc.pages[0].show_pdf_page((0, 0, 50, 50), doc, 3), UNCHANGED),
     "replace_text": (lambda doc: doc.pages[4].replace_text("Page", "Leaf"), UNCHANGED),
     "add_link_annot": (
-        lambda doc: doc.pages[3].insert_link(
-            {"kind": pylopdf.LINK_URI, "from": (1, 1, 20, 20), "uri": "https://example.com/"}
-        ),
+        lambda doc: doc.pages[3].links.add((1, 1, 20, 20), "https://example.com/"),
         UNCHANGED,
     ),
     "add_highlight_annot": (lambda doc: doc.pages[1].add_highlight_annot((10, 10, 50, 20)), UNCHANGED),
@@ -401,7 +399,7 @@ def _aliased_snapshot(doc: pylopdf.Document) -> tuple[object, ...]:
             page.rotation,
             page.rect,
             [(annot.type, annot.rect, annot.xref) for annot in page.annots()],
-            page.get_links(),
+            [(link.rect, link.target) for link in page.links],
         )
         for page in views
     ]
@@ -416,9 +414,7 @@ PAGE_EDITS: dict[str, Callable[[pylopdf.Page], object]] = {
     "insert_image": lambda page: page.insert_image((5, 5, 30, 30), stream=PNG),
     "show_pdf_page": lambda page: page.show_pdf_page((0, 0, 40, 40), STAMP),
     "replace_text": lambda page: page.replace_text("Text", "Done"),
-    "add_link_annot": lambda page: page.insert_link(
-        {"kind": pylopdf.LINK_URI, "from": (1, 1, 20, 20), "uri": "https://example.com/"}
-    ),
+    "add_link_annot": lambda page: page.links.add((1, 1, 20, 20), "https://example.com/"),
     "add_highlight_annot": lambda page: page.add_highlight_annot((5, 5, 40, 15)),
 }
 
@@ -519,9 +515,9 @@ def test_annotating_pages_that_share_an_indirect_array_keeps_them_separate() -> 
     assert [len(page.annots()) for page in doc.pages] == [1, 1, 1, 1]
 
     for number, page in enumerate(doc.pages):
-        page.insert_link({"kind": pylopdf.LINK_URI, "from": (20, 20, 30, 30), "uri": f"https://example.com/{number}"})
+        page.links.add((20, 20, 30, 30), f"https://example.com/{number}")
 
-    uris = [[link["uri"] for link in page.get_links()] for page in doc.pages]
+    uris = [[link.target for link in page.links] for page in doc.pages]
     expected = [["https://example.com/first", f"https://example.com/{number}"] for number in range(4)]
     assert uris == expected
     assert _snapshot(doc) == _snapshot(pylopdf.open(doc.to_bytes()))
@@ -581,7 +577,7 @@ def test_annotating_every_page_with_its_own_indirect_array_is_linear() -> None:
 
     start = time.perf_counter()
     for page in doc.pages:
-        page.insert_link({"kind": pylopdf.LINK_URI, "from": (20, 20, 30, 30), "uri": "https://example.com/second"})
+        page.links.add((20, 20, 30, 30), "https://example.com/second")
     elapsed = time.perf_counter() - start
 
     assert elapsed < 2.0, f"annotating {TIMED_PAGES} pages took {elapsed:.2f}s"

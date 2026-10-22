@@ -566,7 +566,6 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
             "unlock": unlocked,
             "metadata_encryption": encryption_description,
             "object_streams_exception": object_streams_error,
-            "link_kind": repr(pylopdf.LINK_URI),
         },
         "limits": _limit_results(
             pdf20_bytes,
@@ -1138,7 +1137,7 @@ def _geometry_results() -> dict[str, Any]:
 
 def _rectangle_results() -> dict[str, Any]:
     """Check Rect, IRect, and Quad operators and their use with page geometry."""
-    from pylopdf import INFINITE_RECT, LINK_URI, Document, IRect, Matrix, Point, Quad, Rect  # noqa: PLC0415
+    from pylopdf import INFINITE_RECT, Document, IRect, Matrix, Point, Quad, Rect  # noqa: PLC0415
 
     rect = Rect(1, 2, 3, 4)
     _require(rect | Point(10, 10) == (1, 2, 10, 10), "rectangle union with a point changed")
@@ -1174,7 +1173,7 @@ def _rectangle_results() -> dict[str, Any]:
         form_xref = boxed.show_pdf_page((60, 60, 160, 160), document, 0)
         placed = [document.objects[image_xref]["Subtype"], document.objects[form_xref]["Subtype"]]
         highlight = boxed.add_highlight_annot(Rect(20, 20, 80, 40), content="note")
-        boxed.insert_link({"kind": LINK_URI, "from": Rect(20, 50, 80, 70), "uri": "https://e.test/"})
+        boxed.links.add(Rect(20, 50, 80, 70), "https://e.test/")
         annotations = [(annot.type[1], annot.info["content"]) for annot in boxed.annots()]
         _require(highlight.xref > 0 and highlight in boxed.annots(), "the highlight returned no handle")
         boxed.insert_text((20, 250), "Full name", fontname="Times-Bold")
@@ -1328,6 +1327,18 @@ def _document_property_results(root: Path) -> dict[str, Any]:
     renamed.title = "Weiter"
     renamed.italic = True
     document.outline[0].is_open = False
+    page = document.pages[0]
+    for target in (
+        "https://example.com/",
+        pylopdf.Destination(1, (10, 20), 2.0),
+        pylopdf.RemoteDestination("other.pdf", name="chapter"),
+        pylopdf.Launch("notes.txt"),
+        pylopdf.NamedAction("PrevPage"),
+    ):
+        page.links.add((10, 10, 60, 30), target)
+    page.links[1].rect = (20, 40, 80, 60)
+    page.links[0].target = pylopdf.Destination(0)
+    del page.links[3]
     document.page_labels = [pylopdf.PageLabelRange(0, "r"), pylopdf.PageLabelRange(1, prefix="A-")]
     data = document.to_bytes()
     _require(packet.encode() in data, "saving compressed the XMP packet")
@@ -1336,7 +1347,7 @@ def _document_property_results(root: Path) -> dict[str, Any]:
         "form_xmp": [len(xmp), _digest(xmp)],
         "form_mark_info": repr(form.mark_info),
         "form_pdfa_claim": repr(form.pdfa_claim),
-        "form_annotations": [form.has_links(), form.has_annots()],
+        "form_annotations": [any(page.links for page in form.pages), form.has_annots()],
         "xmp": saved.xmp,
         "page_mode": str(saved.page_mode),
         "page_layout": str(saved.page_layout),
@@ -1355,6 +1366,7 @@ def _document_property_results(root: Path) -> dict[str, Any]:
             for entry in saved.outline.entries()
         ],
         "outline_count": int(saved.catalog["Outlines"]["Count"]),
+        "links": [[list(link.rect), repr(link.target)] for link in saved.pages[0].links],
         "page_labels": [page.label for page in saved.pages],
         "metadata": dict(saved.metadata),
         "version": saved.version,

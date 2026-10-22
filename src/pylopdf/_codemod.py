@@ -1026,6 +1026,124 @@ def _set_fallback_font(_: _Migrator, receiver: str, args: _Arguments) -> str | N
     return f"{receiver}.fallback_fonts = {{}}"
 
 
+LINK_RECORD_MESSAGE = (
+    "page.links lists Link handles instead of dictionaries: read link.rect and link.target, a URI string, "
+    "Destination, RemoteDestination, Launch, NamedAction, or None; assigning either edits the link."
+)
+LINK_HANDLE_MESSAGE = (
+    "pylopdf's Link handles have rect and target, a URI string, Destination, RemoteDestination, Launch, "
+    "NamedAction, or None, in place of pymupdf's uri, dest, is_external, and next."
+)
+LINK_KINDS_MESSAGE = "page.links lists every link; test the type of link.target instead of passing kinds."
+#: The key of each kind of link dictionary that the target takes first, and
+#: the others with the keyword the target takes them as.
+LINK_ARGUMENTS: dict[str, tuple[str, tuple[tuple[str, str], ...]]] = {
+    "GOTO": ("page", (("to", "point"), ("zoom", "zoom"))),
+    "GOTOR": ("file", (("page", "page"), ("nameddest", "name"))),
+    "LAUNCH": ("file", ()),
+    "NAMED": ("name", ()),
+}
+#: The keys that each kind of pymupdf link dictionary may hold besides ``kind`` and ``from``.
+LINK_KEYS = {
+    "URI": frozenset({"uri"}),
+    "GOTO": frozenset({"page", "to", "zoom"}),
+    "GOTOR": frozenset({"file", "page", "nameddest"}),
+    "LAUNCH": frozenset({"file"}),
+    "NAMED": frozenset({"name"}),
+}
+
+
+def _get_links(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``get_links()`` to the page's link handles."""
+    if args.positional or args.keywords:
+        return None
+    migrator.todo(LINK_RECORD_MESSAGE)
+    return f"list({receiver}.links)"
+
+
+def _links_call(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite pymupdf's ``page.links(kinds=None)`` generator to the ``page.links`` sequence."""
+    if not migrator.pymupdf():
+        return None
+    bound = args.bind(("kinds",))
+    if bound is None or bound.get("kinds", "None") != "None":
+        migrator.todo(LINK_KINDS_MESSAGE)
+        return None
+    migrator.todo(LINK_HANDLE_MESSAGE)
+    return f"iter({receiver}.links)"
+
+
+def _first_link(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite pymupdf's ``load_links()`` to the first link handle."""
+    if args.positional or args.keywords:
+        return None
+    migrator.todo(LINK_HANDLE_MESSAGE)
+    return f"next(iter({receiver}.links), None)"
+
+
+def _dict_literal(text: str) -> dict[str, str] | None:
+    """Return the entries of a dictionary literal whose keys are string literals, or None."""
+    node = cst.parse_expression(text)
+    if not isinstance(node, cst.Dict):
+        return None
+    entries: dict[str, str] = {}
+    for element in node.elements:
+        if not isinstance(element, cst.DictElement):
+            return None
+        key = _string_literal(_code(element.key))
+        if key is None or key in entries:
+            return None
+        entries[key] = _code(element.value)
+    return entries
+
+
+def _link_kind(text: str) -> str | None:
+    """Return ``URI``, ``GOTO``, and so on for a ``LINK_*`` or ``LinkKind.*`` expression, or None."""
+    name = text.rpartition(".")[2]
+    kind = name.removeprefix("LINK_") if name.startswith("LINK_") else name
+    if text.rpartition(".")[0].endswith("LinkKind") or name.startswith("LINK_"):
+        return kind if kind in LINK_KEYS else None
+    return None
+
+
+def _link_target(migrator: _Migrator, kind: str, entries: dict[str, str]) -> str | None:
+    """Return the target expression of a pymupdf link dictionary of ``kind``, or None."""
+    if kind == "URI":
+        return entries.get("uri")
+    names = {"GOTO": "Destination", "GOTOR": "RemoteDestination", "LAUNCH": "Launch", "NAMED": "NamedAction"}
+    record = migrator.class_name(names[kind])
+    if record is None:
+        return None
+    required, keywords = LINK_ARGUMENTS[kind]
+    if required not in entries:
+        return None
+    arguments = [entries[required], *(f"{keyword}={entries[key]}" for key, keyword in keywords if key in entries)]
+    return f"{record}({', '.join(arguments)})"
+
+
+def _add_link_annot(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite pylopdf 0.15's ``add_link_annot(rect, uri)``."""
+    bound = args.bind(("rect", "uri"))
+    if bound is None or set(bound) != {"rect", "uri"}:
+        return None
+    return f"{receiver}.links.add({bound['rect']}, {bound['uri']})"
+
+
+def _insert_link(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``insert_link({...})`` with a dictionary literal to ``links.add(rect, target)``."""
+    bound = args.bind(("lnk", "mark"))
+    if bound is None or "lnk" not in bound or bound.get("mark", "True") not in _TRUE:
+        return None
+    entries = _dict_literal(bound["lnk"])
+    if entries is None or "from" not in entries or "kind" not in entries:
+        return None
+    kind = _link_kind(entries["kind"])
+    if kind is None or set(entries) - {"kind", "from", "xref", "id"} - LINK_KEYS[kind]:
+        return None
+    target = _link_target(migrator, kind, entries)
+    return None if target is None else f"{receiver}.links.add({entries['from']}, {target})"
+
+
 def _set_page_box(attribute: str) -> Callable[[_Migrator, str, _Arguments], str | None]:
     """Rewrite ``set_mediabox(rect)`` and its siblings to an assignment of a ``page.boxes`` attribute."""
 
@@ -1130,6 +1248,12 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "set_metadata": _set_metadata,
     "get_xml_metadata": _get_xml_metadata,
     "get_pdfa_claim": _get_pdfa_claim,
+    "get_links": _get_links,
+    "links": _links_call,
+    "load_links": _first_link,
+    "insert_link": _insert_link,
+    "add_link_annot": _add_link_annot,
+    "has_links": _no_arguments("any(page.links for page in {receiver}.pages)"),
 }
 
 
@@ -1991,6 +2115,20 @@ class _Migrator(cst.CSTTransformer):
             self._consumed.update(
                 id(arg.value) for arg in node.args if arg.keyword and arg.keyword.value == "encryption"
             )
+        if isinstance(node.func, cst.Attribute) and node.func.attr.value == "insert_link" and node.args:
+            # The insert_link rule turns the kind of a link dictionary literal into a target, or marks the call.
+            link = node.args[0].value
+            kinds = [
+                element.value
+                for element in (link.elements if isinstance(link, cst.Dict) else ())
+                if isinstance(element, cst.DictElement) and _string_literal(_code(element.key)) == "kind"
+            ]
+            for kind in kinds:
+                # Both fitz.LINK_URI and pylopdf.LinkKind.URI.
+                part = kind
+                while isinstance(part, cst.Attribute):
+                    self._consumed.add(id(part))
+                    part = part.value
 
     def leave_Name(self, original_node: cst.Name, updated_node: cst.Name) -> cst.Name:
         if id(original_node) not in self._attribute_names and updated_node.value in self.renamed:
@@ -2140,12 +2278,13 @@ class _Migrator(cst.CSTTransformer):
         if name == "outline" and self._scan.pymupdf:
             self.todo(OUTLINE_MESSAGE)
             return None
-        if name == "mediabox":
-            return cst.parse_expression(f"{_code(updated_node.value)}.boxes.media")
-        if name in PAGE_BOX_NAMES:
-            if self._scan.pymupdf:
+        if name == "mediabox" or name in PAGE_BOX_NAMES:
+            if name != "mediabox" and self._scan.pymupdf:
                 self.todo(PAGE_BOX_MESSAGE)
-            return cst.parse_expression(f"{_code(updated_node.value)}.boxes.{PAGE_BOX_NAMES[name]}")
+            return cst.parse_expression(f"{_code(updated_node.value)}.boxes.{PAGE_BOX_NAMES.get(name, 'media')}")
+        if name == "first_link" and self._scan.pymupdf:
+            self.todo(LINK_HANDLE_MESSAGE)
+            return cst.parse_expression(f"next(iter({_code(updated_node.value)}.links), None)")
         if name in DOCUMENT_PROPERTY_RENAMES:
             if name == "markinfo":
                 self.todo(MARK_INFO_MESSAGE)

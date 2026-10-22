@@ -40,7 +40,8 @@ python -m pylopdf.migrate src/
 | `doc.get_xml_metadata()`, `set_xml_metadata(xml)`, `del_xml_metadata()` | `doc.xmp`, `doc.xmp = xml`, `del doc.xmp` | 패킷이 없으면 `None`. 읽기와 쓰기는 1 MiB에서 멈춤 |
 | `doc.language`, `set_language(tag)` | `doc.language`, `doc.language = tag` | 완전한 태그를 다룸. pymupdf는 최대 세 글자만 유지하므로 `zh-TW`와 `zh-HK`가 모두 `zh-Hant`가 됨. `del doc.language`로 삭제 |
 | `doc.pagemode`, `pagelayout`, `markinfo`와 그 `set_*` 메서드 | `doc.page_mode`, `page_layout`, `mark_info`에 대입 | `PageMode`, `PageLayout` 열거형과 `MarkInfo` 레코드. pymupdf는 대소문자를 무시했지만 이름은 정확히 일치해야 함 |
-| `doc.has_links()`, `has_annots()`, `is_closed` | 같음 | |
+| `doc.has_links()` | `any(page.links for page in doc.pages)` | |
+| `doc.has_annots()`, `is_closed` | 같음 | |
 | `doc.name` | `doc.path` | `pathlib.Path`. bytes에서 열었거나 새로 만든 빈 문서는 `None`. 모든 문서가 PDF이므로 `is_pdf`는 없어짐 |
 | `doc.needs_pass`, `doc.is_encrypted` | `doc.needs_password` | 문서 잠금을 해제할 때까지 True |
 | `doc.authenticate(password)` | `doc.unlock(password)` | `Access.USER` 또는 `Access.OWNER`를 반환하고, 비밀번호가 틀리면 0을 반환하는 대신 `PasswordError` 발생 |
@@ -104,7 +105,9 @@ python -m pylopdf.migrate src/
 | `page.new_shape()`, `shape.draw_*`, `finish()`, `insert_text()`, `commit()` | 같음 | `with page.new_shape() as shape:`는 자동으로 커밋. `morph=`와 `oc=`는 아직 지원하지 않음 |
 | `page.draw_line()`, `draw_rect()` 및 다른 `draw_*` | 같음 | 스타일 옵션은 키워드 전용 |
 | `page.annots()`, `annot.type`, `rect`, `info`, `colors`, `flags` | 같음 | 현재는 읽기 전용 |
-| `page.add_highlight_annot()`, `page.insert_link()` | 같음 | `insert_link`는 웹 링크(`LINK_URI`)만 생성 |
+| `page.add_highlight_annot()` | 같음 | |
+| `page.get_links()`, `page.links()`, `page.first_link`, `page.load_links()` | `page.links` | 딕셔너리와 `Link` 객체의 연결 대신 `rect`와 `target`을 가진 `Link` 핸들의 시퀀스 |
+| `page.insert_link(link)`, `page.update_link(link)`, `page.delete_link(link)` | `page.links.add(rect, target)`, `link.rect`와 `link.target`에 대입, `del page.links[i]` | 대상은 목차와 같아서 URI 문자열, `Destination(page, point, zoom)`, `RemoteDestination(file, page)`, `Launch(file)`, `NamedAction(name)` 중 하나이며, `LINK_*` 종류 대신 대상에 `isinstance`를 씁니다 |
 | `page.widgets()` | `doc.get_form_fields()`, `doc.set_form_field(name, value)` | 폼은 문서 단위로 다룸 |
 
 ### 기하 { #mapping-geometry }

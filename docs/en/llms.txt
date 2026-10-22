@@ -108,6 +108,7 @@ replacement, and the migration hint):
 - Document.get_page_text -> Page.text: Use doc.pages[i].text(), or words() and layout() for the other options.
 - Document.get_toc -> Document.outline: Use doc.outline.entries(): OutlineEntry records whose destination is a Destination with a zero-based page (entry.page); get_toc used one-based pages.
 - Document.get_xml_metadata -> Document.xmp: doc.xmp returns the XMP packet as text, or None without one where pymupdf returns an empty string.
+- Document.has_links -> Page.links: any(page.links for page in doc.pages)
 - Document.insert_pdf -> Pages.insert: Use doc.pages.insert(index, other.pages[a:b + 1]), or doc.pages.extend(other.pages) to append.
 - Document.is_encrypted -> Document.needs_password: Read doc.needs_password, which is true until unlock() succeeds.
 - Document.is_stream -> Stream: Check isinstance(doc.objects[xref], pylopdf.Stream).
@@ -169,6 +170,26 @@ replacement, and the migration hint):
 - IRect.intersect -> IRect.__and__: Use r & other, which returns a new IRect.
 - IRect.normalize -> IRect.normalized: Use r.normalized(), which returns a new IRect.
 - IRect.transform -> IRect.__mul__: Use r * m, which returns a new IRect.
+- LINK_FLAG_* -> Destination: A Destination's point and zoom are None where the destination leaves them unset.
+- LINK_GOTO -> Destination: isinstance(link.target, Destination) marks a link to a page of this document.
+- LINK_GOTOR -> RemoteDestination: isinstance(link.target, RemoteDestination) marks a link to another PDF file.
+- LINK_LAUNCH -> Launch: isinstance(link.target, Launch) marks a link that opens a file.
+- LINK_NAMED -> NamedAction: isinstance(link.target, NamedAction) marks a named viewer action.
+- LINK_NONE -> Link.target: link.target is None for a link that pylopdf cannot follow.
+- LINK_URI -> Link.target: isinstance(link.target, str) marks a URI link.
+- Link.border -> Link.obj: Read or assign link.obj["Border"] or link.obj["BS"], the annotation's border entries.
+- Link.colors -> Link.obj: Read or assign link.obj["C"], the annotation's border colour.
+- Link.dest -> Link.target: link.target is a URI string, Destination(page, point, zoom), RemoteDestination(file, page), Launch(file), or NamedAction(name), or None for an action that pylopdf does not read.
+- Link.flags -> Link.obj: Read or assign link.obj["F"], the annotation flags.
+- Link.id -> Link.obj: link.obj["NM"] holds the annotation's name.
+- Link.is_external -> Link.target: isinstance(link.target, (str, RemoteDestination, Launch)) tells whether a link leaves the document.
+- Link.next -> Links: Iterate page.links instead of following link.next.
+- Link.page -> Link.target: link.target.page is the zero-based page of a Destination; link.page is the page that holds the link.
+- Link.parent -> Link.page: link.page is the page that holds the link.
+- Link.set_border -> Link.obj: Read or assign link.obj["Border"] or link.obj["BS"], the annotation's border entries.
+- Link.set_colors -> Link.obj: Read or assign link.obj["C"], the annotation's border colour.
+- Link.set_flags -> Link.obj: Read or assign link.obj["F"], the annotation flags.
+- Link.uri -> Link.target: link.target is the URI string of a URI link.
 - Matrix.__setitem__ -> Matrix: Matrix values are immutable; build a new Matrix instead.
 - Matrix.concat -> Matrix.__mul__: Use one * two, which returns a new Matrix.
 - Matrix.invert -> Matrix.__invert__: Use ~m, which returns the inverse.
@@ -194,8 +215,10 @@ replacement, and the migration hint):
 - Page.bound -> Page.rect: Read page.rect.
 - Page.cropbox -> Page.boxes: Read page.boxes.crop, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Page.cropbox_position -> Page.boxes: Read page.boxes.crop: its top-left corner is (crop.x0, crop.y1) in PDF user space.
+- Page.delete_link -> Links: del page.links[index] removes a link; its annotation goes at the next pruning save.
 - Page.derotation_matrix -> Page.user_to_display: pylopdf reads and writes in display space with the rotation resolved; drop the step, and map display space to PDF user space with ~page.user_to_display.
 - Page.find_tables -> Page.tables: Use page.tables(strategy=..., clip=...), which returns a list of Table records; table.rows replaces extract().
+- Page.first_link -> Page.links: next(iter(page.links), None) is the first link; iterate page.links instead of following link.next.
 - Page.get_bboxlog -> Page.content: Call page.content(); every item has a bbox and a kind, and its context lists the clips around it.
 - Page.get_cdrawings -> Page.content: Read page.content().paths, whose segments, paints, and strokes are immutable values.
 - Page.get_displaylist -> Page.content: Call page.content(), which returns the page's painted items as an immutable Content sequence.
@@ -205,13 +228,17 @@ replacement, and the migration hint):
 - Page.get_image_rects -> Page.content: Keep the items of page.content().images whose xref is the image's object number, and read their bbox and matrix.
 - Page.get_images -> Page.resources: Read page.resources.images: ImageObject handles with xref, width, height, bits, colorspace, alternate_colorspace, filters, soft_mask, mask, and is_stencil, in place of tuples.
 - Page.get_label -> Page.label: Read page.label.
+- Page.get_links -> Page.links: page.links lists Link handles: read link.rect and link.target instead of the 'from', 'uri', 'page', 'to', 'zoom', 'file', and 'name' keys.
 - Page.get_pixmap -> Page.pixmap: Use page.pixmap(dpi=...) or page.pixmap(matrix=...), not both; annots= is annotations=.
 - Page.get_svg_image -> Page.svg: Use page.svg(), which draws text as paths at 72 dpi.
 - Page.get_text -> Page.text: Use page.text() for "text", page.words() for "words", page.layout().blocks for "blocks", and page.layout().to_dict() or page.layout(chars=True).to_dict() for "dict" and "rawdict".
 - Page.get_text_blocks -> Page.layout: Read page.layout().blocks, Block records with text, bbox, and lines.
 - Page.get_text_words -> Page.words: Call page.words(), which returns Word records with text, bbox, block, line, and index.
 - Page.get_texttrace -> Page.content: Call page.content() and read the glyphs of its text_runs, each run with its font, size, paints, and graphics context.
+- Page.insert_link -> Links.add: page.links.add(rect, target), where target is a URI string, Destination(page, point, zoom), RemoteDestination(file, page), Launch(file), or NamedAction(name).
 - Page.last_point -> PathBuilder.current_point: Build the path with a PathBuilder and read its current_point, the end of its last segment.
+- Page.links -> Page.links: page.links is a sequence of Link handles: iterate it instead of calling it, and test the type of link.target instead of passing kinds.
+- Page.load_links -> Page.links: next(iter(page.links), None) is the first link; iterate page.links instead of following link.next.
 - Page.mediabox -> Page.boxes: Read page.boxes.media.
 - Page.mediabox_size -> Page.boxes: Read page.boxes.media.width and page.boxes.media.height.
 - Page.number -> Page.index: Read page.index.
@@ -227,6 +254,7 @@ replacement, and the migration hint):
 - Page.set_trimbox -> Page.boxes: Assign page.boxes.trim = rect, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Page.transformation_matrix -> Page.user_to_display: Use page.user_to_display, which maps PDF user space to display space with the rotation included; pymupdf's matrix stops before the rotation.
 - Page.trimbox -> Page.boxes: Read page.boxes.trim, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
+- Page.update_link -> Link.target: Assign link.rect and link.target on a handle from page.links.
 - Pixmap.n -> Pixmap.channels: Read pix.channels.
 - Pixmap.samples -> Pixmap: bytes(pix) copies the pixels; memoryview(pix) and numpy.asarray(pix) read them without a copy, shaped (height, width, channels).
 - Pixmap.samples_mv -> Pixmap: Use memoryview(pix), shaped (height, width, channels).
@@ -244,6 +272,7 @@ replacement, and the migration hint):
 - csGRAY -> Colorspace: Use pylopdf.Colorspace.GRAY.
 - csRGB -> Colorspace: Use pylopdf.Colorspace.RGB.
 - get_pdf_str -> String: Write a Python str into the object model, which encodes it as a PDF text string, or read String.text.
+- linkDest -> Destination: link.target holds a URI string, Destination(page, point, zoom), RemoteDestination(file, page), Launch(file), or NamedAction(name).
 - set_log -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
 - set_messages -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
 
@@ -252,7 +281,7 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - AnnotationInfo.contents -> Annot.info: Read annot.info["content"].
 - AnnotationInfo.rect -> Annot.rect: Read annot.rect.
 - AnnotationInfo.type -> Annot.type: Read annot.type, a (type code, subtype name) tuple.
-- AnnotationInfo.uri -> Page.get_links: Read the uri of the page's links from page.get_links().
+- AnnotationInfo.uri -> Link.target: Read link.target of the page's links in page.links.
 - BlockEntry -> Block: page.layout().blocks holds Block records with text, bbox, and lines.
 - Document.__iter__ -> Pages.__iter__: Iterate over doc.pages.
 - Document.compress_images -> Document.rewrite_images: Use doc.rewrite_images(dpi_threshold=..., dpi_target=..., quality=...).
@@ -294,6 +323,16 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - ImageInfo.height -> Image.height: Read image.height of page.content().images.
 - ImageInfo.image -> EncodedImage.data: doc.images[xref].extract() returns an EncodedImage whose data holds the image; page.content(text_runs=False, paths=False).images describes placements.
 - ImageInfo.width -> Image.width: Read image.width of page.content().images.
+- LinkInfo -> Link: page.links lists Link handles instead of LinkInfo dictionaries.
+- LinkInfo.file -> Link.target: link.target is a URI string, Destination, RemoteDestination, Launch, or NamedAction; read its fields.
+- LinkInfo.from -> Link.rect: Read link.rect.
+- LinkInfo.kind -> Link.target: Test the type of link.target, a URI string, Destination, RemoteDestination, Launch, or NamedAction.
+- LinkInfo.name -> Link.target: link.target is a URI string, Destination, RemoteDestination, Launch, or NamedAction; read its fields.
+- LinkInfo.nameddest -> Link.target: link.target is a URI string, Destination, RemoteDestination, Launch, or NamedAction; read its fields.
+- LinkInfo.page -> Link.target: link.target is a URI string, Destination, RemoteDestination, Launch, or NamedAction; read its fields.
+- LinkInfo.to -> Link.target: link.target is a URI string, Destination, RemoteDestination, Launch, or NamedAction; read its fields.
+- LinkInfo.uri -> Link.target: link.target is a URI string, Destination, RemoteDestination, Launch, or NamedAction; read its fields.
+- LinkInfo.zoom -> Link.target: link.target is a URI string, Destination, RemoteDestination, Launch, or NamedAction; read its fields.
 - MetadataProbe -> Probe: probe(source) returns a Probe record.
 - MetadataProbe.author -> Probe.metadata: Read probe.metadata["author"].
 - MetadataProbe.creationDate -> Probe.metadata: Read probe.metadata["created"].
@@ -316,7 +355,7 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - MetadataUpdate.producer -> Metadata.update: Pass producer to doc.metadata.update().
 - MetadataUpdate.subject -> Metadata.update: Pass subject to doc.metadata.update().
 - MetadataUpdate.title -> Metadata.update: Pass title to doc.metadata.update().
-- Page.add_link_annot -> Page.insert_link: Use page.insert_link({"kind": pylopdf.LinkKind.URI, "from": rect, "uri": uri}).
+- Page.add_link_annot -> Links.add: Use page.links.add(rect, uri).
 - Page.get_text_ocr -> Page.ocr: Call page.ocr(...), which returns OcrWord records with text, bbox, and confidence.
 - Page.insert_ocr_text_layer -> Page.apply_ocr: Call page.apply_ocr(words=[OcrWord(text=..., bbox=..., confidence=...), ...], skip_existing=False).
 - Page.render -> Page.pixmap: Use page.pixmap(dpi=72 * scale, alpha=True).to_bytes() for the PNG.

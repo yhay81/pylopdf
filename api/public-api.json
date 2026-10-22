@@ -58,12 +58,6 @@
     "ImageMask",
     "ImageObject",
     "Images",
-    "LINK_GOTO",
-    "LINK_GOTOR",
-    "LINK_LAUNCH",
-    "LINK_NAMED",
-    "LINK_NONE",
-    "LINK_URI",
     "Launch",
     "Layout",
     "LimitError",
@@ -71,8 +65,8 @@
     "LineCap",
     "LineJoin",
     "LineTo",
-    "LinkInfo",
-    "LinkKind",
+    "Link",
+    "Links",
     "MalformedPdfError",
     "MarkInfo",
     "MarkedContent",
@@ -1983,18 +1977,6 @@
           }
         },
         "has_annots": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "bool"
-          }
-        },
-        "has_links": {
           "kind": "method",
           "signature": {
             "parameters": [
@@ -4107,30 +4089,6 @@
         "returns": "None"
       }
     },
-    "LINK_GOTO": {
-      "kind": "constant",
-      "value": 1
-    },
-    "LINK_GOTOR": {
-      "kind": "constant",
-      "value": 5
-    },
-    "LINK_LAUNCH": {
-      "kind": "constant",
-      "value": 3
-    },
-    "LINK_NAMED": {
-      "kind": "constant",
-      "value": 4
-    },
-    "LINK_NONE": {
-      "kind": "constant",
-      "value": 0
-    },
-    "LINK_URI": {
-      "kind": "constant",
-      "value": 2
-    },
     "Launch": {
       "annotations": {
         "file": "str"
@@ -4327,46 +4285,144 @@
         "returns": "None"
       }
     },
-    "LinkInfo": {
-      "fields": {
-        "file": "str | None",
-        "from": "pylopdf.Rect",
-        "id": "str",
-        "kind": "pylopdf.LinkKind",
-        "name": "str | None",
-        "nameddest": "str",
-        "page": "int",
-        "to": "Point",
-        "uri": "str | None",
-        "xref": "int",
-        "zoom": "float"
-      },
-      "kind": "typed-dict",
-      "optional_keys": [
-        "file",
-        "name",
-        "nameddest",
-        "page",
-        "to",
-        "uri",
-        "zoom"
-      ],
-      "required_keys": [
-        "from",
-        "id",
-        "kind",
-        "xref"
-      ]
-    },
-    "LinkKind": {
-      "kind": "enum",
+    "Link": {
+      "kind": "class",
       "members": {
-        "GOTO": 1,
-        "GOTOR": 5,
-        "LAUNCH": 3,
-        "NAMED": 4,
-        "NONE": 0,
-        "URI": 2
+        "obj": {
+          "kind": "property",
+          "returns": "Dictionary"
+        },
+        "page": {
+          "kind": "property",
+          "returns": "Page"
+        },
+        "rect": {
+          "kind": "property",
+          "returns": "Rect"
+        },
+        "target": {
+          "kind": "property",
+          "returns": "Target | None"
+        },
+        "xref": {
+          "kind": "property",
+          "returns": "int"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Page",
+            "kind": "positional_or_keyword",
+            "name": "page"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "xref"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "index"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "Links": {
+      "kind": "class",
+      "members": {
+        "__delitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | slice",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | slice",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              }
+            ],
+            "returns": "Link | list[Link]"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[Link]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        },
+        "add": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "rect"
+              },
+              {
+                "annotation": "Target",
+                "kind": "positional_or_keyword",
+                "name": "target"
+              }
+            ],
+            "returns": "Link"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Page",
+            "kind": "positional_or_keyword",
+            "name": "page"
+          }
+        ],
+        "returns": "None"
       }
     },
     "MalformedPdfError": {
@@ -6652,18 +6708,6 @@
             "returns": "Point"
           }
         },
-        "get_links": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "list[LinkInfo]"
-          }
-        },
         "index": {
           "kind": "property",
           "returns": "int"
@@ -6731,23 +6775,6 @@
               }
             ],
             "returns": "int"
-          }
-        },
-        "insert_link": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_only",
-                "name": "self"
-              },
-              {
-                "annotation": "Mapping[str, Any]",
-                "kind": "positional_only",
-                "name": "link"
-              }
-            ],
-            "returns": "None"
           }
         },
         "insert_text": {
@@ -6979,6 +7006,10 @@
             ],
             "returns": "Layout"
           }
+        },
+        "links": {
+          "kind": "property",
+          "returns": "Links"
         },
         "markdown": {
           "kind": "method",

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -21,7 +20,7 @@ from pylopdf._fonts import (
     _resolve_generation_font,
     _validate_font_choice,
 )
-from pylopdf._geometry import Matrix, Quad
+from pylopdf._geometry import Matrix, Point, Quad, Rect
 from pylopdf._hints import hinted_getattr
 from pylopdf._images import Resources
 from pylopdf._limits import (
@@ -41,24 +40,15 @@ from pylopdf._limits import (
     _validate_textbox_options,
     _validate_utf8_text_input,
 )
+from pylopdf._links import Links
 from pylopdf._objects import Dictionary
 from pylopdf._ocr import OcrEngine, OcrWord, _default_ocr_engine, _validate_ocr_rotation
 from pylopdf._page_labels import _label, _read_page_labels
 from pylopdf._pixmap import Colorspace, _render_background, _render_gray, _render_scale, _validate_bool
 from pylopdf._shape import Shape
 from pylopdf._tables import Table, build_tables
-from pylopdf._types import (
-    LINK_GOTO,
-    LINK_GOTOR,
-    LINK_LAUNCH,
-    LINK_NAMED,
-    LINK_NONE,
-    LINK_URI,
-    TEXT_ALIGN_LEFT,
-    Point,
-    Rect,
-)
-from pylopdf.pylopdf_core import LimitError, PdfError, Pixmap
+from pylopdf._types import TEXT_ALIGN_LEFT
+from pylopdf.pylopdf_core import LimitError, Pixmap
 
 if TYPE_CHECKING:
     import os
@@ -68,7 +58,7 @@ if TYPE_CHECKING:
     from pylopdf._document import Document
     from pylopdf._fonts import Font
     from pylopdf._text import Layout, Word
-    from pylopdf._types import FontLanguage, LinkInfo, OcrRotation
+    from pylopdf._types import FontLanguage, OcrRotation
 
 
 _DEFAULT_MAX_TEXT_REPLACEMENT_SIZE = 64 * 1024 * 1024
@@ -1545,67 +1535,10 @@ class Page:
             if _SUBTYPE_TYPES.get(entry[2], AnnotType.UNKNOWN) in wanted
         ]
 
-    def get_links(self) -> list[LinkInfo]:
-        """Read link annotations and resolve their destinations.
-
-        Each item is a pymupdf-style dict with ``kind`` (for example
-        :data:`LINK_GOTO`) and ``from`` (a display-coordinate :class:`Rect`).
-        Additional keys depend on ``kind``:
-
-        - ``LINK_URI``: ``uri``.
-        - ``LINK_GOTO``: zero-based ``page`` or -1 when unresolved, plus
-          optional ``to`` (:class:`Point`), ``zoom``, and ``nameddest``.
-          Integer page indexes, which some producers write instead of page
-          references, resolve only when they name an existing page.
-        - ``LINK_GOTOR`` / ``LINK_LAUNCH``: ``file`` and optional ``nameddest``.
-        - ``LINK_NAMED``: action ``name``, such as ``NextPage``.
-
-        GoTo named destinations resolve from both the ``/Names`` name tree and
-        the legacy ``/Dests`` dictionary. Reads share the 4,096-annotation and
-        1 MiB aggregate metadata-text boundaries with :meth:`annots`. The first
-        named lookup indexes the name tree once, cycle-aware, and later reads
-        reuse that index and the page index until the next edit, so reading
-        every page stays linear. Trees above 65,536 entries or nodes or 131,072
-        edges raise :class:`LimitError` with code ``named_destination_count``,
-        above 16 MiB of key text with ``named_destination_text_size``, and above
-        32 levels with :class:`PdfError`, instead of returning a silent
-        unresolved result. A refused tree is never cached, so every later named
-        lookup raises again.
-        """
-        raw = self._document._doc.read_links(self._page_number())
-        kind_map = {
-            "uri": LINK_URI,
-            "goto": LINK_GOTO,
-            "gotor": LINK_GOTOR,
-            "launch": LINK_LAUNCH,
-            "named": LINK_NAMED,
-        }
-        links: list[LinkInfo] = []
-        for (kind, rect, uri, page, to, zoom, file, name), xref, link_id in raw:
-            link: LinkInfo = {
-                "kind": kind_map.get(kind, LINK_NONE),
-                "from": Rect(*rect),
-                "xref": xref,
-                "id": link_id,
-            }
-            if kind == "uri":
-                link["uri"] = uri
-            elif kind == "goto":
-                link["page"] = page - 1 if page is not None else -1
-                if to is not None:
-                    link["to"] = Point(*to)
-                if zoom is not None:
-                    link["zoom"] = zoom
-                if name is not None:
-                    link["nameddest"] = name
-            elif kind in ("gotor", "launch"):
-                link["file"] = file
-                if name is not None:
-                    link["nameddest"] = name
-            elif kind == "named":
-                link["name"] = name
-            links.append(link)
-        return links
+    @property
+    def links(self) -> Links:
+        """Return the page's link annotations as a :class:`Links` sequence of :class:`Link` handles."""
+        return Links(self)
 
     def add_highlight_annot(
         self,
@@ -1669,42 +1602,6 @@ class Page:
             self._page_number(), validated, rgb, float(opacity), content
         )
         return Annot(self, xref, -1)
-
-    def insert_link(self, link: Mapping[str, Any], /) -> None:
-        """Insert a link annotation described by a pymupdf link dictionary.
-
-        ``link`` has the shape that :meth:`get_links` returns: ``kind`` and
-        ``from`` (a display-coordinate rectangle), plus ``uri`` for
-        :data:`LINK_URI`. Other kinds raise :class:`PdfError` until pylopdf
-        writes their destinations. The subtype and URI share a 1 MiB text
-        budget; oversized text is rejected before the Rust boundary with
-        ``LimitError.code == "annotation_input_size"``.
-        """
-        if not isinstance(link, Mapping):
-            msg = f"link must be a mapping: {type(link).__name__}"
-            raise TypeError(msg)
-        kind = link.get("kind")
-        if kind != LINK_URI:
-            msg = f"insert_link supports kind=LINK_URI only: {kind!r}"
-            raise PdfError(msg)
-        uri = link.get("uri")
-        if not isinstance(uri, str):
-            msg = f"a LINK_URI link needs a string uri: {uri!r}"
-            raise TypeError(msg)
-        if not uri:
-            msg = "uri must be at least 1 character"
-            raise ValueError(msg)
-        if "from" not in link:
-            msg = "link needs a 'from' rectangle"
-            raise ValueError(msg)
-        _validate_cumulative_utf8_input(
-            ("Link", uri),
-            _MAX_ANNOTATION_INPUT_TEXT_SIZE,
-            limit_code="annotation_input_size",
-            input_label="annotation subtype and URI input",
-        )
-        x0, y0, x1, y1 = _validate_rect(link["from"], name="from")
-        self._document._doc.add_link_annotation(self._page_number(), (x0, y0, x1, y1), uri)
 
     def pixmap(  # noqa: PLR0913 - rendering options are keyword-only.
         self,

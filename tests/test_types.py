@@ -18,8 +18,9 @@ def test_public_type_contracts_are_runtime_importable() -> None:
         "FormFieldInfo",
         "FormFieldType",
         "ImageCompressionResult",
-        "LinkInfo",
         "LimitError",
+        "Link",
+        "Links",
         "MarkInfo",
         "PageLayout",
         "PageMode",
@@ -61,11 +62,8 @@ def test_typed_dict_required_and_optional_keys() -> None:
         pylopdf.DocumentComplexity,
         pylopdf.FormFieldInfo,
         pylopdf.ImageCompressionResult,
-        pylopdf.LinkInfo,
     )
     assert all(is_typeddict(contract) for contract in typed_dicts)
-    assert pylopdf.LinkInfo.__required_keys__ == frozenset({"kind", "from", "xref", "id"})
-    assert pylopdf.LinkInfo.__optional_keys__ == frozenset({"uri", "page", "to", "zoom", "nameddest", "file", "name"})
     assert get_type_hints(pylopdf.Image)["bbox"] is pylopdf.Rect
     assert get_type_hints(pylopdf.OcrWord)["bbox"] is pylopdf.Rect
     assert get_type_hints(pylopdf.Table)["diagnostics"] is pylopdf.TableDiagnostics

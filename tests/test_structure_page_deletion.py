@@ -293,7 +293,8 @@ def test_links_that_navigation_cleanup_removes_leave_the_structure_tree() -> Non
     }
     doc = pylopdf.open(_tagged_with(replacements, {}))
     del doc.pages[1:2]
-    assert doc.pages[0].get_links() == []
+    # Only the fixture's own link without a target stays.
+    assert [(link.xref, link.target) for link in doc.pages[0].links] == [(28, None)]
     objects = _objects(doc.to_bytes())
 
     _assert_references_resolve(objects)

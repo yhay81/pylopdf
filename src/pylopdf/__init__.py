@@ -118,12 +118,15 @@ from pylopdf._geometry import (
     IdentityMatrix,
     IRect,
     Matrix,
+    Point,
     Quad,
+    Rect,
     planish_line,
 )
 from pylopdf._hints import missing_attribute
 from pylopdf._images import EncodedImage, ImageObject, Images, Resources
 from pylopdf._limits import DocumentLimits
+from pylopdf._links import Link, Links
 from pylopdf._metadata import MarkInfo, Metadata, PageLayout, PageMode, PdfaClaim
 from pylopdf._objects import Array, Dictionary, Name, Objects, Stream, String
 from pylopdf._ocr import OcrEngine, OcrWord
@@ -137,12 +140,6 @@ from pylopdf._tables import Table, TableDiagnostics
 from pylopdf._targets import Destination, Launch, NamedAction, RemoteDestination, Target
 from pylopdf._text import Block, Char, Layout, Line, Span, Word
 from pylopdf._types import (
-    LINK_GOTO,
-    LINK_GOTOR,
-    LINK_LAUNCH,
-    LINK_NAMED,
-    LINK_NONE,
-    LINK_URI,
     PDF_PERM_ACCESSIBILITY,
     PDF_PERM_ANNOTATE,
     PDF_PERM_ASSEMBLE,
@@ -159,11 +156,7 @@ from pylopdf._types import (
     DocumentComplexity,
     FormFieldInfo,
     ImageCompressionResult,
-    LinkInfo,
-    LinkKind,
     Permissions,
-    Point,
-    Rect,
     TextAlign,
 )
 from pylopdf.pylopdf_core import LimitError, OcrError, PasswordError, PdfError, Pixmap, StaleObjectError
@@ -178,12 +171,6 @@ __all__ = [
     "INFINITE_IRECT",
     "INFINITE_QUAD",
     "INFINITE_RECT",
-    "LINK_GOTO",
-    "LINK_GOTOR",
-    "LINK_LAUNCH",
-    "LINK_NAMED",
-    "LINK_NONE",
-    "LINK_URI",
     "PDF_ANNOT_3D",
     "PDF_ANNOT_CARET",
     "PDF_ANNOT_CIRCLE",
@@ -291,8 +278,8 @@ __all__ = [
     "LineCap",
     "LineJoin",
     "LineTo",
-    "LinkInfo",
-    "LinkKind",
+    "Link",
+    "Links",
     "MalformedPdfError",
     "MarkInfo",
     "MarkedContent",
