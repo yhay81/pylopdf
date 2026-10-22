@@ -139,6 +139,7 @@ pymupdfと同じく、ピクセルマップは既定で白地のRGB、`alpha=Tru
 | `insert_image(rect, *, filename=, stream=, pixmap=, rotate=0, keep_proportion=True, overlay=True)` | JPEG、PNG、`Pixmap`を描き、そのオブジェクト番号を返します |
 | `show_pdf_page(rect, docsrc, pno=0, *, keep_proportion=True, overlay=True)` | 別のPDF（または同じPDF）のページをベクタのまま描きます |
 | `draw_line`, `draw_rect`, `draw_circle`, `draw_oval`, `draw_polyline`, `draw_quad`, `draw_sector`, `draw_curve`, `draw_bezier`, `draw_squiggle`, `draw_zigzag` | 図形を1つ描きます。`color`、`fill`、`width`、`dashes`などのスタイル指定はキーワード専用です |
+| `draw(*, underlay=False)` | パス、テキスト、画像、ページを順に描く[キャンバス](#canvas) |
 | `new_shape()` | 複数のパスとテキストを一度に描きます。[Shape](#shapes)を参照 |
 | `replace_text(search, replacement, *, default_char=None)` | 単純な（1バイトの）フォントで描かれたテキストを置換 |
 
@@ -218,6 +219,49 @@ hayroがまだ報告しない情報はモデルにありません。色の色空
 ## ベクタ図形 { #drawings }
 
 `page.get_drawings()`は、塗りまたは線で描かれたパスごとに`DrawingInfo`辞書を1つ、pymupdfの形式で返します。`type`（`"f"`、`"s"`、`"fs"`）、`items`（直線と3次曲線）、`rect`、色、不透明度、線幅、線端、角の形、破線、`seqno`を持ちます。パターンで塗られたパスの色は`None`です。[`page.content()`](#content)のパスは、クリップ、グループ、マーク付きコンテンツも持ちます。
+
+## キャンバス { #canvas }
+
+`page.draw()`は`Canvas`を返します。`with`ブロックの中で使ってください。ブロックの中で描いたものはすべて、ブロックが終わったときに呼び出した順で1つのForm XObjectとして書き込まれます。ブロックが例外を送出した場合は何も書き込まれません。座標はほかの箇所と同じく表示座標です。
+
+```python
+from pylopdf import Color, Matrix, PathBuilder, Stroke
+
+navy = Color(0.1, 0.2, 0.4)
+with page.draw() as canvas:
+    canvas.rect((40, 40, 555, 120), radius=8, fill=Color(0.95, 0.96, 0.97))
+    canvas.text("Inspection report", (56, 90), size=20, fill=navy)
+    canvas.line((56, 105), (539, 105), stroke=Stroke(paint=navy, width=0.5))
+    fit = canvas.textbox((56, 140, 539, 400), body, size=10.5)
+    canvas.image((400, 420, 539, 520), "chart.png")
+    with canvas.opacity(0.15), canvas.transform(Matrix(1, 0, 0, 1, 0, 600)):
+        canvas.page((56, 0, 539, 200), letterhead[0])
+```
+
+| メソッド | 描くもの |
+|---|---|
+| `path(path, *, fill=None, stroke=None, fill_rule=FillRule.NONZERO)` | `PathBuilder`、`Path`項目の形状、または線分のリスト |
+| `line`, `rect(rect, *, radius=0)`, `circle`, `ellipse`, `polygon`, `bezier` | それぞれパスを1つ。オプションは`path`と同じです |
+| `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None)` | 最初のベースラインが`at`から始まる行 |
+| `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` | `rect`の中で折り返したテキスト。`TextFit`を返します |
+| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEGまたはPNGのパス、エンコード済みのbytes、`Pixmap`のいずれか |
+| `page(rect, source, *, keep_aspect=True)` | 開いている任意の文書（この文書も含む）のページ |
+| `draw(item)` | [`page.content()`](#content)が返した`Path`項目 |
+
+パスは`Color`の塗りと線を取ります。線は、幅、線端、角の形、マイター限界、破線を持つ`Stroke`か、1ポイントの線を表す`Color`です。どちらも指定しないパスは1ポイントの黒い線で描かれます。色の`alpha`は、その塗りや線を半透明にします。`PathBuilder`は`move_to`、`line_to`、`curve_to`、`quad_to`、`close`で形状を組み立て、`rect`、`ellipse`、`circle`、`polygon`、`sector`、`zigzag`、`wave`で図形をまるごと追加します。どのメソッドもビルダー自身を返すので、呼び出しを連鎖できます。
+
+テキストは[`Font`](#font)で描きます。OpenTypeフォントはHarfRustで字形処理し、何回の呼び出しで使ってもキャンバスごとに1回だけサブセットとして埋め込みます。`font`を指定しない場合、西欧のテキストはHelveticaで、それ以外のテキストはその文字体系に対応するインストール済みの[フォントのextra](getting-started.md#installation)で描きます。テキストは塗り、線、またはその両方で描けます。`textbox`はUnicodeが改行を許す位置で行を折り返します。テキストが収まらないときは何も描かず、`TextFit.spare_height`は不足分を表す負の値になるので、`fit.fits`は偽になります。
+
+次の4つのコンテキストマネージャは、その中で描いたものすべてに適用され、入れ子にできます。
+
+| スコープ | 効果 |
+|---|---|
+| `clip(path, *, fill_rule=...)` | パスの内側だけに描きます |
+| `transform(matrix)` | 描画を変換します。入れ子の変換は内側から先に適用されます |
+| `opacity(alpha)` | 描画を1つのグループとして合成し、それを不透明度`alpha`で描きます |
+| `blend(mode)` | `BlendMode`を使って、描画をその下にあるものとブレンドします |
+
+`page.draw(underlay=True)`は、ページの既存の内容の下に書き込みます。1つのキャンバスで何度も描いた画像やページ、または文書が以前に配置した画像やページは、1回だけ格納されます。ページは`canvas.page()`を呼び出した時点の状態で描かれます。`draw(item)`は項目のクリップ、グループの不透明度、ブレンドモードを再現しますが、ソフトマスクは再現しません。テキストラン、画像、パターンのペイントはまだ描けません。1つのキャンバスが保持できるパスの点は1,048,576個まで、スコープの入れ子は16段までです。それを超えると`LimitError`を送出し、そのコードは`path_point_count`または`canvas_scope_depth`です。
 
 ## 表 { #tables }
 
@@ -427,6 +471,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 文書を読み込まずにメタデータとページ数を取得 |
 | `DocumentLimits`, `DocumentLimits.web()` | 信頼できない入力向けの資源の上限。[セキュリティ](security.md#untrusted-pdfs)を参照 |
 | `OcrEngine` | 再利用できるOCRエンジン。[オフラインOCR](ocr.md)を参照 |
+| `Canvas`, `PathBuilder`, `TextFit` | [キャンバス](#canvas)を参照 |
 | `Font`, `Shape` | [Font](#font)と[Shape](#shapes)を参照 |
 | `Base14_fontnames`, `Base14_fontdict` | `fontname=`が受け付けるStandard 14フォントの名前 |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [低レベルオブジェクト](#low-level-objects) |

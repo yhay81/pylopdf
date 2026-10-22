@@ -1308,6 +1308,39 @@ def _content_model_results(root: Path) -> dict[str, Any]:
     }
 
 
+def _canvas_results(root: Path) -> dict[str, Any]:
+    """Draw paths, text, an image, a page, and scopes with a canvas and read them back."""
+    import pylopdf  # noqa: PLC0415
+    from pylopdf import Color, Matrix, PathBuilder, Stroke  # noqa: PLC0415
+
+    font = pylopdf.Font(
+        fontbuffer=(root / "fonts/pylopdf-fonts-jp/src/pylopdf_fonts_jp/NotoSansJP-Regular.otf").read_bytes()
+    )
+    source = pylopdf.Document(root / "tests/assets/real_world/pdf20-simple.pdf")
+    document = pylopdf.Document()
+    page = document.new_page(width=300, height=200)
+    swatch = pylopdf.Document().new_page(width=4, height=2).get_pixmap()
+    with page.draw() as canvas:
+        canvas.rect((10, 10, 110, 60), radius=6, fill=Color(1, 0, 0), stroke=Stroke(paint=Color(0, 0, 1), width=2))
+        canvas.text("Canvas", (20, 90), size=12)
+        canvas.text(_JAPANESE, (20, 120), font=font, size=14, fill=Color(0, 0, 0, 0.5))
+        with canvas.clip(PathBuilder().rect((150, 0, 300, 100))), canvas.opacity(0.5):
+            canvas.circle((200, 50), 40, fill=Color(0, 0.5, 0))
+        with canvas.transform(Matrix(1, 0, 0, 1, 150, 100)):
+            canvas.image((0, 0, 40, 20), swatch)
+            canvas.page((50, 0, 150, 100), source[0])
+        fit = canvas.textbox((10, 140, 140, 190), "Wrapped text " * 20, size=8)
+    _require(not fit.fits, "the overflowing textbox drew")
+    content = page.content()
+    return {
+        "kinds": [type(item).__name__ for item in content],
+        "boxes": [[round(value, 1) for value in item.bbox] for item in content][:6],
+        "opacities": [round(float(item.context.opacity), 2) for item in content][:6],
+        "text": _digest(page.get_text()),
+        "spare_height": round(fit.spare_height, 2),
+    }
+
+
 def collect_results(root: Path) -> dict[str, Any]:
     """Run compatibility assertions and return stable native/Wasm comparison data."""
     import pylopdf  # noqa: PLC0415
@@ -1330,6 +1363,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "object_model": _object_model_results(),
         "document_properties": _document_property_results(root),
         "content_model": _content_model_results(root),
+        "canvas": _canvas_results(root),
         "threads": {
             "render_pages_workers_4": "serial on Emscripten; bounded rayon pool on native",
         },

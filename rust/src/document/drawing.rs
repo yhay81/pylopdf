@@ -1002,6 +1002,397 @@ pub(super) fn show_pdf_page_self(
     Ok(form.id().0)
 }
 
+impl _Document {
+    /// Whether this document placed an image with `digest` that is still
+    /// intact, so a canvas that draws it need not parse it.
+    pub(crate) fn has_placed_image(&mut self, digest: &placement_reuse::ImageDigest) -> bool {
+        self.placements.image(&self.doc, digest).is_some()
+    }
+
+    /// Whether this document imported the page of `source` as a Form that is
+    /// still intact, so a canvas that draws it need not copy its document.
+    pub(crate) fn has_placed_form(&mut self, source: FormSource) -> bool {
+        self.placements.form(&self.doc, source).is_some()
+    }
+
+    /// The process-unique identity of the current content.
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Refuse a one-based page number that names no page.
+    pub(crate) fn check_page(&self, page_number: u32) -> PyResult<()> {
+        self.page_id(page_number).map(|_| ())
+    }
+
+    /// A copy of the editable document, as a canvas imports pages from it.
+    pub(crate) fn snapshot(&self) -> Document {
+        (*self.doc).clone()
+    }
+
+    /// Generate, import, and place a recorded canvas; see `commit_canvas`.
+    pub(super) fn place_canvas(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        mut recording: CanvasRecording,
+        overlay: bool,
+    ) -> PyResult<()> {
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let page_size = draw::display_size(crop, rotation);
+        let form_crop = [
+            0.0,
+            0.0,
+            f64::from(page_size.0 as f32),
+            f64::from(page_size.1 as f32),
+        ];
+        if (form_crop[2], form_crop[3]) != recording.size {
+            return Err(PdfError::new_err(
+                "the page changed size while the canvas was open",
+            ));
+        }
+        let (page_id, drawing_plan) = py.detach(|| {
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)
+        })?;
+
+        // Text in embedded faces: one krilla page for each run of text
+        // items, imported with the numbers after the target's objects.
+        let plan = recording.plan_embedded()?;
+        let mut target_max_id = self.doc.max_id;
+        let mut text_imports = Vec::new();
+        if !plan.is_empty() {
+            let generated = py
+                .detach(|| recording.generate(&plan))
+                .map_err(PdfError::new_err)?;
+            text_imports
+                .try_reserve_exact(generated.len())
+                .map_err(|error| {
+                    PdfError::new_err(format!("failed to allocate canvas text imports: {error}"))
+                })?;
+            for (document, page_count) in generated.into_iter().zip(plan.page_counts()) {
+                let mut source = generated_pdf::load(&document.pdf)
+                    .map_err(|error| lopdf_err(Some("failed to import canvas text"), &error))?;
+                if let Some(face) = document.instance.and_then(|slot| recording.face(slot)) {
+                    face.name_subset(&mut source);
+                }
+                let page_numbers = (1..=page_count)
+                    .map(u32::try_from)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| PdfError::new_err(error.to_string()))?;
+                let import =
+                    py.detach(|| prepare_pages_form_import(target_max_id, source, &page_numbers))?;
+                target_max_id = advance_max_id(&import)?;
+                text_imports.push(import);
+            }
+        }
+
+        // Images: one placed before, or new streams.
+        let mut images = Vec::new();
+        images
+            .try_reserve_exact(recording.images.len())
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate canvas images: {error}"))
+            })?;
+        let mut image_sizes = Vec::new();
+        image_sizes
+            .try_reserve_exact(recording.images.len())
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate canvas images: {error}"))
+            })?;
+        for image in &mut recording.images {
+            match self.placements.image(&self.doc, &image.digest) {
+                Some(placed) => {
+                    image_sizes.push((placed.width(), placed.height()));
+                    images.push(CanvasImageObject::Placed(placed));
+                }
+                None => {
+                    let parts = py.detach(|| image.take_parts())?;
+                    image_sizes.push((parts.width, parts.height));
+                    let streams = py
+                        .detach(|| draw::image_streams(parts))
+                        .map_err(PdfError::new_err)?;
+                    images.push(CanvasImageObject::New(streams));
+                }
+            }
+        }
+
+        // Pages: a Form imported before, or one import per source document.
+        let mut pages: Vec<Option<PlacedForm>> = Vec::new();
+        pages
+            .try_reserve_exact(recording.pages.len())
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate canvas pages: {error}"))
+            })?;
+        let mut wanted: Vec<Vec<(usize, u32)>> = Vec::new();
+        wanted
+            .try_reserve_exact(recording.snapshots.len())
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate canvas pages: {error}"))
+            })?;
+        wanted.resize_with(recording.snapshots.len(), Vec::new);
+        for (index, page) in recording.pages.iter().enumerate() {
+            match self.placements.form(&self.doc, page.source) {
+                Some(placed) => pages.push(Some(placed)),
+                None => {
+                    let snapshot = page.snapshot.ok_or_else(|| {
+                        PdfError::new_err(
+                            "the document changed while the canvas was open, so a page it draws is no longer available",
+                        )
+                    })?;
+                    pages.push(None);
+                    let pending = &mut wanted[snapshot];
+                    pending.try_reserve(1).map_err(|error| {
+                        PdfError::new_err(format!("failed to allocate canvas pages: {error}"))
+                    })?;
+                    pending.push((index, page.source.page));
+                }
+            }
+        }
+        let mut page_imports = Vec::new();
+        for (snapshot, pending) in recording.snapshots.drain(..).zip(&wanted) {
+            if pending.is_empty() {
+                continue;
+            }
+            let source = Arc::try_unwrap(snapshot.1).unwrap_or_else(|shared| (*shared).clone());
+            let page_numbers: Vec<u32> = pending.iter().map(|(_, page)| *page).collect();
+            let import =
+                py.detach(|| prepare_pages_form_import(target_max_id, source, &page_numbers))?;
+            target_max_id = advance_max_id(&import)?;
+            page_imports.try_reserve(1).map_err(|error| {
+                PdfError::new_err(format!("failed to allocate canvas pages: {error}"))
+            })?;
+            page_imports.push((import, pending));
+        }
+        let mut page_geometry = Vec::new();
+        page_geometry
+            .try_reserve_exact(pages.len())
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate canvas pages: {error}"))
+            })?;
+        page_geometry.resize(pages.len(), ([0.0; 4], 0));
+        for (index, page) in pages.iter().enumerate() {
+            if let Some(placed) = page {
+                page_geometry[index] = (placed.crop(), placed.rotation());
+            }
+        }
+        for (import, pending) in &page_imports {
+            for (form, (index, _)) in import.forms.iter().zip(pending.iter()) {
+                page_geometry[*index] = (form.crop, form.rotation);
+            }
+        }
+
+        let (content, group_contents) = recording.compose(&canvas::Placements {
+            images: image_sizes,
+            pages: page_geometry,
+        })?;
+
+        // Every fallible step on the input is done; change the document.
+        let target_revision = self.revision;
+        self.invalidate_hayro_pdf_keeping_placements();
+        let (new_images, new_forms) = py.detach(|| -> PyResult<_> {
+            let mut xobjects = Dictionary::new();
+            for (document, import) in text_imports.into_iter().enumerate() {
+                for (page, (form_id, _)) in commit_pages_form_import(&mut self.doc, import)
+                    .into_iter()
+                    .enumerate()
+                {
+                    xobjects.set(
+                        format!("PyloK{document}_{page}"),
+                        Object::Reference(form_id),
+                    );
+                }
+            }
+            let mut new_images = Vec::new();
+            for (index, image) in images.into_iter().enumerate() {
+                let id = match image {
+                    CanvasImageObject::Placed(placed) => placed.id(),
+                    CanvasImageObject::New(streams) => {
+                        let id = draw::add_image_streams(&mut self.doc, streams);
+                        new_images.push((index, id));
+                        id
+                    }
+                };
+                xobjects.set(format!("PyloI{index}"), Object::Reference(id));
+            }
+            for (index, placed) in pages.iter().enumerate() {
+                if let Some(placed) = placed {
+                    xobjects.set(format!("PyloP{index}"), Object::Reference(placed.id()));
+                }
+            }
+            let mut new_forms = Vec::new();
+            for (import, pending) in page_imports {
+                let geometry: Vec<([f64; 4], i64)> = import
+                    .forms
+                    .iter()
+                    .map(|form| (form.crop, form.rotation))
+                    .collect();
+                for (((form_id, len), (index, _)), (crop, rotation)) in
+                    commit_pages_form_import(&mut self.doc, import)
+                        .into_iter()
+                        .zip(pending.iter())
+                        .zip(geometry)
+                {
+                    xobjects.set(format!("PyloP{index}"), Object::Reference(form_id));
+                    new_forms.push((*index, PlacedForm::new(form_id, len, crop, rotation)));
+                }
+            }
+            let mut fonts = Dictionary::new();
+            for (slot, font) in recording.standard_fonts.iter().enumerate() {
+                let mut font_dict = dictionary! {
+                    "Type" => "Font",
+                    "Subtype" => "Type1",
+                    "BaseFont" => Object::Name(font.as_bytes().to_vec()),
+                };
+                if !matches!(*font, "Symbol" | "ZapfDingbats") {
+                    font_dict.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
+                }
+                let font_id = self.doc.add_object(font_dict);
+                fonts.set(format!("PyloS{slot}"), Object::Reference(font_id));
+            }
+            let mut states = Dictionary::new();
+            for (slot, state) in recording.state_dictionaries().enumerate() {
+                let state_id = self.doc.add_object(state);
+                states.set(format!("PyloG{slot}"), Object::Reference(state_id));
+            }
+            // The groups and the composed Form share one resource
+            // dictionary, which lists the groups, so the dictionary and the
+            // groups take the next numbers and are inserted together.
+            let base = self.doc.max_id;
+            let resources_id = (
+                base.checked_add(1)
+                    .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?,
+                0,
+            );
+            let mut shared = Vec::new();
+            shared
+                .try_reserve_exact(recording.groups.len() + 1)
+                .map_err(|error| {
+                    PdfError::new_err(format!("failed to allocate canvas groups: {error}"))
+                })?;
+            let mut next_id = resources_id.0;
+            for ((index, group), content) in recording.groups.iter().enumerate().zip(group_contents)
+            {
+                next_id = next_id
+                    .checked_add(1)
+                    .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
+                let form = Stream::new(
+                    dictionary! {
+                        "Type" => "XObject",
+                        "Subtype" => "Form",
+                        "FormType" => 1,
+                        "BBox" => Object::Array(
+                            group.bbox.iter().map(|&value| Object::Real(value as f32)).collect(),
+                        ),
+                        "Group" => dictionary! {
+                            "Type" => "Group",
+                            "S" => "Transparency",
+                        },
+                        "Resources" => Object::Reference(resources_id),
+                    },
+                    content,
+                )
+                .with_compression(false);
+                xobjects.set(format!("PyloO{index}"), Object::Reference((next_id, 0)));
+                shared.push(((next_id, 0), Object::Stream(form)));
+            }
+            let mut resources = Dictionary::new();
+            if !xobjects.is_empty() {
+                resources.set("XObject", xobjects);
+            }
+            if !fonts.is_empty() {
+                resources.set("Font", fonts);
+            }
+            if !states.is_empty() {
+                resources.set("ExtGState", states);
+            }
+            shared.push((resources_id, Object::Dictionary(resources)));
+            self.doc.insert_new_objects(shared, next_id);
+            let len = content.len();
+            let form = Stream::new(
+                dictionary! {
+                    "Type" => "XObject",
+                    "Subtype" => "Form",
+                    "FormType" => 1,
+                    "BBox" => Object::Array(
+                        form_crop.iter().map(|&value| Object::Real(value as f32)).collect(),
+                    ),
+                    "Resources" => Object::Reference(resources_id),
+                },
+                content,
+            )
+            .with_compression(false);
+            let form_id = self.doc.add_object(form);
+            self.place_pdf_page(
+                page_id,
+                (crop, rotation),
+                PageForm::Placed(PlacedForm::new(form_id, len, form_crop, 0)),
+                PagePlacement {
+                    rect: form_crop,
+                    keep_proportion: false,
+                },
+                drawing_plan,
+            )?;
+            Ok((new_images, new_forms))
+        })?;
+
+        // Remember the new images and pages for later placements. A page of
+        // this document as it was before the canvas stays as it was unless
+        // the canvas drew on that page, so its Form is remembered under the
+        // revision of this edit.
+        for (index, id) in new_images {
+            if let Some(placed) = PlacedImage::read(&self.doc, id)
+                && self.placements.reserve_image()
+            {
+                self.placements
+                    .remember_image(recording.images[index].digest, placed);
+            }
+        }
+        let target_page = page_number;
+        for (index, form) in new_forms {
+            let mut source = recording.pages[index].source;
+            if source.revision == target_revision {
+                if source.page == target_page {
+                    continue;
+                }
+                source.revision = self.revision;
+            }
+            if self.placements.reserve_form() {
+                self.placements.remember_form(source, form);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// An image that a canvas places: one placed before, or new streams.
+enum CanvasImageObject {
+    Placed(PlacedImage),
+    New(draw::ImageStreams),
+}
+
+/// The highest object number after a prepared import and the Forms it adds.
+fn advance_max_id(import: &PagesFormImportPlan) -> PyResult<u32> {
+    u32::try_from(import.forms.len())
+        .ok()
+        .and_then(|forms| import.new_max_id.checked_add(forms))
+        .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))
+}
+
+/// Implements [`_Document::commit_canvas`].
+pub(super) fn commit_canvas(
+    this: &mut _Document,
+    py: Python<'_>,
+    page_number: u32,
+    canvas: &Bound<'_, _Canvas>,
+    overlay: bool,
+) -> PyResult<()> {
+    let recording = canvas.borrow_mut().take_recording()?;
+    if recording.is_empty() {
+        return Ok(());
+    }
+    this.place_canvas(py, page_number, recording, overlay)
+}
+
 /// Implements [`_Document::commit_shape`].
 pub(super) fn commit_shape(
     this: &mut _Document,

@@ -301,9 +301,15 @@ pub fn flate_compress(data: &[u8]) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Flate compression failed: {e}"))
 }
 
-/// Add an Image XObject and optional SMask, returning its ObjectId.
-pub fn add_image_xobject(doc: &mut impl ObjectSink, parts: ImageParts) -> Result<ObjectId, String> {
-    let smask_id = match &parts.alpha {
+/// An Image XObject and its optional SMask, prepared before a document changes.
+pub struct ImageStreams {
+    image: Stream,
+    smask: Option<Stream>,
+}
+
+/// Prepare the streams of an Image XObject, compressing its alpha.
+pub fn image_streams(parts: ImageParts) -> Result<ImageStreams, String> {
+    let smask = match &parts.alpha {
         Some(alpha) => {
             let compressed = flate_compress(alpha)?;
             let dict = dictionary! {
@@ -315,11 +321,11 @@ pub fn add_image_xobject(doc: &mut impl ObjectSink, parts: ImageParts) -> Result
                 "BitsPerComponent" => 8,
                 "Filter" => "FlateDecode",
             };
-            Some(doc.add_object(Stream::new(dict, compressed).with_compression(false)))
+            Some(Stream::new(dict, compressed).with_compression(false))
         }
         None => None,
     };
-    let mut dict = dictionary! {
+    let dict = dictionary! {
         "Type" => "XObject",
         "Subtype" => "Image",
         "Width" => i64::from(parts.width),
@@ -328,10 +334,25 @@ pub fn add_image_xobject(doc: &mut impl ObjectSink, parts: ImageParts) -> Result
         "BitsPerComponent" => 8,
         "Filter" => parts.filter,
     };
-    if let Some(id) = smask_id {
-        dict.set("SMask", Object::Reference(id));
+    Ok(ImageStreams {
+        image: Stream::new(dict, parts.data).with_compression(false),
+        smask,
+    })
+}
+
+/// Add prepared image streams, returning the Image XObject's ObjectId.
+pub fn add_image_streams(doc: &mut impl ObjectSink, streams: ImageStreams) -> ObjectId {
+    let mut image = streams.image;
+    if let Some(smask) = streams.smask {
+        let id = doc.add_object(smask);
+        image.dict.set("SMask", Object::Reference(id));
     }
-    Ok(doc.add_object(Stream::new(dict, parts.data).with_compression(false)))
+    doc.add_object(image)
+}
+
+/// Add an Image XObject and optional SMask, returning its ObjectId.
+pub fn add_image_xobject(doc: &mut impl ObjectSink, parts: ImageParts) -> Result<ObjectId, String> {
+    Ok(add_image_streams(doc, image_streams(parts)?))
 }
 
 /// Width of hayro-syntax's default A4 page in points.

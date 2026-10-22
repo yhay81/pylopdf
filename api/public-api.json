@@ -14,6 +14,7 @@
     "CS_CMYK",
     "CS_GRAY",
     "CS_RGB",
+    "Canvas",
     "CjkFontLanguage",
     "Clip",
     "ClosePath",
@@ -145,6 +146,7 @@
     "Paint",
     "PasswordError",
     "Path",
+    "PathBuilder",
     "PdfError",
     "Permissions",
     "Pixmap",
@@ -177,6 +179,7 @@
     "TextAlign",
     "TextBlock",
     "TextChar",
+    "TextFit",
     "TextLine",
     "TextPageDict",
     "TextRenderMode",
@@ -723,6 +726,597 @@
     "CS_RGB": {
       "kind": "constant",
       "value": 1
+    },
+    "Canvas": {
+      "kind": "class",
+      "members": {
+        "__enter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__exit__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "type[BaseException] | None",
+                "kind": "positional_or_keyword",
+                "name": "exc_type"
+              },
+              {
+                "annotation": "BaseException | None",
+                "kind": "positional_or_keyword",
+                "name": "exc"
+              },
+              {
+                "annotation": "TracebackType | None",
+                "kind": "positional_or_keyword",
+                "name": "traceback"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "bezier": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "start"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "control1"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "control2"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "end"
+              },
+              {
+                "annotation": "Stroke | Color | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "stroke"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "blend": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "BlendMode | str",
+                "kind": "positional_or_keyword",
+                "name": "mode"
+              }
+            ],
+            "returns": "AbstractContextManager[None]"
+          }
+        },
+        "circle": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "center"
+              },
+              {
+                "annotation": "float",
+                "kind": "positional_or_keyword",
+                "name": "radius"
+              },
+              {
+                "annotation": "Color | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "fill"
+              },
+              {
+                "annotation": "Stroke | Color | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "stroke"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "clip": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "PathLike",
+                "kind": "positional_or_keyword",
+                "name": "path"
+              },
+              {
+                "annotation": "FillRule",
+                "default": "nonzero",
+                "kind": "keyword_only",
+                "name": "fill_rule"
+              }
+            ],
+            "returns": "AbstractContextManager[None]"
+          }
+        },
+        "draw": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Path",
+                "kind": "positional_or_keyword",
+                "name": "item"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "ellipse": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "rect"
+              },
+              {
+                "annotation": "Color | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "fill"
+              },
+              {
+                "annotation": "Stroke | Color | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "stroke"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "image": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "rect"
+              },
+              {
+                "annotation": "str | os.PathLike[str] | bytes | bytearray | memoryview | Pixmap",
+                "kind": "positional_or_keyword",
+                "name": "source"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "keep_aspect"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "rotate"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              },
+              {
+                "annotation": "int | None",
+                "default": 64000000,
+                "kind": "keyword_only",
+                "name": "max_pixels"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "line": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "start"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "end"
+              },
+              {
+                "annotation": "Stroke | Color | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "stroke"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "opacity": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "float",
+                "kind": "positional_or_keyword",
+                "name": "alpha"
+              }
+            ],
+            "returns": "AbstractContextManager[None]"
+          }
+        },
+        "page": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "rect"
+              },
+              {
+                "annotation": "Page",
+                "kind": "positional_or_keyword",
+                "name": "source"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "keep_aspect"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "path": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "PathLike",
+                "kind": "positional_or_keyword",
+                "name": "path"
+              },
+              {
+                "annotation": "Color | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "fill"
+              },
+              {
+                "annotation": "Stroke | Color | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "stroke"
+              },
+              {
+                "annotation": "FillRule",
+                "default": "nonzero",
+                "kind": "keyword_only",
+                "name": "fill_rule"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "polygon": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Iterable[Sequence[float]]",
+                "kind": "positional_or_keyword",
+                "name": "points"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "close"
+              },
+              {
+                "annotation": "Color | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "fill"
+              },
+              {
+                "annotation": "Stroke | Color | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "stroke"
+              },
+              {
+                "annotation": "FillRule",
+                "default": "nonzero",
+                "kind": "keyword_only",
+                "name": "fill_rule"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "rect": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "rect"
+              },
+              {
+                "annotation": "float",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "radius"
+              },
+              {
+                "annotation": "Color | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "fill"
+              },
+              {
+                "annotation": "Stroke | Color | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "stroke"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "text": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "text"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "at"
+              },
+              {
+                "annotation": "Font | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "font"
+              },
+              {
+                "annotation": "float",
+                "default": 11,
+                "kind": "keyword_only",
+                "name": "size"
+              },
+              {
+                "annotation": "Color | None",
+                "default": {
+                  "repr": "Color(red=0.0, green=0.0, blue=0.0, alpha=1.0)"
+                },
+                "kind": "keyword_only",
+                "name": "fill"
+              },
+              {
+                "annotation": "Stroke | Color | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "stroke"
+              },
+              {
+                "annotation": "float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "line_height"
+              },
+              {
+                "annotation": "int | None",
+                "default": 1048576,
+                "kind": "keyword_only",
+                "name": "max_text_size"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "textbox": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "rect"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "text"
+              },
+              {
+                "annotation": "Font | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "font"
+              },
+              {
+                "annotation": "float",
+                "default": 11,
+                "kind": "keyword_only",
+                "name": "size"
+              },
+              {
+                "annotation": "Literal['left', 'center', 'right', 'justify']",
+                "default": "left",
+                "kind": "keyword_only",
+                "name": "align"
+              },
+              {
+                "annotation": "float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "line_height"
+              },
+              {
+                "annotation": "Color | None",
+                "default": {
+                  "repr": "Color(red=0.0, green=0.0, blue=0.0, alpha=1.0)"
+                },
+                "kind": "keyword_only",
+                "name": "fill"
+              },
+              {
+                "annotation": "Stroke | Color | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "stroke"
+              },
+              {
+                "annotation": "int | None",
+                "default": 1048576,
+                "kind": "keyword_only",
+                "name": "max_text_size"
+              }
+            ],
+            "returns": "TextFit"
+          }
+        },
+        "transform": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Matrix | Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "matrix"
+              }
+            ],
+            "returns": "AbstractContextManager[None]"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Page",
+            "kind": "positional_or_keyword",
+            "name": "page"
+          },
+          {
+            "annotation": "bool",
+            "default": false,
+            "kind": "keyword_only",
+            "name": "underlay"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "CjkFontLanguage": {
       "kind": "type-alias",
@@ -5048,6 +5642,24 @@
           "kind": "property",
           "returns": "Rect"
         },
+        "draw": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "underlay"
+              }
+            ],
+            "returns": "Canvas"
+          }
+        },
         "draw_bezier": {
           "kind": "method",
           "signature": {
@@ -6859,6 +7471,297 @@
             "name": "soft_mask"
           }
         ],
+        "returns": "None"
+      }
+    },
+    "PathBuilder": {
+      "kind": "class",
+      "members": {
+        "circle": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "center"
+              },
+              {
+                "annotation": "float",
+                "kind": "positional_or_keyword",
+                "name": "radius"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "close": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "current_point": {
+          "kind": "property",
+          "returns": "Point | None"
+        },
+        "curve_to": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "control1"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "control2"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "point"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "ellipse": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "rect"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "line_to": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "point"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "move_to": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "point"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "polygon": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Iterable[Sequence[float]]",
+                "kind": "positional_or_keyword",
+                "name": "points"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "close"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "quad_to": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "control"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "point"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "rect": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "rect"
+              },
+              {
+                "annotation": "float",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "radius"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "sector": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "center"
+              },
+              {
+                "annotation": "float",
+                "kind": "positional_or_keyword",
+                "name": "radius"
+              },
+              {
+                "annotation": "float",
+                "kind": "positional_or_keyword",
+                "name": "start"
+              },
+              {
+                "annotation": "float",
+                "kind": "positional_or_keyword",
+                "name": "sweep"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "pie"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "segments": {
+          "kind": "property",
+          "returns": "tuple[Segment, ...]"
+        },
+        "wave": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "start"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "end"
+              },
+              {
+                "annotation": "float",
+                "default": 2,
+                "kind": "keyword_only",
+                "name": "breadth"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "zigzag": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "start"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "end"
+              },
+              {
+                "annotation": "float",
+                "default": 2,
+                "kind": "keyword_only",
+                "name": "breadth"
+              }
+            ],
+            "returns": "Self"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [],
         "returns": "None"
       }
     },
@@ -9162,6 +10065,34 @@
         "c",
         "origin"
       ]
+    },
+    "TextFit": {
+      "annotations": {
+        "spare_height": "float"
+      },
+      "dataclass_fields": [
+        "spare_height"
+      ],
+      "kind": "class",
+      "members": {
+        "fits": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "spare_height": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "float",
+            "kind": "keyword_only",
+            "name": "spare_height"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "TextLine": {
       "fields": {

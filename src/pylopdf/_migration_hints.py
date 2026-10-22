@@ -368,7 +368,7 @@ HINTS: dict[str, str] = {
     "Page.insert_htmlbox": "pylopdf plans the capability of pymupdf's Page.insert_htmlbox in the Writing milestone of ROADMAP.md.",
     "Page.is_wrapped": "pylopdf plans the capability of pymupdf's Page.is_wrapped in the Rewriting milestone of ROADMAP.md.",
     "Page.language": "pylopdf plans the capability of pymupdf's Page.language in the Understanding milestone of ROADMAP.md.",
-    "Page.last_point": "pylopdf plans the capability of pymupdf's Page.last_point in the Canvas milestone of ROADMAP.md.",
+    "Page.last_point": "pymupdf's Page.last_point is PathBuilder.current_point in pylopdf. Build the path with a PathBuilder and read its current_point, the end of its last segment.",
     "Page.layout_information": "pylopdf plans the capability of pymupdf's Page.layout_information in the Understanding milestone of ROADMAP.md.",
     "Page.links": "pylopdf plans the capability of pymupdf's Page.links in the Interaction milestone of ROADMAP.md.",
     "Page.load_annot": "pylopdf plans the capability of pymupdf's Page.load_annot in the Interaction milestone of ROADMAP.md.",

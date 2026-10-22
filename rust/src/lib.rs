@@ -1,6 +1,7 @@
 use pyo3::prelude::*;
 mod acroform_import;
 mod bundled_font_cache;
+mod canvas;
 mod content;
 mod content_guard;
 mod content_model;
@@ -39,6 +40,7 @@ mod text_replace;
 mod unallocated;
 #[cfg(windows)]
 mod windows_permissions;
+use canvas::_Canvas;
 use document::{
     _Document, _decode_text_string, _encode_text_string, LimitError, PasswordError, PdfError,
     StaleObjectError,
@@ -50,6 +52,7 @@ use shape::_Shape;
 
 #[pymodule(gil_used = false)]
 fn pylopdf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<_Canvas>()?;
     m.add_class::<_Document>()?;
     m.add_class::<_Font>()?;
     m.add_class::<_OcrEngine>()?;

@@ -139,6 +139,7 @@ pymupdf와 마찬가지로 pixmap은 기본적으로 흰 바탕의 RGB이고, `a
 | `insert_image(rect, *, filename=, stream=, pixmap=, rotate=0, keep_proportion=True, overlay=True)` | JPEG, PNG, `Pixmap`을 그리고 객체 번호를 반환 |
 | `show_pdf_page(rect, docsrc, pno=0, *, keep_proportion=True, overlay=True)` | 다른 PDF(또는 이 PDF)의 페이지를 벡터로 그림 |
 | `draw_line`, `draw_rect`, `draw_circle`, `draw_oval`, `draw_polyline`, `draw_quad`, `draw_sector`, `draw_curve`, `draw_bezier`, `draw_squiggle`, `draw_zigzag` | 도형 하나를 그림. `color`, `fill`, `width`, `dashes` 같은 스타일 옵션은 키워드 전용 |
+| `draw(*, underlay=False)` | 경로, 텍스트, 이미지, 페이지를 순서대로 그리는 [캔버스](#canvas) |
 | `new_shape()` | 여러 경로와 텍스트를 한 번에 그림. [도형](#shapes) 참고 |
 | `replace_text(search, replacement, *, default_char=None)` | 단순(단일 바이트) 글꼴로 그려진 텍스트를 교체 |
 
@@ -218,6 +219,49 @@ hayro가 아직 알려 주지 않는 정보는 모델에 없습니다. 색의 �
 ## 벡터 그림 { #drawings }
 
 `page.get_drawings()`는 채우거나 선을 그은 경로마다 pymupdf 형식의 `DrawingInfo` 딕셔너리를 하나씩 반환합니다. `type`(`"f"`, `"s"`, `"fs"`), `items`(직선과 3차 곡선), `rect`, 색상, 불투명도, 선 너비, 끝 모양(cap), 연결 모양(join), 대시, `seqno`를 포함합니다. 패턴으로 채운 경로의 색상은 `None`입니다. [`page.content()`](#content)의 경로에는 클립, 그룹, 마크된 콘텐츠도 있습니다.
+
+## 캔버스 { #canvas }
+
+`page.draw()`는 `Canvas`를 반환합니다. `with` 블록 안에서 사용하세요. 블록 안에서 그린 모든 것은 블록이 끝날 때 호출한 순서대로 하나의 Form XObject로 기록되며, 블록에서 예외가 발생하면 아무것도 기록되지 않습니다. 좌표는 다른 곳과 마찬가지로 표시 좌표입니다.
+
+```python
+from pylopdf import Color, Matrix, PathBuilder, Stroke
+
+navy = Color(0.1, 0.2, 0.4)
+with page.draw() as canvas:
+    canvas.rect((40, 40, 555, 120), radius=8, fill=Color(0.95, 0.96, 0.97))
+    canvas.text("Inspection report", (56, 90), size=20, fill=navy)
+    canvas.line((56, 105), (539, 105), stroke=Stroke(paint=navy, width=0.5))
+    fit = canvas.textbox((56, 140, 539, 400), body, size=10.5)
+    canvas.image((400, 420, 539, 520), "chart.png")
+    with canvas.opacity(0.15), canvas.transform(Matrix(1, 0, 0, 1, 0, 600)):
+        canvas.page((56, 0, 539, 200), letterhead[0])
+```
+
+| 메서드 | 그리는 것 |
+|---|---|
+| `path(path, *, fill=None, stroke=None, fill_rule=FillRule.NONZERO)` | `PathBuilder`, `Path` 항목의 기하 형태, 또는 세그먼트 리스트 |
+| `line`, `rect(rect, *, radius=0)`, `circle`, `ellipse`, `polygon`, `bezier` | 각각 경로 하나. 옵션은 `path`와 같음 |
+| `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None)` | 첫 기준선이 `at`에서 시작하는 줄 |
+| `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` | `rect` 안에서 줄바꿈한 텍스트. `TextFit`을 반환 |
+| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEG나 PNG 경로, 인코딩된 bytes, 또는 `Pixmap` |
+| `page(rect, source, *, keep_aspect=True)` | 열려 있는 아무 문서(이 문서 포함)의 페이지 |
+| `draw(item)` | [`page.content()`](#content)가 반환한 `Path` 항목 |
+
+경로는 `Color` 채우기와 선을 받습니다. 선은 너비, 끝 모양, 연결 모양, 마이터 한계, 대시를 가진 `Stroke`이거나, 1포인트 선을 뜻하는 `Color`입니다. 둘 다 없는 경로는 1포인트 검은 선으로 그립니다. 색의 `alpha`는 그 채우기나 선을 반투명하게 만듭니다. `PathBuilder`는 `move_to`, `line_to`, `curve_to`, `quad_to`, `close`로 기하 형태를 만들고, `rect`, `ellipse`, `circle`, `polygon`, `sector`, `zigzag`, `wave`로 완성된 도형을 추가합니다. 모든 메서드가 빌더 자신을 반환하므로 호출을 이어서 쓸 수 있습니다.
+
+텍스트는 [`Font`](#font)로 그립니다. OpenType 글꼴은 HarfRust로 셰이핑되며, 몇 번의 호출에서 쓰이든 캔버스마다 한 번만 서브셋으로 포함됩니다. `font`가 없으면 서유럽 텍스트는 Helvetica로, 그 밖의 텍스트는 해당 문자 체계를 위한 설치된 [글꼴 extra](getting-started.md#installation)로 그립니다. 텍스트는 채우거나, 선으로 그리거나, 둘 다 할 수 있습니다. `textbox`는 Unicode가 줄바꿈을 허용하는 위치에서 줄을 나눕니다. 텍스트가 들어가지 않으면 아무것도 그리지 않으며, `TextFit.spare_height`는 부족한 만큼을 나타내는 음수가 되므로 `fit.fits`는 거짓입니다.
+
+다음 네 가지 컨텍스트 관리자는 그 안에서 그린 모든 것에 적용되며, 중첩할 수 있습니다.
+
+| 범위 | 효과 |
+|---|---|
+| `clip(path, *, fill_rule=...)` | 경로 안쪽에만 그림 |
+| `transform(matrix)` | 그림을 변환. 중첩된 변환은 가장 안쪽부터 적용 |
+| `opacity(alpha)` | 그림을 하나의 그룹으로 합성한 뒤 불투명도 `alpha`로 그림 |
+| `blend(mode)` | `BlendMode`로 그림을 그 아래에 있는 것과 혼합 |
+
+`page.draw(underlay=True)`는 페이지의 기존 내용 아래에 씁니다. 캔버스가 여러 번 그리는 이미지나 페이지, 또는 문서가 이전에 배치한 이미지나 페이지는 한 번만 저장됩니다. 페이지는 `canvas.page()`를 호출한 시점의 상태로 그려집니다. `draw(item)`은 항목의 클립, 그룹 불투명도, 블렌드 모드를 재현하지만 소프트 마스크는 재현하지 않습니다. 텍스트 런, 이미지, 패턴 페인트는 아직 그릴 수 없습니다. 캔버스 하나에는 경로 점이 최대 1,048,576개까지 들어가고 범위는 최대 16단계까지 중첩할 수 있으며, 이를 넘으면 `LimitError`가 발생하고 그 코드는 `path_point_count` 또는 `canvas_scope_depth`입니다.
 
 ## 표 { #tables }
 
@@ -427,6 +471,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 | `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 문서를 불러오지 않고 메타데이터와 페이지 수를 읽음 |
 | `DocumentLimits`, `DocumentLimits.web()` | 신뢰할 수 없는 입력을 위한 리소스 제한. [보안](security.md#untrusted-pdfs) 참고 |
 | `OcrEngine` | 재사용 가능한 OCR 엔진. [오프라인 OCR](ocr.md) 참고 |
+| `Canvas`, `PathBuilder`, `TextFit` | [캔버스](#canvas) 참고 |
 | `Font`, `Shape` | [Font](#font)와 [도형](#shapes) 참고 |
 | `Base14_fontnames`, `Base14_fontdict` | `fontname=`이 받는 Standard 14 글꼴 이름 |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [저수준 객체](#low-level-objects) |

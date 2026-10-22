@@ -168,17 +168,20 @@ with pylopdf.open("input.pdf") as doc:
     doc.save("text.pdf")
 ```
 
-To draw several shapes and text runs together, use a shape. Each font is then
-embedded once:
+To draw shapes, text, and images together, in order, use a canvas. Each font
+and image is then stored once:
 
 ```python
+from pylopdf import Color
+
 with pylopdf.open("input.pdf") as doc:
-    with doc[0].new_shape() as shape:
-        shape.draw_rect((36, 220, 400, 320), radius=0.1)
-        shape.finish(color=(0.2, 0.4, 0.6), fill=(0.95, 0.97, 1), width=1)
-        shape.insert_text((48, 250), "Report", fontsize=16)
-        shape.insert_textbox((48, 260, 390, 310), "Body paragraph.", fontsize=11)
-    doc.save("shapes.pdf")
+    with doc[0].draw() as canvas:
+        canvas.rect((36, 220, 400, 320), radius=6, fill=Color(0.95, 0.97, 1), stroke=Color(0.2, 0.4, 0.6))
+        canvas.text("Report", (48, 250), size=16)
+        canvas.textbox((48, 260, 390, 310), "Body paragraph.", size=11)
+        with canvas.opacity(0.3):
+            canvas.image((300, 230, 390, 300), "logo.png")
+    doc.save("canvas.pdf")
 ```
 
 ## Scans, forms, Markdown { #scans-forms-markdown }

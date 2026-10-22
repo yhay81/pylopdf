@@ -114,6 +114,7 @@ replacement, and the migration hint):
 - Page.get_image_bbox -> Page.content: Keep the items of page.content().images whose xref is the image's object number, and read their bbox and matrix.
 - Page.get_image_rects -> Page.content: Keep the items of page.content().images whose xref is the image's object number, and read their bbox and matrix.
 - Page.get_texttrace -> Page.content: Call page.content() and read the glyphs of its text_runs, each run with its font, size, paints, and graphics context.
+- Page.last_point -> PathBuilder.current_point: Build the path with a PathBuilder and read its current_point, the end of its last segment.
 - Page.run -> Page.content: Call page.content() for the items that the page paints; pylopdf has no device protocol.
 - Point.__setitem__ -> Point: Point values are immutable; build a new Point instead.
 - Point.transform -> Point.__mul__: Use p * m, which returns a new Point.

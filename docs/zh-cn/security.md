@@ -115,6 +115,7 @@ limits = pylopdf.DocumentLimits(
 | `pdf_output_size`、`render_output_size`、`markdown_output_size`、`svg_output_size`、`pixmap_output_size`、`replacement_output_size` | 输出会超过`max_size` |
 | `search_input_size`、`search_hit_count` | 搜索文本超过4,096字节，或结果数超过`max_hits` |
 | `text_input_size`、`text_line_count`、`font_input_size`、`path_point_count` | 传入用于绘制的文本、字体或图形路径过大 |
+| `canvas_scope_depth` | Canvas 的作用域嵌套超过 16 层 |
 | `image_input_size`、`image_pixel_count`、`image_inventory_count` | 图像过大，或页面使用的图像超过4,096个 |
 | `embedded_file_size`、`embedded_file_input_size` | 附件或其名称、描述过大 |
 | `stream_data_size`、`object_value_depth` | 底层流过大无法读取，或写入的值嵌套过深 |

@@ -139,6 +139,7 @@ pylopdf.Document(filename=None, stream=None, filetype=None, *,
 | `insert_image(rect, *, filename=, stream=, pixmap=, rotate=0, keep_proportion=True, overlay=True)` | 绘制JPEG、PNG或`Pixmap`；返回其对象编号 |
 | `show_pdf_page(rect, docsrc, pno=0, *, keep_proportion=True, overlay=True)` | 以矢量形式绘制另一个PDF（或本文档）的某一页 |
 | `draw_line`、`draw_rect`、`draw_circle`、`draw_oval`、`draw_polyline`、`draw_quad`、`draw_sector`、`draw_curve`、`draw_bezier`、`draw_squiggle`、`draw_zigzag` | 绘制一个图形；`color`、`fill`、`width`、`dashes`等样式选项仅限关键字参数 |
+| `draw(*, underlay=False)` | 按顺序绘制路径、文本、图像和页面的[画布](#canvas) |
 | `new_shape()` | 一次绘制多条路径和多段文本；参见[图形](#shapes) |
 | `replace_text(search, replacement, *, default_char=None)` | 替换以简单（单字节）字体绘制的文本 |
 
@@ -218,6 +219,49 @@ hayro尚未报告的信息不在模型中：颜色的色彩空间和分量、图
 ## 矢量绘图 { #drawings }
 
 `page.get_drawings()`为每条填充或描边的路径返回一个`DrawingInfo`字典，格式与pymupdf相同：`type`（`"f"`、`"s"`或`"fs"`）、`items`（直线和三次曲线）、`rect`、颜色、不透明度、线宽、线帽、连接方式、虚线和`seqno`。以图案（pattern）填充的路径，其颜色为`None`。[`page.content()`](#content)的路径还带有裁剪、分组和标记内容。
+
+## 画布 { #canvas }
+
+`page.draw()`返回`Canvas`。请在`with`块中使用它：块中绘制的所有内容会在块结束时按调用顺序写成一个Form XObject；如果块抛出异常，则不写入任何内容。坐标与其他地方一样是显示坐标。
+
+```python
+from pylopdf import Color, Matrix, PathBuilder, Stroke
+
+navy = Color(0.1, 0.2, 0.4)
+with page.draw() as canvas:
+    canvas.rect((40, 40, 555, 120), radius=8, fill=Color(0.95, 0.96, 0.97))
+    canvas.text("Inspection report", (56, 90), size=20, fill=navy)
+    canvas.line((56, 105), (539, 105), stroke=Stroke(paint=navy, width=0.5))
+    fit = canvas.textbox((56, 140, 539, 400), body, size=10.5)
+    canvas.image((400, 420, 539, 520), "chart.png")
+    with canvas.opacity(0.15), canvas.transform(Matrix(1, 0, 0, 1, 0, 600)):
+        canvas.page((56, 0, 539, 200), letterhead[0])
+```
+
+| 方法 | 绘制的内容 |
+|---|---|
+| `path(path, *, fill=None, stroke=None, fill_rule=FillRule.NONZERO)` | `PathBuilder`、`Path`项的几何形状，或线段列表 |
+| `line`、`rect(rect, *, radius=0)`、`circle`、`ellipse`、`polygon`、`bezier` | 各绘制一条路径，选项与`path`相同 |
+| `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None)` | 第一条基线从`at`开始的若干行文本 |
+| `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` | 在`rect`内自动换行的文本；返回`TextFit` |
+| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEG或PNG文件路径、已编码的bytes，或`Pixmap` |
+| `page(rect, source, *, keep_aspect=True)` | 任意已打开文档（包括本文档）的某一页 |
+| `draw(item)` | [`page.content()`](#content)返回的`Path`项 |
+
+路径接受`Color`填充和描边：描边可以是带有宽度、线帽、连接方式、斜接限制和虚线的`Stroke`，也可以是表示1点宽线条的`Color`。两者都未指定的路径以1点宽的黑线描边。颜色的`alpha`使相应的填充或描边半透明。`PathBuilder`用`move_to`、`line_to`、`curve_to`、`quad_to`和`close`构建几何形状，并用`rect`、`ellipse`、`circle`、`polygon`、`sector`、`zigzag`和`wave`添加完整的图形；每个方法都返回构建器本身，因此可以链式调用。
+
+文本用[`Font`](#font)绘制。OpenType字体用HarfRust进行字形整形（shaping），并以子集形式嵌入；无论有多少次调用用到它，每个画布只嵌入一次。不指定`font`时，西欧文本用Helvetica绘制，其他文本用该文字对应的已安装[字体extra](getting-started.md#installation)绘制。文本可以填充、描边或两者兼有。`textbox`在Unicode允许换行的位置断行；文本放不下时不绘制任何内容，`TextFit.spare_height`为表示不足量的负值，因此`fit.fits`为假。
+
+以下四个上下文管理器作用于其中绘制的所有内容，并且可以嵌套：
+
+| 作用域 | 效果 |
+|---|---|
+| `clip(path, *, fill_rule=...)` | 只在路径内部绘制 |
+| `transform(matrix)` | 变换绘制内容；嵌套的变换从最内层开始应用 |
+| `opacity(alpha)` | 先把绘制内容合成为一个组，再以不透明度`alpha`绘制 |
+| `blend(mode)` | 用`BlendMode`将绘制内容与其下方的内容混合 |
+
+`page.draw(underlay=True)`写入到页面现有内容的下方。画布多次绘制的图像或页面，或文档之前已放置过的图像或页面，只存储一份。页面按调用`canvas.page()`时的状态绘制。`draw(item)`会重现项的裁剪、组不透明度和混合模式，但不重现其软蒙版；文本段、图像和图案颜料暂时还无法绘制。一个画布最多容纳1,048,576个路径点，最多嵌套16层作用域；超出时会抛出`LimitError`，其代码为`path_point_count`或`canvas_scope_depth`。
 
 ## 表格 { #tables }
 
@@ -427,6 +471,7 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 | `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 无需加载文档即可获取元数据和页数 |
 | `DocumentLimits`、`DocumentLimits.web()` | 用于不可信输入的资源上限；参见[安全](security.md#untrusted-pdfs) |
 | `OcrEngine` | 可复用的OCR引擎；参见[离线OCR](ocr.md) |
+| `Canvas`、`PathBuilder`、`TextFit` | 参见[画布](#canvas) |
 | `Font`、`Shape` | 参见[Font](#font)和[图形](#shapes) |
 | `Base14_fontnames`、`Base14_fontdict` | `fontname=`接受的Standard 14字体名称 |
 | `Name`、`String`、`Array`、`Dictionary`、`Stream`、`Objects` | [底层对象](#low-level-objects) |

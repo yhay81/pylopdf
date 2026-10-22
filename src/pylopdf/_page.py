@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast, overload
 
 from pylopdf._annots import _SUBTYPE_TYPES, Annot, AnnotType
+from pylopdf._canvas import Canvas
 from pylopdf._content import Content, _content_from_core
 from pylopdf._errors import StalePageError
 from pylopdf._fonts import (
@@ -23,6 +24,8 @@ from pylopdf._hints import hinted_getattr
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
     _DEFAULT_MAX_GENERATED_TEXT_SIZE,
+    _DEFAULT_MAX_IMAGE_INPUT_SIZE,
+    _DEFAULT_MAX_IMAGE_PIXELS,
     _DEFAULT_MAX_MARKDOWN_SIZE,
     _DEFAULT_MAX_SVG_SIZE,
     _bounded_utf8_size,
@@ -80,8 +83,6 @@ if TYPE_CHECKING:
 
 _DEFAULT_MAX_TEXT_REPLACEMENT_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_CONTENT_ELEMENTS = 262_144
-_DEFAULT_MAX_IMAGE_INPUT_SIZE = 64 * 1024 * 1024
-_DEFAULT_MAX_IMAGE_PIXELS = 64_000_000
 _MAX_HIGHLIGHT_RECTS = 4096
 _MAX_ANNOTATION_INPUT_TEXT_SIZE = 1024 * 1024
 _RECT_COORDINATE_COUNT = 4
@@ -1280,6 +1281,14 @@ class Page:
     def new_shape(self) -> Shape:
         """Return an empty :class:`Shape` that draws on this page."""
         return Shape(self)
+
+    def draw(self, *, underlay: bool = False) -> Canvas:
+        """Return a :class:`Canvas` that draws on this page.
+
+        Use it in a ``with`` block, which writes the drawing when it ends
+        normally: above the page's content, or below it with ``underlay=True``.
+        """
+        return Canvas(self, underlay=underlay)
 
     def _draw_shape(  # noqa: PLR0913 - Shape.finish's options plus overlay.
         self,
