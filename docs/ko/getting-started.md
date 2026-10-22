@@ -151,16 +151,19 @@ with pylopdf.open("input.pdf") as doc:
     doc.save("text.pdf")
 ```
 
-여러 도형과 텍스트를 함께 그리려면 shape를 사용합니다. 그러면 각 글꼴이 한 번만 포함됩니다.
+도형, 텍스트, 이미지를 순서대로 함께 그리려면 캔버스를 사용합니다. 그러면 각 글꼴과 이미지가 한 번만 저장됩니다.
 
 ```python
+from pylopdf import Color
+
 with pylopdf.open("input.pdf") as doc:
-    with doc[0].new_shape() as shape:
-        shape.draw_rect((36, 220, 400, 320), radius=0.1)
-        shape.finish(color=(0.2, 0.4, 0.6), fill=(0.95, 0.97, 1), width=1)
-        shape.insert_text((48, 250), "Report", fontsize=16)
-        shape.insert_textbox((48, 260, 390, 310), "Body paragraph.", fontsize=11)
-    doc.save("shapes.pdf")
+    with doc[0].draw() as canvas:
+        canvas.rect((36, 220, 400, 320), radius=6, fill=Color(0.95, 0.97, 1), stroke=Color(0.2, 0.4, 0.6))
+        canvas.text("Report", (48, 250), size=16)
+        canvas.textbox((48, 260, 390, 310), "Body paragraph.", size=11)
+        with canvas.opacity(0.3):
+            canvas.image((300, 230, 390, 300), "logo.png")
+    doc.save("canvas.pdf")
 ```
 
 ## 스캔 PDF, 폼, Markdown { #scans-forms-markdown }

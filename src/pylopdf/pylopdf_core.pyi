@@ -135,6 +135,85 @@ class _Shape:
         max_text_size: int | None = 1048576,
     ) -> float: ...
 
+_Rgba: TypeAlias = tuple[float, float, float, float]
+_CanvasStroke: TypeAlias = tuple[_Rgba, float, int, int, float, list[float], float]
+
+class _Canvas:
+    def __init__(self, width: float, height: float) -> None: ...
+    def is_empty(self) -> bool: ...
+    def clear(self) -> None: ...
+    def add_path(
+        self,
+        operators: str,
+        coordinates: list[float],
+        fill: tuple[_Rgba, bool] | None,
+        stroke: _CanvasStroke | None,
+    ) -> None: ...
+    def push_transform(self, matrix: tuple[float, float, float, float, float, float]) -> int: ...
+    def push_clip(self, operators: str, coordinates: list[float], even_odd: bool) -> int: ...
+    def push_blend(self, mode: int) -> int: ...
+    def push_opacity(self, alpha: float) -> int: ...
+    def pop(self, depth: int) -> None: ...
+    def add_text(
+        self,
+        at: tuple[float, float],
+        lines: list[str],
+        font: _Font,
+        size: float,
+        line_height: float | None,
+        fill: _Rgba | None,
+        stroke: _CanvasStroke | None,
+        max_text_size: int | None = 1048576,
+    ) -> None: ...
+    def add_textbox(
+        self,
+        rect: tuple[float, float, float, float],
+        text: str,
+        font: _Font,
+        size: float,
+        line_height: float | None,
+        align: int,
+        fill: _Rgba | None,
+        stroke: _CanvasStroke | None,
+        max_text_size: int | None = 1048576,
+    ) -> float: ...
+    def add_image(
+        self,
+        target: _Document,
+        data: bytes,
+        rect: tuple[float, float, float, float],
+        keep_aspect: bool,
+        rotation: int,
+        max_size: int | None,
+        max_pixels: int | None,
+    ) -> None: ...
+    def add_image_file(
+        self,
+        target: _Document,
+        path: str,
+        rect: tuple[float, float, float, float],
+        keep_aspect: bool,
+        rotation: int,
+        max_size: int | None,
+        max_pixels: int | None,
+    ) -> None: ...
+    def add_pixmap(
+        self,
+        target: _Document,
+        pixmap: Pixmap,
+        rect: tuple[float, float, float, float],
+        keep_aspect: bool,
+        rotation: int,
+    ) -> None: ...
+    def add_page(
+        self,
+        target: _Document,
+        source: _Document,
+        page_number: int,
+        rect: tuple[float, float, float, float],
+        keep_aspect: bool,
+    ) -> None: ...
+
 class Pixmap:
     @property
     def width(self) -> int: ...
@@ -599,6 +678,7 @@ class _Document:
         weight: int | None = None,
     ) -> int: ...
     def commit_shape(self, page_number: int, shape: _Shape, overlay: bool) -> None: ...
+    def commit_canvas(self, page_number: int, canvas: _Canvas, overlay: bool) -> None: ...
     def insert_font_text(
         self,
         page_number: int,

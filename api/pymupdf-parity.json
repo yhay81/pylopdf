@@ -460,7 +460,7 @@
     "Page.insert_textbox": {"kind": "method", "status": "available", "relation": "same", "pylopdf": "Page.insert_textbox", "milestone": "canvas", "note": "text is positional-only because pymupdf names the parameter buffer."},
     "Page.is_wrapped": {"kind": "property", "status": "planned", "relation": null, "pylopdf": null, "milestone": "rewriting"},
     "Page.language": {"kind": "property", "status": "planned", "relation": null, "pylopdf": null, "milestone": "understanding", "note": "ISO 32000 defines /Lang on the catalog, structure elements, and marked content, not on pages; decided with tagged structure in Understanding."},
-    "Page.last_point": {"kind": "attribute", "status": "planned", "relation": null, "pylopdf": null, "milestone": "canvas", "note": "End point of the last Page.draw_* call."},
+    "Page.last_point": {"kind": "attribute", "status": "available", "relation": "replaced", "pylopdf": "PathBuilder.current_point", "milestone": "canvas", "hint": "Build the path with a PathBuilder and read its current_point, the end of its last segment."},
     "Page.layout_information": {"kind": "attribute", "status": "planned", "relation": null, "pylopdf": null, "milestone": "understanding", "note": "Layout-model result that get_layout() stores."},
     "Page.links": {"kind": "method", "status": "planned", "relation": null, "pylopdf": null, "milestone": "interaction", "note": "get_links() returns LinkInfo dictionaries today."},
     "Page.load_annot": {"kind": "method", "status": "planned", "relation": null, "pylopdf": null, "milestone": "interaction"},

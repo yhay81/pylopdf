@@ -62,6 +62,7 @@ from pylopdf._annots import (
     AnnotType,
 )
 from pylopdf._attachments import Attachment, Attachments
+from pylopdf._canvas import Canvas, PathBuilder, TextFit
 from pylopdf._content import (
     BlendMode,
     Clip,
@@ -275,6 +276,7 @@ __all__ = [
     "Base14_fontnames",
     "BlendMode",
     "Block",
+    "Canvas",
     "CjkFontLanguage",
     "Clip",
     "ClosePath",
@@ -338,6 +340,7 @@ __all__ = [
     "Paint",
     "PasswordError",
     "Path",
+    "PathBuilder",
     "PdfError",
     "Permissions",
     "Point",
@@ -364,6 +367,7 @@ __all__ = [
     "TextAlign",
     "TextBlock",
     "TextChar",
+    "TextFit",
     "TextLine",
     "TextPageDict",
     "TextRenderMode",

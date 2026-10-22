@@ -285,15 +285,26 @@ trip under [Canvas](#canvas) passes.
 Workstream Writing.
 
 - `Page.draw(*, underlay=False)` returns a `Canvas`, a context manager that
-  commits once on a clean exit and writes nothing after an exception. It draws
-  with the content model's vocabulary: `path`, `rect`, `line`, `circle`,
-  `ellipse`, `polygon`, and `bezier`; `text` and `textbox` with shaping,
-  wrapping, alignment, and subset-embedded fonts; `image`; `page`, which
-  places another page; the scoped states `clip`, `transform`, `opacity`,
-  `blend`, `mask`, `layer`, and `tag`; and `draw(item)`, which paints a
-  content item again.
-- One commit generates one krilla page and imports it as one Form XObject, as
-  `Shape` does today.
+  commits once on a clean exit and writes nothing after an exception (done).
+  It draws with the content model's vocabulary: `path` with `PathBuilder`
+  geometry, `rect`, `line`, `circle`, `ellipse`, `polygon`, and `bezier`;
+  `text` and `textbox` with shaping, wrapping, alignment, and subset-embedded
+  fonts; `image`; `page`, which places another page; the scoped states
+  `clip`, `transform`, `opacity`, and `blend` (all done), then `mask`,
+  `layer`, and `tag`; and `draw(item)`, which paints a content item again
+  (done for paths). Still to come: `rotate` for text, and `clip` and
+  `rotate` for placed pages.
+- One commit places one Form XObject whose content pylopdf composes in
+  display space (done). Paths, clips, transforms, and blend modes are
+  operators; an opacity scope is a transparency group Form; text in an
+  OpenType face is a krilla page, one per run of text items, imported as a
+  Form; and Standard 14 text, images, and placed pages are drawn as
+  `insert_text`, `insert_image`, and `show_pdf_page` draw them. Scopes must
+  enclose images and pages that already live in the target document, which a
+  krilla page cannot reference, so the scopes are pylopdf's operators.
+- `draw(item)` for text runs and images needs the font and image identity
+  listed under [Content model](#content-model): a run must name the font
+  program to embed again, and an image the document it comes from.
 - New documents: `pylopdf.create()` returns a builder whose pages draw
   through the same canvas and which krilla writes as a whole: tagged PDF with
   a structure tree, outline, links, and metadata, validated as PDF/A-1 to

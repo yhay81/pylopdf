@@ -186,6 +186,7 @@ matrix such as `Matrix(2, 2)`. `clip` renders only part of the page.
 | `insert_image(rect, *, filename=, stream=, pixmap=, rotate=0, keep_proportion=True, overlay=True)` | Draw a JPEG, PNG, or `Pixmap`; returns its object number |
 | `show_pdf_page(rect, docsrc, pno=0, *, keep_proportion=True, overlay=True)` | Draw a page of another PDF, or of this one, as vectors |
 | `draw_line`, `draw_rect`, `draw_circle`, `draw_oval`, `draw_polyline`, `draw_quad`, `draw_sector`, `draw_curve`, `draw_bezier`, `draw_squiggle`, `draw_zigzag` | Draw one shape; style options such as `color`, `fill`, `width`, and `dashes` are keyword-only |
+| `draw(*, underlay=False)` | A [canvas](#canvas) that draws paths, text, images, and pages in order |
 | `new_shape()` | Draw several paths and text runs at once; see [Shapes](#shapes) |
 | `replace_text(search, replacement, *, default_char=None)` | Replace text drawn in simple (single-byte) fonts |
 
@@ -302,6 +303,71 @@ stroked path, in pymupdf's format: `type` (`"f"`, `"s"`, or `"fs"`), `items`
 dashes, and `seqno`. Paths filled with a pattern have `None` colors. The paths
 of [`page.content()`](#content) also carry their clips, groups, and marked
 content.
+
+## Canvas { #canvas }
+
+`page.draw()` returns a `Canvas`. Use it in a `with` block: everything drawn
+inside is written as one Form XObject when the block ends, in the order of
+the calls, and nothing is written if the block raises an exception.
+Coordinates are display coordinates, as everywhere else.
+
+```python
+from pylopdf import Color, Matrix, PathBuilder, Stroke
+
+navy = Color(0.1, 0.2, 0.4)
+with page.draw() as canvas:
+    canvas.rect((40, 40, 555, 120), radius=8, fill=Color(0.95, 0.96, 0.97))
+    canvas.text("Inspection report", (56, 90), size=20, fill=navy)
+    canvas.line((56, 105), (539, 105), stroke=Stroke(paint=navy, width=0.5))
+    fit = canvas.textbox((56, 140, 539, 400), body, size=10.5)
+    canvas.image((400, 420, 539, 520), "chart.png")
+    with canvas.opacity(0.15), canvas.transform(Matrix(1, 0, 0, 1, 0, 600)):
+        canvas.page((56, 0, 539, 200), letterhead[0])
+```
+
+| Method | Draws |
+|---|---|
+| `path(path, *, fill=None, stroke=None, fill_rule=FillRule.NONZERO)` | A `PathBuilder`, a `Path` item's geometry, or a list of segments |
+| `line`, `rect(rect, *, radius=0)`, `circle`, `ellipse`, `polygon`, `bezier` | One path each, with the options of `path` |
+| `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None)` | Lines whose first baseline starts at `at` |
+| `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` | Text wrapped inside `rect`; returns a `TextFit` |
+| `image(rect, source, *, keep_aspect=True, rotate=0)` | A JPEG or PNG path, encoded bytes, or a `Pixmap` |
+| `page(rect, source, *, keep_aspect=True)` | A page of any open document, this one included |
+| `draw(item)` | A `Path` item that [`page.content()`](#content) returned |
+
+Paths take a `Color` fill and a stroke: a `Stroke` with width, cap, join,
+miter limit, and dashes, or a `Color` for a 1-point line. A path with neither
+is stroked with a 1-point black line. A color's `alpha` makes that fill or
+stroke translucent. `PathBuilder` builds geometry with `move_to`, `line_to`,
+`curve_to`, `quad_to`, and `close`, and adds complete shapes with `rect`,
+`ellipse`, `circle`, `polygon`, `sector`, `zigzag`, and `wave`; every method
+returns the builder, so calls chain.
+
+Text is drawn in a [`Font`](#font). An OpenType face is shaped with HarfRust
+and embedded as a subset, once per canvas however many calls use it. Without
+`font`, Western European text is drawn in Helvetica and other text in an
+installed [font extra](getting-started.md#installation) for its script. Text is
+filled, stroked, or both. `textbox` breaks lines at Unicode line-break
+opportunities; when the text does not fit, it draws nothing and
+`TextFit.spare_height` is the negative shortfall, so `fit.fits` is false.
+
+Four context managers apply to everything drawn inside them, and nest:
+
+| Scope | Effect |
+|---|---|
+| `clip(path, *, fill_rule=...)` | Paints only inside the path |
+| `transform(matrix)` | Transforms the drawing; nested transforms apply innermost first |
+| `opacity(alpha)` | Composites the drawing as one group, then paints it at `alpha` |
+| `blend(mode)` | Blends the drawing with what is below it, with a `BlendMode` |
+
+`page.draw(underlay=True)` writes below the page's existing content. An image
+or page that a canvas draws several times, or that the document placed
+before, is stored once. A page is drawn as it was when `canvas.page()` was
+called. `draw(item)` repeats an item's clips, group opacities, and blend
+modes, but not its soft masks; text runs, images, and pattern paints cannot
+be drawn yet. A canvas holds at most 1,048,576 path points and nests at most
+16 scopes; beyond that, `LimitError` has the code `path_point_count` or
+`canvas_scope_depth`.
 
 ## Tables { #tables }
 
@@ -585,6 +651,7 @@ a rectangle lies inside a quad tests all four corners.
 | `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | Metadata and page count without loading the document |
 | `DocumentLimits`, `DocumentLimits.web()` | Resource limits for untrusted input; see [Security](security.md#untrusted-pdfs) |
 | `OcrEngine` | A reusable OCR engine; see [Offline OCR](ocr.md) |
+| `Canvas`, `PathBuilder`, `TextFit` | See [Canvas](#canvas) |
 | `Font`, `Shape` | See [Font](#font) and [Shapes](#shapes) |
 | `Base14_fontnames`, `Base14_fontdict` | The Standard 14 font names that `fontname=` accepts |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [Low-level objects](#low-level-objects) |

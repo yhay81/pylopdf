@@ -37,6 +37,7 @@ use rayon::prelude::*;
 
 use crate::acroform_import::{AcroFormImport, FormPagePrune};
 use crate::bundled_font_cache::{FontBytes, PackageFace, load_package_font};
+use crate::canvas::{self, _Canvas, CanvasRecording};
 use crate::content_guard::{ContentGuard, PageSelection};
 use crate::draw::{self, ObjectSink};
 use crate::font::_Font;
@@ -97,7 +98,7 @@ use self::extraction::*;
 pub(crate) use self::fonts::*;
 pub(crate) use self::forms::*;
 use self::geometry::*;
-use self::images::*;
+pub(crate) use self::images::*;
 pub(crate) use self::input::*;
 use self::labels::*;
 use self::limits::*;
@@ -1801,6 +1802,22 @@ impl _Document {
         overlay: bool,
     ) -> PyResult<()> {
         drawing::commit_shape(self, py, page_number, shape, overlay)
+    }
+
+    /// Draw a recorded canvas over a one-based page, or under it with
+    /// `overlay=False`, as one Form XObject.
+    ///
+    /// Generation, imports, image parsing, and the composed content are
+    /// prepared before the document changes. An empty canvas leaves the
+    /// document unchanged, and the canvas is empty afterwards either way.
+    fn commit_canvas(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        canvas: &Bound<'_, _Canvas>,
+        overlay: bool,
+    ) -> PyResult<()> {
+        drawing::commit_canvas(self, py, page_number, canvas, overlay)
     }
 
     /// Draw subset-embedded text with a loaded `Font`.

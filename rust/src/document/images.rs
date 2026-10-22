@@ -8,7 +8,7 @@ pub(super) const DEFAULT_MAX_IMAGE_INPUT_SIZE: usize = 64 * 1024 * 1024;
 pub(super) const DEFAULT_MAX_IMAGE_PIXELS: u64 = 64_000_000;
 
 /// Image input whose XObject a document may already have placed.
-pub(super) enum ImageInput {
+pub(crate) enum ImageInput {
     /// Accepted JPEG or PNG bytes.
     Encoded(Vec<u8>),
     /// A Pixmap's RGB8 or straight-alpha RGBA8 samples.
@@ -21,7 +21,7 @@ pub(super) enum ImageInput {
 }
 
 impl ImageInput {
-    pub(super) fn digest(&self) -> placement_reuse::ImageDigest {
+    pub(crate) fn digest(&self) -> placement_reuse::ImageDigest {
         match self {
             Self::Encoded(data) => placement_reuse::encoded_image_digest(data),
             Self::Pixmap {
@@ -33,7 +33,7 @@ impl ImageInput {
         }
     }
 
-    pub(super) fn parse(self) -> PyResult<draw::ImageParts> {
+    pub(crate) fn parse(self) -> PyResult<draw::ImageParts> {
         match self {
             Self::Encoded(data) => draw::parse_image(data)
                 .map_err(PdfError::new_err)?
@@ -59,7 +59,7 @@ pub(super) enum PageImage {
 }
 
 /// Read encoded image input without admitting more than one byte beyond its budget.
-pub(super) fn read_image_input(path: &str, max_size: Option<usize>) -> PyResult<Vec<u8>> {
+pub(crate) fn read_image_input(path: &str, max_size: Option<usize>) -> PyResult<Vec<u8>> {
     read_bounded_input(
         path,
         max_size,
@@ -69,7 +69,7 @@ pub(super) fn read_image_input(path: &str, max_size: Option<usize>) -> PyResult<
     )
 }
 
-pub(super) fn validate_image_input(
+pub(crate) fn validate_image_input(
     data: &[u8],
     max_size: Option<usize>,
     max_pixels: Option<u64>,

@@ -115,6 +115,7 @@ limits = pylopdf.DocumentLimits(
 | `pdf_output_size`, `render_output_size`, `markdown_output_size`, `svg_output_size`, `pixmap_output_size`, `replacement_output_size` | 출력이 `max_size`를 넘음 |
 | `search_input_size`, `search_hit_count` | 검색어가 4,096바이트를 넘거나 결과가 `max_hits`보다 많음 |
 | `text_input_size`, `text_line_count`, `font_input_size`, `path_point_count` | 그리기에 전달한 텍스트, 글꼴, 도형 경로가 너무 큼 |
+| `canvas_scope_depth` | Canvas의 범위가 16단계를 넘게 중첩됨 |
 | `image_input_size`, `image_pixel_count`, `image_inventory_count` | 이미지가 너무 크거나, 페이지가 4,096개를 넘는 이미지를 사용함 |
 | `embedded_file_size`, `embedded_file_input_size` | 첨부 파일이나 그 이름, 설명이 너무 큼 |
 | `stream_data_size`, `object_value_depth` | 저수준 스트림이 읽기에 너무 크거나, 쓰는 값의 중첩이 너무 깊음 |

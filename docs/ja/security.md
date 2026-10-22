@@ -115,6 +115,7 @@ limits = pylopdf.DocumentLimits(
 | `pdf_output_size`, `render_output_size`, `markdown_output_size`, `svg_output_size`, `pixmap_output_size`, `replacement_output_size` | 出力が`max_size`を超える |
 | `search_input_size`, `search_hit_count` | 検索テキストが4,096バイトを超える、または結果が`max_hits`より多い |
 | `text_input_size`, `text_line_count`, `font_input_size`, `path_point_count` | 描画に渡したテキスト、フォント、Shapeのパスが大きすぎる |
+| `canvas_scope_depth` | Canvasのスコープが16段を超えて入れ子になっている |
 | `image_input_size`, `image_pixel_count`, `image_inventory_count` | 画像が大きすぎる、またはページが4,096を超える画像を使っている |
 | `embedded_file_size`, `embedded_file_input_size` | 添付ファイル、またはその名前や説明が大きすぎる |
 | `stream_data_size`, `object_value_depth` | 低レベルのストリームが大きすぎて読めない、または書き込む値の入れ子が深すぎる |

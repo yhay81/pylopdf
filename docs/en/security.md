@@ -140,6 +140,7 @@ change.
 | `pdf_output_size`, `render_output_size`, `markdown_output_size`, `svg_output_size`, `pixmap_output_size`, `replacement_output_size` | Output would exceed `max_size` |
 | `search_input_size`, `search_hit_count` | The search text is over 4,096 bytes, or there are more results than `max_hits` |
 | `text_input_size`, `text_line_count`, `font_input_size`, `path_point_count` | Text, fonts, or shape paths passed for drawing are too large |
+| `canvas_scope_depth` | A canvas nests more than 16 scopes |
 | `image_input_size`, `image_pixel_count`, `image_inventory_count` | An image is too large, or a page uses more than 4,096 images |
 | `embedded_file_size`, `embedded_file_input_size` | An attachment, or its name or description, is too large |
 | `stream_data_size`, `object_value_depth` | A low-level stream is too large to read, or a value written is nested too deeply |

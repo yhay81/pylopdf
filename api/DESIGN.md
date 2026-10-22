@@ -174,14 +174,13 @@ Values:  Point, Rect, IRect, Quad, Matrix, Font, Pixmap, content items
 ## 3. The graphics model
 
 Reading and writing share one set of item types. `Page.content()` returns
-them as hayro interprets the page; `Canvas.draw(item)` paints them through
-krilla.
+them as hayro interprets the page; `Canvas.draw(item)` paints them again.
 
-| Item | Fields | hayro `Device` | krilla `Surface` |
+| Item | Fields | hayro `Device` | Written as |
 | --- | --- | --- | --- |
-| `TextRun` | `glyphs` (`Glyph`: glyph ID, Unicode, matrix, advance, ink box), `font`, `render_mode`, `fill` paint, `stroke` | `draw_glyph_run` | `draw_glyphs` |
-| `Path` | `segments` (`MoveTo`, `LineTo`, `CurveTo`, `ClosePath`), `fill` paint, `fill_rule`, `stroke` | `draw_path`, `draw_rect` | `draw_path` |
-| `Image` | `xref` (0 for inline images and masks), size, bits per component, color space, stencil flag, mask kind, encoded size, `matrix` | `draw_image` | `draw_image` |
+| `TextRun` | `glyphs` (`Glyph`: glyph ID, Unicode, matrix, advance, ink box), `font`, `render_mode`, `fill` paint, `stroke` | `draw_glyph_run` | krilla `draw_glyphs` |
+| `Path` | `segments` (`MoveTo`, `LineTo`, `CurveTo`, `ClosePath`), `fill` paint, `fill_rule`, `stroke` | `draw_path`, `draw_rect` | path operators |
+| `Image` | `xref` (0 for inline images and masks), size, bits per component, color space, stencil flag, mask kind, encoded size, `matrix` | `draw_image` | an Image XObject |
 
 Every item also carries its `bbox` in display space, its own `blend_mode` and
 `soft_mask`, and a `context`: a `GraphicsContext` that lists, outermost
@@ -283,10 +282,10 @@ return one from `builder.page(size)`.
 | --- | --- |
 | `path(path, *, fill=None, stroke=None, fill_rule=FillRule.NONZERO)` | `path` is a `Path` item or a geometry built with `PathBuilder`, whose constructors also cover sectors, wavy lines, and zigzag lines. |
 | `line`, `rect(rect, *, radius=0, ...)`, `circle`, `ellipse`, `polygon`, `bezier` | Shortcuts that build one path. |
-| `text(text, at, *, font=None, size=11, fill=..., stroke=None, render_mode="fill", rotate=0)` | Shaped with HarfRust and embedded as a subset by krilla. |
+| `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None, rotate=0)` | Shaped with HarfRust and embedded as a subset by krilla. The fill and the stroke select the render mode; invisible text belongs to `page.apply_ocr`. |
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` → `TextFit` | Wraps with UAX #14; on overflow it draws nothing and reports the shortfall. |
 | `image(rect, source, *, keep_aspect=True, rotate=0)` | `source` is a path, encoded bytes, a `Pixmap`, or an `ImageObject`; the same image is stored once. |
-| `page(rect, source_page, *, clip=None, keep_aspect=True, rotate=0)` | Places another page, which may belong to the same document. |
+| `page(rect, source, *, clip=None, keep_aspect=True, rotate=0)` | Places another page, which may belong to the same document. |
 | `clip(path)`, `transform(matrix)`, `opacity(alpha)`, `blend(mode)`, `mask(...)`, `layer(layer)`, `tag(role, ...)` | Context managers that scope a graphics state. |
 | `draw(item)` | Paints a content item. |
 
