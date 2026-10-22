@@ -598,140 +598,6 @@ impl InputBudget {
     }
 }
 
-fn finite(value: f64, label: &str) -> PyResult<f64> {
-    if value.is_finite() {
-        Ok(value)
-    } else {
-        Err(PdfError::new_err(format!("outline {label} must be finite")))
-    }
-}
-
-/// Return the key and value that make an item lead to `target`: `/Dest` for
-/// a page of this document, `/A` for an action, or nothing.
-fn target_entry(
-    this: &_Document,
-    page_ids: &[ObjectId],
-    target: &TargetTuple,
-    budget: &mut InputBudget,
-) -> PyResult<Option<(&'static str, Object)>> {
-    let (kind, page, point, zoom, text, name) = target;
-    let text_value = |label: &str, budget: &mut InputBudget| -> PyResult<Object> {
-        let text = text
-            .as_deref()
-            .filter(|text| !text.is_empty())
-            .ok_or_else(|| {
-                PdfError::new_err(format!("an outline {kind} target needs a {label}"))
-            })?;
-        budget.charge(text, label)?;
-        if label == "file" {
-            try_info_metadata_text_string(text)
-        } else {
-            Ok(Object::String(
-                text.as_bytes().to_vec(),
-                StringFormat::Literal,
-            ))
-        }
-    };
-    Ok(match kind.as_str() {
-        "none" => None,
-        "goto" => {
-            let page_number =
-                page.ok_or_else(|| PdfError::new_err("an outline destination needs a page"))?;
-            let page_id = page_id_from_index(page_ids, page_number)?;
-            let zoom = zoom.map(|zoom| finite(zoom, "zoom")).transpose()?;
-            if zoom.is_some_and(|zoom| zoom < 0.0) {
-                return Err(PdfError::new_err("outline zoom must not be negative"));
-            }
-            let zoom = zoom
-                .map(|zoom| checked_pdf_real(zoom, "outline zoom"))
-                .transpose()?;
-            let array = match (point, zoom) {
-                (None, None) => vec![Object::Reference(page_id), Object::Name(b"Fit".to_vec())],
-                _ => {
-                    let (left, top) = match point {
-                        Some((x, y)) => {
-                            let (crop, rotation) = this.resolve_display_geometry(page_id)?;
-                            let (left, top) = draw::display_to_pdf(
-                                crop,
-                                rotation,
-                                finite(*x, "point")?,
-                                finite(*y, "point")?,
-                            );
-                            (
-                                Object::Real(checked_pdf_real(left, "outline left")?),
-                                Object::Real(checked_pdf_real(top, "outline top")?),
-                            )
-                        }
-                        None => (Object::Null, Object::Null),
-                    };
-                    vec![
-                        Object::Reference(page_id),
-                        Object::Name(b"XYZ".to_vec()),
-                        left,
-                        top,
-                        zoom.map_or(Object::Null, Object::Real),
-                    ]
-                }
-            };
-            Some(("Dest", Object::Array(array)))
-        }
-        "uri" => Some((
-            "A",
-            Object::Dictionary(dictionary! {
-                "S" => Object::Name(b"URI".to_vec()),
-                "URI" => text_value("URI", budget)?,
-            }),
-        )),
-        "gotor" => {
-            let file = text_value("file", budget)?;
-            let destination = match (name.as_deref(), page) {
-                (Some(name), _) if !name.is_empty() => {
-                    budget.charge(name, "destination name")?;
-                    Object::String(name.as_bytes().to_vec(), StringFormat::Literal)
-                }
-                (_, page) => Object::Array(vec![
-                    Object::Integer(i64::from(page.unwrap_or(0))),
-                    Object::Name(b"Fit".to_vec()),
-                ]),
-            };
-            Some((
-                "A",
-                Object::Dictionary(dictionary! {
-                    "S" => Object::Name(b"GoToR".to_vec()),
-                    "F" => file,
-                    "D" => destination,
-                }),
-            ))
-        }
-        "launch" => Some((
-            "A",
-            Object::Dictionary(dictionary! {
-                "S" => Object::Name(b"Launch".to_vec()),
-                "F" => text_value("file", budget)?,
-            }),
-        )),
-        "named" => {
-            let name = name
-                .as_deref()
-                .filter(|name| !name.is_empty())
-                .ok_or_else(|| PdfError::new_err("an outline named action needs a name"))?;
-            budget.charge(name, "action name")?;
-            Some((
-                "A",
-                Object::Dictionary(dictionary! {
-                    "S" => Object::Name(b"Named".to_vec()),
-                    "N" => Object::Name(name.as_bytes().to_vec()),
-                }),
-            ))
-        }
-        other => {
-            return Err(PdfError::new_err(format!(
-                "unknown outline target kind {other:?}"
-            )));
-        }
-    })
-}
-
 /// Return a validated color as a `/C` array.
 fn color_object(color: (f64, f64, f64)) -> PyResult<Object> {
     let (red, green, blue) = color;
@@ -791,7 +657,9 @@ pub(super) fn write_outline(this: &mut _Document, entries: Vec<OutlineSpec>) -> 
         prepared.push(PreparedItem {
             level,
             title: try_info_metadata_text_string(title)?,
-            target: target_entry(this, page_ids, target, &mut budget)?,
+            target: target_entry(this, page_ids, target, &mut |text, label| {
+                budget.charge(text, label)
+            })?,
             color: color.map(color_object).transpose()?,
             flags: *flags,
             open: *open,
@@ -979,12 +847,10 @@ pub(super) fn set_outline_target(
     target: TargetTuple,
 ) -> PyResult<()> {
     item_dictionary(&this.doc, id)?;
-    let entry = target_entry(
-        this,
-        this.doc.page_ids()?,
-        &target,
-        &mut InputBudget::default(),
-    )?;
+    let mut budget = InputBudget::default();
+    let entry = target_entry(this, this.doc.page_ids()?, &target, &mut |text, label| {
+        budget.charge(text, label)
+    })?;
     collect_outline(
         this,
         &mut LinkResolutionCache::default(),

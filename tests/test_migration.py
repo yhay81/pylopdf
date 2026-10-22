@@ -357,6 +357,23 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "import fitz\npage.set_mediabox(fitz.Rect(0, 0, 200, 300))\n",
             "page.boxes.media = pylopdf.Rect(0, 0, 200, 300)",
         ),
+        (
+            'import fitz\npage.insert_link({"kind": fitz.LINK_URI, "from": r, "uri": "https://e.test/"})\n',
+            'page.links.add(r, "https://e.test/")',
+        ),
+        (
+            'import fitz\npage.insert_link({"kind": fitz.LINK_GOTO, "from": r, "page": 2, "to": p, "zoom": 2})\n',
+            "page.links.add(r, pylopdf.Destination(2, point=p, zoom=2))",
+        ),
+        (
+            'import fitz\npage.insert_link({"kind": fitz.LINK_GOTOR, "from": r, "file": "a.pdf", "page": 3})\n',
+            'page.links.add(r, pylopdf.RemoteDestination("a.pdf", page=3))',
+        ),
+        (
+            'import fitz\npage.insert_link({"kind": fitz.LINK_NAMED, "from": r, "name": "NextPage"})\n',
+            'page.links.add(r, pylopdf.NamedAction("NextPage"))',
+        ),
+        ("import fitz\nfound = doc.has_links()\n", "found = any(page.links for page in doc.pages)"),
     ],
 )
 def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> None:
@@ -409,6 +426,11 @@ def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> N
         ),
         ("import pylopdf\ncreated = doc.metadata['creationDate']\n", 'created = doc.metadata.get("created", "")'),
         ("import pylopdf\nlabel = page.get_label()\n", "label = page.label"),
+        ("import pylopdf\npage.add_link_annot(rect, uri)\n", "page.links.add(rect, uri)"),
+        (
+            'import pylopdf\npage.insert_link({"kind": pylopdf.LINK_LAUNCH, "from": r, "file": "a.txt"})\n',
+            'page.links.add(r, pylopdf.Launch("a.txt"))',
+        ),
         ("import pylopdf\ndoc = pylopdf.open(path)\ndoc.set_fallback_font(None)\n", "doc.fallback_fonts = {}"),
         ("import pylopdf\ndoc = pylopdf.open(path)\ndoc[0].set_rotation(90)\n", "doc.pages[0].rotation = 90"),
         (
@@ -639,6 +661,16 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import fitz\ndoc.set_markinfo({'Marked': True})\n", "Assign doc.mark_info = MarkInfo("),
         ("import pylopdf\nclaim = doc.get_pdfa_claim()\n", "PdfaClaim record"),
         ("import pylopdf\nfrom pylopdf import DocumentMetadata\n", "DocumentMetadata is Metadata"),
+        ("import fitz\nfor link in page.get_links():\n    print(link['uri'])\n", "read link.rect and link.target"),
+        ("import pylopdf\nlinks = page.get_links()\n", "page.links lists Link handles"),
+        ("import fitz\nfor link in page.links():\n    print(link.uri)\n", "in place of pymupdf's uri, dest"),
+        ("import fitz\nuris = page.links(kinds=[fitz.LINK_URI])\n", "test the type of link.target"),
+        ("import fitz\nlink = page.first_link\n", "in place of pymupdf's uri, dest"),
+        ("import fitz\npage.insert_link(link_dict)\n", "page.links.add(rect, target)"),
+        ("import fitz\npage.delete_link(link_dict)\n", "del page.links[index]"),
+        ("import fitz\npage.update_link(link_dict)\n", "Assign link.rect and link.target"),
+        ("import fitz\nif link['kind'] == fitz.LINK_GOTO:\n    pass\n", "isinstance(link.target, Destination)"),
+        ("import pylopdf\nfrom pylopdf import LinkInfo\n", "page.links lists Link handles"),
     ],
 )
 def test_codemod_marks_what_it_cannot_rewrite(migrate_source: Migrate, source: str, hint: str) -> None:

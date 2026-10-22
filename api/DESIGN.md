@@ -319,7 +319,7 @@ its text needs an OpenType `Font` until krilla draws the Standard 14 fonts.
 | --- | --- |
 | `page.annotations` | A sequence of `Annotation` handles with typed properties (`type`, `rect`, `contents`, `author`, `color`, `interior_color`, `opacity`, `flags`, `xref`, `page`), `add(specification)` → `Annotation`, and `del`. |
 | Annotation specifications | `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Note`, `FreeText`, `Line`, `Square`, `Circle`, `Polygon`, `PolyLine`, `Ink`, `Stamp`, `FileAttachment`, `Caret`, and `Redaction`. |
-| `page.links` | A sequence of `Link` handles (`rect`, `target`), `add(rect, target)`, and `del`. A target is a URI string, a `Destination(page, point=None, zoom=None)`, a `RemoteDestination`, a `Launch`, or a `NamedAction`. |
+| `page.links` | A sequence of `Link` handles (`rect` and `target`, both assignable, plus `xref`, `obj`, and `page`), `add(rect, target)`, and `del`. A target is a URI string, a `Destination(page, point=None, zoom=None)`, a `RemoteDestination`, a `Launch`, or a `NamedAction`; a link that pylopdf cannot follow reads as `None`. |
 | `doc.form` | A mapping of `Field` handles by fully qualified name: `value` (assignable), `type`, `flags`, `choices`, `widgets`, and `reset()`. |
 | `page.widgets` | `Widget` handles for a field's appearances on the page: `rect`, `field`, styling, and button states. A widget's value is its field's value, the one overlap that the PDF model makes. |
 | `doc.flatten(*, annotations=True, widgets=True)` | Draws appearances into page content and removes the objects. |

@@ -110,20 +110,16 @@ def test_add_highlight_annot_returns_its_annot() -> None:
         page.add_highlight_annot()
 
 
-def test_insert_link_takes_a_pymupdf_link_dictionary() -> None:
+def test_links_are_annotations_too() -> None:
     doc = pylopdf.open(build_pdf(["Links"]))
     page = doc.pages[0]
 
-    page.insert_link({"kind": pylopdf.LINK_URI, "from": pylopdf.Rect(10, 10, 60, 30), "uri": "https://e.test/"})
+    link = page.links.add(pylopdf.Rect(10, 10, 60, 30), "https://e.test/")
 
-    (link,) = page.get_links()
-    assert link["uri"] == "https://e.test/"
-    assert link["from"] == pytest.approx(pylopdf.Rect(10, 10, 60, 30))
-    assert page.annots()[0].type == (pylopdf.PDF_ANNOT_LINK, "Link")
-    with pytest.raises(pylopdf.PdfError, match="LINK_URI only"):
-        page.insert_link({"kind": pylopdf.LINK_GOTO, "from": (0, 0, 1, 1), "page": 0})
-    with pytest.raises(TypeError):
-        page.insert_link((0, 0, 1, 1), "https://e.test/")  # ty: ignore[too-many-positional-arguments, invalid-argument-type]
+    (annot,) = page.annots()
+    assert annot.type == (pylopdf.PDF_ANNOT_LINK, "Link")
+    assert annot.xref == link.xref
+    assert annot.rect == pytest.approx(link.rect)
     assert not hasattr(page, "add_link_annot")
 
 

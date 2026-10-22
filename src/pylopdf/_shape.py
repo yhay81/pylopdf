@@ -16,6 +16,7 @@ from pylopdf._fonts import (
     _resolve_generation_font,
     _validate_font_choice,
 )
+from pylopdf._geometry import Point, Rect
 from pylopdf._hints import hinted_getattr
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
@@ -29,7 +30,7 @@ from pylopdf._limits import (
     _validate_textbox_options,
     _validate_utf8_text_input,
 )
-from pylopdf._types import TEXT_ALIGN_LEFT, Point, Rect
+from pylopdf._types import TEXT_ALIGN_LEFT
 from pylopdf.pylopdf_core import LimitError, PdfError, _Font, _Shape
 
 if TYPE_CHECKING:

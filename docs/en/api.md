@@ -259,7 +259,7 @@ del doc.fallback_fonts            # back to the installed font extras
 | `language` | The document's language as a complete BCP 47 tag, such as `zh-TW` or `sr-Latn-RS`, or `None`. Assign a tag to write it and `del doc.language` to remove it; a malformed tag raises |
 | `page_mode`, `page_layout` | How a viewer opens the document, as `PageMode` and `PageLayout` members such as `PageMode.USE_OUTLINES` or `PageLayout.TWO_COLUMN_LEFT`; `USE_NONE` and `SINGLE_PAGE` when unset. Assign a member or its exact name |
 | `mark_info` | The tagged-PDF flags as a `MarkInfo(marked=, user_properties=, suspects=)` record, or `None` when absent. Assigning writes all three flags; `del` removes them |
-| `has_links()`, `has_annots()` | Whether any page has a link, or an annotation other than a link or form widget |
+| `has_annots()` | Whether any page has an annotation other than a link or form widget; `any(page.links for page in doc.pages)` tells whether any page has a link |
 | `objects`, `trailer`, `catalog` | Direct access to PDF objects; see [Low-level objects](#low-level-objects) |
 
 `language` keeps the complete tag, where pymupdf's keeps at most three
@@ -285,7 +285,6 @@ no page was added, deleted, or reordered in between.
 | `markdown(*, table_strategy="lines")` | Markdown for this page |
 | `ocr(...)`, `apply_ocr(*, words=None, ...)` | OCR, and an invisible text layer from it or from another engine's words; see [Offline OCR](ocr.md) |
 | `content(*, text_runs=True, paths=True, images=True, clip=None, annotations=True)` | Every text run, path, and image the page paints; see [Page content](#content) |
-| `get_links()` | Links with their targets |
 | `label` | The page label, such as `"iv"`; see [Outline and page labels](#outline) |
 
 A `Word` has `text`, `bbox`, and `block`, `line`, and `index`, which locate
@@ -358,10 +357,35 @@ The same image or page drawn again is stored once in the file.
 |---|---|
 | `annots(*, types=None)` | Read-only `Annot` objects with `type`, `rect`, `info`, `colors`, `flags`, and `xref` |
 | `add_highlight_annot(quads, *, color=, opacity=0.4, content=None)` | Highlight one or more rectangles or quads, such as search results |
-| `insert_link(link)` | Add a web link (`kind=LINK_URI`) |
+| `links` | The page's links as `Link` handles, in the order the page lists them |
 
 Annotation types and flags are the `PDF_ANNOT_*` and `PDF_ANNOT_IS_*`
 constants.
+
+`page.links` is a sequence of `Link` handles: `page.links.add(rect, target)`
+adds a link over a rectangle in display coordinates and returns its handle,
+and `del page.links[i]` removes one. A handle reads the document on every
+access, and assigning its `rect` or `target` edits the link. Targets are those
+of the [outline](#outline): a URI string, a `Destination`, a
+`RemoteDestination`, a `Launch`, or a `NamedAction`. A link whose action
+pylopdf does not read, such as JavaScript, or whose destination names no page
+has the target `None`. `xref` and `obj` give the annotation's object number
+and its dictionary in the [object model](#low-level-objects), which holds its
+border, color, and flags.
+
+```python
+from pylopdf import Destination
+
+for rect in page.search("Chapter 2"):
+    page.links.add(rect, Destination(5))
+for link in page.links:
+    if isinstance(link.target, str) and link.target.startswith("http:"):
+        link.target = "https:" + link.target.removeprefix("http:")
+```
+
+Link reads stop at 4,096 annotations and 1 MiB of target text per page, and a
+link's target text stops at 1 MiB when written (`LimitError` code
+`annotation_input_size`).
 
 ## Positioned text and glyphs { #positioned-text }
 
@@ -922,12 +946,12 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |
 | `Colorspace` | The color spaces of a [`Pixmap`](#pixmap): `GRAY` and `RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [Outline and page labels](#outline) |
+| `Link`, `Links` | [Annotations and links](#page-annotations) |
 | `PageBoxes` | [Page geometry](#page-geometry) |
 | `FallbackFont`, `FallbackFonts` | [Rendering and images](#document-rendering) |
 
 Constants keep pymupdf's names and are also grouped in enums:
-`Permissions` (`PDF_PERM_*`), `LinkKind` (`LINK_*`), `TextAlign`
-(`TEXT_ALIGN_*`), `AnnotType` (`PDF_ANNOT_*`), and `AnnotFlags`
+`Permissions` (`PDF_PERM_*`), `TextAlign` (`TEXT_ALIGN_*`), `AnnotType` (`PDF_ANNOT_*`), and `AnnotFlags`
 (`PDF_ANNOT_IS_*`). `Access` has the members `USER` and `OWNER`, and
 `Encryption` describes how to encrypt a saved file. The content model's enums
 are `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`,
@@ -938,7 +962,7 @@ such as `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`,
 `TableDiagnostics`, `OcrWord`, `Path`, `Image`, `MarkInfo`, `PdfaClaim`,
 `OutlineEntry`, `PageLabelRange`, and the outline targets. Other dictionaries
 returned by the API are plain `dict` objects, described for type checkers by
-`TypedDict` classes such as `LinkInfo` and `FormFieldInfo`.
+`TypedDict` classes such as `FormFieldInfo`.
 
 ## Exceptions and warnings { #exceptions }
 

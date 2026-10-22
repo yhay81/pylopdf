@@ -178,7 +178,7 @@ del doc.fallback_fonts            # back to the installed font extras
 | `language` | 文書の言語を表す`zh-TW`や`sr-Latn-RS`のような完全なBCP 47タグ、または`None`。タグを代入すると書き込み、`del doc.language`で削除します。形式の正しくないタグは例外になります |
 | `page_mode`, `page_layout` | ビューアーが文書をどう開くかを表す`PageMode`・`PageLayout`のメンバー（`PageMode.USE_OUTLINES`、`PageLayout.TWO_COLUMN_LEFT`など）。未設定のときは`USE_NONE`と`SINGLE_PAGE`。メンバーかその正確な名前を代入します |
 | `mark_info` | タグ付きPDFのフラグを表す`MarkInfo(marked=, user_properties=, suspects=)`レコード、またはない場合は`None`。代入すると3つのフラグをすべて書き込み、`del`で削除します |
-| `has_links()`, `has_annots()` | いずれかのページにリンクがあるか、リンクとフォームウィジェット以外の注釈があるか |
+| `has_annots()` | いずれかのページにリンクとフォームウィジェット以外の注釈があるか。リンクがあるかは`any(page.links for page in doc.pages)`で分かります |
 | `objects`, `trailer`, `catalog` | PDFオブジェクトへの直接アクセス。[低レベルオブジェクト](#low-level-objects)を参照 |
 
 `language`は完全なタグを保持します。pymupdfの`language`はタグを3文字までしか保持しないため、`zh-TW`と`zh-HK`はどちらも`zh-Hant`として読まれます。XMPを書き込むと、保存時にストリームを圧縮してもパケットは圧縮されないので、ファイルの中からXMPを探すツールでも見つけられます。
@@ -199,7 +199,6 @@ del doc.fallback_fonts            # back to the installed font extras
 | `markdown(*, table_strategy="lines")` | このページのMarkdown |
 | `ocr(...)`, `apply_ocr(*, words=None, ...)` | OCRと、その結果またはほかのエンジンの単語から作る不可視のテキスト層。[オフラインOCR](ocr.md)を参照 |
 | `content(*, text_runs=True, paths=True, images=True, clip=None, annotations=True)` | ページが描くすべてのテキストラン、パス、画像。[ページの内容](#content)を参照 |
-| `get_links()` | リンクとそのリンク先 |
 | `label` | `"iv"`のようなページラベル。[しおりとページラベル](#outline)を参照 |
 
 `Word`は`text`と`bbox`に加えて、ページのレイアウト内での位置を示す`block`、`line`、`index`を持ちます。それぞれ、属するブロックのインデックス、そのブロック内での行のインデックス、その行内での語のインデックスです。
@@ -256,9 +255,23 @@ page.rotation = 90
 |---|---|
 | `annots(*, types=None)` | `type`、`rect`、`info`、`colors`、`flags`、`xref`を持つ読み取り専用の`Annot`オブジェクト |
 | `add_highlight_annot(quads, *, color=, opacity=0.4, content=None)` | 検索結果など、1つ以上の矩形や四辺形をハイライト |
-| `insert_link(link)` | Webリンク（`kind=LINK_URI`）を追加 |
+| `links` | ページのリンクを、ページが並べる順の`Link`ハンドルとして |
 
 注釈の種類とフラグは`PDF_ANNOT_*`と`PDF_ANNOT_IS_*`の定数です。
+
+`page.links`は`Link`ハンドルのシーケンスです。`page.links.add(rect, target)`は表示座標の矩形にリンクを追加してそのハンドルを返し、`del page.links[i]`はリンクを削除します。ハンドルはアクセスのたびに文書を読み、`rect`や`target`への代入でリンクを編集します。リンク先は[しおり](#outline)と同じで、URI文字列、`Destination`、`RemoteDestination`、`Launch`、`NamedAction`のいずれかです。JavaScriptなどpylopdfが読まないアクションのリンクや、どのページも指さない行き先のリンクのリンク先は`None`です。`xref`と`obj`は注釈のオブジェクト番号と、[オブジェクトモデル](#low-level-objects)での辞書を返し、枠線、色、フラグはこの辞書にあります。
+
+```python
+from pylopdf import Destination
+
+for rect in page.search("Chapter 2"):
+    page.links.add(rect, Destination(5))
+for link in page.links:
+    if isinstance(link.target, str) and link.target.startswith("http:"):
+        link.target = "https:" + link.target.removeprefix("http:")
+```
+
+リンクの読み取りは1ページあたり4,096個の注釈と1 MiBのリンク先テキストで止まり、書き込むリンク先テキストは1 MiBまでです（`LimitError`のコード`annotation_input_size`）。
 
 ## 位置付きテキストとグリフ { #positioned-text }
 
@@ -659,12 +672,13 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`ほかの内容の型 | [ページの内容](#content) |
 | `Colorspace` | [`Pixmap`](#pixmap)の色空間。`GRAY`と`RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [しおりとページラベル](#outline) |
+| `Link`, `Links` | [注釈とリンク](#page-annotations) |
 | `PageBoxes` | [ページの幾何情報](#page-geometry) |
 | `FallbackFont`, `FallbackFonts` | [レンダリングと画像](#document-rendering) |
 
-定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）、`AnnotFlags`（`PDF_ANNOT_IS_*`）です。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
+定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）、`AnnotFlags`（`PDF_ANNOT_IS_*`）です。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
 
-テキスト、表、OCR、ページの内容の結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`、しおりの行き先などの変更できないデータクラス（frozen dataclass）です。APIが返すそのほかの辞書はただの`dict`で、型チェッカー向けに`LinkInfo`、`FormFieldInfo`などの`TypedDict`クラスで記述しています。
+テキスト、表、OCR、ページの内容の結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`、しおりの行き先などの変更できないデータクラス（frozen dataclass）です。APIが返すそのほかの辞書はただの`dict`で、型チェッカー向けに`FormFieldInfo`などの`TypedDict`クラスで記述しています。
 
 ## 例外と警告 { #exceptions }
 

@@ -179,7 +179,7 @@ del doc.fallback_fonts            # back to the installed font extras
 | `language` | `zh-TW`나 `sr-Latn-RS` 같은 완전한 BCP 47 태그로 나타낸 문서의 언어, 또는 `None`. 태그를 대입하면 기록하고 `del doc.language`는 삭제하며, 형식이 잘못된 태그는 예외를 발생시킴 |
 | `page_mode`, `page_layout` | 뷰어가 문서를 여는 방식을 나타내는 `PageMode`, `PageLayout` 멤버(예: `PageMode.USE_OUTLINES`, `PageLayout.TWO_COLUMN_LEFT`). 설정되지 않았으면 `USE_NONE`과 `SINGLE_PAGE`. 멤버나 그 정확한 이름을 대입 |
 | `mark_info` | 태그 PDF 플래그를 담은 `MarkInfo(marked=, user_properties=, suspects=)` 레코드, 없으면 `None`. 대입하면 세 플래그를 모두 기록하고 `del`은 삭제 |
-| `has_links()`, `has_annots()` | 어느 페이지에 링크가 있는지, 또는 링크나 폼 위젯이 아닌 주석이 있는지 여부 |
+| `has_annots()` | 어느 페이지에 링크나 폼 위젯이 아닌 주석이 있는지 여부. 링크가 있는지는 `any(page.links for page in doc.pages)`로 알 수 있습니다 |
 | `objects`, `trailer`, `catalog` | PDF 객체에 직접 접근. [저수준 객체](#low-level-objects) 참고 |
 
 `language`는 완전한 태그를 유지합니다. pymupdf의 `language`는 태그를 최대 세 글자까지만 유지하므로 그곳에서는 `zh-TW`와 `zh-HK`가 모두 `zh-Hant`로 읽힙니다. XMP는 저장할 때 스트림을 압축하더라도 압축하지 않고 기록하므로, 파일에서 XMP를 찾는 도구도 계속 찾을 수 있습니다.
@@ -200,7 +200,6 @@ del doc.fallback_fonts            # back to the installed font extras
 | `markdown(*, table_strategy="lines")` | 이 페이지의 Markdown |
 | `ocr(...)`, `apply_ocr(*, words=None, ...)` | OCR, 그리고 그 결과나 다른 엔진의 단어로 만드는 보이지 않는 텍스트 레이어. [오프라인 OCR](ocr.md) 참고 |
 | `content(*, text_runs=True, paths=True, images=True, clip=None, annotations=True)` | 페이지가 그리는 모든 텍스트 런, 경로, 이미지. [페이지 내용](#content) 참고 |
-| `get_links()` | 링크와 그 대상 |
 | `label` | `"iv"` 같은 페이지 레이블. [목차와 페이지 레이블](#outline) 참고 |
 
 `Word`는 `text`, `bbox`, 그리고 페이지 레이아웃에서의 위치를 나타내는 `block`, `line`, `index`를 가집니다. 각각 단어가 속한 블록의 인덱스, 그 블록 안에서 줄의 인덱스, 그 줄 안에서 단어의 인덱스입니다.
@@ -257,9 +256,23 @@ page.rotation = 90
 |---|---|
 | `annots(*, types=None)` | `type`, `rect`, `info`, `colors`, `flags`, `xref`를 가진 읽기 전용 `Annot` 객체 |
 | `add_highlight_annot(quads, *, color=, opacity=0.4, content=None)` | 검색 결과 같은 하나 이상의 사각형이나 사변형을 강조 표시 |
-| `insert_link(link)` | 웹 링크(`kind=LINK_URI`)를 추가 |
+| `links` | 페이지가 나열하는 순서의 `Link` 핸들로 된 페이지의 링크 |
 
 주석 종류와 플래그는 `PDF_ANNOT_*`와 `PDF_ANNOT_IS_*` 상수입니다.
+
+`page.links`는 `Link` 핸들의 시퀀스입니다. `page.links.add(rect, target)`는 표시 좌표의 사각형 위에 링크를 추가하고 그 핸들을 반환하며, `del page.links[i]`는 링크를 제거합니다. 핸들은 접근할 때마다 문서를 읽고, `rect`나 `target`에 대입하면 링크를 편집합니다. 대상은 [목차](#outline)와 같아서 URI 문자열, `Destination`, `RemoteDestination`, `Launch`, `NamedAction` 중 하나입니다. JavaScript처럼 pylopdf가 읽지 않는 동작의 링크나 어떤 페이지도 가리키지 않는 목적지의 링크는 대상이 `None`입니다. `xref`와 `obj`는 주석의 객체 번호와 [객체 모델](#low-level-objects)의 딕셔너리를 돌려주며, 테두리, 색, 플래그는 이 딕셔너리에 있습니다.
+
+```python
+from pylopdf import Destination
+
+for rect in page.search("Chapter 2"):
+    page.links.add(rect, Destination(5))
+for link in page.links:
+    if isinstance(link.target, str) and link.target.startswith("http:"):
+        link.target = "https:" + link.target.removeprefix("http:")
+```
+
+링크 읽기는 페이지당 주석 4,096개와 대상 텍스트 1 MiB에서 멈추고, 쓰는 대상 텍스트는 1 MiB까지입니다(`LimitError` 코드 `annotation_input_size`).
 
 ## 위치가 있는 텍스트와 글리프 { #positioned-text }
 
@@ -660,12 +673,13 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext` 등 내용 타입 | [페이지 내용](#content) |
 | `Colorspace` | [`Pixmap`](#pixmap)의 색 공간. `GRAY`와 `RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [목차와 페이지 레이블](#outline) |
+| `Link`, `Links` | [주석과 링크](#page-annotations) |
 | `PageBoxes` | [페이지 기하](#page-geometry) |
 | `FallbackFont`, `FallbackFonts` | [렌더링과 이미지](#document-rendering) |
 
-상수는 pymupdf의 이름을 유지하며 열거형으로도 묶여 있습니다. `Permissions`(`PDF_PERM_*`), `LinkKind`(`LINK_*`), `TextAlign`(`TEXT_ALIGN_*`), `AnnotType`(`PDF_ANNOT_*`), `AnnotFlags`(`PDF_ANNOT_IS_*`)입니다. `Access`의 멤버는 `USER`와 `OWNER`이고, `Encryption`은 저장하는 파일을 암호화하는 방법을 나타냅니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
+상수는 pymupdf의 이름을 유지하며 열거형으로도 묶여 있습니다. `Permissions`(`PDF_PERM_*`), `TextAlign`(`TEXT_ALIGN_*`), `AnnotType`(`PDF_ANNOT_*`), `AnnotFlags`(`PDF_ANNOT_IS_*`)입니다. `Access`의 멤버는 `USER`와 `OWNER`이고, `Encryption`은 저장하는 파일을 암호화하는 방법을 나타냅니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
 
-텍스트, 표, OCR, 페이지 내용의 결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord`, `Path`, `Image`, `MarkInfo`, `PdfaClaim`, `OutlineEntry`, `PageLabelRange`, 목차 대상 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 반환하는 그 밖의 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `LinkInfo`, `FormFieldInfo` 같은 `TypedDict` 클래스로 기술됩니다.
+텍스트, 표, OCR, 페이지 내용의 결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord`, `Path`, `Image`, `MarkInfo`, `PdfaClaim`, `OutlineEntry`, `PageLabelRange`, 목차 대상 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 반환하는 그 밖의 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `FormFieldInfo` 같은 `TypedDict` 클래스로 기술됩니다.
 
 ## 예외와 경고 { #exceptions }
 

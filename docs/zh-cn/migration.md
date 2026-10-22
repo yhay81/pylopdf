@@ -40,7 +40,8 @@ python -m pylopdf.migrate src/
 | `doc.get_xml_metadata()`、`set_xml_metadata(xml)`、`del_xml_metadata()` | `doc.xmp`、`doc.xmp = xml`、`del doc.xmp` | 没有数据包时为`None`；读写均以1 MiB为上限 |
 | `doc.language`、`set_language(tag)` | `doc.language`、`doc.language = tag` | 使用完整的标签：pymupdf最多只保留三个字母，因此`zh-TW`和`zh-HK`都会变成`zh-Hant`；`del doc.language`将其删除 |
 | `doc.pagemode`、`pagelayout`、`markinfo`及其`set_*`方法 | 对`doc.page_mode`、`page_layout`、`mark_info`赋值 | `PageMode`和`PageLayout`枚举以及`MarkInfo`记录；名称须完全匹配，而pymupdf不区分大小写 |
-| `doc.has_links()`、`has_annots()`、`is_closed` | 相同 | |
+| `doc.has_links()` | `any(page.links for page in doc.pages)` | |
+| `doc.has_annots()`、`is_closed` | 相同 | |
 | `doc.name` | `doc.path` | 一个`pathlib.Path`；从bytes打开或新建的空文档为`None`。由于所有文档都是PDF，`is_pdf`已被移除 |
 | `doc.needs_pass`、`doc.is_encrypted` | `doc.needs_password` | 在文档解锁之前为True |
 | `doc.authenticate(password)` | `doc.unlock(password)` | 返回`Access.USER`或`Access.OWNER`；密码错误时抛出`PasswordError`，而不是返回0 |
@@ -104,7 +105,9 @@ python -m pylopdf.migrate src/
 | `page.new_shape()`、`shape.draw_*`、`finish()`、`insert_text()`、`commit()` | 相同 | `with page.new_shape() as shape:`会自动提交；尚不支持`morph=`和`oc=` |
 | `page.draw_line()`、`draw_rect()`及其他`draw_*` | 相同 | 样式选项仅限关键字参数 |
 | `page.annots()`、`annot.type`、`rect`、`info`、`colors`、`flags` | 相同 | 目前为只读 |
-| `page.add_highlight_annot()`、`page.insert_link()` | 相同 | `insert_link`只创建网页链接（`LINK_URI`） |
+| `page.add_highlight_annot()` | 相同 | |
+| `page.get_links()`、`page.links()`、`page.first_link`、`page.load_links()` | `page.links` | 带有`rect`和`target`的`Link`句柄序列，取代字典和`Link`对象链 |
+| `page.insert_link(link)`、`page.update_link(link)`、`page.delete_link(link)` | `page.links.add(rect, target)`、给`link.rect`和`link.target`赋值、`del page.links[i]` | 链接目标与书签相同，是URI字符串、`Destination(page, point, zoom)`、`RemoteDestination(file, page)`、`Launch(file)`或`NamedAction(name)`之一；用`isinstance`判断目标，取代`LINK_*`类型 |
 | `page.widgets()` | `doc.get_form_fields()`、`doc.set_form_field(name, value)` | 表单按文档处理 |
 
 ### 几何 { #mapping-geometry }

@@ -787,16 +787,9 @@ def test_pdfium_existing_annotations_and_external_link_are_read() -> None:
         "Link",
         "Highlight",
     ]
-    assert annotations[4].xref == page.get_links()[0]["xref"]
-    assert page.get_links() == [
-        {
-            "kind": 2,
-            "from": pylopdf.Rect(69.0, 139.0, 542.0, 159.0),
-            "xref": 12,
-            "id": "",
-            "uri": "https://www.google.com/",
-        }
-    ]
+    (link,) = page.links
+    assert annotations[4].xref == link.xref == 12
+    assert (link.rect, link.target) == (pylopdf.Rect(69.0, 139.0, 542.0, 159.0), "https://www.google.com/")
     pixmap = page.pixmap(background=(255, 255, 255), alpha=True)
     samples = bytes(pixmap)
     yellow_offset = (252 * pixmap.width + 320) * 4

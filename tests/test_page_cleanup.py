@@ -71,16 +71,15 @@ def test_excluded_page_navigation_is_removed(operation: Literal["delete", "selec
     saved = doc.to_bytes()
     assert _EXCLUDED_TEXT.encode() not in saved
     for current in (doc, pylopdf.open(saved)):
-        links = current.pages[source].get_links()
-        goto = [link for link in links if link["kind"] == pylopdf.LINK_GOTO]
-        assert [link["nameddest"] for link in goto] == ["keep", "legacykeep"]
-        assert [link["page"] for link in goto] == [target, target]
-        assert [link["kind"] for link in links] == [
-            pylopdf.LINK_GOTO,
-            pylopdf.LINK_URI,
-            pylopdf.LINK_GOTOR,
-            pylopdf.LINK_GOTO,
+        links = list(current.pages[source].links)
+        assert [link.target for link in links] == [
+            pylopdf.Destination(target),
+            "https://example.com",
+            pylopdf.RemoteDestination("other.pdf", name="gone"),
+            pylopdf.Destination(target),
         ]
+        # The named links that stay keep their names.
+        assert [links[0].obj["Dest"], links[3].obj["Dest"]] == [pylopdf.String(b"keep"), "legacykeep"]
         # As in pymupdf, an item that led to a removed page stays without a destination.
         assert outline_tuples(current) == [
             (1, "Removed", None),
@@ -100,9 +99,9 @@ def test_duplicate_selected_pages_share_clean_navigation(*, indirect_annots: boo
     assert _EXCLUDED_TEXT.encode() not in saved
     reloaded = pylopdf.open(saved)
     for page_number in (0, 1):
-        links = reloaded.pages[page_number].get_links()
-        assert len(links) == 4
-        assert [link["page"] for link in links if link["kind"] == pylopdf.LINK_GOTO] == [2, 2]
+        targets = [link.target for link in reloaded.pages[page_number].links]
+        assert len(targets) == 4
+        assert [target.page for target in targets if isinstance(target, pylopdf.Destination)] == [2, 2]
 
 
 @pytest.mark.parametrize("operation", ["delete", "select"])
@@ -223,15 +222,16 @@ def test_cleanup_preserves_indirect_name_tree_keys(operation: Literal["delete", 
             }
         )
     )
-    assert doc.pages[0].get_links()[0]["page"] == 0
+    assert doc.pages[0].links[0].target == pylopdf.Destination(0)
     if operation == "delete":
         del doc.pages[1]
     else:
         doc.pages.select([0])
     saved = doc.to_bytes()
     for current in (doc, pylopdf.open(saved)):
-        assert current.pages[0].get_links()[0]["page"] == 0
-        assert current.pages[0].get_links()[0]["nameddest"] == "keep"
+        (link,) = current.pages[0].links
+        assert link.target == pylopdf.Destination(0)
+        assert link.obj["Dest"] == pylopdf.String(b"keep")
 
 
 @pytest.mark.parametrize("operation", ["delete", "select"])

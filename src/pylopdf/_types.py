@@ -5,27 +5,6 @@ from __future__ import annotations
 import enum
 from typing import Literal, TypeAlias, TypedDict
 
-from pylopdf._geometry import Point, Rect
-
-
-class LinkKind(enum.IntEnum):
-    """Link kinds; the members are pymupdf's ``LINK_*`` values."""
-
-    NONE = 0
-    GOTO = 1
-    URI = 2
-    LAUNCH = 3
-    NAMED = 4
-    GOTOR = 5
-
-
-LINK_NONE = LinkKind.NONE
-LINK_GOTO = LinkKind.GOTO
-LINK_URI = LinkKind.URI
-LINK_LAUNCH = LinkKind.LAUNCH
-LINK_NAMED = LinkKind.NAMED
-LINK_GOTOR = LinkKind.GOTOR
-
 
 class TextAlign(enum.IntEnum):
     """Text alignment; the members are pymupdf's ``TEXT_ALIGN_*`` values."""
@@ -97,26 +76,6 @@ class ImageCompressionResult(TypedDict):
     bytes_saved: int
 
 
-_LinkRequired = TypedDict("_LinkRequired", {"kind": LinkKind, "from": Rect, "xref": int, "id": str})
-
-
-class LinkInfo(_LinkRequired, total=False):
-    """One link returned by :meth:`Page.get_links`.
-
-    ``xref`` is the object number of the link annotation, or 0 for a direct
-    dictionary, and ``id`` its ``/NM`` name, or ``""``. Keys other than
-    ``kind``, ``from``, ``xref``, and ``id`` depend on ``kind``.
-    """
-
-    uri: str | None
-    page: int
-    to: Point
-    zoom: float
-    nameddest: str
-    file: str | None
-    name: str | None
-
-
 FormFieldType: TypeAlias = Literal[
     "text",
     "checkbox",
@@ -149,12 +108,10 @@ class DocumentComplexity(TypedDict):
 
 # The package re-exports these names; reprs, pickles, and documentation name it.
 for _public in (
-    LinkKind,
     TextAlign,
     Permissions,
     Access,
     ImageCompressionResult,
-    LinkInfo,
     FormFieldInfo,
     DocumentComplexity,
 ):

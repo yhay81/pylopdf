@@ -1403,13 +1403,25 @@ impl _Document {
         annotations::read_annotations(self, py, page_number)
     }
 
-    /// Read link annotations from a one-based page and resolve destinations.
+    /// Read the link annotations of a one-based page with their targets.
     ///
-    /// Support `/A` actions (URI, GoTo, GoToR, Launch, Named) and direct `/Dest`.
-    /// Resolve GoTo names from `/Names` trees and legacy `/Dests`. The page
+    /// Read `/A` actions (URI, GoTo, GoToR, Launch, Named) and `/Dest`, and
+    /// resolve GoTo names from `/Names` trees and legacy `/Dests`. The page
     /// index and name-tree index persist until the next edit.
-    fn read_links(&mut self, py: Python<'_>, page_number: u32) -> PyResult<Vec<IdentifiedLink>> {
+    fn read_links(&mut self, py: Python<'_>, page_number: u32) -> PyResult<Vec<LinkItem>> {
         navigation::read_links(self, py, page_number)
+    }
+
+    /// Read one link of a one-based page: the annotation at `index` of its
+    /// `/Annots`, object `xref`, or that object wherever it moved.
+    fn read_link(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+    ) -> PyResult<LinkItem> {
+        navigation::read_link(self, py, page_number, index, xref)
     }
 
     /// Add a highlight annotation to a one-based page.
@@ -1427,14 +1439,35 @@ impl _Document {
         annotations::add_highlight_annotation(self, page_number, rects, color, opacity, content)
     }
 
-    /// Add a URI link annotation to display `rect` on a one-based page.
-    fn add_link_annotation(
+    /// Add a link annotation over display `rect` on a one-based page and
+    /// return its object number.
+    fn add_link(
         &mut self,
         page_number: u32,
         rect: (f64, f64, f64, f64),
-        uri: String,
+        target: TargetTuple,
+    ) -> PyResult<u32> {
+        annotations::add_link(self, page_number, rect, target)
+    }
+
+    /// Replace the display rectangle or the target of a one-based page's
+    /// link, found as `read_link` finds it.
+    #[pyo3(signature = (page_number, index, xref, rect=None, target=None))]
+    fn set_link(
+        &mut self,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+        rect: Option<(f64, f64, f64, f64)>,
+        target: Option<TargetTuple>,
     ) -> PyResult<()> {
-        annotations::add_link_annotation(self, page_number, rect, uri)
+        annotations::set_link(self, page_number, index, xref, rect, target)
+    }
+
+    /// Remove an annotation, found as `read_link` finds a link, from a
+    /// one-based page's `/Annots`.
+    fn remove_annotation(&mut self, page_number: u32, index: u32, xref: u32) -> PyResult<()> {
+        annotations::remove_annotation(self, page_number, index, xref)
     }
 
     /// Read the XMP PDF/A claim from `pdfaid:part` and conformance.

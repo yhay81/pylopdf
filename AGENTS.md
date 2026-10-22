@@ -120,7 +120,8 @@ the concept and API overview.
     `src/pylopdf/_canvas.py`, `_create.py`, `_fonts.py`, `_shape.py`, and
     `_geometry.py`.
   - Interaction: `form.rs`, `acroform_import.rs`;
-    `document/{forms,annotations}.rs`; `src/pylopdf/_annots.py`.
+    `document/{forms,annotations}.rs`; `src/pylopdf/_annots.py` and
+    `_links.py`.
   - Rewriting: `content/`, `text_replace.rs`, `image_compression.rs`;
     `document/replacement.rs`.
   - Shared: `lib.rs`, `document/mod.rs`,
@@ -2365,11 +2366,32 @@ the concept and API overview.
   `annotation_input_size`, direct Rust calls repeat the boundary, and
   highlight iterables stop at item 4,097 without complete materialization.
   Successful output must remain readable under the same budget.
+- `page.links` (`src/pylopdf/_links.py`) is a `Links` sequence of `Link`
+  handles, one for every `/Subtype /Link` annotation with a `/Rect`, in
+  `/Annots` order. A handle stores the page, the annotation's object number
+  (0 for a direct dictionary), and an `/Annots` index; `read_link` and every
+  edit find it through `annotation_at`, which takes the stored index when it
+  still names the object and otherwise the object's first position, so a
+  handle survives the removal of an earlier annotation, while a direct
+  dictionary is found by its index alone. Targets share the outline's
+  `TargetTuple` and `target_entry` (`document/navigation.rs`): `/A` with
+  `/S` URI, GoTo, GoToR (a remote `/D` array's first integer is its page,
+  ISO 32000-2 §12.6.4.3), Launch, or Named, else `/Dest`; any other action,
+  or a destination that names no page, reads as `None`, and a destination
+  that leaves its coordinates unset reads without a point. `add_link`
+  writes a borderless printable `/Link` with `/P`; `set_link` replaces
+  `/Rect` or removes `/Dest` and `/A` before writing the new entry; and
+  `remove_annotation` takes the entry out of `/Annots`, leaving the object
+  for a pruning save. An edit of a direct dictionary or a removal first
+  detaches a page-shared indirect `/Annots` array (`own_page_annotations_mut`),
+  so pages that share it keep theirs. Every edit validates its input and
+  target before `invalidate_hayro_pdf_keeping_placements`, and Python bounds
+  the target texts at 1 MiB with `annotation_input_size` before the call.
 - Named-destination `/Names/Dests` lookup is iterative, visits indirect cycles
   once, and rejects traversal above 65,536 entries/nodes or 131,072 edges with
   `named_destination_count`, above 16 MiB of scanned key bytes with
   `named_destination_text_size`, or above 32 levels. Do not turn a truncated
-  lookup into an ordinary unresolved destination. TOC reads, `Page.get_links`,
+  lookup into an ordinary unresolved destination. TOC reads, `Page.links`,
   page-import link handling, and page cleanup share these large-manual limits:
   the cleanup rewrite in `rust/src/page_cleanup.rs` matches the read-side
   walker's dictionary-node, edge, entry, and key-byte accounting, and legacy
@@ -2382,7 +2404,7 @@ the concept and API overview.
   the 16 MiB TOC text budget, name-tree rewrites share the key-text budget,
   and page links and the OpenAction keep the 1 MiB per-page annotation budget.
   Legacy catalog `/Dests` remains a direct dictionary lookup after a bounded
-  name-tree miss. `Page.get_links` reuses one `LinkResolutionCache` on
+  name-tree miss. `Page.links` reuses one `LinkResolutionCache` on
   `_Document` until `invalidate_hayro_pdf` drops it on the next edit. It holds
   an owned name-tree index built on the first named lookup; page order and
   reverse page numbers come from the shared page index. The name-tree index
@@ -2470,8 +2492,8 @@ the concept and API overview.
   Table 29 reads as the default) and write through `set_catalog_name` and
   `set_mark_info`, which keep placements; assignments take an enum member or
   its exact value, where pymupdf matched names case-insensitively.
-  `has_links` and `has_annots` scan every page's `/Annots` with the page
-  index and release the GIL. `Document.language` reads and writes the
+  `has_annots` scans every page's `/Annots` with the page index and
+  releases the GIL. `Document.language` reads and writes the
   complete BCP 47 `/Lang` tag, where MuPDF packs it into at most three
   letters, so pymupdf reads `en-US` as `en` and cannot tell `zh-TW` from
   `zh-HK`; Python and `is_language_tag` in Rust both check its shape
@@ -2657,8 +2679,8 @@ the concept and API overview.
   extraction after an edit for a skipped bare-keyword form and a non-page
   page-tree kid, text drawn on content that leaves `q` and `Q` unbalanced, an
   OCR text layer from another engine's words, XMP, page-mode, page-layout,
-  and MarkInfo round trips, and an edited outline with every kind of target
-  plus page labels.
+  and MarkInfo round trips, an edited outline with every kind of target
+  plus page labels, and links of every kind added, edited, and removed.
   Add only small redistributable PDFs listed in
   `tests/assets/real_world/README.md`; non-PDF inputs such as the existing CJK
   font may be supplied from already licensed repository assets. Do not claim

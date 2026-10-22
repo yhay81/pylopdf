@@ -136,14 +136,14 @@ risky. When processing untrusted files:
   above 65,536 entries/nodes or 131,072 edges with `named_destination_count`,
   above 16 MiB of key bytes with `named_destination_text_size`, or above 32
   levels, instead of silently reporting a truncated tree as unresolved.
-  `Document.outline`, `Page.get_links()`, link import in `Pages.insert()` and
+  `Document.outline`, `Page.links`, link import in `Pages.insert()` and
   `extend()`, and the rewrite of the name tree and legacy `/Dests` during page deletion and
   selection share these limits, so every well-formed tree that resolves can
   also be cleaned and imported. The rewrite copies retained destination values
   within 1,048,576 direct objects (16 per entry) and 16 MiB of text. A
   looked-up destination name costs the budget of the structure being walked:
   TOC text for an outline, key text for a name tree, or one page's 1 MiB of
-  link metadata. `Page.get_links()` indexes the tree on its first named
+  link metadata. `Page.links` indexes the tree on its first named
   lookup and reuses that index and the page index until the next edit, so
   reading every page stays linear. The retained index holds each distinct key
   once within the same entry and key-text limits, and a refused tree is never

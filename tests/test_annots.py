@@ -247,12 +247,12 @@ def test_insert_link_reads_back() -> None:
     doc = pylopdf.open(build_pdf(["Visit example"]))
     page = doc.pages[0]
     hits = page.search("example")
-    page.insert_link({"kind": pylopdf.LINK_URI, "from": hits[0], "uri": "https://example.com/"})
+    page.links.add(hits[0], "https://example.com/")
     reopened = pylopdf.open(doc.to_bytes())
     annots = reopened.pages[0].annots()
     assert len(annots) == 1
     assert annots[0].type[1] == "Link"
-    assert reopened.pages[0].get_links()[0]["uri"] == "https://example.com/"
+    assert reopened.pages[0].links[0].target == "https://example.com/"
 
 
 def test_copy_page_detaches_shared_indirect_annots_array() -> None:
@@ -272,10 +272,10 @@ def test_copy_page_detaches_shared_indirect_annots_array() -> None:
     doc = pylopdf.open(pdf)
     doc.pages.extend(doc.pages[0])
 
-    doc.pages[1].insert_link({"kind": pylopdf.LINK_URI, "from": (20, 20, 30, 30), "uri": "https://b.example"})
+    doc.pages[1].links.add((20, 20, 30, 30), "https://b.example")
 
     assert [len(page.annots()) for page in doc.pages] == [1, 2]
-    assert [link["uri"] for link in doc.pages[0].get_links()] == ["https://a.example"]
+    assert [link.target for link in doc.pages[0].links] == ["https://a.example"]
 
 
 def test_unique_indirect_annots_append_reaches_exact_limit_in_place() -> None:
@@ -294,7 +294,7 @@ def test_unique_indirect_annots_append_reaches_exact_limit_in_place() -> None:
     )
     doc = pylopdf.open(pdf)
 
-    doc.pages[0].insert_link({"kind": pylopdf.LINK_URI, "from": (20, 20, 30, 30), "uri": "https://b.example"})
+    doc.pages[0].links.add((20, 20, 30, 30), "https://b.example")
 
     assert len(doc.pages[0].annots()) == 4096
     assert b"/Annots 4 0 R" in doc.to_bytes()
@@ -313,7 +313,7 @@ def test_annotation_add_rejects_malformed_indirect_array_atomically() -> None:
     before = doc.to_bytes()
 
     with pytest.raises(pylopdf.PdfError):
-        doc.pages[0].insert_link({"kind": pylopdf.LINK_URI, "from": (20, 20, 30, 30), "uri": "https://example.com"})
+        doc.pages[0].links.add((20, 20, 30, 30), "https://example.com")
     with pytest.raises(pylopdf.PdfError):
         doc.pages[0].add_highlight_annot((20, 20, 30, 30))
 
@@ -334,8 +334,8 @@ def test_annots_rejects_bad_input() -> None:
         page.add_highlight_annot([])
     with pytest.raises(ValueError, match="opacity"):
         page.add_highlight_annot((10, 10, 50, 20), opacity=0)
-    with pytest.raises(ValueError, match="uri"):
-        page.insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 50, 20), "uri": ""})
+    with pytest.raises(ValueError, match="URI"):
+        page.links.add((10, 10, 50, 20), "")
 
 
 def test_annotation_reads_reject_excessive_array_without_partial_output() -> None:
@@ -353,7 +353,7 @@ def test_annotation_reads_reject_excessive_array_without_partial_output() -> Non
     with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
         page.annots()
     with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
-        page.get_links()
+        list(page.links)
 
 
 def test_annotation_reads_reject_excessive_metadata_text() -> None:
@@ -387,7 +387,7 @@ def test_link_reads_reject_excessive_uri_text() -> None:
     # Annotation handles do not read the action; link reads do.
     assert [annot.type[1] for annot in page.annots()] == ["Link"]
     with pytest.raises(pylopdf.PdfError, match=r"URI text.*1048576-byte safety limit"):
-        page.get_links()
+        list(page.links)
 
 
 def test_annotation_add_refuses_over_limit_page_atomically() -> None:
@@ -404,7 +404,7 @@ def test_annotation_add_refuses_over_limit_page_atomically() -> None:
     doc = pylopdf.open(pdf)
     before = doc.to_bytes()
     with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
-        doc.pages[0].insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 20, 20), "uri": "https://example.com"})
+        doc.pages[0].links.add((10, 10, 20, 20), "https://example.com")
     with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
         doc.pages[0].add_highlight_annot((10, 10, 20, 20))
     assert doc.to_bytes() == before
@@ -417,8 +417,8 @@ def test_annotation_add_bounds_inputs_atomically() -> None:
     with pytest.raises(pylopdf.LimitError, match=r"content.*1048576-byte") as content_limit:
         doc.pages[0].add_highlight_annot((10, 10, 20, 20), content="x" * (1024 * 1024 + 1))
     assert content_limit.value.code == "annotation_input_size"
-    with pytest.raises(pylopdf.LimitError, match=r"URI.*1048576-byte") as uri_limit:
-        doc.pages[0].insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 20, 20), "uri": "x" * (1024 * 1024 + 1)})
+    with pytest.raises(pylopdf.LimitError, match=r"link subtype and target.*1048576-byte") as uri_limit:
+        doc.pages[0].links.add((10, 10, 20, 20), "x" * (1024 * 1024 + 1))
     assert uri_limit.value.code == "annotation_input_size"
     with pytest.raises(ValueError, match="4096 rectangles"):
         doc.pages[0].add_highlight_annot([(10, 10, 20, 20)] * 4097)
@@ -457,6 +457,6 @@ def test_annotation_add_at_metadata_boundary_remains_readable() -> None:
 
     uri = "x" * (1024 * 1024 - len("Link"))
     link_doc = pylopdf.open(build_pdf([""]))
-    link_doc.pages[0].insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 20, 20), "uri": uri})
-    assert link_doc.pages[0].get_links()[0]["uri"] == uri
-    assert link_doc.pages[0].get_links()[0]["uri"] == uri
+    link_doc.pages[0].links.add((10, 10, 20, 20), uri)
+    assert link_doc.pages[0].links[0].target == uri
+    assert link_doc.pages[0].links[0].target == uri

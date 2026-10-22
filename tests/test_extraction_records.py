@@ -105,15 +105,16 @@ def _link_page(annotation: str, *, indirect: bool) -> pylopdf.Page:
     return pylopdf.open(build_raw_pdf(objects)).pages[0]
 
 
-@pytest.mark.parametrize(("name", "expected"), [("/NM (link-1)", "link-1"), ("", "")])
-def test_links_report_their_annotation_xref_and_id(name: str, expected: str) -> None:
-    annotation = f"<< /Type /Annot /Subtype /Link /Rect [10 10 60 30] {name} /A << /S /URI /URI (https://e.test/) >> >>"
+def test_links_report_their_annotation_xref_and_dictionary() -> None:
+    annotation = (
+        "<< /Type /Annot /Subtype /Link /Rect [10 10 60 30] /NM (link-1) /A << /S /URI /URI (https://e.test/) >> >>"
+    )
 
-    (link,) = _link_page(annotation, indirect=True).get_links()
+    (link,) = _link_page(annotation, indirect=True).links
 
-    assert link["xref"] == 4
-    assert link["id"] == expected
-    assert link["uri"] == "https://e.test/"
+    assert link.xref == 4
+    assert link.obj["NM"] == pylopdf.String(b"link-1")
+    assert link.target == "https://e.test/"
 
 
 def test_a_direct_link_annotation_has_xref_zero() -> None:
@@ -121,20 +122,20 @@ def test_a_direct_link_annotation_has_xref_zero() -> None:
         "<< /Type /Annot /Subtype /Link /Rect [10 10 60 30] /NM (direct) /A << /S /URI /URI (https://e.test/) >> >>"
     )
 
-    (link,) = _link_page(annotation, indirect=False).get_links()
+    (link,) = _link_page(annotation, indirect=False).links
 
-    assert (link["xref"], link["id"]) == (0, "direct")
+    assert (link.xref, link.obj["NM"]) == (0, pylopdf.String(b"direct"))
 
 
 def test_created_links_report_their_xref() -> None:
     doc = pylopdf.open(build_pdf(["Links"]))
     page = doc.pages[0]
-    page.insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 60, 30), "uri": "https://a.test/"})
-    page.insert_link({"kind": pylopdf.LINK_URI, "from": (10, 40, 60, 60), "uri": "https://b.test/"})
+    page.links.add((10, 10, 60, 30), "https://a.test/")
+    page.links.add((10, 40, 60, 60), "https://b.test/")
 
-    links = page.get_links()
+    links = list(page.links)
 
-    assert [link["uri"] for link in links] == ["https://a.test/", "https://b.test/"]
+    assert [link.target for link in links] == ["https://a.test/", "https://b.test/"]
     for link in links:
-        assert doc.objects[link["xref"]]["Subtype"] == "Link"
-    assert links[0]["xref"] != links[1]["xref"]
+        assert doc.objects[link.xref]["Subtype"] == "Link"
+    assert links[0].xref != links[1].xref

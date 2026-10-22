@@ -399,8 +399,13 @@ the canvas.
   `FallbackFont(sans, serif)` record of `Font` values, shared rather than
   copied, lists the installed font extras until it is edited, and keeps its
   configuration across `unlock()`.
-- Still to come, each with its codemod rules: interaction, writing, and the
-  remaining constants and records.
+- Done: links. `page.links` is a sequence of `Link` handles whose `rect`
+  and `target` are assigned in place, with `add(rect, target)` and `del`;
+  links take the outline's targets, so they lead to pages, other files,
+  files to open, and viewer actions as well as URIs, and `LinkInfo`,
+  `LinkKind`, and the `LINK_*` constants are gone.
+- Still to come, each with its codemod rules: annotations, forms and
+  widgets, writing, and the remaining constants and records.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs
