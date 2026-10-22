@@ -108,6 +108,32 @@ def _layout_pdf(pages: list[list[tuple]]) -> bytes:
     return bytes(out)
 
 
+def _unicode_font_spans_pdf(stream: str, mappings: dict[str, str]) -> bytes:
+    """Map Courier glyphs to Unicode while keeping specified advance geometry."""
+    entries = "\n".join(
+        f"<{code.encode().hex()}> <{text.encode('utf-16-be').hex()}>" for code, text in mappings.items()
+    )
+    cmap = (
+        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n"
+        "/CMapType 2 def\n1 begincodespacerange\n<00> <FF>\nendcodespacerange\n"
+        f"{len(mappings)} beginbfchar\n{entries}\nendbfchar\nendcmap\nend\nend"
+    )
+    return build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: (
+                "<< /Type /Pages /Kids [5 0 R] /Count 1 /MediaBox [0 0 300 200] "
+                "/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> >>"
+            ),
+            3: "<< /Type /Font /Subtype /Type1 /BaseFont /Courier /ToUnicode 7 0 R >>",
+            4: "<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Oblique /ToUnicode 7 0 R >>",
+            5: "<< /Type /Page /Parent 2 0 R /Contents 6 0 R >>",
+            6: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+            7: f"<< /Length {len(cmap)} >>\nstream\n{cmap}\nendstream",
+        }
+    )
+
+
 def test_heading_detected_by_size() -> None:
     doc = pylopdf.open(
         _layout_pdf(
@@ -255,6 +281,26 @@ def test_word_gap_between_font_spans_becomes_a_space() -> None:
     assert [span["text"] for span in spans] == ["Regular", "Bold"]
     # The font change inside "Bolder" has no gap, so it stays one word.
     assert doc.to_markdown() == "Regular Bold\n\nBolder"
+
+
+@pytest.mark.parametrize(("last_x", "expected"), [(52, "a\u0301b"), (58, "a\u0301 b")])
+def test_combining_mark_span_keeps_its_base_for_following_word_gap(last_x: int, expected: str) -> None:
+    stream = (
+        f"BT /F1 20 Tf 40 140 Td (a) Tj /F2 10 Tf 1 0 0 1 40 140 Tm (A) Tj /F1 20 Tf 1 0 0 1 {last_x} 140 Tm (b) Tj ET"
+    )
+    doc = pylopdf.open(_unicode_font_spans_pdf(stream, {"A": "\u0301"}))
+    assert doc.pages[0].get_text() == expected + "\n"
+    assert doc.to_markdown() == expected
+
+
+@pytest.mark.parametrize(("first", "second", "separator"), [("日", "本", " "), ("Ａ", "Ｂ", " "), ("ก", "ข", "")])
+@pytest.mark.parametrize("font", ["F1", "F2"])
+def test_font_span_word_gaps_follow_extractor_script_rules(first: str, second: str, separator: str, font: str) -> None:
+    stream = f"BT /F1 20 Tf 40 140 Td [(A) -300] TJ /{font} 20 Tf (B) Tj ET"
+    doc = pylopdf.open(_unicode_font_spans_pdf(stream, {"A": first, "B": second}))
+    expected = first + separator + second
+    assert doc.pages[0].get_text() == expected + "\n"
+    assert doc.to_markdown() == expected
 
 
 def test_page_to_markdown_and_page_selection() -> None:
