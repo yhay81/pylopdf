@@ -42,8 +42,13 @@ Key facts:
   doc.pages.insert(index, pages), doc.pages.extend(pages), del doc.pages[i],
   del doc.pages[a:b], doc.pages.select(indexes), doc.pages.move(index, to),
   doc.pages.labeled(label). A Document itself is not indexable or iterable.
-- Page indexes start at 0 everywhere; get_outline/set_outline replace
-  pymupdf's 1-based get_toc/set_toc.
+- Page indexes start at 0 everywhere, the outline and page labels included.
+- doc.outline is the sequence of top-level OutlineItem handles (title,
+  destination, page, children, color, bold, italic, is_open, all assignable
+  where it makes sense); doc.outline.walk() visits every item, and assigning
+  a list of OutlineEntry(level, title, Destination(page)) records replaces
+  the outline. doc.page_labels is a list of PageLabelRange(start, style,
+  prefix, first) records, and page.label reads one page's label.
 - Coordinates are points with a top-left origin in the displayed page,
   shared by extraction, search, drawing, and rendering.
 - Point, Matrix, Rect, IRect, and Quad are immutable NamedTuples with
@@ -54,7 +59,7 @@ Key facts:
 - page.content() returns every text run, path, and image a page paints, in
   paint order, as immutable values with glyph outline boxes, paints, strokes,
   and the clips, transparency groups, and marked content around each item.
-- get_pixmap(matrix=) takes scaling matrices only; dpi= takes precedence.
+- page.pixmap(dpi= or matrix=) takes scaling matrices only.
 - DocumentLimits.web() and LimitError.code bound untrusted input.
 
 Migrating pymupdf and pylopdf 0.15 code:
@@ -79,6 +84,7 @@ replacement, and the migration hint):
 - Document.__len__ -> Pages.__len__: Use len(doc.pages).
 - Document.authenticate -> Document.unlock: Use doc.unlock(password), which returns Access.USER or Access.OWNER and raises PasswordError for a wrong password.
 - Document.copy_page -> Pages.insert: Use doc.pages.insert(to, doc.pages[i]); the copy is a new page object, not a second reference.
+- Document.del_toc_item -> OutlineItem.destination: pymupdf grays the item out and removes its target: set destination = None, color, and italic on the OutlineItem from doc.outline.walk(), or assign doc.outline without the entry.
 - Document.del_xml_metadata -> Document.xmp: del doc.xmp removes the catalog's XMP metadata entry.
 - Document.delete_page -> Pages.__delitem__: Use del doc.pages[i].
 - Document.delete_pages -> Pages.__delitem__: Use del doc.pages[a:b], or doc.pages.select(...) to keep the other pages.
@@ -93,10 +99,11 @@ replacement, and the migration hint):
 - Document.fullcopy_page -> Pages.insert: Use doc.pages.insert(to, doc.pages[i]), or doc.pages.extend(doc.pages[i]) to append.
 - Document.get_new_xref -> Objects.add: Call doc.objects.add(value), which creates the object and returns its object number.
 - Document.get_page_images -> Page.resources: Use doc.pages[i].resources.images.
+- Document.get_page_labels -> Document.page_labels: Read doc.page_labels, a list of PageLabelRange(start, style, prefix, first) records.
 - Document.get_page_numbers -> Pages.labeled: Use doc.pages.labeled(label).
 - Document.get_page_pixmap -> Page.pixmap: Use doc.pages[i].pixmap(...).
 - Document.get_page_text -> Page.text: Use doc.pages[i].text(), or words() and layout() for the other options.
-- Document.get_toc -> Document.get_outline: pylopdf's get_outline uses zero-based pages; get_toc used one-based pages.
+- Document.get_toc -> Document.outline: Use doc.outline.entries(): OutlineEntry records whose destination is a Destination with a zero-based page (entry.page); get_toc used one-based pages.
 - Document.get_xml_metadata -> Document.xmp: doc.xmp returns the XMP packet as text, or None without one where pymupdf returns an empty string.
 - Document.insert_pdf -> Pages.insert: Use doc.pages.insert(index, other.pages[a:b + 1]), or doc.pages.extend(other.pages) to append.
 - Document.is_encrypted -> Document.needs_password: Read doc.needs_password, which is true until unlock() succeeds.
@@ -119,9 +126,11 @@ replacement, and the migration hint):
 - Document.set_language -> Document.language: Assign doc.language = tag, or del doc.language to remove it; pylopdf keeps the complete BCP 47 tag, such as zh-TW, where pymupdf keeps at most three letters.
 - Document.set_markinfo -> Document.mark_info: Assign doc.mark_info = MarkInfo(marked=..., user_properties=..., suspects=...); flags left out are written false, as in pymupdf.
 - Document.set_metadata -> Document.metadata: doc.metadata is a live mapping of the entries present: assign or update() keys to store values, del a key to remove it; created and modified replace creationDate and modDate.
+- Document.set_page_labels -> Document.page_labels: Assign a list of PageLabelRange(start, style, prefix, first) records to doc.page_labels.
 - Document.set_pagelayout -> Document.page_layout: Assign doc.page_layout = PageLayout.TWO_COLUMN_LEFT or its exact name, such as "TwoColumnLeft".
 - Document.set_pagemode -> Document.page_mode: Assign doc.page_mode = PageMode.USE_OUTLINES or its exact name, such as "UseOutlines".
-- Document.set_toc -> Document.set_outline: pylopdf's set_outline uses zero-based pages; set_toc used one-based pages.
+- Document.set_toc -> Document.outline: Assign a list of OutlineEntry(level, title, Destination(page)) records to doc.outline; pages are zero-based, where set_toc took one-based pages.
+- Document.set_toc_item -> OutlineItem: Assign title, destination, color, bold, italic, or is_open on the OutlineItem from doc.outline.walk().
 - Document.set_xml_metadata -> Document.xmp: Assign doc.xmp = packet to rewrite or add the XMP metadata stream.
 - Document.to_markdown -> Document.markdown: Call doc.markdown(...).
 - Document.to_text -> Document.text: Call doc.text() for the plain text of every page.
@@ -164,6 +173,18 @@ replacement, and the migration hint):
 - Matrix.prescale -> Matrix.__mul__: Use pylopdf.Matrix(sx, sy) * m, which returns a new Matrix.
 - Matrix.preshear -> Matrix.__mul__: Use pylopdf.Matrix(h, v, 1) * m, which returns a new Matrix.
 - Matrix.pretranslate -> Matrix.__mul__: Use pylopdf.Matrix(1, 0, 0, 1, tx, ty) * m, which returns a new Matrix.
+- Outline -> OutlineItem: pymupdf's Outline is one item; pylopdf's is OutlineItem, and pylopdf's Outline is the sequence that doc.outline returns.
+- Outline.dest -> OutlineItem.destination: Read item.destination: a Destination, RemoteDestination, Launch, NamedAction, URI string, or None.
+- Outline.destination -> OutlineItem.destination: Read item.destination; a named destination reads as the Destination it names.
+- Outline.down -> OutlineItem.children: Read item.children, the item's children in order.
+- Outline.is_external -> OutlineItem.destination: Test item.destination: a RemoteDestination, a Launch, or a URI string leads outside the document.
+- Outline.is_open -> OutlineItem.is_open: Read or assign item.is_open on the OutlineItem; assigning recounts the outline.
+- Outline.next -> OutlineItem.children: Iterate over doc.outline or the parent's item.children; doc.outline.walk() visits every item.
+- Outline.page -> OutlineItem.page: Read item.page: zero-based, and None for a target outside the document, where pymupdf returns -1.
+- Outline.title -> OutlineItem.title: Read or assign item.title on the OutlineItem.
+- Outline.uri -> OutlineItem.destination: Read item.destination: a URI target reads as its string.
+- Outline.x -> OutlineItem.destination: Read item.destination.point.x of a Destination with a point.
+- Outline.y -> OutlineItem.destination: Read item.destination.point.y of a Destination with a point.
 - PDF_ENCRYPT_* -> Encryption: Pass encryption=Encryption(user_password=..., owner_password=..., permissions=...) to save() or to_bytes(), which writes AES-256 encryption; encryption=None writes none.
 - Page.find_tables -> Page.tables: Use page.tables(strategy=..., clip=...), which returns a list of Table records; table.rows replaces extract().
 - Page.get_bboxlog -> Page.content: Call page.content(); every item has a bbox and a kind, and its context lists the clips around it.
@@ -174,6 +195,7 @@ replacement, and the migration hint):
 - Page.get_image_info -> Page.content: Read page.content(text_runs=False, paths=False).images: Image records with xref, bbox, matrix (pymupdf's transform), width, height, bits, colorspace, components, mask, encoded_size, and resolution.
 - Page.get_image_rects -> Page.content: Keep the items of page.content().images whose xref is the image's object number, and read their bbox and matrix.
 - Page.get_images -> Page.resources: Read page.resources.images: ImageObject handles with xref, width, height, bits, colorspace, alternate_colorspace, filters, soft_mask, mask, and is_stencil, in place of tuples.
+- Page.get_label -> Page.label: Read page.label.
 - Page.get_pixmap -> Page.pixmap: Use page.pixmap(dpi=...) or page.pixmap(matrix=...), not both; annots= is annotations=.
 - Page.get_svg_image -> Page.svg: Use page.svg(), which draws text as paths at 72 dpi.
 - Page.get_text -> Page.text: Use page.text() for "text", page.words() for "words", page.layout().blocks for "blocks", and page.layout().to_dict() or page.layout(chars=True).to_dict() for "dict" and "rawdict".
@@ -279,6 +301,16 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - Page.render -> Page.pixmap: Use page.pixmap(dpi=72 * scale, alpha=True).to_bytes() for the PNG.
 - Page.render_svg -> Page.svg: Use page.svg().
 - Page.to_markdown -> Page.markdown: Call page.markdown(...).
+- PageLabelInfo -> PageLabelRange: doc.page_labels returns PageLabelRange records instead of PageLabelInfo dictionaries.
+- PageLabelInfo.firstpagenum -> PageLabelRange.first: Read label_range.first.
+- PageLabelInfo.prefix -> PageLabelRange.prefix: Read label_range.prefix.
+- PageLabelInfo.startpage -> PageLabelRange.start: Read label_range.start.
+- PageLabelInfo.style -> PageLabelRange.style: Read label_range.style, a PageLabelStyle member or None.
+- PageLabelSpec -> PageLabelRange: Assign PageLabelRange(start, style, prefix, first) records to doc.page_labels.
+- PageLabelSpec.firstpagenum -> PageLabelRange.first: Pass first= to PageLabelRange.
+- PageLabelSpec.prefix -> PageLabelRange.prefix: Pass prefix= to PageLabelRange.
+- PageLabelSpec.startpage -> PageLabelRange.start: Pass start to PageLabelRange.
+- PageLabelSpec.style -> PageLabelRange.style: Pass style= to PageLabelRange: a PageLabelStyle member, its value, or None.
 - Permissions.COPY_FOR_ACCESSIBILITY -> Permissions.ACCESSIBILITY: Use Permissions.ACCESSIBILITY.
 - Permissions.FILL_FORMS -> Permissions.FORM: Use Permissions.FORM.
 - Permissions.PRINT_HIGH_QUALITY -> Permissions.PRINT_HQ: Use Permissions.PRINT_HQ.

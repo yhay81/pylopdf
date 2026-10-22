@@ -1,4 +1,4 @@
-"""Tests for page-label APIs on Document and Page."""
+"""Tests for ``Document.page_labels`` and ``Page.label``."""
 
 from __future__ import annotations
 
@@ -6,75 +6,105 @@ import pytest
 from conftest import build_pdf, build_raw_pdf
 
 import pylopdf
+from pylopdf import PageLabelRange, PageLabelStyle
 
 
 def _six_page_doc() -> pylopdf.Document:
     return pylopdf.open(build_pdf([f"Page {i}" for i in range(6)]))
 
 
-def test_set_and_compute_labels() -> None:
+def _labels(doc: pylopdf.Document) -> list[str]:
+    return [page.label for page in doc.pages]
+
+
+def test_assign_and_compute_labels() -> None:
     doc = _six_page_doc()
-    doc.set_page_labels(
-        [
-            {"startpage": 0, "style": "r"},
-            {"startpage": 3, "style": "D", "prefix": "A-"},
-        ]
-    )
-    assert [doc.pages[i].get_label() for i in range(6)] == ["i", "ii", "iii", "A-1", "A-2", "A-3"]
+    doc.page_labels = [PageLabelRange(0, PageLabelStyle.LOWER_ROMAN), PageLabelRange(3, prefix="A-")]
+    assert _labels(doc) == ["i", "ii", "iii", "A-1", "A-2", "A-3"]
+    assert doc.pages.labeled("A-2") == [4]
 
 
 def test_labels_roundtrip_through_save() -> None:
     doc = _six_page_doc()
-    labels: list[pylopdf.PageLabelSpec] = [
-        {"startpage": 0, "style": "R", "prefix": "", "firstpagenum": 5},
-        {"startpage": 2, "style": "a", "prefix": "付-", "firstpagenum": 1},
+    ranges = [
+        PageLabelRange(0, PageLabelStyle.UPPER_ROMAN, first=5),
+        PageLabelRange(2, PageLabelStyle.LOWER_LETTERS, "付-"),
     ]
-    doc.set_page_labels(labels)
+    doc.page_labels = reversed(ranges)  # Ranges are written in page order.
     reopened = pylopdf.open(doc.to_bytes())
-    assert reopened.get_page_labels() == [
-        {"startpage": 0, "style": "R", "prefix": "", "firstpagenum": 5},
-        {"startpage": 2, "style": "a", "prefix": "付-", "firstpagenum": 1},
-    ]
-    assert reopened.pages[0].get_label() == "V"
-    assert reopened.pages[1].get_label() == "VI"
-    assert reopened.pages[2].get_label() == "付-a"
+    assert reopened.page_labels == ranges
+    assert _labels(reopened)[:3] == ["V", "VI", "付-a"]
+
+
+def test_styles_take_members_or_their_values() -> None:
+    assert PageLabelRange(0, "r") == PageLabelRange(0, PageLabelStyle.LOWER_ROMAN)
+    assert PageLabelRange(0).style is PageLabelStyle.DECIMAL
+    assert repr(PageLabelRange(2, None, "x")) == "PageLabelRange(start=2, style=None, prefix='x', first=1)"
+    with pytest.raises(ValueError, match="style"):
+        PageLabelRange(0, "X")
 
 
 def test_prefix_only_style() -> None:
     doc = _six_page_doc()
-    doc.set_page_labels([{"startpage": 0, "prefix": "表紙"}])
-    assert doc.pages[0].get_label() == "表紙"
-    assert doc.pages[5].get_label() == "表紙"
+    doc.page_labels = [PageLabelRange(0, None, "表紙")]
+    assert doc.page_labels == [PageLabelRange(0, None, "表紙")]
+    assert doc.pages[0].label == "表紙"
+    assert doc.pages[5].label == "表紙"
 
 
 def test_letters_style_wraps_past_z() -> None:
     doc = _six_page_doc()
-    doc.set_page_labels([{"startpage": 0, "style": "A", "firstpagenum": 26}])
-    assert doc.pages[0].get_label() == "Z"
-    assert doc.pages[1].get_label() == "AA"
-    assert doc.pages[2].get_label() == "BB"
+    doc.page_labels = [PageLabelRange(0, PageLabelStyle.UPPER_LETTERS, first=26)]
+    assert _labels(doc)[:3] == ["Z", "AA", "BB"]
 
 
-def test_empty_labels() -> None:
+def test_absent_and_removed_labels() -> None:
     doc = _six_page_doc()
-    assert doc.get_page_labels() == []
-    assert doc.pages[0].get_label() == ""
-    doc.set_page_labels([{"startpage": 0, "style": "D"}])
-    doc.set_page_labels([])  # An empty list removes labels.
-    assert doc.get_page_labels() == []
-    assert doc.pages[0].get_label() == ""
+    assert doc.page_labels == []
+    assert doc.pages[0].label == ""
+    doc.page_labels = [PageLabelRange(0)]
+    doc.page_labels = []  # An empty list removes labels.
+    assert doc.page_labels == []
+    doc.page_labels = [PageLabelRange(0)]
+    del doc.page_labels
+    assert doc.page_labels == []
+    assert doc.pages[0].label == ""
+    del doc.page_labels  # Removing absent labels changes nothing.
 
 
-def test_set_labels_validation() -> None:
+@pytest.mark.parametrize(
+    ("make", "error", "match"),
+    [
+        (lambda: PageLabelRange(-1), ValueError, "start"),
+        (lambda: PageLabelRange(0, first=0), ValueError, "first"),
+        (lambda: PageLabelRange(True), TypeError, "start"),
+        (lambda: PageLabelRange(0, prefix=5), TypeError, "prefix"),  # ty: ignore[invalid-argument-type]
+    ],
+)
+def test_ranges_validate_on_construction(make: object, error: type[Exception], match: str) -> None:
+    with pytest.raises(error, match=match):
+        make()  # ty: ignore[call-non-callable]
+
+
+def test_assigning_validates_the_ranges_together() -> None:
     doc = _six_page_doc()
-    with pytest.raises(ValueError, match="startpage 0"):
-        doc.set_page_labels([{"startpage": 2, "style": "D"}])
-    with pytest.raises(ValueError, match="style"):
-        doc.set_page_labels([{"startpage": 0, "style": "X"}])
-    with pytest.raises(ValueError, match="firstpagenum"):
-        doc.set_page_labels([{"startpage": 0, "style": "D", "firstpagenum": 0}])
-    with pytest.raises(ValueError, match="unique"):
-        doc.set_page_labels([{"startpage": 0}, {"startpage": 0, "style": "D"}])
+    with pytest.raises(ValueError, match="page 0"):
+        doc.page_labels = [PageLabelRange(2)]
+    with pytest.raises(ValueError, match="distinct"):
+        doc.page_labels = [PageLabelRange(0, None), PageLabelRange(0)]
+    with pytest.raises(TypeError, match="PageLabelRange"):
+        doc.page_labels = [{"startpage": 0}]  # ty: ignore[invalid-assignment]
+    assert doc.page_labels == []
+
+
+def test_removed_page_label_names_raise_migration_hints() -> None:
+    doc = _six_page_doc()
+    with pytest.raises(AttributeError, match=r"doc\.page_labels"):
+        doc.get_page_labels()  # ty: ignore[unresolved-attribute]
+    with pytest.raises(AttributeError, match=r"doc\.page_labels"):
+        doc.set_page_labels([])  # ty: ignore[unresolved-attribute]
+    with pytest.raises(AttributeError, match=r"page\.label"):
+        doc.pages[0].get_label()  # ty: ignore[unresolved-attribute]
 
 
 def test_page_label_tree_reference_cycle_is_visited_once() -> None:
@@ -87,8 +117,8 @@ def test_page_label_tree_reference_cycle_is_visited_once() -> None:
         }
     )
     doc = pylopdf.open(pdf)
-    assert doc.get_page_labels() == [{"startpage": 0, "style": "D", "prefix": "A-", "firstpagenum": 1}]
-    assert doc.pages[0].get_label() == "A-1"
+    assert doc.page_labels == [PageLabelRange(0, PageLabelStyle.DECIMAL, "A-")]
+    assert doc.pages[0].label == "A-1"
 
 
 def test_page_label_tree_rejects_excessive_depth() -> None:
@@ -103,7 +133,9 @@ def test_page_label_tree_rejects_excessive_depth() -> None:
 
     doc = pylopdf.open(build_raw_pdf(objects))
     with pytest.raises(pylopdf.PdfError, match="32-level safety limit"):
-        doc.get_page_labels()
+        _ = doc.page_labels
+    with pytest.raises(pylopdf.PdfError, match="32-level safety limit"):
+        _ = doc.pages[0].label
 
 
 def test_page_label_tree_rejects_excessive_edges_without_partial_output() -> None:
@@ -119,7 +151,7 @@ def test_page_label_tree_rejects_excessive_edges_without_partial_output() -> Non
     )
     doc = pylopdf.open(pdf)
     with pytest.raises(pylopdf.PdfError, match="4096-edge safety limit"):
-        doc.get_page_labels()
+        _ = doc.page_labels
 
 
 def test_page_label_tree_rejects_excessive_entries_without_partial_output() -> None:
@@ -134,7 +166,7 @@ def test_page_label_tree_rejects_excessive_entries_without_partial_output() -> N
     )
     doc = pylopdf.open(pdf)
     with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
-        doc.get_page_labels()
+        _ = doc.page_labels
 
 
 def test_page_label_tree_rejects_excessive_text_without_partial_output() -> None:
@@ -149,18 +181,18 @@ def test_page_label_tree_rejects_excessive_text_without_partial_output() -> None
     )
     doc = pylopdf.open(pdf)
     with pytest.raises(pylopdf.PdfError, match="1048576-byte safety limit"):
-        doc.get_page_labels()
+        _ = doc.page_labels
 
 
-def test_set_page_labels_refuses_to_create_over_limit_output_atomically() -> None:
+def test_assigning_refuses_over_limit_ranges_atomically() -> None:
     doc = _six_page_doc()
     before = doc.to_bytes()
 
     with pytest.raises(ValueError, match="4096 ranges"):
-        doc.set_page_labels([{"startpage": 0}] * 4097)
+        doc.page_labels = [PageLabelRange(index) for index in range(4097)]
     assert doc.to_bytes() == before
 
     with pytest.raises(pylopdf.LimitError, match="1048576-byte") as caught:
-        doc.set_page_labels([{"startpage": 0, "prefix": "x" * (1024 * 1024 + 1)}])
+        doc.page_labels = [PageLabelRange(0, prefix="x" * (1024 * 1024 + 1))]
     assert caught.value.code == "page_label_input_size"
     assert doc.to_bytes() == before

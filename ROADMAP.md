@@ -382,11 +382,16 @@ the canvas.
   attributes, with the `PageMode` and `PageLayout` enums and the `MarkInfo`
   record, and `doc.version`, `doc.encryption_method`, and `doc.pdfa_claim`
   (a `PdfaClaim` record) replace the `format` and `encryption` entries and
-  `get_pdfa_claim()`. The outline, page labels, page boxes, and fallback
-  fonts follow with their own records.
-- Still to come, each with its codemod rules: the outline and page labels,
-  page geometry, interaction, writing, and the remaining constants and
-  records.
+  `get_pdfa_claim()`.
+- Done: the outline and page labels. `doc.outline` is a tree of
+  `OutlineItem` handles whose title, destination, color, bold and italic
+  style, and open state are edited in place, and assigning a list of
+  `OutlineEntry` records replaces it; destinations are `Destination`,
+  `RemoteDestination`, `Launch`, `NamedAction`, or a URI string, the targets
+  that links will share. `doc.page_labels` holds `PageLabelRange` records with
+  the `PageLabelStyle` enum, and `page.label` reads one page's label.
+- Still to come, each with its codemod rules: page geometry and fallback
+  fonts, interaction, writing, and the remaining constants and records.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs
@@ -543,7 +548,7 @@ Workstream Structure.
   any document together with their links, annotations, and form fields.
 - The ArtBox, BleedBox, and TrimBox.
 - Outline items as handles with destinations, color, style, and collapse
-  state.
+  state (done).
 - Optional content: groups, configurations, membership dictionaries,
   visibility in rendering and extraction, and layers on written content.
 - Viewer preferences, linearization facts, and revision counts.

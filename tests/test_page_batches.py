@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from conftest import build_pdf
+from conftest import build_pdf, outline_entries, outline_tuples
 
 import pylopdf
 from pylopdf.pylopdf_core import LimitError, _Document
@@ -168,12 +168,14 @@ def test_large_manual_toc_round_trips_through_page_edits(large_pdf: bytes) -> No
     for index in range(LARGE_PAGE_COUNT):
         outline.append((1, f"Chapter {index}", index))
         outline.append((2, f"Section {index}.1", index))
-    doc.set_outline(outline)
+    doc.outline = outline_entries(outline)
 
     assert len(outline) > 4_096
-    assert doc.get_outline() == outline
-    assert pylopdf.open(doc.to_bytes()).get_outline() == outline
+    assert outline_tuples(doc) == outline
+    assert outline_tuples(pylopdf.open(doc.to_bytes())) == outline
 
-    del doc.pages[: LARGE_PAGE_COUNT // 2]
-    retained = [(level, title, page - LARGE_PAGE_COUNT // 2) for level, title, page in outline[LARGE_PAGE_COUNT:]]
-    assert doc.get_outline() == retained
+    half = LARGE_PAGE_COUNT // 2
+    del doc.pages[:half]
+    # Items that led to a deleted page stay without a destination.
+    retained = [(level, title, None if page < half else page - half) for level, title, page in outline]
+    assert outline_tuples(doc) == retained

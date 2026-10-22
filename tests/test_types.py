@@ -26,8 +26,16 @@ def test_public_type_contracts_are_runtime_importable() -> None:
         "PdfaClaim",
         "OcrRotation",
         "OcrWord",
-        "PageLabelInfo",
-        "PageLabelSpec",
+        "PageLabelRange",
+        "PageLabelStyle",
+        "Outline",
+        "OutlineEntry",
+        "OutlineItem",
+        "Destination",
+        "RemoteDestination",
+        "Launch",
+        "NamedAction",
+        "Target",
         "Char",
         "Layout",
         "Line",
@@ -54,14 +62,10 @@ def test_typed_dict_required_and_optional_keys() -> None:
         pylopdf.FormFieldInfo,
         pylopdf.ImageCompressionResult,
         pylopdf.LinkInfo,
-        pylopdf.PageLabelInfo,
-        pylopdf.PageLabelSpec,
     )
     assert all(is_typeddict(contract) for contract in typed_dicts)
     assert pylopdf.LinkInfo.__required_keys__ == frozenset({"kind", "from", "xref", "id"})
     assert pylopdf.LinkInfo.__optional_keys__ == frozenset({"uri", "page", "to", "zoom", "nameddest", "file", "name"})
-    assert pylopdf.PageLabelSpec.__required_keys__ == frozenset({"startpage"})
-    assert pylopdf.PageLabelSpec.__optional_keys__ == frozenset({"style", "prefix", "firstpagenum"})
     assert get_type_hints(pylopdf.Image)["bbox"] is pylopdf.Rect
     assert get_type_hints(pylopdf.OcrWord)["bbox"] is pylopdf.Rect
     assert get_type_hints(pylopdf.Table)["diagnostics"] is pylopdf.TableDiagnostics
@@ -72,7 +76,7 @@ def test_public_return_annotations_describe_real_values() -> None:
     layout: dict[str, Any] = doc.pages[0].layout().to_dict()
     metadata: pylopdf.Metadata = doc.metadata
     complexity: pylopdf.DocumentComplexity = doc.complexity
-    labels: list[pylopdf.PageLabelInfo] = doc.get_page_labels()
+    labels: list[pylopdf.PageLabelRange] = doc.page_labels
     fields: list[pylopdf.FormFieldInfo] = doc.get_form_fields()
     content: pylopdf.Content = doc.pages[0].content()
     compression: pylopdf.ImageCompressionResult = doc.rewrite_images(quality=75)

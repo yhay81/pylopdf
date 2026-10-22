@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING, overload
 
 from pylopdf._hints import hinted_getattr
 from pylopdf._limits import _FLOAT32_MAX
-from pylopdf._page import Page, _page_label
+from pylopdf._page import Page
+from pylopdf._page_labels import _label, _read_page_labels
 from pylopdf.pylopdf_core import LimitError
 
 if TYPE_CHECKING:
@@ -233,10 +234,10 @@ class Pages(Sequence[Page]):
         count = len(self)
         if not label:
             return []
-        labels = document.get_page_labels()
-        if not labels:
+        ranges = _read_page_labels(document)
+        if not ranges:
             return []
-        return [index for index in range(count) if _page_label(labels, index) == label]
+        return [index for index in range(count) if _label(ranges, index) == label]
 
     def _source_pages(self, pages: Page | Iterable[Page]) -> tuple[Document | None, list[int]]:
         """Return the document that ``pages`` belong to and their one-based page numbers."""

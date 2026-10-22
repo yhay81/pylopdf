@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import enum
-from typing import Literal, NamedTuple, TypeAlias, TypedDict
+from typing import Literal, TypeAlias, TypedDict
 
 from pylopdf._geometry import Point, Rect
 
@@ -78,17 +78,6 @@ class Access(enum.IntEnum):
     OWNER = 2
 
 
-class OutlineEntry(NamedTuple):
-    """One outline (bookmark) item of :meth:`Document.get_outline`.
-
-    ``page`` is zero-based, unlike pymupdf's ``get_toc()`` page numbers.
-    """
-
-    level: int
-    title: str
-    page: int
-
-
 #: Clockwise correction applied to rendered OCR input.
 OcrRotation: TypeAlias = Literal[0, 90, 180, 270]
 #: Script or locale used to select an optional bundled generation font.
@@ -148,29 +137,6 @@ class FormFieldInfo(TypedDict):
     value: str | None
 
 
-class PageLabelInfo(TypedDict):
-    """One normalized page-label range returned by ``get_page_labels``."""
-
-    startpage: int
-    style: str
-    prefix: str
-    firstpagenum: int
-
-
-class _PageLabelStart(TypedDict):
-    """Required part of :class:`PageLabelSpec`."""
-
-    startpage: int
-
-
-class PageLabelSpec(_PageLabelStart, total=False):
-    """One input range for :meth:`Document.set_page_labels`."""
-
-    style: str
-    prefix: str
-    firstpagenum: int
-
-
 class DocumentComplexity(TypedDict):
     """Cheap structural facts that require no stream decoding or rendering."""
 
@@ -183,7 +149,6 @@ class DocumentComplexity(TypedDict):
 
 # The package re-exports these names; reprs, pickles, and documentation name it.
 for _public in (
-    OutlineEntry,
     LinkKind,
     TextAlign,
     Permissions,
@@ -191,8 +156,6 @@ for _public in (
     ImageCompressionResult,
     LinkInfo,
     FormFieldInfo,
-    PageLabelInfo,
-    PageLabelSpec,
     DocumentComplexity,
 ):
     _public.__module__ = "pylopdf"

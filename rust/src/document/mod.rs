@@ -27,8 +27,8 @@ use hayro::{PixmapSettings, RenderCache, RenderSettings, render_into};
 use lopdf::encryption::crypt_filters::{Aes256CryptFilter, CryptFilter};
 use lopdf::encryption::{EncryptionState, EncryptionVersion, Permissions};
 use lopdf::{
-    Bookmark, DecompressError, Dictionary, Document, LoadOptions, Object, ObjectId, PdfMetadata,
-    SaveOptions, Stream, StringFormat, decode_text_string, dictionary, text_string,
+    DecompressError, Dictionary, Document, LoadOptions, Object, ObjectId, PdfMetadata, SaveOptions,
+    Stream, StringFormat, decode_text_string, dictionary, text_string,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -83,6 +83,7 @@ mod lowlevel;
 mod metadata;
 mod navigation;
 mod objects;
+mod outline;
 mod page_tree;
 mod rendering;
 mod replacement;
@@ -107,6 +108,7 @@ use self::lowlevel::{DEFAULT_MAX_STREAM_DATA_SIZE, Root, Step};
 use self::metadata::*;
 pub(crate) use self::navigation::*;
 pub(crate) use self::objects::*;
+use self::outline::*;
 use self::page_tree::*;
 use self::rendering::*;
 use self::saving::*;
@@ -1028,19 +1030,57 @@ impl _Document {
         rendering::render_page_svg(self, py, page_number, annotations, max_output_size)
     }
 
-    /// Return the TOC as flat `(level, title, one-based page number)` entries.
-    ///
-    /// Return empty when absent and skip entries that do not resolve to a page.
-    fn get_toc(&self, py: Python<'_>) -> PyResult<Vec<TocEntry>> {
-        py.detach(|| collect_toc(&self.doc))
+    /// Return every outline item in document order: object number and
+    /// generation (0 and 0 for a direct dictionary), level, title, target,
+    /// color, `/F` flags, and `/Count`.
+    fn outline_entries(&mut self, py: Python<'_>) -> PyResult<Vec<OutlineEntryTuple>> {
+        outline::outline_entries(self, py)
     }
 
-    /// Replace the TOC from `(level, title, one-based page)` entries; empty deletes.
-    ///
-    /// Preflight all input before mutation. lopdf writes non-ASCII titles as
-    /// UTF-16BE with a BOM.
-    fn set_toc(&mut self, entries: Vec<(u32, String, u32)>) -> PyResult<()> {
-        navigation::set_toc(self, entries)
+    /// Return the object IDs of the children of an outline item, or of the
+    /// outline root for `None`.
+    #[pyo3(signature = (parent=None))]
+    fn outline_children(&self, parent: Option<(u32, u16)>) -> PyResult<Vec<(u32, u16)>> {
+        outline::outline_children(self, parent)
+    }
+
+    /// Return one outline item: level, title, target, color, `/F` flags,
+    /// `/Count`, and whether it has children.
+    fn outline_item(&mut self, py: Python<'_>, item: (u32, u16)) -> PyResult<OutlineItemTuple> {
+        outline::outline_item(self, py, item)
+    }
+
+    /// Replace the outline with `(level, title, target, color, flags, open)`
+    /// items; an empty list removes it. Every item is prepared before the
+    /// document changes.
+    fn write_outline(&mut self, entries: Vec<OutlineSpec>) -> PyResult<()> {
+        outline::write_outline(self, entries)
+    }
+
+    /// Replace an outline item's title.
+    fn set_outline_title(&mut self, item: (u32, u16), title: &str) -> PyResult<()> {
+        outline::set_outline_title(self, item, title)
+    }
+
+    /// Replace an outline item's color and `/F` flags.
+    #[pyo3(signature = (item, color, flags))]
+    fn set_outline_style(
+        &mut self,
+        item: (u32, u16),
+        color: Option<(f64, f64, f64)>,
+        flags: u32,
+    ) -> PyResult<()> {
+        outline::set_outline_style(self, item, color, flags)
+    }
+
+    /// Replace what an outline item leads to.
+    fn set_outline_target(&mut self, item: (u32, u16), target: TargetTuple) -> PyResult<()> {
+        outline::set_outline_target(self, item, target)
+    }
+
+    /// Show or hide an outline item's children and recount the outline.
+    fn set_outline_open(&mut self, item: (u32, u16), is_open: bool) -> PyResult<()> {
+        outline::set_outline_open(self, item, is_open)
     }
 
     /// Save an AES-256 encrypted clone to a file while this document stays plaintext.

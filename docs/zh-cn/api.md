@@ -67,8 +67,8 @@ doc.save(
 | `doc.pages.select(indexes)` | 按列出的顺序保留列出的页面；重复某个索引即复制该页 |
 | `doc.pages.move(index, to)` | 移动某页，使其最终位于索引`to` |
 | `doc.pages.labeled(label)` | 标签为`label`的页面的索引 |
-| `get_outline()` / `set_outline(entries)` | 以`OutlineEntry(level, title, page)`条目读取或替换目录 |
-| `get_page_labels()` / `set_page_labels(labels)` | 页码标签范围，例如前言部分使用罗马数字 |
+| `outline` | 以`OutlineItem`句柄树表示的书签（大纲）；参见[书签与页码标签](#outline) |
+| `page_labels` | 以`PageLabelRange`记录表示的页码标签范围，例如前言部分使用罗马数字 |
 
 ```python
 merged = pylopdf.Document()
@@ -81,7 +81,56 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 颠倒页面顺序
 
 `insert`和`extend`像`list.insert`一样接受索引位置，因此超出末尾的索引会追加到末尾。一次调用中的页面都来自同一个文档，而且另一个文档的同一页在一次调用中最多出现一次。来自另一个文档的页面会连同其链接、批注和表单字段一起导入；已被使用的字段名会加上最小的未使用后缀`+N`。同一文档中某页的副本是一个新的页面对象，在任何一方被编辑之前，它与原页面共享内容流和资源。
 
-添加、删除或重排页面后，之前获取的`Page`视图会失效：使用它会抛出`StalePageError`，在修改页面的同时迭代`doc.pages`会抛出`RuntimeError`。删除或选择页面时，也会删除仅指向被删页面的链接、书签条目、表单字段和标签PDF（tagged PDF）结构。但这不会删除其内容的所有副本，因此不能作为安全的涂黑（redaction）手段。
+添加、删除或重排页面后，之前获取的`Page`视图会失效：使用它会抛出`StalePageError`，在修改页面的同时迭代`doc.pages`会抛出`RuntimeError`。删除或选择页面时，也会删除仅指向被删页面的链接、表单字段和标签PDF（tagged PDF）结构；指向被删页面的书签条目会像pymupdf一样留在原处，但不再有目标。但这不会删除其内容的所有副本，因此不能作为安全的涂黑（redaction）手段。
+
+### 书签与页码标签 { #outline }
+
+`doc.outline`以顶层`OutlineItem`句柄的序列表示书签（大纲）。每个条目的`children`包含树的其余部分，`doc.outline.walk()`按文档顺序遍历所有条目。条目在每次访问时读取文档，为其属性赋值会立即编辑文档。
+
+| `OutlineItem`成员 | 用途 |
+|---|---|
+| `title` | 查看器显示的标题；可赋值 |
+| `destination` | 条目指向的位置，即下表中的目标或`None`；可赋值 |
+| `page` | `Destination`的从0开始的页码，否则为`None` |
+| `level`、`children` | 深度（顶层条目为1）和子条目 |
+| `color`、`bold`、`italic` | 标题的显示方式：不透明的`Color`或`None`，以及两个标志；可赋值 |
+| `is_open` | 打开文档时是否展开子条目；可在有子条目的条目上赋值 |
+| `xref`、`obj` | 条目的对象编号及其在[底层对象](#low-level-objects)中的字典 |
+| `to_entry()` | 不含子条目的该条目，作为`OutlineEntry`返回 |
+
+赋值一个`OutlineEntry(level, title, destination=None, *, color=None, bold=False, italic=False, is_open=False)`记录列表会替换整个书签，`del doc.outline`会删除书签。层级从1开始，每个条目比前一个最多深一级；一个条目的子条目是紧随其后、层级深一级的条目。`doc.outline.entries()`以相同形式返回当前书签，因此可以作为列表编辑后再赋值回去。
+
+```python
+from pylopdf import Destination, OutlineEntry
+
+doc.outline = [
+    OutlineEntry(1, "Chapter 1", Destination(0), bold=True, is_open=True),
+    OutlineEntry(2, "Section 1.1", Destination(1, point=(72, 100))),
+    OutlineEntry(1, "Project site", "https://example.com"),
+]
+for item in doc.outline.walk():
+    if item.page == 1:
+        item.title = item.title.upper()
+```
+
+| 目标 | 指向 |
+|---|---|
+| `Destination(page, point=None, zoom=None)` | 本文档中从0开始的页面。`point`是视图左上角在显示坐标中的位置，`zoom`是缩放倍率；两者都没有时，查看器使页面适合窗口 |
+| `str` | URI |
+| `RemoteDestination(file, page=0, name=None)` | 另一个PDF文件的页面或命名目标 |
+| `Launch(file)` | 用查看器关联的应用程序打开的文件 |
+| `NamedAction(name)` | 查看器操作，例如`"NextPage"`或`"FirstPage"` |
+
+命名目标读取为它所指的`Destination`，页面已不存在的目标读取为`None`。读写的上限为65,536个条目、64层，以及16 MiB的标题和目标文本（`LimitError`代码为`toc_entry_count`、`toc_text_size`和`toc_input_size`）。
+
+`doc.page_labels`是`PageLabelRange(start, style=DECIMAL, prefix="", first=1)`记录的列表。每个范围为从从0开始的`start`到下一个范围之前的页面加上标签：`prefix`后接一个从`first`开始计数、按`PageLabelStyle`（`DECIMAL`、`UPPER_ROMAN`、`LOWER_ROMAN`、`UPPER_LETTERS`、`LOWER_LETTERS`，或只用前缀的`None`）书写的编号。赋值一个列表会按页面顺序替换这些范围，第一个范围必须从第0页开始；赋值`[]`或`del doc.page_labels`会删除它们。`page.label`是单个页面的标签，文档没有标签时为`""`；`doc.pages.labeled(label)`按标签查找页面。
+
+```python
+from pylopdf import PageLabelRange, PageLabelStyle
+
+doc.page_labels = [PageLabelRange(0, PageLabelStyle.LOWER_ROMAN), PageLabelRange(4, prefix="A-")]
+print([page.label for page in doc.pages])  # ['i', 'ii', 'iii', 'iv', 'A-1', 'A-2']
+```
 
 ### 文本与Markdown { #document-text }
 
@@ -139,7 +188,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 颠倒页面顺序
 | `ocr(...)`、`apply_ocr(*, words=None, ...)` | OCR，以及由其结果或其他引擎的单词生成的不可见文本层；参见[离线OCR](ocr.md) |
 | `content(*, text_runs=True, paths=True, images=True, clip=None, annotations=True)` | 页面绘制的所有文本段、路径和图像；参见[页面内容](#content) |
 | `get_links()` | 链接及其目标 |
-| `get_label()` | 页码标签，例如`"iv"` |
+| `label` | 页码标签，例如`"iv"`；参见[书签与页码标签](#outline) |
 
 `Word`具有`text`、`bbox`，以及表示其在页面布局中位置的`block`、`line`和`index`：分别是其所在区块的索引、其所在行在该区块中的索引，以及该单词在该行中的索引。
 
@@ -588,10 +637,11 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 | `Name`、`String`、`Array`、`Dictionary`、`Stream`、`Objects` | [底层对象](#low-level-objects) |
 | `Content`、`TextRun`、`Path`、`Image`、`Glyph`、`FontRef`、`Color`、`Stroke`、`GraphicsContext`及其他内容类型 | [页面内容](#content) |
 | `Colorspace` | [`Pixmap`](#pixmap)的颜色空间：`GRAY`和`RGB` |
+| `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [书签与页码标签](#outline) |
 
 常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）和`AnnotFlags`（`PDF_ANNOT_IS_*`）。`Access`的成员是`USER`和`OWNER`，`Encryption`描述如何加密保存的文件。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
 
-文本、表格、OCR和页面内容的结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`和`PdfaClaim`等不可变的数据类（frozen dataclass）。API返回的其他字典都是普通的`dict`对象，并通过`LinkInfo`和`FormFieldInfo`等`TypedDict`类向类型检查器描述；`OutlineEntry`是具名元组。
+文本、表格、OCR和页面内容的结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`和书签目标等不可变的数据类（frozen dataclass）。API返回的其他字典都是普通的`dict`对象，并通过`LinkInfo`和`FormFieldInfo`等`TypedDict`类向类型检查器描述。
 
 ## 异常与警告 { #exceptions }
 

@@ -38,13 +38,16 @@ from pylopdf._limits import (
     _UINT32_MAX,
     DocumentLimits,
     _document_limit_args,
+    _validate_cumulative_pdf_text_input,
     _validate_cumulative_utf8_input,
     _validate_optional_positive_int,
     _validate_utf8_text_input,
 )
 from pylopdf._metadata import METADATA_KEYS, MarkInfo, Metadata, PageLayout, PageMode, PdfaClaim, _metadata_value
 from pylopdf._objects import Dictionary, Name, Objects, String
-from pylopdf._page import _PAGE_LABEL_STYLES, Page
+from pylopdf._outline import Outline, OutlineEntry, _write_outline
+from pylopdf._page import Page
+from pylopdf._page_labels import PageLabelRange, _read_page_labels, _write_page_labels
 from pylopdf._pages import Pages
 from pylopdf._pixmap import (
     Colorspace,
@@ -61,11 +64,7 @@ from pylopdf._tables import (
     _markdown_table_output,
     _MarkdownBudget,
 )
-from pylopdf._types import (
-    Access,
-    OutlineEntry,
-    Permissions,
-)
+from pylopdf._types import Access, Permissions
 from pylopdf.pylopdf_core import LimitError, PasswordError, PdfError, _Document
 
 if sys.platform == "win32":
@@ -85,8 +84,6 @@ if TYPE_CHECKING:
         FormFieldInfo,
         FormFieldType,
         ImageCompressionResult,
-        PageLabelInfo,
-        PageLabelSpec,
     )
 
 
@@ -95,12 +92,7 @@ _DEFAULT_MAX_RENDER_BATCH_SIZE = 512 * 1024 * 1024
 _DEFAULT_MAX_PDF_OUTPUT_SIZE = 512 * 1024 * 1024
 _MAX_FORM_FIELD_INPUT_SIZE = 1024 * 1024
 _MAX_METADATA_INPUT_TEXT_SIZE = 1024 * 1024
-_MAX_TOC_INPUT_TEXT_SIZE = 16 * 1024 * 1024
-_MAX_PAGE_LABEL_INPUT_TEXT_SIZE = 1024 * 1024
-_UTF16_BMP_MAX = (1 << 16) - 1
-_MAX_PAGE_LABEL_RANGES = 4096
 _MAX_PASSWORD_INPUT_BYTES = 127
-_MAX_TOC_ENTRIES = 65_536
 # Explicit page iterables may repeat pages up to the larger of the page count
 # and this floor, so repetition never costs more than one full document pass.
 _MIN_PAGE_ENTRY_LIMIT = 4096
@@ -200,36 +192,6 @@ def _atomic_save_file(
     finally:
         if not replaced:
             _remove_temporary_output(temporary)
-
-
-def _validate_cumulative_pdf_text_input(
-    values: Iterable[str],
-    limit: int,
-    *,
-    limit_code: str,
-    input_label: str,
-) -> None:
-    """Bound aggregate ASCII or UTF-16BE PDF text strings without encoding."""
-    remaining = limit
-    for value in values:
-        size: int | None
-        if value.isascii():
-            size = len(value)
-            if size > remaining:
-                size = None
-        else:
-            size = 2  # UTF-16BE byte-order mark.
-            for character in value:
-                size += 2 if ord(character) <= _UTF16_BMP_MAX else 4
-                if size > remaining:
-                    size = None
-                    break
-        if size is None:
-            raise LimitError(
-                limit_code,
-                f"{input_label} exceeds the {limit}-byte encoded-text safety limit",
-            )
-        remaining -= size
 
 
 def _validate_password_input(password: str | None, label: str = "password") -> None:
@@ -964,82 +926,27 @@ class Document:
         else:
             self._doc.set_form_field(name, resolved, font_data, fontindex, max_font_size, weight)
 
-    def get_page_labels(self) -> list[PageLabelInfo]:
-        """Read page-label definitions.
+    @property
+    def page_labels(self) -> list[PageLabelRange]:
+        """Return the page-label ranges in page order, or ``[]`` without labels.
 
-        Each item has ``startpage``, ``style``, ``prefix``, and
-        ``firstpagenum``. ``startpage`` is zero-based; ``style`` is
-        ``"D"``, ``"R"``, ``"r"``, ``"A"``, ``"a"``, or empty for prefix only.
-        Use :meth:`Page.get_label` for a page's rendered label. Number-tree reads
-        reject partial output above 4,096 entries/nodes, 32 levels, or 1 MiB of
-        encoded or decoded style/prefix text.
+        Each :class:`PageLabelRange` labels the pages from its zero-based
+        ``start`` up to the next range; ``page.label`` gives one page's
+        label. Assigning a list replaces the ranges, the first of which must
+        start at page 0, and ``del doc.page_labels`` removes them. Reads
+        refuse more than 4,096 ranges or tree nodes, 32 levels, or 1 MiB of
+        style and prefix text; writes stop at 4,096 ranges and 1 MiB of text
+        (``LimitError.code == "page_label_input_size"``).
         """
-        self._ensure_open()
-        return [
-            {
-                "startpage": int(start),
-                "style": style or "",
-                "prefix": prefix or "",
-                "firstpagenum": int(first),
-            }
-            for start, style, prefix, first in self._doc.get_page_labels()
-        ]
+        return _read_page_labels(self)
 
-    def set_page_labels(self, labels: Sequence[PageLabelSpec]) -> None:
-        """Set page labels in :meth:`get_page_labels` format; empty removes all.
+    @page_labels.setter
+    def page_labels(self, ranges: Iterable[PageLabelRange]) -> None:
+        _write_page_labels(self, ranges)
 
-        The PDF specification requires the first range to start at page 0.
-        ``firstpagenum`` defaults to 1 for each range.
-        Aggregate style and prefix input plus encoded PDF text stop at 1 MiB
-        before PyO3 copying with ``page_label_input_size``.
-        """
-        self._ensure_open()
-        if len(labels) > _MAX_PAGE_LABEL_RANGES:
-            msg = f"labels cannot contain more than {_MAX_PAGE_LABEL_RANGES} ranges"
-            raise ValueError(msg)
-        payload: list[tuple[int, str | None, str | None, int]] = []
-        seen: set[int] = set()
-        for label in labels:
-            start = int(label.get("startpage", -1))
-            style = str(label.get("style", ""))
-            prefix = str(label.get("prefix", ""))
-            first = int(label.get("firstpagenum", 1))
-            if start < 0 or start in seen:
-                msg = f"startpage must be >= 0 and unique: {label!r}"
-                raise ValueError(msg)
-            if style not in _PAGE_LABEL_STYLES:
-                msg = f"style must be one of {sorted(_PAGE_LABEL_STYLES)}: {style!r}"
-                raise ValueError(msg)
-            if first < 1:
-                msg = f"firstpagenum must be >= 1: {label!r}"
-                raise ValueError(msg)
-            seen.add(start)
-            payload.append((start, style or None, prefix or None, first))
-        if payload and min(seen) != 0:
-            msg = "the first page label range must start at startpage 0 (PDF spec requirement)"
-            raise ValueError(msg)
-        payload.sort(key=lambda item: item[0])
-        _validate_cumulative_utf8_input(
-            (
-                text
-                for _, style, prefix, _ in payload
-                for text in ("" if style is None else style, "" if prefix is None else prefix)
-            ),
-            _MAX_PAGE_LABEL_INPUT_TEXT_SIZE,
-            limit_code="page_label_input_size",
-            input_label="page-label text input",
-        )
-        _validate_cumulative_pdf_text_input(
-            (
-                text
-                for _, style, prefix, _ in payload
-                for text in ("" if style is None else style, "" if prefix is None else prefix)
-            ),
-            _MAX_PAGE_LABEL_INPUT_TEXT_SIZE,
-            limit_code="page_label_input_size",
-            input_label="encoded page-label text input",
-        )
-        self._doc.set_page_labels(payload)
+    @page_labels.deleter
+    def page_labels(self) -> None:
+        _write_page_labels(self, ())
 
     @property
     def images(self) -> Images:
@@ -1107,74 +1014,30 @@ class Document:
         self._emit_warnings(stacklevel=4)
         return layout
 
-    def get_outline(self) -> list[OutlineEntry]:
-        """Return the outline (bookmarks) as :class:`OutlineEntry` items.
+    @property
+    def outline(self) -> Outline:
+        """Return the outline (bookmarks) as a live :class:`Outline` of item handles.
 
-        Each item is ``(level, title, page)``: levels start at 1, and ``page``
-        is zero-based like every other pylopdf page number. This replaces
-        pymupdf's ``get_toc()``, whose page numbers are one-based. Items whose
-        destination does not resolve to a page are left out. Return an empty
-        list when no outline exists. Traversal is cycle-aware and rejects more
-        than 65,536 nodes or entries or 131,072 edges with
-        ``LimitError.code == "toc_entry_count"``, more than 16 MiB of
-        source/returned text with ``"toc_text_size"``, and more than 64 levels
-        or 32 destination indirections. Named destinations resolve under the
-        same name-tree limits as :meth:`Page.get_links`.
+        Iterating gives the top-level :class:`OutlineItem` handles, whose
+        ``children`` give the rest of the tree; ``walk()`` visits every item
+        and ``entries()`` returns them as :class:`OutlineEntry` records.
+        Assigning an iterable of :class:`OutlineEntry` records replaces the
+        outline, and ``del doc.outline`` removes it. Page numbers are
+        zero-based. Reads and writes share the outline limits: 65,536 items
+        (``LimitError.code == "toc_entry_count"``), 64 levels, and 16 MiB of
+        title and target text (``"toc_text_size"`` to read,
+        ``"toc_input_size"`` to write).
         """
         self._ensure_open()
-        return [OutlineEntry(level, title, page - 1) for level, title, page in self._doc.get_toc()]
+        return Outline(self)
 
-    def set_outline(self, entries: Sequence[OutlineEntry | Sequence[int | str]], /) -> None:
-        """Replace the outline from ``(level, title, page)`` items.
+    @outline.setter
+    def outline(self, entries: Iterable[OutlineEntry]) -> None:
+        _write_outline(self, entries)
 
-        ``page`` is zero-based, as :meth:`get_outline` returns it; this
-        replaces pymupdf's ``set_toc()``, whose page numbers are one-based,
-        and editing the list replaces ``set_toc_item()`` and
-        ``del_toc_item()``. An empty sequence removes the outline. Levels start
-        at 1 and can increase by at most one from the previous item. At most
-        65,536 items, 64 levels, and 16 MiB each of input and encoded title
-        text are accepted, enough for large manuals. Validation is atomic.
-        Refusals occur before PyO3 copying with ``LimitError.code ==
-        "toc_entry_count"`` for items or ``"toc_input_size"`` for title text.
-        """
-        self._ensure_open()
-        if len(entries) > _MAX_TOC_ENTRIES:
-            limit_code = "toc_entry_count"
-            msg = f"the outline cannot contain more than {_MAX_TOC_ENTRIES} entries"
-            raise LimitError(limit_code, msg)
-        count = self._page_count()
-        prepared: list[tuple[int, str, int]] = []
-        previous_level = 0
-        for i, item in enumerate(entries):
-            try:
-                level_raw, title, page_raw = item
-                level = int(level_raw)
-                page = int(page_raw)
-            except (TypeError, ValueError) as exc:
-                msg = f"entries[{i}] must be (level, title, page): {item!r}"
-                raise ValueError(msg) from exc
-            if level < 1 or level > previous_level + 1:
-                msg = f"entries[{i}] has an invalid level {level} (must be >= 1 and at most the previous level + 1)"
-                raise ValueError(msg)
-            if not 0 <= page < count:
-                msg = f"entries[{i}] page {page} is out of range (0..{count - 1})"
-                raise ValueError(msg)
-            prepared.append((level, str(title), page + 1))
-            previous_level = level
-        titles = [title for _, title, _ in prepared]
-        _validate_cumulative_utf8_input(
-            titles,
-            _MAX_TOC_INPUT_TEXT_SIZE,
-            limit_code="toc_input_size",
-            input_label="outline title input",
-        )
-        _validate_cumulative_pdf_text_input(
-            titles,
-            _MAX_TOC_INPUT_TEXT_SIZE,
-            limit_code="toc_input_size",
-            input_label="encoded outline title input",
-        )
-        self._doc.set_toc(prepared)
+    @outline.deleter
+    def outline(self) -> None:
+        _write_outline(self, ())
 
     def set_fallback_font(
         self,

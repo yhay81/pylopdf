@@ -15,7 +15,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf, drawn_images
+from conftest import build_pdf, drawn_images, outline_entries
 
 import pylopdf
 
@@ -237,7 +237,7 @@ def test_edits_that_keep_placed_objects_keep_sharing_them() -> None:
     doc.pages.select([0, 1, 2, 3, 3])
     del doc.pages[3:4]
     doc.pages.extend(pylopdf.open(build_pdf(["Appendix"])).pages)
-    doc.set_outline([(1, "Start", 0)])
+    doc.outline = outline_entries([(1, "Start", 0)])
     doc.metadata.update({"title": "Shared"})
     doc.pages[2].set_rotation(90)
     doc.pages[2].add_highlight_annot((40, 30, 160, 90))

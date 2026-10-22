@@ -254,9 +254,6 @@ impl LinkResolutionCache {
     }
 }
 
-/// One flattened TOC item: one-based level, title, and page number.
-pub(super) type TocEntry = (u32, String, u32);
-
 /// Visit a named-destination tree with complete node-local safety budgets.
 pub(super) fn visit_named_destinations<'a>(
     doc: &'a Document,
@@ -500,230 +497,6 @@ pub(crate) fn toc_entry_count_err(message: String) -> PyErr {
     limit_err("toc_entry_count", message)
 }
 
-/// Decode one outline title while bounding both source and returned text.
-pub(super) fn bounded_toc_title(
-    doc: &Document,
-    object: &Object,
-    source_bytes: &mut usize,
-    returned_bytes: &mut usize,
-) -> PyResult<Option<String>> {
-    let object = deref_object(doc, object);
-    let Object::String(encoded, _) = object else {
-        return Ok(None);
-    };
-    add_toc_text_budget(source_bytes, encoded.len(), "source text")?;
-    let Ok(title) = decode_text_string(object) else {
-        return Ok(None);
-    };
-    add_toc_text_budget(returned_bytes, title.len(), "returned text")?;
-    Ok(Some(title))
-}
-
-/// Find a destination object on an outline node, mirroring lopdf precedence.
-pub(super) fn outline_destination<'a>(
-    doc: &'a Document,
-    node: &'a Dictionary,
-) -> Option<&'a Object> {
-    match node
-        .get(b"A")
-        .ok()
-        .map(|action| deref_object(doc, action))
-        .and_then(|action| action.as_dict().ok())
-    {
-        Some(action) => match action.get(b"S").and_then(Object::as_name) {
-            Ok(b"GoTo" | b"GoToR") => action.get(b"D").ok(),
-            _ => None,
-        },
-        None => node.get(b"Dest").ok(),
-    }
-}
-
-/// Resolve one outline destination to a one-based page under bounded indirection.
-pub(super) fn resolve_toc_page<'a>(
-    doc: &'a Document,
-    destination: &'a Object,
-    page_map: &HashMap<ObjectId, u32>,
-    named_destinations: &mut Option<HashMap<&'a [u8], &'a Object>>,
-    source_bytes: &mut usize,
-) -> PyResult<Option<u32>> {
-    let mut current = destination;
-    let mut visited = HashSet::new();
-    for _ in 0..MAX_TOC_DEST_DEPTH {
-        match current {
-            Object::Reference(id) => {
-                if visited.contains(id) {
-                    return Ok(None);
-                }
-                visited.try_reserve(1).map_err(|error| {
-                    PdfError::new_err(format!(
-                        "failed to grow TOC destination cycle detection: {error}"
-                    ))
-                })?;
-                visited.insert(*id);
-                let Ok(object) = doc.get_object(*id) else {
-                    return Ok(None);
-                };
-                current = object;
-            }
-            Object::Name(name) | Object::String(name, _) => {
-                add_toc_text_budget(source_bytes, name.len(), "source text")?;
-                if named_destinations.is_none() {
-                    *named_destinations = Some(named_destination_index(doc)?);
-                }
-                let found = named_destinations
-                    .as_ref()
-                    .and_then(|index| index.get(name.as_slice()).copied())
-                    .or_else(|| lookup_legacy_named_dest(doc, name));
-                let Some(found) = found else {
-                    return Ok(None);
-                };
-                current = found;
-            }
-            Object::Dictionary(dictionary) => {
-                let Ok(inner) = dictionary.get(b"D") else {
-                    return Ok(None);
-                };
-                current = inner;
-            }
-            Object::Array(array) => {
-                return Ok(match array.first() {
-                    Some(Object::Reference(id)) => page_map.get(id).copied(),
-                    _ => None,
-                });
-            }
-            _ => return Ok(None),
-        }
-    }
-    Err(PdfError::new_err(format!(
-        "TOC destination exceeds the {MAX_TOC_DEST_DEPTH}-level safety limit"
-    )))
-}
-
-/// Flatten an outline tree with explicit cycle, size, depth, and text budgets.
-pub(super) fn collect_toc(doc: &IndexedDocument) -> PyResult<Vec<TocEntry>> {
-    let Some(outlines_object) = doc
-        .catalog()
-        .ok()
-        .and_then(|catalog| catalog.get(b"Outlines").ok())
-    else {
-        return Ok(Vec::new());
-    };
-    // Page cleanup reads a null or missing outline root as absent as well.
-    let outlines = match non_null_value(doc, outlines_object) {
-        Ok(None) => return Ok(Vec::new()),
-        Ok(Some(Object::Dictionary(outlines))) => outlines,
-        _ => return Err(PdfError::new_err("catalog Outlines is not a dictionary")),
-    };
-    let (start, mut edges) = match outlines.get(b"First") {
-        Ok(first) => (first, 1usize),
-        Err(_) => (outlines_object, 0usize),
-    };
-    let page_map = doc.page_numbers()?;
-    let mut named_destinations = None;
-    let mut stack = Vec::new();
-    stack.try_reserve_exact(1).map_err(|error| {
-        PdfError::new_err(format!("failed to allocate TOC outline stack: {error}"))
-    })?;
-    stack.push((start, 1usize));
-    let mut visited = HashSet::new();
-    let mut nodes = 0usize;
-    let mut source_bytes = 0usize;
-    let mut returned_bytes = 0usize;
-    let mut out = Vec::new();
-    while let Some((node_object, depth)) = stack.pop() {
-        if let Object::Reference(id) = node_object {
-            if visited.contains(id) {
-                continue;
-            }
-            visited.try_reserve(1).map_err(|error| {
-                PdfError::new_err(format!(
-                    "failed to grow TOC outline cycle detection: {error}"
-                ))
-            })?;
-            visited.insert(*id);
-        }
-        let Ok(node) = deref_object(doc, node_object).as_dict() else {
-            continue;
-        };
-        nodes = nodes
-            .checked_add(1)
-            .ok_or_else(|| PdfError::new_err("TOC outline tree exceeds the platform size limit"))?;
-        if nodes > MAX_TOC_TREE_NODES {
-            return Err(toc_entry_count_err(format!(
-                "TOC outline tree exceeds the {MAX_TOC_TREE_NODES}-node safety limit"
-            )));
-        }
-
-        if let (Ok(title_object), Some(destination)) =
-            (node.get(b"Title"), outline_destination(doc, node))
-            && let Some(title) =
-                bounded_toc_title(doc, title_object, &mut source_bytes, &mut returned_bytes)?
-            && let Some(page) = resolve_toc_page(
-                doc,
-                destination,
-                page_map,
-                &mut named_destinations,
-                &mut source_bytes,
-            )?
-        {
-            if out.len() >= MAX_TOC_ENTRIES {
-                return Err(toc_entry_count_err(format!(
-                    "TOC exceeds the {MAX_TOC_ENTRIES}-entry safety limit"
-                )));
-            }
-            if out.len() == out.capacity() {
-                out.try_reserve(1).map_err(|error| {
-                    PdfError::new_err(format!("failed to grow returned TOC entries: {error}"))
-                })?;
-            }
-            out.push((
-                u32::try_from(depth).map_err(|error| PdfError::new_err(error.to_string()))?,
-                title,
-                page,
-            ));
-        }
-
-        if let Ok(next) = node.get(b"Next") {
-            edges = edges.checked_add(1).ok_or_else(|| {
-                PdfError::new_err("TOC outline tree exceeds the platform size limit")
-            })?;
-            if edges > MAX_TOC_TREE_EDGES {
-                return Err(toc_entry_count_err(format!(
-                    "TOC outline tree exceeds the {MAX_TOC_TREE_EDGES}-edge safety limit"
-                )));
-            }
-            if stack.len() == stack.capacity() {
-                stack.try_reserve(1).map_err(|error| {
-                    PdfError::new_err(format!("failed to grow TOC outline stack: {error}"))
-                })?;
-            }
-            stack.push((next, depth));
-        }
-        if let Ok(first) = node.get(b"First") {
-            if depth >= MAX_TOC_TREE_DEPTH {
-                return Err(PdfError::new_err(format!(
-                    "TOC outline tree exceeds the {MAX_TOC_TREE_DEPTH}-level safety limit"
-                )));
-            }
-            edges = edges.checked_add(1).ok_or_else(|| {
-                PdfError::new_err("TOC outline tree exceeds the platform size limit")
-            })?;
-            if edges > MAX_TOC_TREE_EDGES {
-                return Err(toc_entry_count_err(format!(
-                    "TOC outline tree exceeds the {MAX_TOC_TREE_EDGES}-edge safety limit"
-                )));
-            }
-            if stack.len() == stack.capacity() {
-                stack.try_reserve(1).map_err(|error| {
-                    PdfError::new_err(format!("failed to grow TOC outline stack: {error}"))
-                })?;
-            }
-            stack.push((first, depth + 1));
-        }
-    }
-    Ok(out)
-}
-
 /// Borrow an imported annotation operand under a bounded reference walk.
 pub(super) fn resolve_import_object<'a>(
     doc: &'a Document,
@@ -949,16 +722,27 @@ impl _Document {
         encoded_bytes: &mut usize,
         returned_bytes: &mut usize,
     ) -> PyResult<ResolvedDestination> {
+        self.resolve_destination(dest, cache, false, &mut |name| {
+            bounded_annotation_bytes(name, encoded_bytes, returned_bytes, "named destination")
+        })
+    }
+
+    /// Resolve a destination as [`Self::resolve_dest`] does, charging a
+    /// destination name through `name_text`, which returns it as text.
+    /// With `keep_unset`, a destination that leaves both of its coordinates
+    /// null, which keeps the viewer's position, has no point.
+    pub(super) fn resolve_destination(
+        &self,
+        dest: &Object,
+        cache: &mut LinkResolutionCache,
+        keep_unset: bool,
+        name_text: &mut dyn FnMut(&[u8]) -> PyResult<String>,
+    ) -> PyResult<ResolvedDestination> {
         let doc = &self.doc;
         let mut nameddest = None;
         let resolved = deref_object(doc, dest);
         let destination = if let Object::Name(name) | Object::String(name, _) = resolved {
-            nameddest = Some(bounded_annotation_bytes(
-                name,
-                encoded_bytes,
-                returned_bytes,
-                "named destination",
-            )?);
+            nameddest = Some(name_text(name)?);
             match cache.named_destination(doc, name)? {
                 Some(destination) => destination,
                 None => lookup_legacy_named_dest(doc, name)
@@ -994,19 +778,22 @@ impl _Document {
             match destination.fit {
                 DestinationFit::Xyz => {
                     // left/top may be Null; default to the crop's left/top edge.
-                    let left = first.unwrap_or(crop[0]);
-                    let top = second.unwrap_or(crop[3]);
                     zoom = third.filter(|z| *z != 0.0);
-                    to = Some(draw::pdf_to_display(crop, rotation, left, top));
+                    if !(keep_unset && first.is_none() && second.is_none()) {
+                        let left = first.unwrap_or(crop[0]);
+                        let top = second.unwrap_or(crop[3]);
+                        to = Some(draw::pdf_to_display(crop, rotation, left, top));
+                    }
                 }
-                DestinationFit::Horizontal => {
+                DestinationFit::Horizontal if !(keep_unset && first.is_none()) => {
                     let top = first.unwrap_or(crop[3]);
                     to = Some(draw::pdf_to_display(crop, rotation, crop[0], top));
                 }
-                DestinationFit::Vertical => {
+                DestinationFit::Vertical if !(keep_unset && first.is_none()) => {
                     let left = first.unwrap_or(crop[0]);
                     to = Some(draw::pdf_to_display(crop, rotation, left, crop[3]));
                 }
+                DestinationFit::Horizontal | DestinationFit::Vertical => {}
                 DestinationFit::Other => {}
             }
         }
@@ -1242,114 +1029,6 @@ fn push_fallibly<T>(values: &mut Vec<T>, value: T, label: &str) -> PyResult<()> 
         .try_reserve(1)
         .map_err(|error| PdfError::new_err(format!("failed to grow {label}: {error}")))?;
     values.push(value);
-    Ok(())
-}
-
-/// Implements [`_Document::set_toc`].
-pub(super) fn set_toc(this: &mut _Document, entries: Vec<(u32, String, u32)>) -> PyResult<()> {
-    if entries.len() > MAX_TOC_ENTRIES {
-        return Err(limit_err(
-            "toc_entry_count",
-            format!("cannot set more than {MAX_TOC_ENTRIES} TOC entries"),
-        ));
-    }
-    let pages = this.doc.page_ids()?;
-    let mut prepared = Vec::new();
-    prepared.try_reserve_exact(entries.len()).map_err(|error| {
-        PdfError::new_err(format!("failed to allocate prepared TOC entries: {error}"))
-    })?;
-    let mut source_bytes = 0usize;
-    let mut encoded_bytes = 0usize;
-    let mut previous_level = 0u32;
-    let mut max_level = 0usize;
-    for (level, title, page) in entries {
-        if level == 0 || level > previous_level.saturating_add(1) {
-            return Err(PdfError::new_err(format!(
-                "invalid TOC level {level}; levels start at 1 and can increase by at most one"
-            )));
-        }
-        if level as usize > MAX_TOC_TREE_DEPTH {
-            return Err(PdfError::new_err(format!(
-                "TOC depth exceeds the {MAX_TOC_TREE_DEPTH}-level safety limit"
-            )));
-        }
-        add_input_text_budget(
-            &mut source_bytes,
-            title.len(),
-            MAX_TOC_TEXT_BYTES,
-            "toc_input_size",
-            "TOC source text",
-        )?;
-        let encoded_len = pdf_text_string_len(&title).ok_or_else(|| {
-            limit_err(
-                "toc_input_size",
-                "TOC encoded text exceeds the platform text-size limit",
-            )
-        })?;
-        add_input_text_budget(
-            &mut encoded_bytes,
-            encoded_len,
-            MAX_TOC_TEXT_BYTES,
-            "toc_input_size",
-            "TOC encoded text",
-        )?;
-        let page_id = page_id_from_index(pages, page)?;
-        prepared.push((level, title, page_id));
-        previous_level = level;
-        max_level = max_level.max(level as usize);
-    }
-    let is_empty = prepared.is_empty();
-    if !is_empty {
-        let object_count = u32::try_from(prepared.len())
-            .ok()
-            .and_then(|count| count.checked_mul(2))
-            .and_then(|count| count.checked_add(1))
-            .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
-        this.doc
-            .max_id
-            .checked_add(object_count)
-            .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
-    }
-    let mut parents: Vec<u32> = Vec::new();
-    parents.try_reserve_exact(max_level).map_err(|error| {
-        PdfError::new_err(format!("failed to allocate TOC parent stack: {error}"))
-    })?;
-    this.doc.catalog().map_err(to_py_err)?;
-
-    this.invalidate_hayro_pdf_keeping_placements();
-    // Discard existing outlines and construction state.
-    this.doc.bookmarks.clear();
-    this.doc.bookmark_table.clear();
-    this.doc.max_bookmark_id = 0;
-    if let Ok(catalog) = this.doc.catalog_mut() {
-        catalog.remove(b"Outlines");
-    }
-    if is_empty {
-        prune_unreachable_objects(&mut this.doc)?;
-        return Ok(());
-    }
-    // parents[level - 1] = latest bookmark ID at that level.
-    for (level, title, page_id) in prepared {
-        let level = level as usize;
-        let parent = if level >= 2 {
-            parents.get(level - 2).copied()
-        } else {
-            None
-        };
-        let id = this
-            .doc
-            .add_bookmark(Bookmark::new(title, [0.0, 0.0, 0.0], 0, page_id), parent);
-        parents.truncate(level - 1);
-        parents.push(id);
-    }
-    if let Some(outline_id) = this.doc.build_outline() {
-        this.doc
-            .catalog_mut()
-            .map_err(to_py_err)?
-            .set("Outlines", Object::Reference(outline_id));
-    }
-    // Prune old outline objects.
-    prune_unreachable_objects(&mut this.doc)?;
     Ok(())
 }
 

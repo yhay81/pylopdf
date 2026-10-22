@@ -327,7 +327,7 @@ def test_bookmarks_nest_by_level(font: pylopdf.Font) -> None:
         canvas.bookmark("Section 1.2", level=2)
         canvas.bookmark("Chapter 2")
         canvas.text("y", (10, 50), font=font)
-    outline = builder.finish().get_outline()
+    outline = builder.finish().outline.entries()
     assert [(entry.level, entry.title, entry.page) for entry in outline] == [
         (1, "Chapter 1", 0),
         (2, "Section 1.1", 0),

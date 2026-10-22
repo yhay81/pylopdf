@@ -55,8 +55,10 @@ python -m pylopdf.migrate src/
 | `doc.copy_page(pno, to)`, `fullcopy_page(pno, to)` | `doc.pages.insert(to, doc.pages[pno])` | pylopdf는 페이지 객체 하나를 두 페이지가 공유하지 않음 |
 | `doc.move_page(pno, to)` | `doc.pages.move(pno, index)` | `index`는 페이지가 옮겨진 뒤의 위치. pymupdf는 페이지 `to` 앞에 삽입했음 |
 | `doc.insert_pdf(docsrc, from_page=a, to_page=b, start_at=i)` | `doc.pages.insert(i, docsrc.pages[a:b + 1])`, `doc.pages.extend(docsrc.pages)` | 가져온 폼 필드의 이름이 겹치면 `name+N`으로 이름을 바꿈. `widgets=`, `join_duplicates=`는 없음 |
-| `doc.get_toc()`, `set_toc(toc)` | `doc.get_outline()`, `set_outline(entries)` | 페이지 번호가 1이 아니라 0부터 시작 |
-| `doc.get_page_labels()`, `set_page_labels()`, `page.get_label()` | 같음 | |
+| `doc.get_toc()`, `set_toc(toc)` | `doc.outline.entries()`, `doc.outline = entries` | `[level, title, page]` 리스트 대신, `destination`이 0부터 시작하는 페이지 번호의 `Destination`인 `OutlineEntry` 레코드 |
+| `doc.outline`, `item.next`, `item.down` | `doc.outline`, `item.children`, `doc.outline.walk()` | `doc.outline`은 첫 항목이 아니라 최상위 `OutlineItem` 핸들의 시퀀스 |
+| `doc.set_toc_item(i, ...)`, `del_toc_item(i)` | `OutlineItem`의 `title`, `destination`, `color`, `bold`, `italic`, `is_open`에 대입 | `del_toc_item`은 항목을 회색으로 바꾸고 대상을 없앴습니다 |
+| `doc.get_page_labels()`, `set_page_labels(rules)`, `page.get_label()` | `doc.page_labels`, `page.label` | 딕셔너리 대신 `PageLabelRange(start, style, prefix, first)` 레코드 |
 | `doc.get_page_numbers(label)` | `doc.pages.labeled(label)` | |
 | `doc.embfile_add/names/get/del/upd/info/count` | `doc.attachments` | 매핑: `add(name, data, description=…)`, `list(…)`, `[name].read()`, `del …[name]`, `[name].write(data)`, `len(…)`. `desc=`는 `description=` |
 | `doc.xref_*`, `pdf_catalog()`, `pdf_trailer()` | `doc.objects`, `doc.catalog`, `doc.trailer` | PDF 구문 대신 타입이 있는 Python 값. [저수준 객체](api.md#low-level-objects) 참고 |

@@ -125,11 +125,14 @@ from pylopdf._limits import DocumentLimits
 from pylopdf._metadata import MarkInfo, Metadata, PageLayout, PageMode, PdfaClaim
 from pylopdf._objects import Array, Dictionary, Name, Objects, Stream, String
 from pylopdf._ocr import OcrEngine, OcrWord
+from pylopdf._outline import Outline, OutlineEntry, OutlineItem
 from pylopdf._page import Page
+from pylopdf._page_labels import PageLabelRange, PageLabelStyle
 from pylopdf._pages import Pages
 from pylopdf._pixmap import Colorspace
 from pylopdf._shape import Shape
 from pylopdf._tables import Table, TableDiagnostics
+from pylopdf._targets import Destination, Launch, NamedAction, RemoteDestination, Target
 from pylopdf._text import Block, Char, Layout, Line, Span, Word
 from pylopdf._types import (
     LINK_GOTO,
@@ -156,9 +159,6 @@ from pylopdf._types import (
     ImageCompressionResult,
     LinkInfo,
     LinkKind,
-    OutlineEntry,
-    PageLabelInfo,
-    PageLabelSpec,
     Permissions,
     Point,
     Rect,
@@ -255,6 +255,7 @@ __all__ = [
     "Content",
     "ContentItem",
     "CurveTo",
+    "Destination",
     "Dictionary",
     "Document",
     "DocumentClosedError",
@@ -279,6 +280,7 @@ __all__ = [
     "ImageMask",
     "ImageObject",
     "Images",
+    "Launch",
     "Layout",
     "LimitError",
     "Line",
@@ -294,15 +296,18 @@ __all__ = [
     "Metadata",
     "MoveTo",
     "Name",
+    "NamedAction",
     "Objects",
     "OcrEngine",
     "OcrError",
     "OcrRotation",
     "OcrWord",
+    "Outline",
     "OutlineEntry",
+    "OutlineItem",
     "Page",
-    "PageLabelInfo",
-    "PageLabelSpec",
+    "PageLabelRange",
+    "PageLabelStyle",
     "PageLayout",
     "PageMode",
     "Pages",
@@ -317,6 +322,7 @@ __all__ = [
     "Probe",
     "Quad",
     "Rect",
+    "RemoteDestination",
     "Resources",
     "Segment",
     "ShadingPattern",
@@ -334,6 +340,7 @@ __all__ = [
     "Table",
     "TableDiagnostics",
     "TagRole",
+    "Target",
     "TextAlign",
     "TextFit",
     "TextRenderMode",

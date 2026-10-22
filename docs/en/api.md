@@ -90,8 +90,8 @@ doc.save(
 | `doc.pages.select(indexes)` | Keep the listed pages in the listed order; repeating an index duplicates the page |
 | `doc.pages.move(index, to)` | Move a page so that it ends at index `to` |
 | `doc.pages.labeled(label)` | The indexes of the pages labeled `label` |
-| `get_outline()` / `set_outline(entries)` | Read or replace the table of contents as `OutlineEntry(level, title, page)` items |
-| `get_page_labels()` / `set_page_labels(labels)` | Page label ranges, such as roman numerals for front matter |
+| `outline` | The outline (bookmarks) as a tree of `OutlineItem` handles; see [Outline and page labels](#outline) |
+| `page_labels` | Page label ranges, such as roman numerals for front matter, as `PageLabelRange` records |
 
 ```python
 merged = pylopdf.Document()
@@ -113,9 +113,80 @@ resources with the original until either is edited.
 Adding, deleting, or reordering pages makes earlier `Page` views stale: using
 one raises `StalePageError`, and iterating over `doc.pages` while changing
 them raises `RuntimeError`. Deleting or selecting pages also removes the
-links, outline entries, form fields, and tagged-PDF structure that pointed
-only to the removed pages. It does not remove every copy of their content, so
-it is not secure redaction.
+links, form fields, and tagged-PDF structure that pointed only to the removed
+pages, and an outline item that led to one stays in place without a
+destination, as in pymupdf. It does not remove every copy of their content,
+so it is not secure redaction.
+
+### Outline and page labels { #outline }
+
+`doc.outline` is the outline as a sequence of its top-level `OutlineItem`
+handles. Each item's `children` hold the rest of the tree, and
+`doc.outline.walk()` visits every item in document order. An item reads the
+document on every access, and assigning one of its properties edits the
+document at once.
+
+| `OutlineItem` member | Purpose |
+|---|---|
+| `title` | The title the viewer shows; assignable |
+| `destination` | Where the item leads, a target from the table below or `None`; assignable |
+| `page` | The zero-based page of a `Destination`, else `None` |
+| `level`, `children` | The depth, 1 for a top-level item, and the child items |
+| `color`, `bold`, `italic` | How the title shows: a `Color` without transparency or `None`, and two flags; assignable |
+| `is_open` | Whether the children show when the document opens; assignable on an item with children |
+| `xref`, `obj` | The item's object number and its dictionary in the [object model](#low-level-objects) |
+| `to_entry()` | The item without its children, as an `OutlineEntry` |
+
+Assigning a list of `OutlineEntry(level, title, destination=None, *,
+color=None, bold=False, italic=False, is_open=False)` records replaces the
+whole outline, and `del doc.outline` removes it. Levels start at 1 and grow by
+at most one from one entry to the next; an entry's children are the entries
+of the next level that follow it. `doc.outline.entries()` returns the current
+outline in the same form, so it can be edited as a list and assigned back.
+
+```python
+from pylopdf import Destination, OutlineEntry
+
+doc.outline = [
+    OutlineEntry(1, "Chapter 1", Destination(0), bold=True, is_open=True),
+    OutlineEntry(2, "Section 1.1", Destination(1, point=(72, 100))),
+    OutlineEntry(1, "Project site", "https://example.com"),
+]
+for item in doc.outline.walk():
+    if item.page == 1:
+        item.title = item.title.upper()
+```
+
+| Target | Leads to |
+|---|---|
+| `Destination(page, point=None, zoom=None)` | A zero-based page of this document. `point` is the top left of the view in display coordinates and `zoom` its magnification; without either, the viewer fits the page in the window |
+| a `str` | A URI |
+| `RemoteDestination(file, page=0, name=None)` | A page, or a named destination, of another PDF file |
+| `Launch(file)` | A file, opened with the application the viewer associates with it |
+| `NamedAction(name)` | A viewer action such as `"NextPage"` or `"FirstPage"` |
+
+A named destination reads as the `Destination` that it names, and a
+destination whose page no longer exists reads as `None`. Reads and writes
+stop at 65,536 items, 64 levels, and 16 MiB of titles and target text
+(`LimitError` codes `toc_entry_count`, `toc_text_size`, and
+`toc_input_size`).
+
+`doc.page_labels` is a list of `PageLabelRange(start, style=DECIMAL,
+prefix="", first=1)` records. A range labels the pages from its zero-based
+`start` up to the next range with `prefix` followed by a number, counting from
+`first`, in its `PageLabelStyle`: `DECIMAL`, `UPPER_ROMAN`, `LOWER_ROMAN`,
+`UPPER_LETTERS`, or `LOWER_LETTERS`, or `None` for the prefix alone. Assigning
+a list replaces the ranges in page order, and the first range must start at
+page 0; assigning `[]` or `del doc.page_labels` removes them. `page.label` is
+one page's label, `""` when the document has none, and
+`doc.pages.labeled(label)` finds the pages with a label.
+
+```python
+from pylopdf import PageLabelRange, PageLabelStyle
+
+doc.page_labels = [PageLabelRange(0, PageLabelStyle.LOWER_ROMAN), PageLabelRange(4, prefix="A-")]
+print([page.label for page in doc.pages])  # ['i', 'ii', 'iii', 'iv', 'A-1', 'A-2']
+```
 
 ### Text and Markdown { #document-text }
 
@@ -186,7 +257,7 @@ no page was added, deleted, or reordered in between.
 | `ocr(...)`, `apply_ocr(*, words=None, ...)` | OCR, and an invisible text layer from it or from another engine's words; see [Offline OCR](ocr.md) |
 | `content(*, text_runs=True, paths=True, images=True, clip=None, annotations=True)` | Every text run, path, and image the page paints; see [Page content](#content) |
 | `get_links()` | Links with their targets |
-| `get_label()` | The page label, such as `"iv"` |
+| `label` | The page label, such as `"iv"`; see [Outline and page labels](#outline) |
 
 A `Word` has `text`, `bbox`, and `block`, `line`, and `index`, which locate
 it in the page's layout: the indexes of its block, of its line in that block,
@@ -804,6 +875,7 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [Low-level objects](#low-level-objects) |
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |
 | `Colorspace` | The color spaces of a [`Pixmap`](#pixmap): `GRAY` and `RGB` |
+| `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [Outline and page labels](#outline) |
 
 Constants keep pymupdf's names and are also grouped in enums:
 `Permissions` (`PDF_PERM_*`), `LinkKind` (`LINK_*`), `TextAlign`
@@ -815,10 +887,10 @@ are `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`,
 
 Text, table, OCR, and page content results are records: frozen dataclasses
 such as `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`,
-`TableDiagnostics`, `OcrWord`, `Path`, `Image`, `MarkInfo`, and `PdfaClaim`.
-Other dictionaries returned by the API are plain `dict` objects, described
-for type checkers by `TypedDict` classes such as `LinkInfo` and
-`FormFieldInfo`, and `OutlineEntry` is a named tuple.
+`TableDiagnostics`, `OcrWord`, `Path`, `Image`, `MarkInfo`, `PdfaClaim`,
+`OutlineEntry`, `PageLabelRange`, and the outline targets. Other dictionaries
+returned by the API are plain `dict` objects, described for type checkers by
+`TypedDict` classes such as `LinkInfo` and `FormFieldInfo`.
 
 ## Exceptions and warnings { #exceptions }
 

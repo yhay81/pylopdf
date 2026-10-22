@@ -243,7 +243,7 @@ interpret the page separately and agree with it on the bundled corpus.
 | `doc.version`, `doc.encryption_method`, `doc.pdfa_claim` | The header version, such as `"1.7"`; the encryption the document was opened with, or `None`; and the PDF/A self-declaration as a `PdfaClaim(part, conformance)` record, or `None`. |
 | `doc.xmp` | The XMP packet as text, or `None`; assignable and deletable. |
 | `doc.language`, `doc.page_mode`, `doc.page_layout`, `doc.mark_info` | Assignable and deletable. `language` is the complete BCP 47 tag, `page_mode` and `page_layout` take `PageMode` and `PageLayout`, and `mark_info` a `MarkInfo(marked, user_properties, suspects)` record. |
-| `doc.outline` | A tree of `OutlineItem` handles (`title`, `destination`, `children`, `color`, `bold`, `italic`, `is_open`), editable in place; assigning a list of `OutlineEntry` values replaces the tree. |
+| `doc.outline` | A tree of `OutlineItem` handles (`title`, `destination`, `children`, `color`, `bold`, `italic`, `is_open`), editable in place; assigning a list of `OutlineEntry` values replaces the tree. A destination is a `Destination(page, point, zoom)`, a `RemoteDestination`, a `Launch`, a `NamedAction`, or a URI string, the targets that links share. |
 | `doc.page_labels` | A list of `PageLabelRange(start, style, prefix, first)` values; assigning a list replaces the ranges. |
 | `doc.attachments` | A mapping of `Attachment` handles with `add(name, data, /, *, filename=None, description=None)`; each handle has `filename`, `description`, `size`, `created`, `modified`, `read()`, and `write(data)`. |
 | `doc.layers` | Optional-content groups and configurations ([Structure](../ROADMAP.md#structure)). |
@@ -434,7 +434,7 @@ hint.
 | `get_xml_metadata()`, `set_xml_metadata()`, `del_xml_metadata()` | `doc.xmp` |
 | `language_tag` and `set_language_tag()` | `doc.language` |
 | `pagemode`, `set_pagemode()`, `pagelayout`, `set_pagelayout()`, `markinfo`, `set_markinfo()` | `doc.page_mode`, `doc.page_layout`, `doc.mark_info` |
-| `get_outline()`, `set_outline()` | `doc.outline` |
+| `get_toc()`, `set_toc()` | `doc.outline` |
 | `get_page_labels()`, `set_page_labels()`, `Page.get_label()` | `doc.page_labels`, `page.label` |
 | `get_form_fields()`, `set_form_field()` | `doc.form` |
 | `extract_image(xref)` | `doc.images[xref].extract()` |
@@ -460,7 +460,7 @@ hint.
 | `AnnotType`, `AnnotFlags`, `EncryptionMethod` | `AnnotationType`, `AnnotationFlags`, `Encryption(method=...)` |
 | the 80 module constants (`PDF_ANNOT_*`, `PDF_ENCRYPT_*`, `PDF_PERM_*`, `LINK_*`, `TEXT_ALIGN_*`, `CS_*`, `csGRAY`, `csRGB`, `csCMYK`, `Base14_fontnames`, `Base14_fontdict`) | enum members and `Font.standard()` names |
 | `Identity`, `IdentityMatrix`, `EMPTY_*`, `INFINITE_*`, `FZ_MIN_INF_RECT`, `FZ_MAX_INF_RECT`, `planish_line` | class attributes of the geometry types and `Matrix.planish(p1, p2)` |
-| `Word`, `Block`, `ImageItem`, `OutlineEntry`, and `PageLabelSpec` tuples; `TextPageDict`, `DrawingInfo`, `ImageInfo`, `LinkInfo`, `FormFieldInfo`, and the other TypedDicts | frozen dataclasses and handles, with `to_dict()` where a JSON form is needed |
+| `Word`, `Block`, `ImageItem`, and `PageLabelSpec` tuples; `TextPageDict`, `DrawingInfo`, `ImageInfo`, `LinkInfo`, `FormFieldInfo`, and the other TypedDicts | frozen dataclasses and handles, with `to_dict()` where a JSON form is needed |
 
 Unchanged: `Document.objects`, `catalog`, `trailer`, the value types of
 section 11, `attachments`, `limits`, `complexity`, `DocumentLimits`,

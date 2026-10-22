@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from conftest import build_pdf, build_raw_pdf
+from conftest import build_pdf, build_raw_pdf, outline_entries, outline_tuples
 
 import pylopdf
 from pylopdf.pylopdf_core import _Document
@@ -79,7 +79,7 @@ PNG = _png()
 STAMP = pylopdf.open(build_pdf(["Stamp"]))
 
 
-def _snapshot(doc: pylopdf.Document) -> tuple[int, list[tuple[object, ...]], list[pylopdf.OutlineEntry]]:
+def _snapshot(doc: pylopdf.Document) -> tuple[int, list[tuple[object, ...]], list[tuple[int, str, int | None]]]:
     """Return every page-index-backed read: count, per-page facts, and the TOC.
 
     Text extraction serializes the document for its renderer, which drops the
@@ -97,7 +97,7 @@ def _snapshot(doc: pylopdf.Document) -> tuple[int, list[tuple[object, ...]], lis
         )
         for page in views
     ]
-    toc = doc.get_outline()
+    toc = outline_tuples(doc)
     texts = [page.text().strip() for page in views]
     pages: list[tuple[object, ...]] = [
         (width, rotation, rect, text, annots, links)
@@ -120,7 +120,7 @@ EDITS: dict[str, tuple[Callable[[pylopdf.Document], object], list[int | str]]] =
     "insert_pdf_append": (lambda doc: doc.pages.extend(_other().pages), [*UNCHANGED, "other"]),
     "new_page": (lambda doc: doc.pages.new((50, 60), index=1), [0, "new", 1, 2, 3, 4]),
     "copy_page": (lambda doc: doc.pages.insert(0, doc.pages[3]), [3, *UNCHANGED]),
-    "set_outline": (lambda doc: doc.set_outline([(1, "Last", 4), (1, "First", 0)]), UNCHANGED),
+    "outline": (lambda doc: setattr(doc, "outline", outline_entries([(1, "Last", 4), (1, "First", 0)])), UNCHANGED),
     "set_rotation": (lambda doc: doc.pages[2].set_rotation(270), UNCHANGED),
     "set_mediabox": (lambda doc: doc.pages[1].set_mediabox((0, 0, 300, 400)), [0, "resized", 2, 3, 4]),
     "insert_text": (lambda doc: doc.pages[0].insert_text((10, 20), "Stamp"), UNCHANGED),
@@ -405,7 +405,7 @@ def _aliased_snapshot(doc: pylopdf.Document) -> tuple[object, ...]:
         )
         for page in views
     ]
-    toc = doc.get_outline()
+    toc = outline_tuples(doc)
     texts = [_text_outcome(page) for page in views]
     return len(views), facts, toc, texts
 

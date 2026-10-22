@@ -13,7 +13,7 @@ import time
 from typing import TYPE_CHECKING, Literal
 
 import pytest
-from conftest import build_pdf, build_raw_pdf
+from conftest import build_pdf, build_raw_pdf, outline_entries, outline_tuples
 
 import pylopdf
 
@@ -123,7 +123,7 @@ def test_manual_resolves_toc_and_links_at_the_entry_limit(manual: bytes) -> None
     doc = pylopdf.open(manual)
     deepest = [_name(_deepest(MAX_NAMED_DEST_ENTRIES, page)) for page in range(MANUAL_PAGES)]
 
-    assert doc.get_outline() == [(1, f"Page {page}", page) for page in range(MANUAL_PAGES)]
+    assert outline_tuples(doc) == [(1, f"Page {page}", page) for page in range(MANUAL_PAGES)]
     assert _link_targets(doc) == [[(page, deepest[page]) for page in range(MANUAL_PAGES)]] * MANUAL_PAGES
 
 
@@ -145,7 +145,7 @@ def test_manual_cleanup_rewrites_the_complete_tree(manual: bytes, operation: Lit
     assert _name(1).encode() not in saved
     assert all(_name(index).encode() in saved for index in (0, 2, MAX_NAMED_DEST_ENTRIES - 1))
     for current in (doc, pylopdf.open(saved)):
-        assert current.get_outline() == [(1, "Page 0", 0), (1, "Page 2", 1)]
+        assert outline_tuples(current) == [(1, "Page 0", 0), (1, "Page 1", None), (1, "Page 2", 1)]
         assert _link_targets(current) == [[(0, retained[0]), (1, retained[1])]] * 2
 
 
@@ -192,7 +192,7 @@ EDITS: dict[str, Callable[[pylopdf.Document], object]] = {
     "insert_pdf": lambda doc: doc.pages.insert(0, pylopdf.open(_manual(256)).pages),
     "new_page": lambda doc: doc.pages.new((200, 200), index=0),
     "copy_page": lambda doc: doc.pages.insert(0, doc.pages[2]),
-    "set_outline": lambda doc: doc.set_outline([(1, "Last page", 2)]),
+    "outline": lambda doc: setattr(doc, "outline", outline_entries([(1, "Last page", 2)])),
     "add_link_annot": lambda doc: doc.pages[1].insert_link(
         {"kind": pylopdf.LINK_URI, "from": (1, 20, 10, 30), "uri": "https://example.com/"}
     ),
@@ -330,7 +330,7 @@ def test_reads_and_imports_accept_each_limit(shape: Shape) -> None:
     target.pages.extend(source.pages)
 
     assert [link["page"] for link in source.pages[0].get_links()] == [1]
-    assert source.get_outline() == [(1, "Section", 1)]
+    assert outline_tuples(source) == [(1, "Section", 1)]
     assert [link["page"] for link in target.pages[0].get_links()] == [1]
 
 
@@ -342,7 +342,7 @@ def test_reads_and_imports_refuse_beyond_each_limit(shape: Shape) -> None:
     target_before = target.to_bytes()
     operations: list[Callable[[], object]] = [
         source.pages[0].get_links,
-        source.get_outline,
+        source.outline.entries,
         lambda: target.pages.extend(source.pages),
     ]
 
@@ -401,19 +401,19 @@ def test_outline_cleanup_charges_destination_names_to_the_toc_budget() -> None:
     """Outline names are not limited by one page's 1 MiB link budget."""
     doc = _outline_document(2)
     expected = [(1, "Item 0", 0), (1, "Item 1", 0)]
-    assert doc.get_outline() == expected
+    assert outline_tuples(doc) == expected
 
     del doc.pages[1:2]
 
-    assert doc.get_outline() == expected
+    assert outline_tuples(doc) == expected
 
 
-@pytest.mark.parametrize("operation", ["get_outline", "delete", "select"])
+@pytest.mark.parametrize("operation", ["outline", "delete", "select"])
 def test_outline_names_beyond_the_toc_budget_are_refused(operation: str) -> None:
     doc = _outline_document(17)
     before = doc.to_bytes()
     call: Callable[[], object] = {
-        "get_outline": doc.get_outline,
+        "outline": doc.outline.entries,
         "delete": lambda: _delete_page(doc, 1),
         "select": lambda: doc.pages.select([0]),
     }[operation]

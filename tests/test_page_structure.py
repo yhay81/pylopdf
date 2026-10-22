@@ -265,7 +265,7 @@ def test_move_refuses_indexes_out_of_range() -> None:
 def test_labeled_finds_pages_by_their_label() -> None:
     doc = _doc(4)
     assert doc.pages.labeled("1") == []
-    doc.set_page_labels([{"startpage": 0, "style": "r"}, {"startpage": 2, "style": "D"}])
+    doc.page_labels = [pylopdf.PageLabelRange(0, "r"), pylopdf.PageLabelRange(2)]
 
     assert doc.pages.labeled("ii") == [1]
     assert doc.pages.labeled("1") == [2]

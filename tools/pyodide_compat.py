@@ -1311,6 +1311,18 @@ def _document_property_results(root: Path) -> dict[str, Any]:
     document.mark_info = pylopdf.MarkInfo(marked=True)
     document.language = "zh-TW"
     document.metadata.update(title="Grüße", created="D:20260102030405Z", trapped="True")
+    document.pages.new((200, 200))
+    document.outline = [
+        pylopdf.OutlineEntry(1, "\u7b2c 1 \u7ae0", pylopdf.Destination(0, (10, 20), 1.5), is_open=True),
+        pylopdf.OutlineEntry(2, "Web", "https://example.com/", color=pylopdf.Color(1, 0, 0), bold=True),
+        pylopdf.OutlineEntry(2, "Next", pylopdf.NamedAction("NextPage")),
+        pylopdf.OutlineEntry(1, "Other", pylopdf.RemoteDestination("other.pdf", 2)),
+    ]
+    renamed = document.outline[0].children[1]
+    renamed.title = "Weiter"
+    renamed.italic = True
+    document.outline[0].is_open = False
+    document.page_labels = [pylopdf.PageLabelRange(0, "r"), pylopdf.PageLabelRange(1, prefix="A-")]
     data = document.to_bytes()
     _require(packet.encode() in data, "saving compressed the XMP packet")
     saved = pylopdf.open(data)
@@ -1324,6 +1336,20 @@ def _document_property_results(root: Path) -> dict[str, Any]:
         "page_layout": str(saved.page_layout),
         "mark_info": repr(saved.mark_info),
         "language": saved.language,
+        "outline": [
+            [
+                entry.level,
+                entry.title,
+                repr(entry.destination),
+                repr(entry.color),
+                entry.bold,
+                entry.italic,
+                entry.is_open,
+            ]
+            for entry in saved.outline.entries()
+        ],
+        "outline_count": int(saved.catalog["Outlines"]["Count"]),
+        "page_labels": [page.label for page in saved.pages],
         "metadata": dict(saved.metadata),
         "version": saved.version,
         "xmp_limit": _exception_name(lambda: setattr(saved, "xmp", "x" * ((1 << 20) + 1))),
@@ -1417,7 +1443,7 @@ def _create_results(root: Path) -> dict[str, Any]:
         "pages": len(document.pages),
         "kinds": [type(item).__name__ for item in content],
         "marks": [[mark.tag for mark in item.context.marked_content] for item in content],
-        "outline": [list(entry) for entry in document.get_outline()],
+        "outline": [[entry.level, entry.title, entry.page] for entry in document.outline.entries()],
         "text": _digest(document.pages[0].text()),
         "struct_tree": str(document.catalog["StructTreeRoot"]["Type"]),
         "ua_claim": "pdfuaid" in (document.xmp or ""),

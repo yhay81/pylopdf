@@ -307,6 +307,39 @@ def _bounded_utf8_size(text: str, remaining: int) -> int | None:
     return size
 
 
+_UTF16_BMP_MAX = (1 << 16) - 1
+
+
+def _validate_cumulative_pdf_text_input(
+    values: Iterable[str],
+    limit: int,
+    *,
+    limit_code: str,
+    input_label: str,
+) -> None:
+    """Bound aggregate ASCII or UTF-16BE PDF text strings without encoding."""
+    remaining = limit
+    for value in values:
+        size: int | None
+        if value.isascii():
+            size = len(value)
+            if size > remaining:
+                size = None
+        else:
+            size = 2  # UTF-16BE byte-order mark.
+            for character in value:
+                size += 2 if ord(character) <= _UTF16_BMP_MAX else 4
+                if size > remaining:
+                    size = None
+                    break
+        if size is None:
+            raise LimitError(
+                limit_code,
+                f"{input_label} exceeds the {limit}-byte encoded-text safety limit",
+            )
+        remaining -= size
+
+
 def _validate_cumulative_utf8_input(
     values: Iterable[str],
     limit: int,

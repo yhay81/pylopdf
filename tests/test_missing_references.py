@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 
 import pytest
-from conftest import build_pdf
+from conftest import build_pdf, outline_entries, outline_tuples
 
 import pylopdf
 
@@ -172,12 +172,12 @@ def test_page_import_starts_a_null_xobject_category(value: str) -> None:
 def test_toc_reads_a_null_outlines_entry_as_absent(value: str) -> None:
     """Reading the outline raised `PdfError` for every null-equivalent outline root."""
     doc = pylopdf.open(_pdf(catalog=f"/Outlines {value}"))
-    assert doc.get_outline() == []
+    assert outline_tuples(doc) == []
 
-    doc.set_outline([(1, "Start", 0)])
+    doc.outline = outline_entries([(1, "Start", 0)])
 
     for current in _with_reloaded(doc):
-        assert current.get_outline() == [(1, "Start", 0)]
+        assert outline_tuples(current) == [(1, "Start", 0)]
 
 
 @null_values
