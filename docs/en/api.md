@@ -289,9 +289,9 @@ default `lineheight` comes from the font's ascender and descender, as in
 pymupdf. Lines that would fall below the bottom of the page are skipped, and
 the method returns the number of lines drawn.
 
-`insert_textbox` wraps text at the places Unicode allows a line break (UAX
-#14), keeps explicit line breaks, expands tabs, and splits a word that is too
-long for a line. `align` takes `TEXT_ALIGN_LEFT`, `TEXT_ALIGN_CENTER`,
+`insert_textbox` wraps text at the places Unicode allows a line break
+(UAX #14), keeps explicit line breaks, expands tabs, and splits a word that is
+too long for a line. `align` takes `TEXT_ALIGN_LEFT`, `TEXT_ALIGN_CENTER`,
 `TEXT_ALIGN_RIGHT`, or `TEXT_ALIGN_JUSTIFY`. It returns the height left over;
 a negative value means the text did not fit, and then nothing is drawn.
 
