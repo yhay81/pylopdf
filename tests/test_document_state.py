@@ -1,4 +1,4 @@
-"""pymupdf's Document constructor, authentication codes, and metadata (M0)."""
+"""pymupdf's Document constructor, authentication codes, and metadata."""
 
 from __future__ import annotations
 

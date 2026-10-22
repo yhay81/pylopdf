@@ -1,4 +1,4 @@
-Adopt pymupdf's `Document` constructor and document state (roadmap M0):
+Adopt pymupdf's `Document` constructor and document state:
 `open` is now the same callable as `Document`, whose third positional
 parameter is `filetype` (`"pdf"`; `open("pdf", data)` works as in pymupdf),
 with `password`, `limits`, and `max_decompressed_size` keyword-only, and

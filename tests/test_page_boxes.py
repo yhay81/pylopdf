@@ -1,4 +1,4 @@
-"""pymupdf's page-box convention (DESIGN.md G1, decision 11)."""
+"""pymupdf's page-box convention."""
 
 from __future__ import annotations
 

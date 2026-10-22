@@ -1,4 +1,4 @@
-"""Rectangles and quads with pymupdf's value semantics (roadmap F4).
+"""Rectangles and quads with pymupdf's value semantics.
 
 The expected values were observed with pymupdf 1.28.2. MuPDF transforms in
 single precision, so these examples use exactly representable results.

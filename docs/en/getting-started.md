@@ -7,9 +7,10 @@ description: Install pylopdf and learn its core editing, rendering, extraction a
 
 !!! note "Project status"
 
-    pylopdf is pre-1.0 and covers part of pymupdf's API so far. Breaking
-    changes can still happen; the [stability policy](stability.md) explains
-    what may change. This site follows the `main` branch, so it can describe
+    pylopdf is pre-1.0, and the next release redesigns its API, as the
+    [roadmap](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)
+    describes. The [stability policy](stability.md) explains what may
+    change. This site follows the `main` branch, so it can describe
     changes that are not on PyPI yet. The
     [changelog](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)
     lists what each release contains.
@@ -201,14 +202,14 @@ recognized by another OCR engine.
 
 ## Not supported yet { #not-supported }
 
-Redaction, editing or deleting annotations, creating form fields, and
-incremental saving are planned; the
-[roadmap](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md) lists when.
+Redaction, editing or deleting annotations, creating form fields,
+incremental saving, and validated PDF/A and PDF/UA output are planned; the
+[roadmap](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md) lists them.
 pylopdf opens PDF files only.
 
-Typesetting, PDF/A output, and digital signatures are out of scope. The
-[ecosystem recipes](ecosystem.md) show how to pair pylopdf with typst and
-pyHanko for those.
+Typesetting with HTML and CSS and digital signatures stay with ecosystem
+tools. The [ecosystem recipes](ecosystem.md) show how to pair pylopdf with
+typst and pyHanko for those.
 
 ## Next steps { #next-steps }
 

@@ -1,4 +1,4 @@
-Adopt pymupdf's parameter names and keyword-only options (roadmap M0):
+Adopt pymupdf's parameter names and keyword-only options:
 `Page.search_for` takes `text` instead of `needle`, `Page.show_pdf_page`
 takes `docsrc` instead of `src`, `Pixmap.save` takes `filename` instead of
 `path`, and `Document.save` and `Document.tobytes` take `use_objstms`

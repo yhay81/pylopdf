@@ -4,7 +4,7 @@
 ``fitz`` and ``pymupdf`` imports, rewrite the calls whose pylopdf replacement
 is mechanical (the one-based TOC, ``embfile_*``, the PDF-syntax ``xref_*``
 readers, and the in-place geometry methods), and add a ``TODO(pylopdf)``
-comment, with the migration hint from the parity manifest, above every other
+comment, with the migration hint from the capability map, above every other
 statement that uses a pymupdf name pylopdf does not provide. Receivers are
 not typed, so a rule applies to any attribute of that name; the rules use
 names that are specific to pymupdf, and files that import neither ``fitz``
@@ -48,7 +48,7 @@ COMPOUND_STATEMENTS = (
 ROTATION_NAMES = frozenset({"rotation_matrix", "derotation_matrix"})
 ROTATION_MESSAGE = (
     "pylopdf extracts and inserts in display coordinates with the page rotation resolved; "
-    "drop any rotation_matrix or derotation_matrix step (api/DESIGN.md G1)."
+    "drop any rotation_matrix or derotation_matrix step."
 )
 
 

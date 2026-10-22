@@ -319,7 +319,7 @@ Base14_fontnames: tuple[str, ...] = (
 )
 #: pymupdf's lookup from the lower-case PostScript names and the short aliases
 #: to the PostScript names. Read-only, because pylopdf keeps no process-global
-#: mutable state (DESIGN.md G6).
+#: mutable state.
 Base14_fontdict: Mapping[str, str] = MappingProxyType(
     {**{name.lower(): name for name in Base14_fontnames}, **_BASE14_FONTS}
 )

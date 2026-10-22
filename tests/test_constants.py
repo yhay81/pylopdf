@@ -1,4 +1,4 @@
-"""pymupdf's constant groups as IntEnum and IntFlag members (DESIGN.md section 14)."""
+"""pymupdf's constant groups as IntEnum and IntFlag members."""
 
 from __future__ import annotations
 

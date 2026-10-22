@@ -1,9 +1,9 @@
-"""Generate pylopdf's migration hints from the pymupdf parity manifest.
+"""Generate pylopdf's migration hints from the pymupdf capability map.
 
 ``src/pylopdf/_migration_hints.py`` maps every pymupdf name that pylopdf does
 not provide under that name to one English message: the replacement and the
-manifest's hint for a replaced name, the milestone for a planned one, and the
-hint or the fact that pylopdf leaves it out for the rest. AttributeError
+map's hint for a replaced name, the roadmap milestone for a planned
+capability, and the hint or the fact that pylopdf leaves it out for the rest. AttributeError
 messages and ``python -m pylopdf.migrate`` read it. The script also writes
 the replaced-name map at the end of ``docs/en/llms.txt`` for coding
 assistants. Run it after editing ``api/pymupdf-parity.json``; ``--check``
@@ -16,6 +16,8 @@ import argparse
 import json
 import sys
 from pathlib import Path
+
+from check_parity import MILESTONES
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_PATH = ROOT / "api" / "pymupdf-parity.json"
@@ -48,9 +50,8 @@ def _message(name: str, entry: dict[str, object]) -> str | None:
             return None
         return f"pymupdf's {name} is {target} in pylopdf.{suffix}"
     if status == "planned":
-        if relation == "replaced":
-            return f"pylopdf plans {target} for {milestone} in place of pymupdf's {name}.{suffix}"
-        return f"pylopdf plans pymupdf's {name} for {milestone} (see ROADMAP.md).{suffix}"
+        title = MILESTONES[str(milestone)]
+        return f"pylopdf plans the capability of pymupdf's {name} in the {title} milestone of ROADMAP.md.{suffix}"
     if status == "integration":
         return f"pylopdf leaves pymupdf's {name} to an ecosystem tool.{suffix}"
     return f"pylopdf does not provide pymupdf's {name}.{suffix}"

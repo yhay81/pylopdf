@@ -1,4 +1,4 @@
-"""pymupdf's argument forms for deleting, copying, and inserting pages (M0)."""
+"""pymupdf's argument forms for deleting, copying, and inserting pages."""
 
 from __future__ import annotations
 

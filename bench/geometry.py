@@ -27,7 +27,7 @@ _DEGENERATE_AREA = 1e-3
 
 
 class _PreviousRect(NamedTuple):
-    """The four-field Rect representation before F4, without validation."""
+    """The four-field Rect representation before the geometry types, without validation."""
 
     x0: float
     y0: float
@@ -36,7 +36,7 @@ class _PreviousRect(NamedTuple):
 
 
 class _PreviousPoint(NamedTuple):
-    """The two-field Point representation before F4, without validation."""
+    """The two-field Point representation before the geometry types, without validation."""
 
     x: float
     y: float
@@ -163,7 +163,7 @@ def main() -> None:
         ("rect.quad * matrix", lambda: rect.quad * matrix, lambda: refrect.quad * refmatrix),
     ]
     lines = [
-        "# F4 geometry measurements",
+        "# Geometry measurements",
         "",
         (
             f"Python {platform.python_version()}, {platform.system()} {platform.machine()}; "

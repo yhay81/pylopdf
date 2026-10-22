@@ -1,4 +1,4 @@
-"""Migration tooling (roadmap F9): hints, the codemod, and the example corpus."""
+"""Migration tooling: hints, the codemod, and the example corpus."""
 
 from __future__ import annotations
 
@@ -44,13 +44,13 @@ def test_hints_module_matches_the_manifest() -> None:
     [
         (pylopdf.Document, "get_toc", "is Document.get_outline in pylopdf. pylopdf's get_outline uses zero-based"),
         (pylopdf.Document, "embfile_add", "Use doc.attachments.add(name, data"),
-        (lambda: pylopdf.Document().new_page(), "get_textpage", "plans pymupdf's Page.get_textpage for M1"),
+        (lambda: pylopdf.Document().new_page(), "get_textpage", "Page.get_textpage in the Reading milestone"),
         (lambda: pylopdf.Rect(0, 0, 1, 1), "include_rect", "Use r | other"),
         (lambda: pylopdf.IRect(0, 0, 1, 1), "intersect", "Use r & other, which returns a new IRect."),
         (pylopdf.Matrix, "prerotate", "pylopdf.Matrix(deg) * m"),
         (pylopdf.Point, "transform", "Use p * m"),
         (lambda: pylopdf, "TOOLS", "does not provide pymupdf's TOOLS."),
-        (lambda: pylopdf, "PDF_REDACT_IMAGE_NONE", "plans pymupdf's PDF_REDACT_* for M4"),
+        (lambda: pylopdf, "PDF_REDACT_IMAGE_NONE", "capability of pymupdf's PDF_REDACT_* in the Rewriting milestone"),
     ],
 )
 def test_missing_pymupdf_names_raise_hinted_attribute_errors(
@@ -183,7 +183,8 @@ def test_codemod_places_hints_inside_compound_statements(migrate_source: Migrate
     code = migrate_source(source).code
 
     assert code.splitlines()[3].lstrip().startswith("# TODO(pylopdf): pylopdf extracts and inserts")
-    assert code.splitlines()[5].lstrip().startswith("# TODO(pylopdf): pylopdf plans pymupdf's Page.get_textpage")
+    planned = code.splitlines()[5].lstrip()
+    assert planned.startswith("# TODO(pylopdf): pylopdf plans the capability of pymupdf's Page.get_textpage")
 
 
 def test_migrate_command_writes_checks_and_diffs(tmp_path: Path) -> None:

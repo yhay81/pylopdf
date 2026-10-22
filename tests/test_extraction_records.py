@@ -1,4 +1,4 @@
-"""pymupdf's extraction record shapes: words, blocks, drawings, and links (M0)."""
+"""pymupdf's extraction record shapes: words, blocks, drawings, and links."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ def test_dict_layouts_keep_their_typed_dict_names() -> None:
     assert isinstance(page.get_text("dict"), dict)
     assert pylopdf.TextPageDict.__name__ == "TextPageDict"
     assert pylopdf.RawTextPageDict.__name__ == "RawTextPageDict"
-    # M1 gives the name TextPage to pymupdf's text page handle.
+    # The name TextPage stays free for a text page handle.
     assert not hasattr(pylopdf, "TextPage")
     assert not hasattr(pylopdf, "WordEntry")
     assert not hasattr(pylopdf, "BlockEntry")

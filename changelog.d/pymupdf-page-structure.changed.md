@@ -1,4 +1,4 @@
-Adopt pymupdf's page-structure semantics (roadmap M0): `copy_page` becomes
+Adopt pymupdf's page-structure semantics: `copy_page` becomes
 `fullcopy_page`, whose `pno` lies in `0..page_count - 1` and `to` in
 `-1..page_count - 1`. `delete_page` defaults to the last page, and
 `delete_pages` takes pymupdf's forms: one page number, an inclusive

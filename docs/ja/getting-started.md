@@ -7,7 +7,7 @@ description: pylopdfをインストールし、編集・描画・抽出・書き
 
 !!! note "プロジェクトの状況"
 
-    pylopdfは1.0前で、現時点ではpymupdfのAPIの一部をカバーしています。互換性のない変更はまだ起こりえます。何が変わりうるかは[安定性ポリシー](stability.md)で説明しています。このサイトは`main`ブランチに追従しているため、まだPyPIに公開されていない変更を説明していることがあります。各リリースの内容は[変更履歴](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)を参照してください。
+    pylopdfは1.0前で、次のリリースでは[ロードマップ](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)のとおりAPIを作り直します。何が変わりうるかは[安定性ポリシー](stability.md)で説明しています。このサイトは`main`ブランチに追従しているため、まだPyPIに公開されていない変更を説明していることがあります。各リリースの内容は[変更履歴](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)を参照してください。
 
 ## インストール { #installation }
 
@@ -175,9 +175,9 @@ OCRの詳細は、別のOCRエンジンで認識したテキストを追加す�
 
 ## まだ対応していないもの { #not-supported }
 
-墨消し（redaction）、注釈の編集・削除、フォームフィールドの作成、増分保存は予定しています。時期は[ロードマップ](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)にあります。pylopdfが開けるのはPDFファイルだけです。
+墨消し（redaction）、注釈の編集・削除、フォームフィールドの作成、増分保存、検証済みのPDF/AとPDF/UAの出力は予定しています。内容は[ロードマップ](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)にあります。pylopdfが開けるのはPDFファイルだけです。
 
-組版、PDF/A出力、電子署名は対象外です。これらについては、pylopdfをtypstやpyHankoと組み合わせる方法を[エコシステム連携](ecosystem.md)で紹介しています。
+HTMLとCSSによる組版と電子署名は、エコシステムのツールに任せます。pylopdfをtypstやpyHankoと組み合わせる方法を[エコシステム連携](ecosystem.md)で紹介しています。
 
 ## 次のステップ { #next-steps }
 

@@ -1,6 +1,6 @@
 ---
 title: pylopdf
-description: pymupdf 스타일 API와 Rust 코어로 Python에서 PDF를 편집, 렌더링, 추출, 생성합니다. MIT 라이선스입니다.
+description: Rust PDF 엔진 lopdf, hayro, krilla 위에서 Python으로 PDF를 편집, 렌더링, 추출, 생성합니다. MIT 라이선스입니다.
 hide:
   - navigation
   - toc
@@ -12,7 +12,7 @@ hide:
       <p class="living-eyebrow">Python 네이티브 PDF 툴킷</p>
       <h1 id="living-hero-title">PDF를, <span class="living-annotated">Python답게</span>. 핵심은 Rust.</h1>
       <p class="living-lede">
-        pymupdf를 따르는 API로 PDF를 편집, 렌더링, 추출, 생성합니다. MIT 라이선스이며 따로 설치할 것이 없습니다.
+        Rust 엔진 lopdf, hayro, krilla 위에서 PDF를 편집, 렌더링, 추출, 생성합니다. MIT 라이선스이며 따로 설치할 것이 없습니다.
       </p>
 
       <div class="living-actions">

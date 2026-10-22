@@ -1,4 +1,4 @@
-"""pymupdf's image inventory: get_images, get_image_info, and extract_image (M0)."""
+"""pymupdf's image inventory: get_images, get_image_info, and extract_image."""
 
 from __future__ import annotations
 

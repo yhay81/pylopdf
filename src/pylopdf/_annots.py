@@ -191,7 +191,7 @@ class Annot:
 
     @property
     def rect(self) -> Rect:
-        """Return the annotation rectangle in display coordinates (DESIGN.md G1)."""
+        """Return the annotation rectangle in display coordinates."""
         return Rect(*self._entry()[3])
 
     @property

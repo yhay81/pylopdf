@@ -5,7 +5,7 @@ description: 借助迁移工具、逐个名称的对照表以及需要注意的�
 
 # 从pymupdf迁移
 
-pylopdf沿用pymupdf的API：相同的名称表示相同的含义，大多数代码所依赖的数据形状（例如`"words"`元组、`"dict"`结构以及返回矩形的`search_for()`）也都一致。但它目前还不能直接替代pymupdf：它只覆盖pymupdf API的一部分，**只能打开PDF文件**（不支持XPS、EPUB或图像），并有意改变了少数行为。本页列出可以直接沿用的部分、存在差异的部分，以及pylopdf未实现的功能应改用什么。
+pylopdf的目标是用自己的API完成pymupdf对PDF文件能做的一切。目前许多名称与pymupdf相同，大多数代码所依赖的数据形状（例如`"words"`元组、`"dict"`结构以及返回矩形的`search_for()`）也相同。但它不能直接替代pymupdf：它**只能打开PDF文件**（不支持XPS、EPUB或图像），有意改变了少数行为，而且下一个版本将重新设计API，迁移工具也会随之更新。本页列出可以直接沿用的部分、存在差异的部分，以及pylopdf尚未实现的功能应改用什么。
 
 ## 自动迁移 { #codemod }
 
@@ -102,7 +102,8 @@ python -m pylopdf.migrate src/
 | Story API、`insert_htmlbox`（排版） | [typst](ecosystem.md#typesetting) |
 | 数字签名 | [pyHanko](ecosystem.md#signatures) |
 | 增量保存 | 已在计划中；在此之前pylopdf会重写整个文件，签名由pyHanko处理 |
-| 打开XPS、EPUB、CBZ或图像 | 无此计划：pylopdf只处理PDF |
+| 将图像或CBZ归档转换为PDF | 已在计划中；在此之前请用Pillow或img2pdf转换 |
+| 打开XPS或EPUB | 无此计划：pylopdf是PDF库 |
 
 ## 迁移示例 { #worked-example }
 

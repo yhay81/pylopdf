@@ -5,7 +5,7 @@ description: 이전 도구, 이름별 대응표, 주의할 동작 차이를 바�
 
 # pymupdf에서 이전
 
-pylopdf는 pymupdf의 API를 따릅니다. 같은 이름은 같은 의미이며, `"words"` 튜플, `"dict"` 구조, 사각형을 반환하는 `search_for()`처럼 대부분의 코드가 의존하는 데이터 형태가 일치합니다. 다만 아직 그대로 바꿔 끼울 수 있는 대체품은 아닙니다. pymupdf API의 일부만 지원하고, **PDF 파일만** 열며(XPS, EPUB, 이미지는 열지 않음), 일부 동작을 의도적으로 바꿨습니다. 이 페이지는 그대로 쓸 수 있는 것, 다른 것, pylopdf가 구현하지 않은 부분 대신 쓸 것을 정리합니다.
+pylopdf는 pymupdf가 PDF 파일로 할 수 있는 모든 일을 자체 API로 하는 것을 목표로 합니다. 지금은 많은 이름이 pymupdf와 같고, `"words"` 튜플, `"dict"` 구조, 사각형을 반환하는 `search_for()`처럼 대부분의 코드가 의존하는 데이터 형태도 같습니다. 다만 그대로 바꿔 끼울 수 있는 대체품은 아닙니다. **PDF 파일만** 열며(XPS, EPUB, 이미지는 열지 않음), 일부 동작을 의도적으로 바꿨고, 다음 릴리스에서 API를 다시 설계하며 이전 도구도 이를 따릅니다. 이 페이지는 그대로 쓸 수 있는 것, 다른 것, pylopdf가 아직 구현하지 않은 부분 대신 쓸 것을 정리합니다.
 
 ## 자동 이전 { #codemod }
 
@@ -102,7 +102,8 @@ python -m pylopdf.migrate src/
 | Story API, `insert_htmlbox`(조판) | [typst](ecosystem.md#typesetting) |
 | 디지털 서명 | [pyHanko](ecosystem.md#signatures) |
 | 증분 저장 | 계획됨. 그때까지 pylopdf는 파일 전체를 다시 쓰며, 서명은 pyHanko가 처리 |
-| XPS, EPUB, CBZ, 이미지 열기 | 계획 없음. pylopdf는 PDF 전용 |
+| 이미지나 CBZ 아카이브를 PDF로 변환 | 계획됨. 그전까지는 Pillow나 img2pdf로 변환하세요 |
+| XPS나 EPUB 열기 | 계획 없음. pylopdf는 PDF 라이브러리 |
 
 ## 예제 { #worked-example }
 

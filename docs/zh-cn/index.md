@@ -1,6 +1,6 @@
 ---
 title: pylopdf
-description: 用Python编辑、渲染、提取和创建PDF：沿用pymupdf风格的API，以Rust为核心，采用MIT许可。
+description: 基于Rust PDF引擎lopdf、hayro和krilla，用Python编辑、渲染、提取和创建PDF，采用MIT许可。
 hide:
   - navigation
   - toc
@@ -12,7 +12,7 @@ hide:
       <p class="living-eyebrow">Python原生PDF工具包</p>
       <h1 id="living-hero-title">用<span class="living-annotated">Python的方式</span>处理PDF，核心由Rust驱动。</h1>
       <p class="living-lede">
-        用一套沿用pymupdf的API编辑、渲染、提取和创建PDF，采用MIT许可，无需安装其他依赖。
+        基于Rust引擎lopdf、hayro和krilla编辑、渲染、提取和创建PDF，采用MIT许可，无需安装其他依赖。
       </p>
 
       <div class="living-actions">

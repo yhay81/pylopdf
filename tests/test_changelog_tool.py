@@ -1,4 +1,4 @@
-"""Changelog fragments: validation, the pull request rule, and assembly (F2)."""
+"""Changelog fragments: validation, the pull request rule, and assembly."""
 
 from __future__ import annotations
 

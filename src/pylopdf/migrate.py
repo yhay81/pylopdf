@@ -1,7 +1,7 @@
 """Rewrite pymupdf programs for pylopdf: ``python -m pylopdf.migrate PATH...``.
 
 The command renames the ``fitz`` and ``pymupdf`` imports to ``pylopdf``,
-rewrites the calls whose replacement the parity manifest records as
+rewrites the calls whose replacement the capability map records as
 mechanical, and adds a ``# TODO(pylopdf): ...`` comment with the migration
 hint above every statement that still needs a person. It rewrites each
 Python file in place (directories are searched recursively), then lists the

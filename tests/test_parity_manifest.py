@@ -1,4 +1,4 @@
-"""Regression tests for the pymupdf parity manifest."""
+"""Regression tests for the pymupdf capability map."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 CHECKER = ROOT / "tools" / "check_parity.py"
 MANIFEST = ROOT / "api" / "pymupdf-parity.json"
-OPTIONAL_FIELDS = frozenset({"provisional", "hint", "reset", "note"})
+OPTIONAL_FIELDS = frozenset({"hint", "note"})
 
 
 def _run_checker(*args: str) -> subprocess.CompletedProcess[str]:
@@ -26,12 +26,12 @@ def _run_checker(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_parity_manifest_is_classified_and_resolves() -> None:
+def test_capability_map_is_classified_and_resolves() -> None:
     """Every pymupdf API has a status, and every available pylopdf symbol exists."""
     result = _run_checker()
     assert result.returncode == 0, result.stderr
     assert result.stdout.startswith("pymupdf ")
-    assert "M0 resets: " in result.stdout
+    assert "planned by milestone: " in result.stdout
 
 
 @pytest.mark.parametrize(
@@ -39,13 +39,15 @@ def test_parity_manifest_is_classified_and_resolves() -> None:
     [
         ("Document.load_page", {"pylopdf": "Document.no_such_method"}, "is not in api/public-api.json"),
         ("FileNotFoundError", {"pylopdf": "NoSuchBuiltinError"}, "is not in api/public-api.json"),
-        ("Page.get_label", {"pylopdf": "Page.render"}, "needs a reset that gives it the pymupdf name"),
+        ("Page.get_label", {"pylopdf": "Page.render"}, "instead of the pymupdf name"),
+        ("Document.journal_undo", {"pylopdf": "Document.undo"}, "only an available entry names a pylopdf symbol"),
+        ("Document.journal_undo", {"milestone": "M7"}, "unknown milestone"),
         ("Document.get_outline_xrefs", {"milestone": None}, "a planned entry must name its milestone"),
         ("set_log", {"hint": None}, "needs a hint for migrating callers"),
         ("Document.journal_undo", {"status": None}, "unclassified"),
     ],
 )
-def test_parity_checker_rejects_broken_entries(
+def test_capability_checker_rejects_broken_entries(
     tmp_path: Path,
     key: str,
     changes: dict[str, object],

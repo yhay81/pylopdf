@@ -8,7 +8,7 @@ off the visible page. hayro-syntax 0.8 renders and extracts the same clipped
 box, and when the CropBox misses the MediaBox it displays an A4 page from the
 corner where clipping leaves the box, where MuPDF displays Letter at the
 origin. pylopdf draws in hayro's box, so drawing, annotations, ``Page.rect``,
-rendering, and extraction share one display space (DESIGN.md G1). pymupdf is
+rendering, and extraction share one display space. pymupdf is
 not a test dependency; apart from the A4 pages, every rectangle below is the
 ``Page.rect`` that pymupdf reports.
 """

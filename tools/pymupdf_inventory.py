@@ -1,4 +1,4 @@
-"""List pymupdf's public API and compare it with the parity manifest.
+"""List pymupdf's public API and compare it with the capability map.
 
 This development tool needs pymupdf, which is AGPL-licensed and comes only from
 the ``bench`` dependency group::
@@ -44,9 +44,9 @@ if TYPE_CHECKING:
     from check_parity import Entry, JsonObject
 
 # Public functions, properties included, that each class body defines in
-# pymupdf 1.28.0, as ROADMAP.md F3 counted them on 2026-10-19. The inventory
+# pymupdf 1.28.0, as counted on 2026-10-19. The inventory
 # also lists aliases, attributes, protocol methods, and instance attributes.
-ROADMAP_METHOD_COUNTS = {
+BASELINE_METHOD_COUNTS = {
     "Document": 141,
     "Page": 115,
     "Annot": 53,
@@ -315,7 +315,7 @@ def collect_inventory() -> JsonObject:
 
 
 def summary(inventory: JsonObject) -> str:
-    """Return per-class counts, with the ROADMAP.md baseline beside them."""
+    """Return per-class counts, with the 2026-10-19 baseline beside them."""
     entries = cast("dict[str, str]", inventory["entries"])
     defined = cast("dict[str, int]", inventory["defined_methods"])
     groups = cast("dict[str, list[str]]", inventory["groups"])
@@ -329,8 +329,8 @@ def summary(inventory: JsonObject) -> str:
     for class_name in TRACKED_CLASSES:
         counts = per_scope.get(class_name, Counter())
         kinds = ", ".join(f"{kind} {count}" for kind, count in sorted(counts.items()))
-        expected = ROADMAP_METHOD_COUNTS.get(class_name)
-        baseline = "" if expected is None else f" (ROADMAP.md: {expected})"
+        expected = BASELINE_METHOD_COUNTS.get(class_name)
+        baseline = "" if expected is None else f" (2026-10-19: {expected})"
         lines.append(
             f"  {class_name}: {sum(counts.values())} entries; {defined[class_name]} methods "
             f"defined in the class body{baseline}; {kinds}",
@@ -363,7 +363,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n", 1)[0])
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--json", action="store_true", help="print the complete inventory as JSON")
-    mode.add_argument("--check", action="store_true", help="compare the inventory with the parity manifest")
+    mode.add_argument("--check", action="store_true", help="compare the inventory with the capability map")
     mode.add_argument("--update", action="store_true", help="synchronize the manifest's names with the inventory")
     return parser.parse_args()
 
@@ -403,7 +403,7 @@ def main() -> int:
             sys.stdout.writelines(f"  {key}\n" for key in keys)
     if missing or stale or changed:
         return 1
-    sys.stdout.write("The parity manifest lists exactly the installed pymupdf public API.\n")
+    sys.stdout.write("The capability map lists exactly the installed pymupdf public API.\n")
     return 0
 
 

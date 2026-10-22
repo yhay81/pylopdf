@@ -321,7 +321,7 @@ class Page:
 
         The x coordinates are the stored ones, and the y axis is flipped
         against the top of the MediaBox, so the CropBox of an uncropped page
-        that starts at the origin equals its MediaBox (DESIGN.md G1).
+        that starts at the origin equals its MediaBox.
         """
         mediabox = self.mediabox
         box = self._document._doc.get_page_box(self._page_number(), "CropBox")

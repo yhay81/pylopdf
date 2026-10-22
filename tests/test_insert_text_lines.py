@@ -247,7 +247,7 @@ def test_the_bottom_of_the_page_is_that_of_the_display_rectangle(via: str, page_
     # Every page shows 200 by 130 points. pymupdf 1.28.2 draws 8 of these 10
     # lines on all but the first page, because it measures in unrotated space
     # down to user-space y = 0; pylopdf measures in display space down to the
-    # bottom of page.rect (DESIGN.md G1).
+    # bottom of page.rect.
     page = pylopdf.Document(stream=_one_page(page_entries))[0]
     assert tuple(page.rect) == (0.0, 0.0, 200.0, 130.0)
 

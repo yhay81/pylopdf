@@ -1,993 +1,614 @@
 # pylopdf roadmap
 
-This is the canonical medium-term plan. It was rewritten on 2026-10-19 around
-one program: **give Python developers everything pymupdf offers for PDF files,
-under the MIT license, without giving up what makes pylopdf different** — a
-pure-Rust core, small wheels, bounded behavior on untrusted input, a supported
-concurrency contract, WebAssembly deployment, and first-class CJK and
-multilingual text.
-
-The previous roadmap's dated release narratives (v0.5–v0.14), its 2026-10-13
-stabilization review, and its 2026-07 surveys remain in Git history
-(`git show a233814:ROADMAP.md`) and in [CHANGELOG.md](CHANGELOG.md). Evidence
-that still drives decisions is condensed in the [evidence log](#evidence-log).
-[AGENTS.md](AGENTS.md) remains the day-to-day development context.
+This is the canonical medium-term plan. It was rewritten on 2026-10-22 around
+one direction: **the best PDF library for Python, built as the Python face of
+the Rust PDF engines**, with lopdf for objects and persistence, hayro for
+interpretation and rendering, and krilla for writing.
+[api/DESIGN.md](api/DESIGN.md) holds the API design that every milestone
+implements, and [AGENTS.md](AGENTS.md) the day-to-day development context.
 
 ## Goal
 
-pylopdf reaches **parity** when every capability of pymupdf 2.0's public API
-that applies to PDF documents is available — under pymupdf's name with
-pymupdf's meaning, or through a redesigned pylopdf API that replaces it — or is
-listed as a reasoned non-goal with an ecosystem answer. Parity is about
-capabilities, not about copying every name. It **exceeds** pymupdf where
-pymupdf structurally cannot follow:
+pylopdf is complete, essential, engine-faithful, trustworthy, and available
+everywhere Python runs.
 
-- One API with one way to do each task, typed results, and no hidden state.
-- MIT licensing for the complete feature set, including layout analysis;
-  pymupdf is AGPL and pymupdf-layout is PolyForm Noncommercial.
-- Typed, bounded refusal (`LimitError`) on every untrusted-input path instead
-  of best-effort behavior.
-- A supported concurrency contract on GIL-enabled and free-threaded CPython.
-- PyEmscripten and Cloudflare Python Workers deployment.
-- CJK, vertical, right-to-left, and complex-script quality backed by a
-  licensed real-world corpus.
-- Verifiable results: redaction that proves removal, structure-aware
-  extraction from tagged PDFs, and benchmarks that publish wins and losses.
+- **Complete.** pylopdf does everything a program needs to do with PDF files,
+  and at least everything pymupdf can do with them. A PDF capability that
+  pymupdf has and pylopdf lacks is a gap on this roadmap, never a scope
+  decision. The [capability map](#capability-map) measures it.
+- **Essential.** A small set of concepts follows the PDF model and the
+  engines: a document of pages and objects, one content model that reading
+  and writing share, rendering, and the interactive and navigational
+  structures. Each task has one obvious way to do it, with typed values and
+  standard Python protocols. Names and shapes are pylopdf's own; pymupdf is a
+  source of capabilities, not of design.
+- **Engine-faithful.** A capability belongs to the engine whose domain it is
+  and is built there. The maintainers of lopdf, hayro, and krilla accept
+  well-made changes quickly, so pylopdf contributes to them instead of working
+  around them. pylopdf itself builds what only a Python library that combines
+  the three can: the binding, the one-way data flow between the engines,
+  resource policy, and document understanding (layout, tables, Markdown, and
+  OCR).
+- **Trustworthy.** Hostile input meets typed, bounded refusal. Results can be
+  verified: redaction proves removal, extraction carries its provenance, and
+  benchmarks publish losses with wins.
+- **Everywhere.** GIL-enabled and free-threaded CPython, Pyodide and
+  Cloudflare Python Workers, small wheels, and the MIT license for every
+  feature, layout analysis and OCR included.
 
-Parity is measured, not asserted. The [parity manifest](#f3--parity-manifest)
-maps each pymupdf API to its pylopdf status, CI keeps that map honest, and the
-same map drives the [migration tools](#f9--migration-tooling).
+## Baseline: 2026-10-22
 
-## Baseline: 2026-10-19
+Main is `61ed29c`: release 0.15.0 plus unreleased changes that renamed parts
+of the API after pymupdf for a plan that this rewrite replaces.
 
-Main is `a233814`: 0.14.0 plus 32 merged pull requests, mostly hardening,
-performance, and tooling.
+**What works.** Lenient opening with a bounded resource policy, the typed
+object model, page organization, metadata, XMP, page labels, the outline,
+attachments, text in reading order (words, blocks, spans, and characters),
+search, tables, Markdown, vector-path and image inventories, raster and SVG
+rendering with parallel batches, shaped and subset-embedded text, textbox
+layout, vector shapes, AcroForm filling, Highlight and URI link creation,
+AES-256 encryption, image recompression, native offline OCR, a concurrency
+contract, and WebAssembly.
 
-**Already covered.** Page organization (merge, select, insert,
-rotate, MediaBox/CropBox, labels, TOC), text extraction
-(`text`/`words`/`blocks`/`dict`/`rawdict`), search, bordered and borderless
-tables, Markdown, vector-path and image extraction, PNG and SVG rendering with
-ordered parallel batches, shaped and subset-embedded generated text, textbox
-layout, AcroForm filling with regenerated appearances, attachments, AES-256
-encryption, image compression, native offline OCR, resource limits, the
-concurrency contract, and WebAssembly.
+**Capability coverage.** The capability map lists 962 public names of
+pymupdf 2.0: 365 available today (306 of them under pymupdf's own name), 32
+covered by ecosystem tools, 408 planned, and 157 outside scope, so 49.3% of
+the names in scope are covered. The largest gaps are annotations and forms
+(`Annot` 47 planned names, `Widget` 36, `Link` 16), extraction depth and text
+pages, rendering options and Pixmap conversions (`Pixmap` 39), rich text
+(`TextWriter` 14), redaction, optional content, and incremental save.
 
-**Gaps by severity.** These come from comparing the pymupdf 1.28.0 source with
-the pylopdf public API snapshot and implementation, with the two import
-defects reproduced on the real-world corpus.
+**Engine workarounds.** About 5,500 lines of Rust exist because an engine
+lacks a bound, an API, or linear-time behavior: nesting guards and the
+scanners behind them for hayro (`content_guard.rs`, `content_scan.rs`,
+`graph_guard.rs`, `postscript_scan.rs`, and `read_depth.rs`), the choice of
+snapshot for large object streams (`object_stream_work.rs`), reconciling how
+lopdf and hayro read malformed files (`object_recovery.rs`), capturing lopdf's
+recovery reports from its log (`recovery.rs`), linear replacements for lopdf's
+quadratic graph helpers (`prune.rs` and `renumber.rs`), object-number headroom
+(`unallocated.rs`), and a calling-thread parser for krilla's output
+(`generated_pdf.rs`). [Engine work](#engine-work) moves each one upstream.
 
-| Area | Gap | Severity |
-| --- | --- | --- |
-| Redaction | No content removal (`apply_redactions`) and no `scrub` | Critical |
-| Annotations | Only Highlight and URI Link creation; no editing, deletion, or flattening | Critical |
-| Forms | No field creation, deletion, properties, reset, or flattening; widget geometry is not returned | Critical |
-| Drawing | No vector primitives (`Shape`, `draw_*`); no rotated, translucent, or outlined text | Major |
-| Low-level access | No `xref_*` object API, no XMP read/write, no optional-content (OCG) API | Major |
-| Extraction attributes | No span color, alpha, ascender, descender, or `char_flags`; no `clip=`; no image blocks, quads, or html/xml/json output | Major |
-| Rendering | No arbitrary matrix, grayscale or RGB output, `annots=False`, or JPEG output | Major |
-| LLM output | No `page_chunks`, image export, margins, or header/footer removal | Major |
-| Resource reuse | Repeated `insert_image` and `show_pdf_page` duplicate objects (5 stamps of one page embedded 25 font files); `garbage` cannot merge duplicates | Major, in progress |
-| Import | `insert_pdf` drops AcroForm registration (199 fields became 0, leaving 128 orphaned widgets) | Major, in progress |
-| Persistence | No incremental save or font subsetting; damaged xref streams and truncated files are still rejected | Major |
-| Navigation | No TOC detail or item editing; no internal, remote, or named link creation; no link editing | Minor |
-| Geometry | No `Matrix`, `Quad`, `IRect`, or `Rect` algebra | Minor |
-| Document properties | No Art/Bleed/TrimBox, viewer preferences, MarkInfo, language, or attachment info/update | Minor |
-| Images in and out | Limited Pixmap conversion, constructors, and formats; no image or CBZ to PDF conversion | Minor |
-| Rich text | No styled runs, per-glyph font fallback, or HTML subset | Minor |
-| API consistency | pymupdf-named APIs whose pylopdf meaning differs (`get_images`, `get_pixmap` defaults, `annots`), and pylopdf's own synonyms (`render_page`, `Page.render`, `render_page_svg`) | Major |
+**API surface.** pylopdf exports 160 names, 80 of them module-level constants
+in MuPDF's style. `Document` has 64 public members and `Page` 45, among them
+pymupdf's conveniences and pairs of methods that the design replaces with
+properties and collections.
 
 ## Principles
 
-1. **One API.** Each task has one way to do it. pylopdf adds no synonyms of
-   its own and ships no compatibility layer or aliases.
-2. **Same name, same meaning.** When pymupdf has an API with the meaning
-   pylopdf needs, pylopdf uses pymupdf's name, argument names, constants, and
-   data shapes, even where a clearer name exists: familiarity across pymupdf's
-   user base, and in the code that coding assistants write, outweighs local
-   naming taste. A pymupdf-named API may support a subset of pymupdf's
-   parameters; an unsupported parameter raises `TypeError` instead of being
-   reinterpreted. Extensions that leave pymupdf's parameters and defaults
-   unchanged, such as `max_*` limits or `font_language=`, are allowed.
-3. **Redesign for substance, under a new name.** pylopdf replaces a pymupdf
-   design only for a substantive defect — hidden state that a forgotten
-   `update()` loses, positional tuples, magic numbers, objects
-   encoded as strings, inconsistent numbering, unsafe defaults, or global
-   state — or when a standard Python protocol such as a mapping, a sequence, or
-   a context manager replaces a bespoke family of methods. The replacement
-   gets a new name, and the pymupdf name is not provided. Style alone, such as
-   a `get_` prefix or camelCase dictionary keys, is never a reason.
-4. **Migration through tools, not shims.** The parity manifest drives a
-   codemod, migration hints for pymupdf names, and an `llms.txt` guide for
-   coding assistants ([F9](#f9--migration-tooling)).
-5. **Break once before 1.0.** pylopdf has no established user base to protect,
-   so redesigns land without deprecation windows. The
-   [API reset](#m0--api-reset) gathers them into one breaking release.
-6. **One-way data flow.** lopdf's `Document` is the sole editable source of
-   truth; hayro is an immutable view for rendering and extraction. An
-   unedited, unencrypted document may use its original input bytes only when
-   every reference reachable from its trailer resolves to the same object in
-   lopdf's graph and hayro reads the same pages as the page-tree walker. Every
-   edit invalidates that fast path, so rendered output always reflects the
-   edited and saved state. krilla returns bytes that are imported into lopdf.
-   Engines never share mutable state.
-7. **Clear engine ownership.** lopdf edits, hayro renders and extracts, krilla
-   with HarfRust generates text and appearances, and pylopdf's content engine
-   ([F8](#f8--content-stream-engine)) interprets and rewrites content streams
-   inside the lopdf graph.
-8. **Bounded by default.** Every caller input and decoded amplification has a
-   documented cap. Python checks it before PyO3 copies and Rust checks it
-   again. Trusted workloads opt out explicitly with `None`. Refusal raises
+1. **Capabilities, not names.** Completeness is measured per capability in
+   the capability map. pylopdf's names follow [api/DESIGN.md](api/DESIGN.md).
+   A pymupdf name stays only where it is also the clearest name in pylopdf's
+   vocabulary, and then carries no obligation to pymupdf's semantics or to
+   MuPDF's numerical behavior.
+2. **Engine-first.** Before building a capability, decide which layer owns it
+   ([Architecture](#architecture)). Work that an engine owns lands upstream
+   first, and pylopdf adopts the released engine. A workaround in pylopdf is
+   allowed only while an upstream change is under way: it links the upstream
+   pull request, is listed under [Engine work](#engine-work), and goes away in
+   the pull request that adopts the fix. pylopdf releases depend only on
+   published engine versions.
+3. **One graphics model.** hayro's `Device` and krilla's `Surface` share one
+   vocabulary: paths with fills and strokes, glyph runs, images, clips,
+   transparency groups, and marked content. pylopdf exposes one set of types
+   for both directions, so a program can read a page's content, filter or
+   transform it, and write it back.
+4. **One coordinate space.** Every position on a page, read or written, is in
+   display space: points from the top-left corner of the visible page, with
+   `/Rotate` and the CropBox applied. Page boxes, which define that space, are
+   the only values in PDF user space.
+5. **One-way data flow.** lopdf's object graph is the single editable source
+   of truth. hayro interprets an immutable snapshot of it, and krilla produces
+   content that is imported into it. The engines never share mutable state,
+   and every edit invalidates the snapshot.
+6. **Bounded by default.** Every caller input and every decoded amplification
+   has a documented cap, checked before Python copies and again in Rust.
+   Trusted workloads opt out explicitly with `None`. Refusal raises
    `LimitError` with a stable code and returns no partial result.
-9. **Prepare, then commit.** A mutation plans all fallible work first,
-   invalidates caches immediately before its first change, and leaves the
-   document unchanged on refusal. Structural changes bump the page generation,
-   and stale views raise.
-10. **Lightweight handles.** `Page`, `Annot`, `Widget`, `Link`, and outline
-    items are views of a document, a generation, and an object ID. Setters
-    apply immediately and atomically, regenerating appearances in the same
-    operation, so there is no hidden dirty state and no `update()`; pymupdf
-    code that calls it receives a migration hint.
-11. **Small core, optional data.** The core abi3 wheel stays at or below
-    9.0 MiB on every platform; the thin-LTO wheels built from the 0.14.0
-    sources are 6.4–7.4 MiB. Fonts, OCR models, and layout models ship as
-    independently versioned data packages. Each pull request reports its wheel
-    size delta, and growth above 0.25 MiB needs a written justification.
-12. **Integrate where an ecosystem leader exists.** typst for typesetting and
-    new-document PDF/A, pyHanko for cryptographic signing, and veraPDF for
-    PDF/A validation. Integration recipes are covered by tests.
-13. **Evidence over claims.** Every feature lands with real-document or
-    adversarial regressions, save/reopen and render checks, published
-    benchmarks for performance-relevant paths, and upstream reports for engine
-    limitations.
+7. **Prepare, then commit.** A mutation plans all fallible work before its
+   first change and leaves the document unchanged on refusal. Handles are
+   views that read the document on every access, apply setters immediately,
+   and raise when stale, so there is no hidden dirty state.
+8. **Provenance.** Every derived result (a word, a table cell, a Markdown
+   chunk, an OCR word) carries its page and its display-space geometry, and,
+   where the PDF has one, the object or structure element it came from.
+9. **Evidence over claims.** Features land with real-document and adversarial
+   regressions, save-and-reopen and rendering checks, and published
+   benchmarks for performance-relevant paths, wins and losses together.
+10. **Small core, optional data.** The core abi3 wheel stays at or below
+    9.0 MiB on every platform. Fonts, OCR models, and layout models ship as
+    separately versioned data packages. A pull request that grows the wheel by
+    more than 0.25 MiB justifies it in writing.
+11. **Break before 1.0, once per design change.** Redesigns land without
+    deprecation windows, and each removed or renamed API gets a codemod rule
+    and a migration hint. From 1.0 on, the
+    [stability policy](docs/en/stability.md) applies.
+
+## Architecture
+
+| Layer | Engine | pylopdf surface | What pylopdf builds |
+| --- | --- | --- | --- |
+| Objects and persistence | lopdf | `open`, `save`, `Document.objects`, encryption, incremental save, recovery | resource policy, atomic file replacement |
+| Document structure | lopdf | `doc.pages`, outline, page labels, attachments, metadata, optional content | page-tree, name-tree, and outline semantics with bounds |
+| Content model | hayro reads, krilla writes | `Page.content()` items, the `Page.draw()` canvas, new documents | the shared types and the conversion between engines |
+| Understanding | — | text, words, layout, search, tables, Markdown, tagged structure, OCR | reading order, tables, Markdown, OCR on RTen |
+| Rendering | hayro, vello_cpu, hayro-svg | `Page.render()`, `Page.svg()`, `Pixmap` | encoders, parallel batches, cache reuse |
+| Interaction | lopdf; appearances through krilla | annotations, links, form fields, widgets, flattening | appearance planning, AcroForm semantics |
+| Rewriting | pylopdf's content engine over lopdf; hayro verifies | redaction, sanitization, content cleaning, recoloring, image rewriting | content rewriting and its verification |
+
+## Capability map
+
+`api/pymupdf-parity.json` records, for every public name of pymupdf 2.0, how
+pylopdf covers the capability behind it:
+
+- `available`: pylopdf provides it, under the same name (`same`) or through a
+  different API (`replaced`) that the entry names, with a one-sentence hint
+  for migrating code.
+- `planned`: a milestone below adds it. The entry names the milestone; the
+  pylopdf API is designed when the milestone starts.
+- `integration`: an ecosystem tool provides it through a recipe that a test
+  covers.
+- `non-goal`: outside the [scope](#non-goals), or an internal of pymupdf or
+  MuPDF without a capability at the PDF level.
+
+`tools/check_parity.py` checks the map in CI and reports coverage. The same
+data drives the migration tools: hinted `AttributeError`s, the codemod
+(`python -m pylopdf.migrate`), and the name map in `docs/en/llms.txt`. Each
+pymupdf release adds its new names to the map. Record names and statuses only;
+never copy pymupdf code or documentation, which is AGPL-licensed.
 
 ## Definition of done
 
 Every feature pull request satisfies all of the following before merge.
 
-- **API.** Follows the [API design](#f0--api-design): pymupdf's name and
-  meaning where a counterpart exists, a new name where pylopdf redesigns;
-  complete type hints and docstrings; an updated `pylopdf_core.pyi`;
-  `api/public-api.json` refreshed after reviewing runtime, typing,
-  documentation, and SemVer impact; updated parity manifest entries, including
-  the migration hint for every replaced pymupdf name.
-- **Safety.** Caller input caps before PyO3 copies, repeated in Rust; new
-  `LimitError` codes documented in the security guide; fallible growth for
-  input-derived collections; no partial results; prepare-then-commit; the cache
-  and generation rules in AGENTS.md.
+- **Layer.** The pull request names the layer that owns the capability. Work
+  that an engine owns is merged and released upstream, or the pull request
+  links the upstream pull request and lists its workaround under
+  [Engine work](#engine-work).
+- **API.** It follows [api/DESIGN.md](api/DESIGN.md), with complete type hints
+  and docstrings, an updated `pylopdf_core.pyi`, and `api/public-api.json`
+  refreshed after reviewing runtime, typing, documentation, and SemVer impact.
+  The capability-map entries it covers are updated, with a hint for every
+  pymupdf name that pylopdf covers under another name.
+- **Safety.** Caller input is capped before PyO3 copies it and again in Rust;
+  new `LimitError` codes are documented in the security guide; input-derived
+  collections grow fallibly; no partial results; prepare-then-commit; and the
+  cache and generation rules in AGENTS.md hold.
 - **Tests.** Python tests only, with no Rust unit tests: success, boundary,
-  refusal, and malformed-input cases; a save/reopen round trip; rendered or
-  extracted verification; a redistributable real-world fixture when behavior
-  depends on producers. pymupdf may serve as a development-only oracle where a
-  comparison is meaningful; it is never a runtime dependency or a required
+  refusal, and malformed-input cases; a save-and-reopen round trip; rendered
+  or extracted verification; and a redistributable real-world fixture when the
+  behavior depends on producers. pymupdf may serve as a development-only
+  oracle where a comparison is meaningful; it is never a runtime or required
   test dependency.
 - **Portability.** The free-threaded lanes pass, and the native/PyEmscripten
-  contract in `tools/pyodide_compat.py` covers the feature unless it depends on
-  OCR or threads.
+  contract in `tools/pyodide_compat.py` covers the feature unless it depends
+  on OCR or threads.
 - **Documentation.** The English API reference and guide change in the same
   pull request. Japanese, Simplified Chinese, and Korean follow before the
-  release tag, as LANGUAGES.md requires. The migration guide gains a mapping
-  row.
+  release tag, as LANGUAGES.md requires, and the migration guide gains a row
+  for each pymupdf name.
 - **Measurement.** The wheel size delta, a benchmark entry for
   performance-relevant paths, and fuzz seeds for every new parser.
-- **Changelog.** One changelog fragment ([F2](#f2--changelog-fragments)).
+- **Changelog.** One changelog fragment, as `changelog.d/README.md`
+  describes.
 
-## Execution model
+## Workstreams
 
-### Workstreams
-
-After the module split ([F1](#f1--module-split)), each workstream owns a set of
-modules. Concurrent pull requests stay inside one workstream. A change to
-another workstream's module is coordinated as its own small pull request.
-
-| Workstream | Scope | Owned modules after F1 (indicative) |
+| Workstream | Scope | Engine area |
 | --- | --- | --- |
-| A — Extraction | `get_text` family, search, tables, Markdown, structure | `rust/src/extract/`, `src/pylopdf/_text.py`, `_tables.py`, `_markdown.py` |
-| B — Rendering | Pixmap, rasterization options, SVG | `rust/src/render/`, `rust/src/pixmap.rs`, `src/pylopdf/_pixmap.py` |
-| C — Generation | Shapes, text, images, fonts, page placement, page geometry | `rust/src/draw/`, `generate.rs`, `layout.rs`, `src/pylopdf/_shape.py`, `_fonts.py`, `_geometry.py` |
-| D — Interactive | Annotations, links, AcroForm, flattening | `rust/src/annots/`, `rust/src/form/`, `src/pylopdf/_annots.py`, `_widgets.py` |
-| E — Structure | Low-level objects, metadata and XMP, TOC, labels, OCG, attachments | `rust/src/lowlevel.rs`, `rust/src/navigation/`, `src/pylopdf/_lowlevel.py`, `_layers.py` |
-| F — Content engine | Content interpretation and rewriting, redaction, sanitization | `rust/src/content/`, `src/pylopdf/_redact.py` |
-| G — Persistence | Save options, deduplication, incremental save, recovery, encryption, subsetting | `rust/src/save/`, `recovery.rs`, `object_recovery.rs` |
-| H — Intelligence | OCR modes, layout model, LLM-oriented output | `rust/src/ocr*`, `src/pylopdf/_ocr.py`, model packages |
+| Objects | loading, recovery, the object model, saving, incremental save, encryption, garbage collection | lopdf |
+| Structure | the page tree, outline, destinations, page labels, attachments, metadata and XMP, optional content, structure-tree maintenance | lopdf |
+| Content | the content model, interpretation guards, image and drawing inventories | hayro-interpret, hayro-syntax |
+| Understanding | text and layout, search, tables, Markdown, tagged structure, OCR, layout models | RTen |
+| Rendering | rasterization, SVG, `Pixmap`, render caches, parallel batches | hayro, vello_cpu, hayro-svg |
+| Writing | the canvas, fonts and text layout, images, page placement, new documents, conversion | krilla, HarfRust, parley |
+| Interaction | annotations, links, form fields and widgets, flattening | lopdf, krilla |
+| Rewriting | the content engine, redaction, sanitization, text replacement, image rewriting | lopdf, hayro for verification |
 
-Shared files stay cheap to merge. Changelog fragments remove `CHANGELOG.md`
-conflicts. `api/public-api.json` and the parity manifest are regenerated after
-each rebase. `src/pylopdf/__init__.py` and `rust/src/lib.rs` receive only
-append-only re-exports and registrations. Run at most one writer per
-workstream; four to six concurrent pull requests is the expected range.
+Each workstream also owns the upstream work in its engine area, and AGENTS.md
+records its modules. Concurrent pull requests stay inside one workstream; a
+change to another workstream's module is its own small pull request. Shared
+files (`src/pylopdf/__init__.py`, `rust/src/lib.rs`,
+`rust/src/document/mod.rs`, `api/public-api.json`, and the capability map)
+take append-only registrations and are regenerated after each rebase. Each
+pull request names its milestone.
 
-Each pull request names its roadmap item, such as `F5` or `M3`, in its
-description, and updates the parity manifest entries it completes. A
-milestone is done when its acceptance criteria pass on main. Every workstream
-implements against the F0 API design; a change to a shared design rule goes
-through F0 first.
+## Phases
 
-### Waves
+Phases define order, not dates. A release ships when its milestones meet
+their acceptance criteria.
 
-Waves define order, not dates. A release ships when one or more milestones are
-complete, and version numbers are assigned at release time.
-
-| Wave | Work that runs in parallel | Gate for the next wave |
+| Phase | Work that runs in parallel | Gate |
 | --- | --- | --- |
-| 0 — done | hayro 0.8 (#233); AcroForm registration on `insert_pdf` (#234) and field pruning on page deletion (#249, #250); XObject reuse (#231); save-time merging of identical objects (#251); CPython 3.15 and 3.15t (#230); F3 parity manifest (#235), which touches only `api/`, `tools/`, and `tests/`; the F0 API design (#236), approved 2026-10-20 | Merged to main; F0 approved |
-| 1 — done | F1 alone during a short freeze of `document.rs` and `__init__.py`; then F2, F4, and F9, one owner each. F1, F2, F4, and F5 shipped in v0.15.0; F9 continues into wave 2 | F1 merged with an unchanged API snapshot and corpus |
-| 2 — done | M0 by workstream (#272–#274, #276–#286), released together as one breaking release, and F9's codemod, hints, and corpus; F8 in parallel | M0 acceptance, met on 2026-10-21 |
-| 3 — breadth (current) | M1 (A, B), M2 (C), M5 (E), F8 continued (F) | Milestone acceptance |
-| 4 — interaction | M3 (D), then M4 (F) | Milestone acceptance |
-| 5 — depth | M6 (A, H), M7 (G) | Milestone acceptance |
-| 6 — rich text | M8 (C) | Milestone acceptance |
-| 7 — freeze | [v1.0 readiness](#v10--api-freeze) | Parity manifest complete |
+| 1 — foundations (current) | [Content model](#content-model), [Canvas](#canvas), [API reset](#api-reset), and the first [engine work](#engine-work) | The three milestones are accepted; the next release ships them together |
+| 2 — capabilities | [Reading](#reading), [Rendering](#rendering), [Writing](#writing), [Interaction](#interaction), [Rewriting](#rewriting), [Structure](#structure), [Persistence](#persistence), and [Understanding](#understanding) | Each milestone's acceptance |
+| 3 — 1.0 | [v1.0 criteria](#v10) | Every criterion |
 
-## Foundations
-
-### F0 — API design
-
-Write `api/DESIGN.md` before implementation fans out. It states the design
-rules from [Principles](#principles) 1–5 as checkable rules; naming; result
-types (NamedTuples for pymupdf's positional records, frozen dataclasses for
-richer records, TypedDicts for interchange formats such as `dict` output,
-handles for document-backed objects, and IntEnum/IntFlag for codes and flags);
-collections; mutation, builders, and transactions; errors, limits, and
-warnings; coordinates; constraints of the Python 3.11 floor; and the target
-signature of every existing API and every redesigned capability. Workstreams
-implement against it, and a change to a rule goes through it.
-
-Acceptance: maintainer review; every M0 reset item resolved in the design;
-the parity manifest's provisional names finalized. Met on 2026-10-20: the
-maintainer approved the design and its twelve decisions, the design names
-every pymupdf API that the manifest's 66 reset items change, and the five
-provisional names were finalized as proposed (`Page.get_layout`,
-`set_outline` for `set_toc_item` and `del_toc_item`, and `Rect.normalized`
-and `IRect.normalized`).
-
-### F1 — Module split
-
-Split `rust/src/document.rs` (11,804 lines) and `src/pylopdf/__init__.py`
-(4,230 lines) behind the existing import surface.
-
-- Rust: a `rust/src/document/` module with the `_Document` class and shared
-  state in `mod.rs`, plus domain submodules for page structure, rendering
-  policy, text and table caches, navigation, metadata, attachments, forms,
-  annotations, drawing, saving, and validation helpers. Keep one
-  `#[pymethods]` block that delegates to submodule functions; do not enable
-  PyO3 `multiple-pymethods`, whose `inventory` registration this project has
-  not validated on PyEmscripten. Done on 2026-10-20: the 12,586-line file
-  became `mod.rs` (1,866 lines, mostly the 94 method signatures and their
-  docstrings, 70 of which delegate) and 23 domain submodules of 86 to 1,548
-  lines, by a mechanical move that changed only visibility, indentation, and
-  `this` in place of `self` in the moved method bodies.
-- Python: private `_errors.py`, `_types.py`, `_limits.py`, `_document.py`,
-  `_page.py`, `_pixmap.py`, `_tables.py`, and `_ocr.py` modules, with
-  `__init__.py` as the re-export surface. Public classes keep
-  `__module__ == "pylopdf"` so reprs, documentation, and pickling stay stable.
-- Record the module ownership map from [Workstreams](#workstreams) in
-  AGENTS.md.
-
-Acceptance: `api/public-api.json`, the corpus results, and the
-native/PyEmscripten compatibility hashes are unchanged; benchmarks stay within
-noise; and no other open pull request touches the split files during the
-freeze.
-
-### F2 — Changelog fragments
-
-Each pull request adds `changelog.d/<slug>.<added|changed|deprecated|removed|fixed|security>.md`.
-`tools/changelog.py` assembles the fragments into `CHANGELOG.md` at release
-time, CI requires one fragment unless a pull request is labeled
-`no-changelog`, and the release procedure in AGENTS.md gains the assembly step.
-
-Done on 2026-10-20. Two more types, `performance` and `documentation`, keep
-the sections that earlier releases use. The `Changelog` workflow asks for a
-fragment only when a pull request changes what ships (`src/`, `rust/`,
-`fonts/`, `models/`, or `pyproject.toml`), so documentation, test, tool, and
-CI changes need no label, and dependency updates labeled `dependencies` are
-exempt. It re-runs when labels change, apart from the main CI, which labels
-do not restart.
-
-### F3 — Parity manifest
-
-`api/pymupdf-parity.json` holds one entry per pymupdf 2.0 public API: module
-functions, constants, and the members of `Document`, `Page`, `Annot`,
-`Widget`, `Link`, `Outline`, `Pixmap`, `TextPage`, `Shape`, `TextWriter`,
-`Font`, `Point`, `Rect`, `IRect`, `Quad`, `Matrix`, `Story`,
-`DocumentWriter`, `Archive`, and `DisplayList`. Each entry records its
-`status` (`available`, `planned`, `integration`, or `non-goal`), its
-`relation` (`same` when pylopdf provides the pymupdf name with pymupdf's
-meaning, `replaced` when a redesigned pylopdf API provides the capability and
-the pymupdf name is absent), the pylopdf equivalent, a one-sentence migration
-`hint` for every replaced name, a `reset` note when an existing pylopdf API
-must change to honor its pymupdf name, the target milestone, and a note. The
-2026-10-19 counts of public methods are Document 141, Page 115, Annot 53,
-Pixmap 40, Rect 22, Font 20, Shape 17, TextPage 16, Story 16, Link 11,
-Outline 11, Matrix 7, Quad 7, Widget 5 plus 30 public attributes,
-TextWriter 5, Archive 4, DisplayList 4, and DocumentWriter 3.
-
-- `tools/check_parity.py` verifies that every `available` entry names a
-  symbol present in `api/public-api.json`, that `same` entries keep pymupdf's
-  name, that every replaced name has a hint, and that every `planned` entry
-  has a milestone. It reports coverage per class and relation and lists the
-  remaining `reset` items, which form M0's work list.
-- The manifest is the data source for the [migration tools](#f9--migration-tooling).
-- The migration guide's parity tables are generated from the manifest in all
-  four locales, with localized headings and untranslated API names. The
-  current guide still lists `rawdict` as unsupported although 0.14.0 added it;
-  generation removes that class of drift.
-- Record API names and statuses only. Never copy pymupdf code or documentation
-  text, which is AGPL-licensed.
-
-### F4 — Geometry types
-
-Add `Point`, `Rect`, `IRect`, `Quad`, and `Matrix` in top-left display space
-with pymupdf's value-returning members: `Rect.contains`, `intersects`,
-`is_empty`, `is_infinite`, `is_valid`, `round`, `morph`, `quad`, `get_area`,
-`torect`, the corner properties, and the `|`, `&`, and `*` operators;
-pymupdf's `Matrix` constructors, `is_rectilinear`, `*`, and `~`; and
-`Quad.rect`, `morph`, `is_rectangular`, `is_convex`, `is_empty`, and `*`.
-Every API accepts these types and plain tuples interchangeably.
-
-The types stay immutable, because the values are hashable, thread-safe, and
-already returned everywhere. pymupdf's in-place mutators (`include_point`,
-`include_rect`, `intersect`, `normalize`, `transform`, and the `Matrix.pre*`
-family) are not provided, because the same names on immutable values would
-silently do nothing; the codemod rewrites them to operators.
-
-The first F4 slice implements immutable `Point` and `Matrix` values in
-`src/pylopdf/_geometry.py`: constructors, vector arithmetic, affine
-composition/inversion, point distances and directions, and matrix
-rectilinearity. Point arithmetic and truth testing now have geometric
-semantics, resolving those M0 entries. Python regressions cover boundaries,
-singular transforms, and drawing/save/reopen at all four page rotations;
-the native/PyEmscripten contract includes the same affine workflow.
-
-Done on 2026-10-20: `Rect` gained pymupdf's constructors, members, and
-operators, and the new `IRect`, `Quad`, `IdentityMatrix`, `Identity`,
-`planish_line`, `EMPTY_*`, `INFINITE_*`, `FZ_MIN_INF_RECT`, and
-`FZ_MAX_INF_RECT` follow pymupdf 1.28.2, including MuPDF's rules for empty,
-invalid, and infinite rectangles in unions, intersections, and transforms.
-`bench/geometry.py` compares 30,483 results of 2,000 seeded cases with
-pymupdf. Two choices differ from pymupdf on purpose: a rectangle or quad
-inside a quad needs all four corners inside, where pymupdf tests two corners
-and accepts any empty rectangle, and convexity of collinear corners does not
-depend on single-precision rounding. Validation makes `Rect(1, 2, 3, 4)`
-with four integers cost what pymupdf's does (0.8 µs); four floats, as
-extraction returns them, take a fast path at 0.3 µs against 0.16 µs before.
-The Rect, IRect, Quad, and constant entries of the manifest, 122 in all,
-became available, and the `Rect` reset items of M0 are resolved, raising
-coverage from 26.3% to 40.5%. `calc_matrix`, which pymupdf 1.28.2 does not
-yet provide, stays planned.
-
-### F5 — Low-level object API
-
-Expose the lopdf graph as a typed object model in the style of pikepdf:
-names, dictionaries, arrays, streams, and indirect references as Python
-objects, reachable from the trailer, the catalog, each page's object, and
-lookup by object number. This replaces pymupdf's `xref_*` methods
-(`xref_object`, `xref_get_key`, `xref_set_key`, `update_stream`, and the rest),
-which encode objects as PDF syntax strings; the codemod and migration hints
-point to the object model.
-
-- lopdf 0.45 keeps its object parser and writer private, so pylopdf converts
-  objects itself, or upstreams a public API. Decoded streams use the existing
-  bounded multi-layer decoder.
-- Every write invalidates the hayro snapshot and derived caches. Writes to the
-  trailer, Catalog, page-tree nodes, or pages also bump the page generation.
-- pymupdf xref numbers are object numbers; pylopdf resolves them to lopdf's
-  `(number, generation)` pairs from the object table.
-- The API is covered by SemVer but documented as raw access whose semantic
-  correctness is the caller's responsibility.
-
-Done on 2026-10-20: `Document.objects`, `trailer`, `catalog`, `page_xref`,
-`Page.xref`, and `Page.obj`, with `Name`, `String`, `Array`, `Dictionary`,
-`Stream`, `Objects`, and `StaleObjectError`, as section 13 of
-`api/DESIGN.md` describes. Every write compares the page order with a fresh
-walk and bumps the page generation only when the order changed, which covers
-writes that retype an object the page tree reaches as well as writes to the
-named structures. The 20 `xref_*`, catalog, trailer, and stream entries of
-the manifest became available, raising its coverage from 18.6% to 21.5%.
-Remaining: references to scalar indirect objects (a `/Length 12 0 R` reads
-as its value and cannot be written as a reference), and skipping the page
-walk for writes to objects that the walk provably did not read.
-
-### F6 — Resource reuse and duplicate collection
-
-- In review as #231: reuse one XObject for repeated `insert_image` input and
-  one imported Form for repeated `show_pdf_page` placements of an unchanged
-  source page. Five placements of one `bill-hr815.pdf` page then write one
-  Form and 5 font files (39.7 KB instead of 192 KB).
-- Done: save-time merging of identical objects through pymupdf's `garbage`
-  levels for `save` and `tobytes`: 0 keeps every object; 1 removes
-  unreferenced objects; 2 also compacts numbering; 3 also merges identical
-  non-stream objects; 4 also merges identical streams. `True` and `False`
-  keep their meaning because `bool` is a subclass of `int`. Merging hashes
-  each object with its references replaced by the equality class of their
-  targets, confirms equality before retargeting references, and visits the
-  reference graph's strongly connected components children first, so chains
-  of equal objects merge in one pass, in time linear in the object count.
-
-### F7 — Content and appearance builder
-
-Build one typed writer for content operators and use it everywhere pylopdf
-emits content: paths, rectangles with corner radii, Bézier curves, Gray, RGB,
-and CMYK colors, line width, cap, join, miter limit and dashes, ExtGState
-opacity and blend modes, clipping, Standard 14 and krilla text runs, and
-XObject placement. It also builds resource dictionaries and Form XObjects with
-`/BBox` and `/Matrix`. It replaces ad hoc operator assembly in `draw.rs` and
-`form.rs`, emits deterministic minimal operators, and serves M2 shapes, M3
-appearances, M4 redaction fills, and widget appearances.
-
-### F8 — Content-stream engine
-
-Build a bounded interpreter and rewriter for content streams in the lopdf
-graph.
-
-- Interpretation over lopdf's strict content decoding: graphics state
-  (`q`/`Q`/`cm`), text state (`Tf`, `Tc`, `Tw`, `Tz`, `TL`, `Ts`, `Tr`, `Tm`,
-  `Td`, `TD`, `T*`, `'`, `"`), marked content, inline images, and Form XObject
-  recursion with cycle and depth limits.
-- Font metrics: simple-font `/Widths`, `/FirstChar`, and `/Encoding` with
-  `/Differences`; Standard 14 AFM metrics; CID-font `/W`, `/DW`, `/W2`, and
-  `/DW2` with CMaps through `hayro-cmap`, which is already in the dependency
-  tree; Type 3 `/FontMatrix`; glyph boxes from FontDescriptor ascent,
-  descent, and bounding box.
-- Geometry agreement: glyph positions agree with hayro extraction within a
-  documented tolerance across the corpus.
-- Rewriting: drop glyphs from `Tj` and `TJ` with compensating `TJ`
-  adjustments so the remaining glyphs keep their positions, drop path
-  painting, replace or remove image `Do` operators, rewrite inline images,
-  copy shared Form XObjects before editing them, and re-serialize.
-- No public API until M4; private Python hooks drive the tests.
-
-Interpretation and font metrics landed on 2026-10-20 in `rust/src/content/`
-behind the private `_Document.content_glyphs` hook. Glyph origins agree with
-hayro's extraction within 0.0001 pt for all 375,334 glyphs of the bundled
-corpus, and within 0.01 pt for 3,502,056 of 3,504,546 glyphs (99.93%) on the
-first six pages of the 1,412 pdf.js corpus files that both read. The rest are
-embedded fonts without `/Widths`, whose widths live only in the font program
-(4 files); two streams without a usable `/Length` that lopdf loads empty
-(`issue1293r.pdf`, `operator-in-TJ-array.pdf`), which the object-recovery fix
-in #259 resolves; and one stream that lopdf cannot decode. Content that
-lopdf's strict parse rejects (13 files) or cannot decode (5) is refused.
-Rewriting follows.
-
-### F9 — Migration tooling
-
-- `python -m pylopdf.migrate` rewrites pymupdf programs with LibCST from an
-  optional `[migrate]` extra: renames, argument changes, and page-number
-  shifts recorded in the manifest, plus `TODO` comments where a change of
-  meaning needs a person.
-- Migration hints: looking up a pymupdf name that pylopdf replaced raises
-  `AttributeError` naming the replacement. The hints are generated from the
-  manifest into a private module and consulted only after normal lookup fails,
-  so successful lookups cost nothing.
-- `docs/en/llms.txt` gains the mapping for coding assistants.
-
-Acceptance: the codemod turns a corpus of pymupdf example programs, written
-for this repository rather than copied, into passing pylopdf programs, and
-lists the manual steps that remain.
-
-Done on 2026-10-21. `tools/generate_migration_hints.py` writes
-`src/pylopdf/_migration_hints.py` and the name map at the end of
-`docs/en/llms.txt` from the manifest; `Document`, `Page`, `Annot`, `Font`,
-`Shape`, the geometry types, and the package raise hinted `AttributeError`s
-through a `__getattr__` that type checkers do not see. `python -m
-pylopdf.migrate` renames the imports, rewrites the TOC page shift,
-`embfile_*`, the `xref_*` stream readers, `copy_page`, and the in-place
-geometry methods, and marks every other missing name with its hint. It
-migrates the five programs of `tests/assets/migration/` into programs that
-pass, and lists the four manual steps of a sixth.
+The pymupdf-aligned renames on main since 0.15.0 are not released on their
+own. The next release carries the API reset, so users of pylopdf 0.15 and of
+pymupdf migrate once, with one codemod.
 
 ## Milestones
 
-### M0 — API reset
+### Content model
 
-All workstreams. Depends on F0 approval, F1, and F4. Ships as one breaking
-release.
+Workstream Content, with Writing for the shared types.
 
-- Resolve every manifest `reset` item so that pymupdf names carry pymupdf's
-  meaning. Known items: `Page.get_images` returns pymupdf's xref inventory as
-  NamedTuples, with placements moving to `get_image_info` and image data to
-  `extract_image`; `Page.get_pixmap` defaults to `alpha=False` RGB output and
-  takes `matrix=` and `dpi=` instead of `scale=`; `Page.annots` returns
-  read-only `Annot` handles; `save(object_streams=)` becomes `use_objstms=`;
-  `compress_images` takes `rewrite_images`' name and meaning; `render_svg`
-  becomes `get_svg_image`; a missing file raises `FileNotFoundError`, and
-  `FileDataError` and `EmptyFileError` exist as `PdfError` subclasses;
-  `Permissions` members take pymupdf's names. Side-by-side runs against
-  pymupdf added: the `Document` constructor's positional `filetype`,
-  `authenticate` return codes, `set_metadata` round trips, pymupdf's page-box
-  convention and `set_mediabox` side effects, return values of `insert_text`,
-  `insert_image`, and `show_pdf_page`, full Standard 14 font names,
-  `Pixmap.save(filename)`, clamped `Rect` widths, and geometric operators. The
-  authoritative list is section 15 of `api/DESIGN.md`.
-- Make encryption explicit: `save(encryption=)` takes pymupdf's
-  `PDF_ENCRYPT_*` values with pymupdf's `PDF_ENCRYPT_NONE` default, and a
-  password without an encrypting method raises instead of being ignored as
-  in pymupdf or implying AES-256 as today.
-- Remove pylopdf's own synonyms: `Document.render_page`, `Page.render`,
-  `Document.render_page_svg`, and the duplicate OCR entry points.
-- Redesign existing capabilities under new names: `embfile_*` becomes a
-  `doc.attachments` mapping of attachment handles, and `get_toc`/`set_toc`
-  become zero-based outline entries. Today's `copy_page`, which makes an
-  independent copy, becomes pymupdf's `fullcopy_page`, because pylopdf never
-  shares page objects. `get_form_fields` and `set_form_field` remain until M3
-  replaces them.
-- Publish codemod rules and hints for every change (F9).
+- `Page.content(*, clip=None, annotations=True)` returns the painted items of
+  a page in paint order and display space, as immutable values:
+  - `TextRun`: glyphs with Unicode, glyph ID, origin, advance, and bounding
+    box; a font reference; size; transform; render mode; and fill and stroke
+    paint.
+  - `Path`: segments, a fill with its rule, and a stroke with its line style.
+  - `Image`: the image object or inline image, size, bits per component,
+    color space, transform, and mask kind.
+  - `Shading`: a shading painted with `sh`.
 
-Done on 2026-10-21: the manifest lists no `reset` entries. Parameter names
-and keyword-only options (#272), file errors (#273), constant enums (#274),
-the constructor and document state (#276), page structure (#277), page boxes
-(#278), generation return values (#279), extraction records (#280),
-rendering (#281), the image inventory (#282), annotation handles (#283), the
-zero-based outline (#284), attachments (#285), and `rewrite_images` (#286)
-each landed with their tests, documentation in four languages, and changelog
-fragments, and F9 migrates the example corpus.
+  Every item carries its graphics context: the clip, opacity, blend mode,
+  soft mask, and the marked-content stack with tags, MCIDs, and properties,
+  among them optional-content layers and `/ActualText`.
+- Text, words, layout, search, drawings, and image placements derive from the
+  same interpretation and one cache, so they agree by construction. The
+  separate text, drawing, and image devices merge into one.
+- pylopdf exposes what hayro computes instead of recomputing it: glyph
+  outlines for exact glyph boxes, font identity (object, name, type,
+  embedding), and image object numbers, masks included.
+- Upstream in hayro: marked-content properties and `/ActualText` in a release
+  (`main` exposes `/ActualText` since LaurenzV/hayro#1513), font object
+  identity and writing mode on glyph runs, object numbers of image masks,
+  Unicode for Type 3 glyphs without a ToUnicode CMap (LaurenzV/hayro#1331),
+  and an error instead of silent truncation beyond its nesting bounds.
+- It covers pymupdf's `DisplayList`, `Page.get_displaylist`, `Page.run`,
+  `get_texttrace`, `get_bboxlog`, `get_cdrawings`, and
+  `get_drawings(extended=True)`.
 
-Acceptance: the manifest has no `reset` entries; `api/public-api.json`, the
-documentation in four languages, and the migration guide describe the new
-surface; the codemod migrates the example corpus.
+Acceptance: on the bundled corpus, text, words, drawings, and image
+placements derived from the content model equal today's extraction, except
+for documented improvements; glyph boxes come from outlines; and the round
+trip under [Canvas](#canvas) passes.
 
-### M1 — Extraction and rendering depth
+### Canvas
 
-Workstreams A and B. Depends on hayro 0.8, M0, and F4.
+Workstream Writing.
 
-Extraction:
+- `Page.draw(*, underlay=False)` returns a `Canvas`, a context manager that
+  commits once on a clean exit and writes nothing after an exception. It draws
+  with the content model's vocabulary: `path`, `rect`, `line`, `circle`,
+  `ellipse`, `polygon`, and `bezier`; `text` and `textbox` with shaping,
+  wrapping, alignment, and subset-embedded fonts; `image`; `page`, which
+  places another page; the scoped states `clip`, `transform`, `opacity`,
+  `blend`, `mask`, `layer`, and `tag`; and `draw(item)`, which paints a
+  content item again.
+- One commit generates one krilla page and imports it as one Form XObject, as
+  `Shape` does today.
+- New documents: `pylopdf.create()` returns a builder whose pages draw
+  through the same canvas and which krilla writes as a whole: tagged PDF with
+  a structure tree, outline, links, and metadata, validated as PDF/A-1 to
+  PDF/A-4 or PDF/UA-1 by krilla's validators.
+- Upstream in krilla: the Standard 14 fonts without embedding, which krilla
+  cannot draw today, so pylopdf drops its own operator writer for them;
+  optional content; annotation and widget types beyond links for new
+  documents; embedded pages in validated output; subset fonts named after the
+  variable-font instance they embed, so pylopdf no longer renames them after
+  import; and emitting a page as a Form XObject that pylopdf adds to lopdf's
+  graph directly, so `generated_pdf.rs` and the import parse go away.
+- In the [API reset](#api-reset), the canvas replaces `Shape`,
+  `Page.draw_*`, `insert_text`, `insert_textbox`, `insert_image`, and
+  `show_pdf_page`.
 
-- Span `color` (sRGB integer), `alpha`, `ascender`, `descender`, and
-  `char_flags` (fill, stroke, clip, invisible, synthetic), read from hayro
-  0.8 `DrawProps.paint` and `DrawMode` in the glyph-run callback. Spans split
-  on color and alpha changes, as in pymupdf.
-- `get_text(option, clip=, flags=, sort=, delimiters=)`; the `html`,
-  `xhtml`, `xml`, `json`, and `rawjson` outputs; `get_textbox`,
-  `get_text_selection`, `get_text_words`, and `get_text_blocks`.
-- Flags: `TEXT_PRESERVE_LIGATURES`, `TEXT_PRESERVE_WHITESPACE`,
-  `TEXT_PRESERVE_IMAGES` (type 1 image blocks), `TEXT_INHIBIT_SPACES`,
-  `TEXT_DEHYPHENATE`, `TEXT_MEDIABOX_CLIP`,
-  `TEXT_USE_CID_FOR_UNKNOWN_UNICODE` (plus U+FFFD placeholders for unmapped
-  glyphs, which are skipped today), and `TEXT_ACCURATE_BBOXES` through hayro
-  glyph outlines. Default output stays unchanged unless a flag is passed.
-- `search_for(text, clip=, quads=, flags=)` and `Document.search_page_for`.
-- Inventory beyond M0's image APIs: `get_image_info(hashes=, xrefs=)`
-  options, `get_image_rects`, `get_image_bbox`, `get_fonts(full=)`,
-  `get_xobjects`, `Document.get_page_images`, `get_page_fonts`,
-  `get_page_xobjects`, `extract_font(xref)`, and `get_char_widths`. hayro
-  already reports image object IDs through `RasterImage::stream().obj_id()`,
-  which `compress_images` uses today.
-- Traces: `get_texttrace`, `get_bboxlog(layers=)`, `get_drawings(extended=True)`
-  with the clip and group hierarchy, `get_cdrawings`, and `cluster_drawings`.
+Acceptance: drawing every item of `page.content()` onto a blank page of the
+same size renders, for every page of the bundled corpus, within a published
+pixel tolerance of the original page, and a documented list names what does
+not round-trip yet. Every existing drawing test passes through the canvas.
 
-Rendering:
+### API reset
 
-- `get_pixmap(matrix=, dpi=, colorspace=, clip=, alpha=, annots=)` and the
-  same options on `Document.render_pages`. Arbitrary affine matrices use
-  hayro 0.8 `render_into`, and `annots=` sets
-  `InterpreterSettings.render_annotations` per call.
-- Pixmap: `n` of 1, 3, or 4 (gray, RGB, RGBA), `colorspace`, `alpha`, `xres`,
-  `yres`, `set_dpi`, `irect`, and `size`; constructors from encoded PNG or
-  JPEG, raw samples, and `(document, xref)` images with soft masks;
-  `tobytes(output=, jpg_quality=)` and `save(filename, output=, jpg_quality=)`
-  for PNG, JPEG (through the existing `jpeg-encoder` dependency), and PNM/PAM;
-  analysis with `pixel`, `color_count`, `color_topusage`, `is_unicolor`,
-  `is_monochrome`, and `digest`; cheap transforms with `copy`, `shrink`,
-  `set_alpha`, `invert_irect`, `clear_with`, `tint_with`, and `gamma_with`;
-  `pil_image`, `pil_save`, and `pil_tobytes` when Pillow is installed.
-- `get_svg_image(matrix=, text_as_path=)`. `text_as_path=False` needs an
-  upstream hayro-svg option or a pylopdf SVG device; until then it raises
-  instead of silently producing paths.
+All workstreams. It ships in the next release, with the content model and
+the canvas.
 
-Acceptance: span colors match pymupdf exactly on the corpus; ascender-based
-boxes meet a published IoU threshold; quads cover rotated-text search; a
-diagonal matrix renders pixel-identically to the equivalent `dpi`; and every
-default output is unchanged.
+- Apply [api/DESIGN.md](api/DESIGN.md) to the existing surface; its API reset
+  table is the work list. Constants become enum members only, collections
+  replace families of methods (`doc.pages`, `page.annotations`, `page.links`,
+  `doc.outline`, and `doc.form`), computed results take noun names
+  (`page.text()`, `page.render()`), and pymupdf's duplicates and conveniences
+  go.
+- The codemod and the hints migrate pymupdf code and pylopdf 0.15 code alike.
 
-### M2 — Drawing and generation
+Acceptance: every row of the reset table is done; the capability map's
+available entries name the new APIs; the codemod turns the example programs
+in `tests/assets/migration/` into programs that pass; and the documentation
+in four languages describes the new surface.
 
-Workstream C. Depends on M0, F4, and F7.
+### Engine work
 
-- `Page.new_shape()` returns a `Shape` with `draw_line`, `draw_rect(radius=)`,
-  `draw_circle`, `draw_oval`, `draw_polyline`, `draw_bezier`, `draw_curve`,
-  `draw_quad`, `draw_sector`, `draw_squiggle`, `draw_zigzag`,
-  `finish(width, color, fill, lineCap, lineJoin, dashes, even_odd, morph, closePath, fill_opacity, stroke_opacity, oc)`,
-  `insert_text`, `insert_textbox`, and `commit(overlay=)`, which writes one
-  content stream per commit. `Page.draw_*` methods are single-shape shortcuts.
-  A `Shape` is also a context manager that commits on a clean exit and writes
-  nothing after an exception, and an uncommitted `Shape` warns when it is
-  collected, so drawings are never lost silently.
-- `insert_text` and `insert_textbox` gain `rotate=`, `morph=`,
-  `render_mode=`, `border_width=`, `miter_limit=`, `fill=`,
-  `stroke_opacity=`, `fill_opacity=`, `lineheight=`, and `oc=` for both
-  Standard 14 and embedded fonts.
-- `insert_image` gains `mask=`, `alpha=`, `xref=`, `width=`, `height=`, and
-  `oc=`, plus JPX passthrough. Add `replace_image(xref, ...)` and
-  `delete_image(xref)`. `show_pdf_page` gains `clip=`, `rotate=`, and `oc=`
-  and returns the reusable xref.
-- `Font` exposes metrics, `text_length`, `char_lengths`, `has_glyph`,
-  `valid_codepoints`, `glyph_advance`, `glyph_bbox`, and style flags for
-  Standard 14 and OpenType fonts. Add `get_text_length()` and `insert_font()`.
-- Page geometry: `artbox`, `bleedbox`, `trimbox` and their setters,
-  `mediabox_size`, `cropbox_position`, `bound()`, `transformation_matrix`,
-  `rotation_matrix`, `derotation_matrix`, and `remove_rotation()`.
-- Page operations: `move_page`, `fullcopy_page`, `insert_page(text=)`, and
-  `Document.pages(start, stop, step)`.
-- Conversion: `Document.insert_file()` and `convert_to_pdf()` for JPEG, PNG,
-  and JPX (passthrough) images and CBZ archives (read with Python `zipfile`).
-  Other raster formats go through optional Pillow, and `pylopdf.open()`
-  converts image inputs.
+Every workstream contributes in its engine area. The first goal is the
+upstream work that the content model and the canvas need; the rest removes
+pylopdf's workarounds. Before each item, agree on the design with the
+engine's maintainer.
 
-Acceptance: shapes and text effects render within a published pixel
-tolerance of pymupdf; opacity and rotation are verified by rendering and
-extraction; a diagonal translucent watermark example is covered by tests; and
-image and Form reuse hold across many pages.
+| Engine | Change | What it unlocks or removes in pylopdf |
+| --- | --- | --- |
+| hayro | Bounded construction of functions, color spaces, and Type 4 programs, refusing deeper input with an error | `graph_guard.rs`, `postscript_scan.rs`, and their walks |
+| hayro | An error, instead of silent truncation, for content and objects nested beyond its bound | `content_scan.rs`, the nesting walk in `content_guard.rs`, and `read_depth.rs` |
+| hayro | Parse an object stream's member table once (LaurenzV/hayro#1545) | `object_stream_work.rs` and the serialized-snapshot choice |
+| hayro | A cache of parsed objects, so that repeated lookups do not parse an object again | the read-once bookkeeping of the guards |
+| hayro | A linear search for the end of inline image data, and an operand stack that holds the 33 operands of a DeviceN `scn` | quadratic content parsing, and content that stops early |
+| hayro | No panic on mismatched color components (LaurenzV/hayro#1546) and on the remaining malformed-input panics | reliance on `contain_renderer_panics` |
+| hayro | Interpretation over an object source that is not file bytes, such as lopdf's graph | `object_recovery.rs`, the serialized snapshots, and the cost of reserializing after edits |
+| hayro | Thread-safe render caches, a thread count (LaurenzV/hayro#1317), and faster stencil masks (LaurenzV/hayro#1315) | the per-thread cache slots in `render_cache.rs`; shared caches across `render_pages` workers |
+| hayro, vello_cpu | Gray and CMYK output and anti-aliasing levels | rendering options |
+| hayro-svg | Text kept as text | `svg(text_as_path=False)` |
+| lopdf | A public object parser and serializer | pylopdf's own value conversion |
+| lopdf | Recovery reports through the API instead of the `log` crate; a requested rebuild of the cross-reference table; rebuilding when the catalog or page tree is unreadable, and for damaged cross-reference streams and truncated files | the log capture in `recovery.rs`, the forced rebuild, and inputs rejected today |
+| lopdf | A linear scan for unterminated streams during recovery | the `recovery_scan_size` pre-scan |
+| lopdf | Linear graph traversal in pruning, renumbering, and deletion | `prune.rs` and `renumber.rs` |
+| lopdf | Checked object-number allocation | most of `unallocated.rs` |
+| lopdf | Parsing small documents on the calling thread instead of the rayon pool | `generated_pdf.rs`, if krilla's Form output does not remove it first |
+| lopdf | A bounded, iterative page-tree walk with inherited attributes | pylopdf's own walker |
+| lopdf | Release of the rebuilt-trailer cleanup merged as J-F-Liu/lopdf#609 | the `/Prev` and `/XRefStm` removal after reconstruction |
+| lopdf | Linearization facts and the number of revisions | pymupdf's `is_fast_webaccess` and `version_count` |
+| krilla | The items listed under [Canvas](#canvas) | the Standard 14 writer, the font renaming, and the import parse |
 
-### M3 — Annotations, links, and forms
+Acceptance, per item: the engine change is released, pylopdf adopts it, the
+workaround and its tests' special cases are removed, and the corpus results
+and benchmarks stay unchanged or improve.
 
-Workstream D. Depends on F7 and M2.
+### Reading
 
-- `Annot` handles mirror pymupdf: `type`, `rect`, `info` and `set_info`,
-  `colors` and `set_colors`, `border` and `set_border`, `opacity` and
-  `set_opacity`, `flags` and `set_flags`, `blendmode`, `line_ends`,
-  `vertices`, `rotation`, `popup_rect` and `set_popup`, `is_open` and
-  `set_open`, `irt_xref` and `set_irt_xref`, `set_name`, `file_info`,
-  `get_file`, `update_file`, `get_text`, `get_textbox`, `get_pixmap`,
-  `delete_responses`, `xref`, and `next`. There is no `update()`: setters
-  regenerate appearances immediately. `Page` gains `annots(types=)`,
-  `load_annot`, `first_annot`, `annot_names`, `annot_xrefs`, and
-  `delete_annot`.
-- Every pymupdf `add_*_annot` creator: text notes, FreeText with callouts,
-  borders, and rotation, line, square, circle, polygon, polyline, ink, stamps
-  (standard and image), file attachments, caret, and Highlight, Underline,
-  StrikeOut, and Squiggly with `quads`, `start`/`stop`, and `clip`, plus
-  Redact (applied in M4). Every annotation receives an `/AP /N` built with F7;
-  the existing `text_markup_ap_ops` already produces Underline, StrikeOut,
-  and Squiggly appearances.
-- Render-only appearance synthesis for every supported annotation type and
-  for widgets that rely on `/NeedAppearances`. The editable PDF stays
-  unchanged; hayro draws only annotations that have an appearance stream.
-- Links: `insert_link` for GOTO, GOTOR, URI, LAUNCH, and NAMED; `update_link`;
-  `delete_link`; `Link` handles with `border`, `colors`, `flags`, and setters;
-  `Document.resolve_link` and `resolve_names`.
-- Forms: `Widget` handles with pymupdf's attributes (`field_name`,
-  `field_label`, `field_value`, `field_type`, `field_flags`, `field_display`,
-  `rect`, `xref`, border, fill and text styling, `text_maxlen`, `text_format`,
-  `choice_values`, `button_caption`, `button_states()`, `on_state()`, the
-  `script*` actions, and `is_signed`), `Page.widgets(types=)`, `add_widget`,
-  `delete_widget`, `load_widget`, `Widget.reset()`, `Document.is_form_pdf`,
-  `need_appearances()`, and `get_sigflags()`. Attribute assignment applies
-  immediately, so `Widget.update()` is not provided. A by-name `doc.form`
-  mapping replaces `get_form_fields` and `set_form_field`.
-- `Document.bake(annots=, widgets=)` flattens the `/AS`-selected `/AP /N`
-  into page content with the same BBox-to-Rect mapping hayro uses.
-- Signature fields: create empty signature widgets and report signed state;
-  an interop test signs a pylopdf-created field with pyHanko.
-- JavaScript actions (widget `/AA`, document-level `/JavaScript`) can be
-  authored and removed. pylopdf never executes them.
-- M0 already returns read-only `Annot` handles from `Page.annots()`; M3 adds
-  creation, mutation, widgets, and the form mapping.
+Workstreams Understanding and Content. Depends on the content model.
+
+- Span attributes: color, opacity, ascender, descender, and flags for fill,
+  stroke, clip, invisible, and synthetic text.
+- Options: ligatures kept or expanded, whitespace kept, dehyphenation,
+  placeholders for glyphs without Unicode, clipping to the MediaBox, and exact
+  glyph boxes; search with quads, a clip, and the same options; the text in a
+  rectangle; the selection between two points.
+- Serializations of the layout as JSON, HTML, and XML.
+- Inventories by page and document: fonts, Form XObjects, and images;
+  extraction of font programs; glyph widths.
+
+Acceptance: span colors equal pymupdf's on the corpus; ascender-based boxes
+meet a published IoU threshold; quads cover rotated text.
+
+### Rendering
+
+Workstream Rendering.
+
+- Arbitrary affine transforms through hayro's `render_into`; gray, RGB, RGBA,
+  and CMYK output; annotations on or off; anti-aliasing levels; PNG, JPEG,
+  and PNM encoding with resolution metadata.
+- `Pixmap` stays an immutable value with zero-copy NumPy interchange in both
+  directions, plus decoding of PNG, JPEG, and image objects with their masks.
+  Image processing (tinting, gamma, inversion, color statistics, warping,
+  scaling) is a tested NumPy, Pillow, or OpenCV recipe rather than `Pixmap`
+  methods, recorded in the capability map as `integration`.
+- Closing MuPDF's 2–3× lead in warm rasterization through upstream glyph and
+  image caches and thread-safe caches.
+
+Acceptance: a diagonal transform renders pixel-identically to the equivalent
+resolution; every recipe has a test; benchmarks are published.
+
+### Writing
+
+Workstream Writing. Depends on the canvas.
+
+- Text: rotation, render modes (fill, stroke, invisible, clip), opacity, and
+  outlines; per-glyph fallback across the installed font extras; styled runs
+  (font, size, color, weight, style, and link) with bidirectional ordering and
+  justification, with parley evaluated for the layout; and an HTML and CSS
+  subset for text boxes.
+- Fonts: metrics, glyph coverage, advances, bounding boxes, and style
+  information for the Standard 14 fonts and OpenType faces.
+- Images: JPEG 2000 passthrough, masks and alpha, and replacing or removing an
+  image object.
+- Placement of pages with a clip and rotation, and optional-content layers on
+  everything the canvas draws.
+- Conversion of images (JPEG, PNG, and JPEG 2000 directly, other formats
+  through Pillow) and CBZ archives to PDF, and of scans to searchable PDF with
+  OCR.
+
+Acceptance: text effects are verified by rendering and extraction; a diagonal
+translucent watermark and mixed CJK and right-to-left runs are covered by
+tests; validated PDF/A-2b and PDF/UA-1 output passes veraPDF in the interop
+group.
+
+### Interaction
+
+Workstream Interaction. Depends on the canvas and the API reset.
+
+- Annotations as handles with typed properties, created from typed
+  specifications for every annotation type that pymupdf creates (text notes,
+  free text with callouts, lines, squares, circles, polygons, polylines, ink,
+  stamps, file attachments, carets, text markup, and redactions), edited and
+  deleted, with appearances drawn through the canvas. Rendering synthesizes
+  missing appearances without changing the document.
+- Links of every kind (to a page, to another file, to a URI, to launch a
+  file, and named actions), created, edited, and deleted, and destination
+  resolution.
+- Form fields in `doc.form`: creation, properties, deletion, and reset;
+  widget geometry and styling, choice values, and button states; JavaScript
+  actions authored and removed, never run; and signature fields with their
+  signed state, interoperating with pyHanko.
+- Flattening annotations and widgets into page content.
 
 Acceptance: every created annotation renders within tolerance in pylopdf and
-pymupdf and survives save/reopen; flattening preserves rendered output and
-extracted text; fields created by pylopdf can be filled by pymupdf and by
+pymupdf and survives save and reopen; flattening preserves rendering and
+extracted text; fields that pylopdf creates can be filled by pymupdf and by
 pylopdf.
 
-### M4 — Redaction and sanitization
+### Rewriting
 
-Workstream F. Depends on F7, F8, and the M3 annotation core.
+Workstream Rewriting. Depends on the content model and on redaction
+annotations from Interaction.
 
-- `Page.add_redact_annot(quad, text=, fontname=, fontsize=, align=, fill=, text_color=, cross_out=)`
-  and `Page.apply_redactions(images=, graphics=, text=)` with pymupdf's
-  constants: `PDF_REDACT_IMAGE_NONE`, `PDF_REDACT_IMAGE_REMOVE`,
-  `PDF_REDACT_IMAGE_PIXELS`, and `PDF_REDACT_IMAGE_REMOVE_UNLESS_INVISIBLE`;
-  `PDF_REDACT_LINE_ART_NONE`, `PDF_REDACT_LINE_ART_REMOVE_IF_COVERED`, and
-  `PDF_REDACT_LINE_ART_REMOVE_IF_TOUCHED`; `PDF_REDACT_TEXT_REMOVE`,
-  `PDF_REDACT_TEXT_REMOVE_INVISIBLE`, and `PDF_REDACT_TEXT_NONE`.
-- Text: remove every glyph whose box intersects a redaction area, with
-  compensating `TJ` adjustments; simple, CID (Identity and embedded CMaps),
-  and Type 3 fonts; horizontal and vertical writing; invisible `Tr 3` OCR
-  layers.
-- Images: blank pixels and re-encode, or remove whole placements, including
-  inline images, image masks, and soft masks.
-- Vector graphics: remove covered or touched paths and intersecting shadings.
-- Copy shared Form XObjects before editing them, remove overlapping
-  annotations, and replace redaction annotations with their fill and overlay
-  text.
-- Verification contract: after application, re-interpretation with hayro
-  finds no glyph, image pixel, or path inside a redacted area.
-  `apply_redactions` returns a report, and saving rewrites the file without
-  incremental history.
-- `Document.scrub()` with all of pymupdf's options; `Page.clean_contents()`,
-  `Annot.clean_contents()`, `wrap_contents`, `is_wrapped`, `read_contents`,
-  `get_contents`, and `set_contents`; `recolor(components=)` for pages and
-  documents.
-- The security guide states what redaction does not remove: embedded font
-  programs keep their glyphs until M7 subsetting, and metadata needs `scrub`.
+- Redaction removes text (with compensating `TJ` adjustments, in simple, CID,
+  and Type 3 fonts, in both writing modes, and in invisible OCR layers),
+  images (blanked pixels or removed placements, inline images and masks
+  included), and vector graphics that a redaction covers or touches. Shared
+  Form XObjects are copied before editing, overlapping annotations go, and the
+  redaction annotations become their fills. Re-interpretation with hayro must
+  find nothing inside a redacted area, and the call returns a report.
+- Sanitization removes JavaScript, actions, embedded files, metadata, hidden
+  text, comments, and unused objects, and writes the file without
+  incremental history, with a report.
+- Content cleaning, recoloring to gray or another color space, and the rest of
+  image rewriting: lossless, grayscale, and bitonal targets.
 
 Acceptance: an adversarial redaction corpus (kerned `TJ` arrays, shared
 Forms, rotated pages, CJK CID fonts, Type 3 fonts, overlapping layers, inline
-images, and masks) shows zero leaks, cross-checked by pymupdf extraction of the
+images, and masks) shows no leak, cross-checked by pymupdf's extraction of the
 redacted areas.
 
-### M5 — Document structure and navigation
+### Structure
 
-Workstream E. Depends on M0 and F5.
+Workstream Structure.
 
-- XMP: `get_xml_metadata`, `set_xml_metadata`, and `del_xml_metadata`, with
-  optional synchronization from `set_metadata`.
-- Outline: the zero-based outline entries from M0 gain destinations (kind,
-  target point, zoom), color, bold, italic, collapse state, item editing, and
-  traversal handles. They replace pymupdf's `get_toc(simple=False)`,
-  `set_toc_item`, `del_toc_item`, `get_outline_xrefs`, and `Outline`.
-- Document properties: `pagemode`, `pagelayout`, `set_pagemode`,
-  `set_pagelayout`, `markinfo`, `set_markinfo`, `language` and
-  `set_language` for documents and pages, `is_fast_webaccess`,
-  `version_count`, `is_dirty`, `has_links`, `has_annots`, `permissions`, and
-  `get_page_numbers(label)`.
-- Optional content: `get_ocgs`, `add_ocg`, `get_layer`, `get_layers`,
-  `set_layer`, `add_layer`, `switch_layer`, `layer_ui_configs`,
-  `set_layer_ui_config`, `get_oc`, `set_oc`, `get_ocmd`, `set_ocmd`, and
-  `Page.get_oc_items`, plus `oc=` on insertion APIs. hayro reads
-  `/OCProperties /D`, so edits to the default configuration reach rendering
-  and extraction directly; other configurations render through a render-only
-  snapshot.
-- Attachments: file name, description, size, dates, and in-place updates on
-  the `doc.attachments` handles from M0, shared with M3 file attachment
-  annotations. They replace pymupdf's `embfile_info`, `embfile_upd`, and
-  `embfile_count`.
+- Page operations on `doc.pages`: moving, copying, and inserting pages from
+  any document together with their links, annotations, and form fields.
+- The ArtBox, BleedBox, and TrimBox.
+- Outline items as handles with destinations, color, style, and collapse
+  state.
+- Optional content: groups, configurations, membership dictionaries,
+  visibility in rendering and extraction, and layers on written content.
+- Viewer preferences, linearization facts, and revision counts.
+- Attachment dates and in-place updates, shared with file attachment
+  annotations.
 
-Acceptance: layer visibility changes rendering and extraction; XMP round-trips
-through an XML parser; TOC round-trips agree with pymupdf.
+Acceptance: changing layer visibility changes rendering and extraction; the
+outline round-trips; imported pages keep working forms and links in pymupdf
+and pylopdf.
 
-The first M5 slice landed on 2026-10-21: `get_xml_metadata`,
-`set_xml_metadata`, `del_xml_metadata`, `pagemode`, `set_pagemode`,
-`pagelayout`, `set_pagelayout`, `markinfo`, `set_markinfo`, `has_links`,
-`has_annots`, `is_closed`, `is_pdf`, and `name`, each with pymupdf's meaning.
-On the bundled corpus the XMP text, page mode, page layout, MarkInfo, and
-link and annotation presence equal pymupdf 1.28.2's for all 14 files. The 16
-manifest entries raise coverage from 45.3% to 47.4%. pymupdf's
-`language` and `set_language` are replaced by `language_tag` and
-`set_language_tag` (D15), and `Page.language` moves to M6 with tagged-PDF
-structure.
+### Persistence
 
-The second M5 slice landed on 2026-10-22: `get_page_numbers`, `is_dirty`,
-and `permissions`, each with pymupdf's meaning. `permissions` follows the
-password that last granted access, as MuPDF does: all flags (`-4`) for an
-unencrypted document or the owner password, otherwise the signed 32-bit
-`/P` value; the values equal pymupdf 1.28.2's for the bundled encrypted
-assets and for AES-256 documents with restricted permissions. `is_dirty`
-counts every edit since opening and, as in pymupdf, survives every save,
-while save options that change the in-memory document do not set it. The
-three entries raise coverage from 47.4% to 47.8%. `is_fast_webaccess` and
-`version_count` remain: both read the original file's cross-reference
-sections and linearization dictionary, which lopdf does not report, and
-MuPDF's counts change when it repairs a file.
+Workstream Objects.
 
-### M6 — Document intelligence
+- Incremental save through lopdf's `IncrementalDocument`, with central
+  tracking of changed objects. Existing signatures stay valid, which a
+  pyHanko validation test proves; repaired inputs and encryption changes
+  refuse incremental save.
+- Subsetting the fonts of existing documents: glyph use from interpretation,
+  `subsetter` for the programs, and remapped content strings.
+- Recovery of damaged cross-reference streams and truncated files, built in
+  lopdf.
+- Encryption: AES-128 output, keeping a supported input handler, and verified
+  reading of every standard handler. Writing RC4 raises.
+- Transactions and undo: `with doc.transaction():` makes a group of edits
+  atomic and records one undo step, under a memory budget.
+- Save options for compression effort, ASCII output, pretty printing, and
+  keeping the document ID.
 
-Workstreams A and H. Depends on hayro 0.8 and M1.
+Acceptance: pyHanko signatures stay valid after incremental edits; pikepdf in
+the interop group accepts every output; subsetting reduces size without
+changing extracted text or rendering.
 
-- Tagged PDF: track marked-content IDs through hayro 0.8
-  `begin_marked_content`, resolve `/StructTreeRoot`, `/ParentTree`, and role
-  maps, attach structure IDs to spans, and let Markdown use headings, lists,
-  tables, figure alternate text, and structure reading order when the tree is
-  trustworthy. This is `TEXT_COLLECT_STRUCTURE`.
-- ActualText: contribute marked-content property access upstream to hayro,
-  honor `/ActualText` by default, and add `TEXT_IGNORE_ACTUALTEXT`.
-- pymupdf4llm parity on `to_markdown`: `page_chunks`, `write_images`,
-  `embed_images`, `image_path`, `image_format`, `dpi`, `extract_words`,
-  `margins`, `ignore_graphics`, `graphics_limit`, and header/footer removal
-  from geometry repeated across pages.
-- Hybrid OCR: recognize only areas without legible digital text, like
-  pymupdf's `get_textpage_ocr(full=False)`, rendering just those areas through
-  the hayro 0.8 clip viewport; add an images-to-searchable-PDF convenience.
-- Tables: pymupdf's `find_tables` parameters (strategies, explicit lines,
-  tolerances, minimum words, `add_lines`, `add_boxes`), `Table.header`,
-  `row_count`, `col_count`, `rows`, `cells`, and `to_pandas()` with optional
-  pandas.
-- Layout model: a `[layout]` extra running an Apache-2.0 PP-DocLayout model
-  through RTen, versioned separately like the OCR models, behind
-  `Page.get_layout()`.
+### Understanding
 
-Acceptance: human-verified ground truth on representative business documents,
-and published comparisons with pymupdf4llm with and without pymupdf-layout.
+Workstream Understanding. Depends on the content model.
 
-### M7 — Persistence and robustness
+- Tagged PDF: the structure tree, role maps, and marked-content IDs on
+  content items. Markdown follows headings, lists, tables, figure alternate
+  text, and structure order when the tree is trustworthy, and honors `/Lang`
+  and `/ActualText`.
+- Markdown for retrieval: chunks with page and display-space provenance,
+  image export, margins, removal of repeated headers and footers, and limits
+  on graphics.
+- Hybrid OCR that recognizes only regions without legible text.
+- Tables: explicit lines, tolerances, minimum words, header detection, rows
+  and cells, and pandas export.
+- A layout model: an Apache-2.0 PP-DocLayout model on RTen in a separately
+  versioned `[layout]` extra.
 
-Workstream G. Depends on F5, F6, and F8.
+Acceptance: human-verified ground truth on representative business
+documents, and published comparisons with pymupdf4llm with and without
+pymupdf-layout.
 
-- `save` and `tobytes` gain `clean=`, `deflate_images=`, `deflate_fonts=`,
-  `ascii=`, `expand=`, `pretty=`, `no_new_id=`, `preserve_metadata=`,
-  `compression_effort=`, and `incremental=`, together with `ez_save()`,
-  `saveIncr()`, and `can_save_incrementally()`.
-- Incremental save: retain the original bytes, track dirty objects centrally
-  (F1 makes the write paths enumerable), and append through lopdf
-  `IncrementalDocument`. Existing signatures stay valid, which a pyHanko
-  validation test proves. Refuse repaired inputs and encryption changes.
-- `subset_fonts(fallback=)`: collect glyph usage through interpretation,
-  subset TrueType and CFF programs with `subsetter`, which krilla already
-  links, rewrite font programs and width arrays, and remap content strings
-  when glyph IDs change.
-- Damaged-input recovery: add opt-in reconstruction for damaged xref streams
-  and truncated files without a classic trailer, the classes that remain
-  rejected after lopdf 0.45 recovery. In the 2026-10 evaluation, hayro alone
-  rendered 103 of 112 damaged inputs; in this repository's reproduction,
-  lopdf 0.45 recovery lets pylopdf open 57 with a usable page tree. Rebuild
-  the lopdf graph itself, using an object scan or hayro-syntax's repaired view
-  as the oracle, and let hayro read lopdf's serialization, so editing, saving,
-  and rendering cannot disagree. Report the result through `is_repaired` and a
-  warning.
-- Encryption: verify reading of RC4 40/128-bit and AES-128/256, and add
-  `PDF_ENCRYPT_AES_128` and `PDF_ENCRYPT_KEEP` to the `encryption=` option
-  that M0 introduces; `PDF_ENCRYPT_KEEP` preserves a supported input handler.
-  Writing RC4 raises, while reading stays supported.
-- Journal: `journal_enable`, `journal_undo`, `journal_redo`,
-  `journal_can_do`, `journal_position`, `journal_op_name`, `journal_save`, and
-  `journal_load`, with `with doc.transaction(name):` replacing
-  `journal_start_op` and `journal_stop_op`, built from object-level snapshots
-  per operation under a memory budget.
-- `rewrite_images` parity: lossless recompression, bitonal and grayscale
-  targets, and `set_to_gray`, completing the `rewrite_images` that M0 aligns
-  with pymupdf's meaning.
+## v1.0
 
-Acceptance: pyHanko signatures stay valid after incremental edits; an
-independent structural check (pikepdf in the interop group) accepts every
-output; subsetting reduces size without changing extracted text or rendering.
-
-### M8 — Rich text
-
-Workstream C. Depends on M2.
-
-- Styled runs and per-glyph fallback: `insert_textbox` accepts runs with font,
-  size, color, weight, style, and link, falls back across the installed
-  locale and script providers, and keeps bidirectional ordering and
-  justification on the existing UAX #14 and HarfRust layout. Evaluate parley
-  (see the [watchlist](#watchlist)) before extending `layout.rs`.
-- `insert_htmlbox(rect, text, css=, scale_low=, archive=, rotate=, oc=, opacity=)`
-  for an HTML and CSS subset: block and inline elements, font properties,
-  color, lists, line breaks, links, and images from an archive mapping. It
-  returns the spare height and scale like pymupdf.
-- `TextWriter` with `append`, `appendv`, `fill_textbox`, and
-  `write_text(color, opacity, morph, matrix, render_mode, oc)`.
-
-Acceptance: HTML subset conformance tests, mixed CJK and RTL runs, and
-comparison with pymupdf `insert_htmlbox` on the supported subset.
-
-### v1.0 — API freeze
-
-- The parity manifest has no `planned` entries left, and every replaced
-  pymupdf name has a migration hint.
-- Independent field reports cover the new surfaces, especially redaction,
-  forms, and annotations. Adoption signals, with roughly 1,000 GitHub stars as
-  an indication rather than a trigger, inform the decision but do not replace
-  correctness and compatibility gates.
-- Deprecations are resolved, documentation is complete in all four
-  languages, every artifact is verified on its target, and the stability
-  policy is frozen.
+- The capability map has no planned entries.
+- Every engine workaround is removed, or recorded in AGENTS.md as pylopdf's
+  own responsibility with the reason.
+- Each canonical workflow has a guide and an end-to-end test: extraction for
+  retrieval with provenance; page images and thumbnails; organizing pages;
+  stamps and watermarks; filling and flattening forms; redaction and
+  sanitization; searchable scans; accessible PDF/A and PDF/UA documents;
+  inspecting and repairing objects; and processing untrusted uploads in a
+  server or a Cloudflare Worker.
+- Independent field reports cover the new surfaces, the documentation is
+  complete in four languages, every artifact is verified on its target, and
+  the stability policy is frozen. Adoption signals, with roughly 1,000 GitHub
+  stars as an indication, inform the decision without replacing these gates.
 
 ## Continuous tracks
 
 - **Real-document quality.** Human-verified ground truth for text, reading
   order, table cells, and OCR on Japanese business forms, multicolumn prose,
-  mixed scripts, and scans. pymupdf similarity stays a signal, not the
+  mixed scripts, and scans. Similarity to pymupdf is a signal, not the
   definition of correctness.
-- **Performance.** Close MuPDF's 2–3× warm-raster lead through upstream glyph
-  and image caching and thread-safe hayro caches; keep publishing wins and
-  losses.
-- **Security.** Fuzz lanes for every new parser and rewriter (object syntax,
-  content engine, XMP, HTML subset, CBZ), and extend `DocumentLimits.web()` to
-  every new surface.
-- **Distribution.** CPython 3.15 and 3.15t (#230), PyEmscripten parity, and the
-  wheel budget.
-
-## Upstream contributions
-
-- **hayro**: marked-content properties for ActualText (M6), Unicode for Type 3
-  glyphs without ToUnicode (LaurenzV/hayro#1331), parsing an object stream's
-  member table once (LaurenzV/hayro#1545, open), thread-safe render caches,
-  Type 1 font metadata for span flags, a text-preserving SVG mode,
-  stencil-mask performance (LaurenzV/hayro#1315), and `num_threads`
-  (LaurenzV/hayro#1317). Depth parameters for `Function::new`,
-  `ColorSpace::new`, and `parse_procedure_inner` would let pylopdf drop its
-  guards. In the content parser: a linear search for the end of inline image
-  data and an operand stack that holds the 33 operands of a DeviceN `scn`,
-  both with tested patches, and whether to skip incomplete path operators and
-  stray delimiters as pdf.js does instead of ending the stream (AGENTS.md,
-  Known pitfalls).
-- **lopdf**: a public object parser and serializer (F5), recovery reporting
-  through the API instead of `log`, a linear unterminated-`stream` scan,
-  xref-stream rebuilds from the catalog, consistent `compression_level`, and
-  implementing or removing the dead `linearize` flag. Dropping `/Prev` and
-  `/XRefStm` from rebuilt trailers merged upstream as J-F-Liu/lopdf#609 on
-  2026-10-18.
+- **Performance.** Upstream improvements first; publish wins and losses.
+- **Security.** Fuzz lanes for every new parser and rewriter, fuzz targets
+  contributed to the engines, and `DocumentLimits.web()` extended to every new
+  surface.
+- **Distribution.** New CPython releases on the day they ship, PyEmscripten
+  parity, and the wheel budget.
 
 ## Non-goals
 
-These boundaries remain after the 2026-10-19 rewrite. Each has an ecosystem
-answer.
+- **Input formats other than PDF and images**: XPS and OpenXPS, EPUB, MOBI,
+  FB2, HTML, and text documents, with pymupdf's reflow APIs (`layout`,
+  chapters, and locations). Convert them to PDF with their own tools.
+- **Running JavaScript or XFA.** pylopdf authors and removes scripts but
+  never runs them. XFA is deprecated in PDF 2.0.
+- **RC4 output.** It is insecure; reading RC4-encrypted files stays
+  supported.
+- **MuPDF's runtime internals**: its store, message stream, memory pools,
+  bindings, and helpers, which have no capability at the PDF level.
+- **Compatibility layers**: no `fitz` module, no aliases, no reproduction of
+  MuPDF's numerical quirks, and no byte-identical output.
 
-- **Formats that need a layout engine**: XPS and OpenXPS, EPUB, MOBI, FB2,
-  HTML, and text documents, with the reflowable APIs (`layout`, chapters,
-  locations, bookmarks). Images and CBZ are in scope (M2).
-- **Full HTML/CSS pagination**: `Story`, `DocumentWriter`, `Archive`, `Xml`,
-  and `apply_css`. Use typst, and reassess fulgur around 2027-01. The HTML
-  subset in M8 covers text boxes.
-- **Executing JavaScript or XFA**: authoring and removing JavaScript actions
-  is in scope (M3). XFA is deprecated in PDF 2.0 and has no Rust
-  implementation.
-- **Native cryptographic signing**: pyHanko provides active MIT-licensed PAdES
-  through B-LTA. Signature fields and signed-state inspection are in scope
-  (M3); watch underskrift.
-- **Converting or validating arbitrary PDFs as PDF/A**: krilla's validated
-  export rejects embedded pages, and validation would duplicate veraPDF. Use
-  typst for new documents; `get_pdfa_claim` stays.
-- **MuPDF internals without PDF-level meaning**: `DisplayList`,
-  `Page.run(device)`, store and anti-aliasing controls in `TOOLS` (reassess
-  anti-aliasing if vello_cpu exposes it), colorspace management beyond
-  `Colorspace(name, n)` values and the `cs*` and `CS_*` constants,
-  `Pixmap.warp`, and `Pixmap.pdfocr_*`. Images-to-PDF plus native OCR covers
-  the last case.
-- **Compatibility layers**: no `fitz` module, no aliases for redesigned APIs,
-  and no byte-identical output. The F9 tools handle migration.
-- **RC4 encryption output**: insecure; reading remains supported.
+Three capabilities stay with ecosystem tools, through tested recipes:
+
+- **Cryptographic signing**: pyHanko, with incremental save keeping
+  signatures valid. Watch underskrift, a BSD-2-Clause PAdES implementation
+  over lopdf.
+- **HTML and CSS pagination** (pymupdf's `Story`, `DocumentWriter`, and
+  `Archive`): typst. Reassess fulgur, which pairs Blitz with krilla, around
+  2027-01 as an engine path; the HTML subset for text boxes is in
+  [Writing](#writing).
+- **PDF/A validation of existing files**: veraPDF.
 
 ## Watchlist
 
-- **hayro 0.8 and later**: the migration is in progress. hayro 0.8.0 bounds
-  nested arrays and dictionaries at 64 levels, but nested Type 4 function
-  braces and deep function and color-space chains still overflow its stack, so
-  `content_guard.rs`, `graph_guard.rs`, and `postscript_scan.rs` stay. The
-  migration needs its own reviewed pixel diff: vello_cpu resamples large
-  scans, and 6 of 20 corpus pages changed.
-- **fulgur** (Blitz plus krilla, HTML to PDF): reassess around 2027-01 for
-  survival, API stability, and a stable Blitz 0.3.
-- **underskrift** (BSD-2-Clause PAdES over lopdf): reconsider as an optional
-  signature backend after it matures.
-- **parley** (linebender text layout): evaluate for M8 before extending
-  `layout.rs`.
-- **PP-DocLayout** (Apache-2.0) and later PP-OCR generations: candidates for the
-  `[layout]` extra (M6) and for `[ocr]` model updates.
-- **pymupdf, pymupdf4llm, and pymupdf-layout releases**: record new public
-  APIs in the parity manifest as they appear.
+- **parley** (linebender text layout): the candidate for styled runs and
+  per-glyph fallback in [Writing](#writing).
+- **fulgur and Blitz**: survival, API stability, and a stable Blitz 0.3.
+- **underskrift**: an optional signature backend once it matures.
+- **PP-DocLayout** (Apache-2.0) and later PP-OCR generations: candidates for
+  the `[layout]` extra and for updates of the `[ocr]` models.
+- **pymupdf, pymupdf4llm, and pymupdf-layout releases**: their new public
+  names join the capability map.
 - **Competitors**: pdf_oxide, oxidize-pdf, pypdfium2, kreuzberg, and docling.
 - **abi3t (PEP 803)**: one `cp315-abi3.abi3t` wheel per platform could serve
   free-threaded 3.15 and every later free-threaded release, but GIL-enabled
-  3.15+ installs would prefer it to `cp311-abi3` (AGENTS.md has the
+  3.15 and later would prefer it to `cp311-abi3` (AGENTS.md has the
   evaluation). Reconsider before adding `cp316t`.
 
-## Decisions in this rewrite
+## Decisions
 
-- **D1**: the scope expands to every capability of pymupdf's API that applies
-  to PDF documents, except the [non-goals](#non-goals).
-- **D2**: one API in which the same name means the same thing; pymupdf names
-  carry pymupdf's meaning, and redesigns take new names. This replaces
-  "pymupdf-style, not pymupdf-compatible" and rules out a compatibility layer.
-- **D3**: geometry types are adopted (F4) as immutable values; pymupdf's
-  in-place mutators are not provided.
-- **D4**: lightweight `Annot`, `Widget`, `Link`, and outline handles replace
-  the dictionary-only policy (M0, M3); setters apply immediately, and there is
-  no `update()`.
-- **D5**: the low-level object API becomes public (F5) as a typed object
-  model instead of pymupdf's string-based `xref_*` methods.
-- **D6**: incremental save moves from the watchlist into M7.
-- **D7**: opt-in reconstruction of damaged xref streams and truncated files is
-  scheduled (M7) under the single-source-of-truth constraint.
-- **D8**: redaction is in scope with a verification contract (M4).
-- **D9**: the core wheel budget is 9.0 MiB.
-- **D10**: changelog fragments (F2) and the parity manifest (F3) become part
-  of the process.
-- **D11**: migration is served by tools generated from the manifest (F9): a
-  codemod, migration hints, and `llms.txt`.
-- **D12**: there are no deprecation windows before 1.0; the API reset (M0)
-  ships as one breaking release.
-- **D13**: the API design (F0) is written and reviewed before implementation
-  fans out.
-- **D14**: on 2026-10-20 the maintainer approved the API design (F0) with all
-  twelve of its decisions, which closed wave 0.
-- **D15**: on 2026-10-21 the maintainer chose to replace pymupdf's
-  `language` and `set_language`, which keep at most three letters of a BCP 47
-  tag and cannot tell `zh-TW` from `zh-HK`, with `language_tag` and
-  `set_language_tag`, which keep the complete tag. R3 of the API design gains
-  lossy conversions as a reason to redesign.
+- **D1** (2026-10-22): this plan replaces the pymupdf parity program.
+  pymupdf defines the capabilities that pylopdf must cover, not its API.
+- **D2** (2026-10-22): engine-first. The engines' maintainers accept changes
+  quickly, so capabilities that an engine owns are built upstream, and
+  pylopdf's workarounds are temporary.
+- **D3** (2026-10-22): one graphics model serves reading and writing.
+- **D4** (2026-10-22): the parity manifest becomes the capability map. A
+  planned entry names its milestone and no pylopdf API until the milestone
+  designs one.
+- **D5** (2026-10-22): the pymupdf-aligned renames on main since 0.15.0 ship
+  only together with the API reset.
 
 ## Evidence log
 
-Dated facts that still drive decisions. Earlier detail is in Git history.
+Dated facts that still drive decisions.
 
 - **2026-07-22, market**: monthly PyPI downloads were pymupdf 106M, pypdf 116M,
   pypdfium2 68M, pdfplumber 54M, pymupdf4llm 24M, docling 20M, and pikepdf
@@ -1005,32 +626,22 @@ Dated facts that still drive decisions. Earlier detail is in Git history.
   benchmarks; oxidize-pdf is a separate MIT Rust competitor focused on
   structure-aware chunking.
 - **2026-10-17, wheels**: thin-LTO abi3 wheels built from the 0.14.0 sources
-  are 6.4–7.4 MiB, versus 6.8–7.9 MiB for the published 0.14.0 wheels. Thin LTO
-  sped up extraction by 6–14%; native wheels keep their symbol tables.
-- **2026-10-18, rendering**: cross-call render-cache reuse made re-renders
-  3–28% faster with at most 3 MiB more memory. MuPDF's 2–3× warm-raster lead
-  comes from rasterization and its glyph and image caches, not font parsing.
+  are 6.4–7.4 MiB, against 6.8–7.9 MiB for the published 0.14.0 wheels. Thin
+  LTO sped up extraction by 6–14%; native wheels keep their symbol tables.
+- **2026-10-18, rendering**: reusing the render cache across calls made
+  re-renders 3–28% faster with at most 3 MiB more memory. MuPDF's 2–3× lead in
+  warm rasterization comes from rasterization and its glyph and image caches,
+  not from font parsing.
 - **2026-10, damaged input**: over 14 corpus files with 8 deterministic damage
   types, pylopdf 0.14.0 opened 35 of 112 inputs and hayro alone rendered 103.
-  lopdf 0.45 recovery raised usable openings from 33 to 57 in this
-  repository's reproduction; damaged xref streams and truncated files without a
-  classic trailer remain rejected.
-- **2026-10-19, parity**: the pymupdf 1.28.0 source defines 141 public
-  `Document` methods, 115 `Page` methods, and 53 `Annot` methods. On the
-  corpus, five `show_pdf_page` placements of one `bill-hr815.pdf` page
-  embedded 25 font files, and `insert_pdf` of `f1040.pdf` (199 fields) left 0
-  registered fields and 128 orphaned widgets. The first parity manifest
-  classified 948 pymupdf 1.28.0 entries as 40 supported, 120 deviations,
-  593 planned, and 195 non-goals, before its reclassification under the
-  same-name, same-meaning rule.
-- **2026-10-20, parity**: pymupdf 2.0 requires Python 3.11 or later and
-  installs pymupdf4llm and pymupdf-layout with onnxruntime. Its inventory adds
-  15 public names to 1.28.0's, among them `Document.to_markdown`, `to_text`,
-  `to_json`, and `to_chunks` forwarding to pymupdf4llm, `Pixmap.flip_rotate`,
-  `Page.repair_flat_rbgs`, and `calc_matrix`, and drops
-  `Annot.update_timing_test`. The manifest now lists 962 entries at 18.6%
-  coverage.
-- **2026-10-21, parity**: with M0 complete the manifest has no `reset`
-  entries, and its 962 entries stand at 45.3% coverage: 289 available under
-  pymupdf's name, 57 available under a replacement, 417 planned (409 under
-  pymupdf's name, 8 replaced), and 199 non-goals.
+  lopdf 0.45 recovery raised usable openings from 33 to 57; damaged
+  cross-reference streams and truncated files without a classic trailer remain
+  rejected.
+- **2026-10-22, engine interfaces**: hayro-interpret 0.8's `Device`
+  (`draw_path`, `draw_glyph_run`, `draw_image`, `push_clip_path`,
+  `push_transparency_group`, `begin_marked_content`) and krilla 0.8's
+  `Surface` (`draw_path`, `draw_glyphs`, `draw_image`, `push_clip_path`,
+  `push_opacity`, `push_mask`, `push_blend_mode`, `start_tagged`) cover the
+  same graphics model. hayro's glyph runs carry outlines, glyph IDs, advances,
+  and Unicode. krilla 0.8.2 writes only link annotations, and lopdf 0.45 has
+  an `IncrementalDocument`.

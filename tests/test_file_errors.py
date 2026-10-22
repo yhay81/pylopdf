@@ -1,4 +1,4 @@
-"""pymupdf's error categories for missing, empty, and unreadable input (DESIGN.md G3)."""
+"""pymupdf's error categories for missing, empty, and unreadable input."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""XMP metadata and catalog document properties with pymupdf's meaning (M5)."""
+"""XMP metadata and catalog document properties with pymupdf's meaning."""
 
 from __future__ import annotations
 

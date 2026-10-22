@@ -1,4 +1,4 @@
-"""pymupdf's return values of insert_image and show_pdf_page, and Standard 14 names (M0)."""
+"""pymupdf's return values of insert_image and show_pdf_page, and Standard 14 names."""
 
 from __future__ import annotations
 

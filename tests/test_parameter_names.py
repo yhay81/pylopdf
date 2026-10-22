@@ -1,4 +1,4 @@
-"""pymupdf's parameter names and keyword-only options from the API reset (M0)."""
+"""pymupdf's parameter names and keyword-only options."""
 
 from __future__ import annotations
 
