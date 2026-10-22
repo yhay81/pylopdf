@@ -45,7 +45,10 @@ class Link:
     read, such as JavaScript. A handle reads the document on every access and
     finds its annotation again after an edit moved it; it raises
     :class:`StaleObjectError` once the annotation left the page and
-    :class:`StalePageError` once the page did.
+    :class:`StalePageError` once the page did. A link stored directly in
+    ``/Annots`` has no object number, so its handle finds it by position;
+    editing or removing a page's links first stores such links as objects,
+    and a handle made before then goes stale instead of naming another link.
     """
 
     __slots__ = ("_index", "_page", "_xref")
@@ -94,7 +97,7 @@ class Link:
         validated = _validate_rect(rect)
         page = self._page
         self._read()
-        page._document._doc.set_link(page._page_number(), self._index, self._xref, rect=validated)
+        self._xref = page._document._doc.set_link(page._page_number(), self._index, self._xref, rect=validated)
 
     @property
     def target(self) -> Target | None:
@@ -106,7 +109,7 @@ class Link:
         page = self._page
         spec = _link_target(target, page)
         self._read()
-        page._document._doc.set_link(page._page_number(), self._index, self._xref, target=spec)
+        self._xref = page._document._doc.set_link(page._page_number(), self._index, self._xref, target=spec)
 
     def __eq__(self, other: object) -> bool:
         """Compare the page and the annotation: its object number, or its index for a direct dictionary."""
@@ -177,10 +180,7 @@ class Links(Sequence[Link]):
         selected = self._handles()[index]
         links = selected if isinstance(selected, list) else [selected]
         page = self._page
-        core = page._document._doc
-        # Remove from the end, so that each removal keeps the earlier indexes.
-        for link in sorted(links, key=lambda link: link._index, reverse=True):
-            core.remove_annotation(page._page_number(), link._index, link._xref)
+        page._document._doc.remove_annotations(page._page_number(), [(link._index, link._xref) for link in links])
 
     def add(self, rect: Sequence[float], target: Target) -> Link:
         """Add a link over ``rect``, in display coordinates, that leads to ``target``, and return it.

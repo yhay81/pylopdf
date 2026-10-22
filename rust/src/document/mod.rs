@@ -1451,7 +1451,8 @@ impl _Document {
     }
 
     /// Replace the display rectangle or the target of a one-based page's
-    /// link, found as `read_link` finds it.
+    /// link, found as `read_link` finds it, and return the link's object
+    /// number, which a link stored as a direct dictionary gains.
     #[pyo3(signature = (page_number, index, xref, rect=None, target=None))]
     fn set_link(
         &mut self,
@@ -1460,14 +1461,14 @@ impl _Document {
         xref: u32,
         rect: Option<(f64, f64, f64, f64)>,
         target: Option<TargetTuple>,
-    ) -> PyResult<()> {
+    ) -> PyResult<u32> {
         annotations::set_link(self, page_number, index, xref, rect, target)
     }
 
-    /// Remove an annotation, found as `read_link` finds a link, from a
-    /// one-based page's `/Annots`.
-    fn remove_annotation(&mut self, page_number: u32, index: u32, xref: u32) -> PyResult<()> {
-        annotations::remove_annotation(self, page_number, index, xref)
+    /// Remove annotations, each given as `(index, xref)` and found as
+    /// `read_link` finds a link, from a one-based page's `/Annots`.
+    fn remove_annotations(&mut self, page_number: u32, handles: Vec<(u32, u32)>) -> PyResult<()> {
+        annotations::remove_annotations(self, page_number, handles)
     }
 
     /// Read the XMP PDF/A claim from `pdfaid:part` and conformance.

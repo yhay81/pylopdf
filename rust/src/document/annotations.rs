@@ -926,9 +926,53 @@ impl _Document {
             _ => self.doc.page_annotations_mut(page_id),
         }
     }
+
+    /// Store every annotation that the page's `/Annots` holds as a direct
+    /// dictionary as an object of its own, as MuPDF does when it loads the
+    /// annotations, and borrow the page's own array. A handle finds a direct
+    /// dictionary only by its position, so an edit that could shift or
+    /// rewrite one goes through here first: a handle made before then finds
+    /// a reference where it expects a dictionary and goes stale instead of
+    /// naming another annotation.
+    fn indirect_page_annotations_mut(&mut self, page_id: ObjectId) -> PyResult<&mut Vec<Object>> {
+        let mut direct = Vec::new();
+        for (position, item) in self
+            .page_annotation_items(page_id)?
+            .unwrap_or_default()
+            .iter()
+            .enumerate()
+        {
+            if let Object::Dictionary(dictionary) = item {
+                direct.try_reserve(1).map_err(|error| {
+                    PdfError::new_err(format!("failed to allocate direct annotations: {error}"))
+                })?;
+                direct.push((position, dictionary.clone()));
+            }
+        }
+        let mut references = Vec::new();
+        references
+            .try_reserve_exact(direct.len())
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate annotation references: {error}"))
+            })?;
+        for (position, dictionary) in direct {
+            references.push((
+                position,
+                self.doc.add_object(Object::Dictionary(dictionary)),
+            ));
+        }
+        let items = self.own_page_annotations_mut(page_id)?;
+        for (position, id) in references {
+            if let Some(item) = items.get_mut(position) {
+                *item = Object::Reference(id);
+            }
+        }
+        Ok(items)
+    }
 }
 
-/// Implements [`_Document::set_link`].
+/// Implements [`_Document::set_link`]: edit the link and return its object
+/// number, which a link stored as a direct dictionary gains here.
 pub(super) fn set_link(
     this: &mut _Document,
     page_number: u32,
@@ -936,7 +980,7 @@ pub(super) fn set_link(
     xref: u32,
     rect: Option<(f64, f64, f64, f64)>,
     target: Option<TargetTuple>,
-) -> PyResult<()> {
+) -> PyResult<u32> {
     let page_id = this.page_id(page_number)?;
     let (index, link) = this.annotation_at(page_id, index, xref)?;
     if !matches!(link.get(b"Subtype").and_then(Object::as_name), Ok(b"Link")) {
@@ -959,23 +1003,22 @@ pub(super) fn set_link(
         }
         None => None,
     };
-    let generation = if xref == 0 {
-        0
-    } else {
-        link_generation(this, page_id, index)?
-    };
     this.invalidate_hayro_pdf_keeping_placements();
-    let link = if xref == 0 {
-        this.own_page_annotations_mut(page_id)?
-            .get_mut(index as usize)
-            .and_then(|item| item.as_dict_mut().ok())
-    } else {
-        this.doc
-            .get_object_mut((xref, generation))
-            .and_then(Object::as_dict_mut)
-            .ok()
+    if xref == 0 {
+        this.indirect_page_annotations_mut(page_id)?;
     }
-    .ok_or_else(|| PdfError::new_err("the link changed while it was edited"))?;
+    let id = match this
+        .page_annotation_items(page_id)?
+        .and_then(|items| items.get(index as usize))
+    {
+        Some(Object::Reference(id)) => *id,
+        _ => return Err(PdfError::new_err("the link changed while it was edited")),
+    };
+    let link = this
+        .doc
+        .get_object_mut(id)
+        .and_then(Object::as_dict_mut)
+        .map_err(|_| PdfError::new_err("the link changed while it was edited"))?;
     if let Some(rect) = rect {
         link.set("Rect", rect);
     }
@@ -986,34 +1029,41 @@ pub(super) fn set_link(
             link.set(key, value);
         }
     }
-    Ok(())
+    Ok(id.0)
 }
 
-/// Return the generation of the annotation reference at `index` of a page's `/Annots`.
-fn link_generation(this: &_Document, page_id: ObjectId, index: u32) -> PyResult<u16> {
-    match this
-        .page_annotation_items(page_id)?
-        .and_then(|items| items.get(index as usize))
-    {
-        Some(Object::Reference(id)) => Ok(id.1),
-        _ => Err(PdfError::new_err("the link changed while it was edited")),
-    }
-}
-
-/// Implements [`_Document::remove_annotation`]: take the annotation out of
-/// the page's `/Annots`. The object itself stays until a pruning save.
-pub(super) fn remove_annotation(
+/// Implements [`_Document::remove_annotations`]: take the annotations out
+/// of the page's `/Annots` in one edit, after finding every one of them and
+/// storing the page's direct annotation dictionaries as objects, so that no
+/// later handle can shift onto another annotation. The objects stay until a
+/// pruning save.
+pub(super) fn remove_annotations(
     this: &mut _Document,
     page_number: u32,
-    index: u32,
-    xref: u32,
+    handles: Vec<(u32, u32)>,
 ) -> PyResult<()> {
     let page_id = this.page_id(page_number)?;
-    let (index, _) = this.annotation_at(page_id, index, xref)?;
+    let mut positions = Vec::new();
+    positions
+        .try_reserve_exact(handles.len())
+        .map_err(|error| {
+            PdfError::new_err(format!("failed to allocate removed annotations: {error}"))
+        })?;
+    for (index, xref) in handles {
+        positions.push(this.annotation_at(page_id, index, xref)?.0 as usize);
+    }
+    // Remove from the end, so that each removal keeps the earlier positions.
+    positions.sort_unstable_by(|a, b| b.cmp(a));
+    positions.dedup();
+    if positions.is_empty() {
+        return Ok(());
+    }
     this.invalidate_hayro_pdf_keeping_placements();
-    let items = this.own_page_annotations_mut(page_id)?;
-    if (index as usize) < items.len() {
-        items.remove(index as usize);
+    let items = this.indirect_page_annotations_mut(page_id)?;
+    for position in positions {
+        if position < items.len() {
+            items.remove(position);
+        }
     }
     Ok(())
 }

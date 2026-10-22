@@ -2372,8 +2372,15 @@ the concept and API overview.
   (0 for a direct dictionary), and an `/Annots` index; `read_link` and every
   edit find it through `annotation_at`, which takes the stored index when it
   still names the object and otherwise the object's first position, so a
-  handle survives the removal of an earlier annotation, while a direct
-  dictionary is found by its index alone. Targets share the outline's
+  handle survives the removal of an earlier annotation. A direct dictionary
+  has no object number and is found by its index alone, so every edit that
+  could shift or rewrite one (`set_link` on a direct link and
+  `remove_annotations`) first stores the page's direct annotation
+  dictionaries as objects (`indirect_page_annotations_mut`), as MuPDF does
+  when it loads annotations: an older handle of one then finds a reference
+  and goes stale instead of naming another annotation, and `set_link`
+  returns the new object number to the handle that made the edit.
+  `remove_annotations` finds every handle before it changes anything. Targets share the outline's
   `TargetTuple` and `target_entry` (`document/navigation.rs`): `/A` with
   `/S` URI, GoTo, GoToR (a remote `/D` array's first integer is its page,
   ISO 32000-2 §12.6.4.3), Launch, or Named, else `/Dest`; any other action,
@@ -2381,8 +2388,8 @@ the concept and API overview.
   that leaves its coordinates unset reads without a point. `add_link`
   writes a borderless printable `/Link` with `/P`; `set_link` replaces
   `/Rect` or removes `/Dest` and `/A` before writing the new entry; and
-  `remove_annotation` takes the entry out of `/Annots`, leaving the object
-  for a pruning save. An edit of a direct dictionary or a removal first
+  `remove_annotations` takes the entries out of `/Annots`, leaving the
+  objects for a pruning save. An edit of a direct dictionary or a removal first
   detaches a page-shared indirect `/Annots` array (`own_page_annotations_mut`),
   so pages that share it keep theirs. Every edit validates its input and
   target before `invalidate_hayro_pdf_keeping_placements`, and Python bounds

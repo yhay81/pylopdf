@@ -10,7 +10,10 @@ open, and viewer actions, where `insert_link` wrote web links only. A link
 whose action pylopdf does not read, or whose destination names no page,
 reads with the target `None` instead of being left out, and a destination
 that leaves its coordinates unset reads without a point. `Link.xref` and
-`Link.obj` give the annotation itself. The codemod rewrites `get_links()`,
+`Link.obj` give the annotation itself; editing or removing a page's links
+first stores the links that `/Annots` holds as direct dictionaries as
+objects of their own, as MuPDF does, so a handle never shifts onto another
+link. The codemod rewrites `get_links()`,
 `insert_link()` with a dictionary literal, `load_links()`, `first_link`,
 `links()`, `has_links()`, and pylopdf 0.15's `add_link_annot()`, and marks
 the rest.

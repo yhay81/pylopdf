@@ -612,6 +612,10 @@ def test_editing_a_direct_link_leaves_pages_that_share_the_array_alone() -> None
     direct.target = "https://edited.test/"
     direct.rect = (0, 0, 20, 20)
 
+    # The edit stored the link as an object of its own; the other page keeps its dictionary.
+    assert direct.xref > 0
+    assert second.links[1].xref == 0
+
     assert [link.target for link in first.links] == ["https://shared.test/", "https://edited.test/"]
     assert first.links[1].rect == Rect(0, 0, 20, 20)
     assert [link.target for link in second.links] == ["https://shared.test/", "https://direct.test/"]
@@ -697,3 +701,51 @@ def test_link_destinations_outside_the_pdf_real_range_change_nothing(target: Des
         link.target = target
 
     assert doc.to_bytes() == before
+
+
+def _direct_links_document() -> pylopdf.Document:
+    entries = " ".join(
+        f"<< /Type /Annot /Subtype /Link /Rect [10 {10 + 30 * row} 100 {30 + 30 * row}] "
+        f"/A << /S /URI /URI (https://e.test/{row}) >> >>"
+        for row in range(4)
+    )
+    return pylopdf.open(
+        build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 200] >>",
+                3: f"<< /Type /Page /Parent 2 0 R /Annots [{entries}] >>",
+            }
+        )
+    )
+
+
+def test_handles_of_direct_links_never_name_another_link() -> None:
+    doc = _direct_links_document()
+    page = doc.pages[0]
+    links = list(page.links)
+    assert [link.xref for link in links] == [0, 0, 0, 0]
+
+    del page.links[1]
+
+    # Removing a link stored every link as an object, so the old handles,
+    # which found their links by position, are stale rather than shifted.
+    for link in links:
+        with pytest.raises(pylopdf.StaleObjectError):
+            _ = link.target
+    current = list(page.links)
+    assert [link.target for link in current] == ["https://e.test/0", "https://e.test/2", "https://e.test/3"]
+    assert all(link.xref > 0 for link in current)
+    current[0].target = "https://edited.test/"
+    assert current[1].target == "https://e.test/2"
+
+
+def test_deleting_several_direct_links_at_once() -> None:
+    doc = _direct_links_document()
+    page = doc.pages[0]
+
+    del page.links[::2]
+
+    assert [link.target for link in page.links] == ["https://e.test/1", "https://e.test/3"]
+    reopened = pylopdf.open(doc.to_bytes()).pages[0]
+    assert [link.target for link in reopened.links] == ["https://e.test/1", "https://e.test/3"]
