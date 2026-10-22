@@ -250,9 +250,15 @@ Workstream Content, with Writing for the shared types.
   clips, transparency groups, and marked content around it, shared by the
   items painted in the same context.
 - Text, words, layout, search, drawings, and image placements derive from the
-  same interpretation and one cache, so they agree by construction. The
-  separate text, drawing, and image devices merge into one. Until then they
-  agree with `Page.content()` on the bundled corpus, which a test pins.
+  same interpretation, so they agree by construction. Text and table
+  extraction read the content model's device through its sink (done, which
+  also reads fill-and-stroke text once instead of twice); the drawing and
+  image-placement devices go when the [API reset](#api-reset) replaces
+  `get_drawings` and `get_image_info` with `content().paths` and
+  `content().images`. Until then they agree with `Page.content()` on the
+  bundled corpus, which a test pins. One cache shared by the views follows
+  when a measurement shows that interpreting a page once for all of them
+  pays for its memory.
 - pylopdf exposes what hayro computes instead of recomputing it: glyph
   outlines for exact glyph boxes (done), font identity (object, name, type,
   embedding), and image object numbers, masks included.

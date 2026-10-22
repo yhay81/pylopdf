@@ -23,6 +23,8 @@ use hayro::hayro_syntax::{Filter, Pdf};
 use kurbo::{Affine, Cap, CubicBez, Join, Line, PathEl, PathSeg, Point, QuadBez, Rect, Shape};
 use unicode_bidi::{BidiClass, bidi_class};
 
+use crate::content_model::{ContentCollector, ContentError, ContentSink};
+
 /// Per-font display attributes propagated to spans with pymupdf-compatible flags.
 #[derive(Clone, Default)]
 struct FontInfo {
@@ -278,13 +280,14 @@ impl TextCollector {
     }
 }
 
-impl Device<'_> for TextCollector {
-    fn draw_path(&mut self, path: &kurbo::BezPath, props: DrawProps<'_>, mode: &DrawMode) {
+/// Text extraction reads the paths and glyphs of the content model's single
+/// device, so a fill-and-stroke text run contributes its glyphs once.
+impl ContentSink for TextCollector {
+    fn path(&mut self, path: &kurbo::BezPath, transform: Affine, mode: &DrawMode) {
         if !self.collect_rules || self.rules.len() >= MAX_TABLE_RULES || self.limit_error.is_some()
         {
             return;
         }
-        let transform = props.transform;
         if matches!(mode, DrawMode::Fill(_) | DrawMode::FillAndStroke(..))
             && let Some(rule) = filled_rule(path, transform)
             && !self.push_rule(rule)
@@ -333,19 +336,13 @@ impl Device<'_> for TextCollector {
             }
         }
     }
-    fn push_clip_path(&mut self, _: &ClipPath) {}
-    fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
-    fn draw_image(&mut self, _: Image<'_, '_>, _: ImageDrawProps<'_>) {}
-    fn pop_clip(&mut self) {}
-    fn pop_transparency_group(&mut self) {}
 
-    fn draw_glyph_run(&mut self, run: &GlyphRun<'_, '_>, props: DrawProps<'_>, _: &DrawMode) {
-        for glyph in run.glyphs() {
-            if self.limit_error.is_some() {
-                return;
-            }
-            self.collect_glyph(glyph, props.transform * glyph.transform());
-        }
+    fn glyph(&mut self, glyph: &Glyph<'_>, transform: Affine) {
+        self.collect_glyph(glyph, transform);
+    }
+
+    fn stopped(&self) -> bool {
+        self.limit_error.is_some()
     }
 }
 
@@ -5356,7 +5353,7 @@ fn collect_page_marks<'a>(
     max_glyph_count: Option<usize>,
 ) -> Result<PageMarks, TextPageLimit> {
     let mut context = extraction_context(pdf, page, cache, settings);
-    let mut collector = TextCollector {
+    let text = TextCollector {
         glyphs: Vec::new(),
         rules: Vec::new(),
         collect_rules,
@@ -5368,7 +5365,14 @@ fn collect_page_marks<'a>(
         limit_error: None,
         skipped_no_unicode: 0,
     };
-    interpret_page(page, &mut context, &mut collector);
+    let mut device = ContentCollector::new(text, false, None);
+    interpret_page(page, &mut context, &mut device);
+    let (_, collector) = device.finish(None).map_err(|error| match error {
+        ContentError::Allocation(message) => TextPageLimit::Allocation(message),
+        ContentError::ElementCount(limit) => TextPageLimit::Allocation(format!(
+            "text extraction stopped at {limit} content elements"
+        )),
+    })?;
     if let Some(error) = collector.limit_error {
         return Err(error);
     }
