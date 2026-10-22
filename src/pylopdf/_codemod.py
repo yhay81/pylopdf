@@ -18,6 +18,7 @@ alone.
 
 from __future__ import annotations
 
+import ast
 import inspect
 from dataclasses import dataclass
 from functools import cache
@@ -126,6 +127,11 @@ def _removed_015_members() -> frozenset[str]:
 
 def _code(node: cst.CSTNode) -> str:
     return cst.Module(body=[]).code_for_node(node)
+
+
+def _same_code(replacement: str, node: cst.CSTNode) -> bool:
+    """Return whether ``replacement`` is the expression ``node`` apart from layout and comments."""
+    return ast.dump(ast.parse(replacement, mode="eval")) == ast.dump(ast.parse(_code(node).strip(), mode="eval"))
 
 
 def _receiver(node: cst.BaseExpression) -> str:
@@ -1061,7 +1067,7 @@ class _Migrator(cst.CSTTransformer):
                 or f"pylopdf.{MODULE_RENAMES.get(member, member)} takes other arguments; see the API reference."
             )
             return updated_node
-        if replacement == _code(updated_node):
+        if _same_code(replacement, updated_node):
             return updated_node
         self.rewrites += 1
         return cst.parse_expression(replacement)
@@ -1094,6 +1100,8 @@ class _Migrator(cst.CSTTransformer):
         replacement = None if arguments is None else rule(self, _receiver(function.value), arguments)
         if replacement is None:
             self._member_todo(name)
+            return updated_node
+        if _same_code(replacement, updated_node):
             return updated_node
         self.rewrites += 1
         return cst.parse_expression(replacement)
