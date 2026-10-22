@@ -263,6 +263,48 @@ with page.draw() as canvas:
 
 `page.draw(underlay=True)`는 페이지의 기존 내용 아래에 씁니다. 캔버스가 여러 번 그리는 이미지나 페이지, 또는 문서가 이전에 배치한 이미지나 페이지는 한 번만 저장됩니다. 페이지는 `canvas.page()`를 호출한 시점의 상태로 그려집니다. `draw(item)`은 항목의 클립, 그룹 불투명도, 블렌드 모드를 재현하지만 소프트 마스크는 재현하지 않습니다. 텍스트 런, 이미지, 패턴 페인트는 아직 그릴 수 없습니다. 캔버스 하나에는 경로 점이 최대 1,048,576개까지 들어가고 범위는 최대 16단계까지 중첩할 수 있으며, 이를 넘으면 `LimitError`가 발생하고 그 코드는 `path_point_count` 또는 `canvas_scope_depth`입니다.
 
+## 새 문서 { #create }
+
+`pylopdf.create()`는 krilla가 통째로 쓰는 문서를 시작합니다. `builder.page(size)`는 새 페이지의 [캔버스](#canvas)를 반환하며, 그 페이지는 `with` 블록이 끝날 때 문서에 추가됩니다. `builder.to_bytes()`는 파일을 반환하고, `builder.finish()`는 그 파일을 `Document`로 엽니다.
+
+```python
+from pathlib import Path
+
+import pylopdf
+from pylopdf import Color, TagRole
+
+font = pylopdf.Font(fontfile="NotoSans-Regular.ttf")
+builder = pylopdf.create(standard="pdf/ua-1", language="en", title="Annual report")
+with builder.page((595.28, 841.89)) as canvas:
+    canvas.bookmark("Summary")
+    with canvas.tag(TagRole.HEADING_1, title="Summary"):
+        canvas.text("Summary", (56, 80), font=font, size=20)
+    with canvas.tag(TagRole.PARAGRAPH):
+        canvas.textbox((56, 100, 539, 300), body, font=font, size=11)
+    with canvas.tag(TagRole.FIGURE, alt="Revenue by quarter"):
+        canvas.image((56, 320, 300, 480), "chart.png")
+    canvas.line((56, 800), (539, 800), stroke=Color(0.6, 0.6, 0.6))
+Path("report.pdf").write_bytes(builder.to_bytes())
+```
+
+| `create()`의 인수 | 의미 |
+|---|---|
+| `standard` | `"pdf/a-1a"`부터 `"pdf/a-4f"`까지, `"pdf/ua-1"`, 또는 `("pdf/a-2a", "pdf/ua-1")`처럼 여러 개 |
+| `tagged` | `tag` 범위로 구조 트리를 만듦. PDF/UA와 PDF/A의 `a` 수준에서는 자동으로 켜짐 |
+| `language`, `title`, `author`, `subject`, `keywords` | 문서의 BCP 47 언어와 메타데이터 |
+| `created` | 작성 날짜. 기본값은 현재 시각이며, 고정된 값을 주면 출력을 재현할 수 있음 |
+
+`standard`를 지정한 문서는 쓸 때 검증됩니다. 위반이 있으면 파일을 쓰지 않고, PDF/A-1의 투명도나 PDF/UA에서 빠진 제목이나 목차처럼 krilla가 찾은 모든 문제를 나열한 `PdfError`가 발생합니다. 의미 있는 대체 텍스트처럼 판단이 필요한 요구 사항은 여전히 사용자가 직접 충족해야 합니다.
+
+새 문서의 캔버스는 페이지의 캔버스가 그리는 것을 그릴 수 있지만, 다음과 같은 차이가 있습니다.
+
+- 모든 글꼴이 포함되므로 텍스트에는 OpenType [`Font`](#font)가 필요합니다. `font`가 없는 텍스트는 해당 문자 체계를 위한 설치된 글꼴 extra로 그리며, 서유럽 텍스트는 krilla가 Standard 14 글꼴을 그릴 수 있게 될 때까지 `font`가 필요합니다.
+- `canvas.page()`는 아직 다른 페이지를 배치할 수 없습니다. 완성된 문서의 페이지에 그리세요.
+- `tag(role, *, alt=None, lang=None, title=None, actual_text=None)`는 블록에서 그린 것을 구조 요소로 만듭니다. 역할은 `TagRole`의 멤버이며, `PARAGRAPH`, `HEADING_1`부터 `HEADING_6`, `LIST`와 `LIST_ITEM`, `TABLE`, `TABLE_ROW`, `TABLE_DATA`, 그리고 `alt` 텍스트와 함께 쓰는 `FIGURE` 등이 있습니다. 범위는 중첩할 수 있고, 범위 안의 텍스트는 한 줄마다 그 요소의 스팬이 되며, 어느 범위에도 속하지 않거나 `ARTIFACT` 범위 안에 있는 내용은 아티팩트가 됩니다.
+- `bookmark(title, *, level=1, at=(0, 0))`는 페이지의 `at` 위치를 보여 주는 목차 항목을 추가합니다. 수준은 한 번에 한 단계씩만 깊어질 수 있습니다.
+
+`finish()`와 `to_bytes()`는 페이지를 더 추가한 뒤 다시 호출할 수 있습니다. `finish()`가 반환한 `Document`를 저장하면 lopdf로 다시 쓰므로, krilla가 검증한 그대로의 파일이 필요하면 `to_bytes()`를 사용하세요. 문서 하나에는 페이지와 목차 항목을 각각 최대 65,536개까지 담을 수 있고, 태그 하나의 텍스트나 목차 항목 제목 하나는 최대 64 KiB입니다(`tag_text_size`).
+
 ## 표 { #tables }
 
 `page.find_tables()`는 병합된 셀을 포함해 괘선으로 그린 표를 찾습니다. `strategy="text"`는 행과 열이 분명히 정렬된 테두리 없는 표도 감지합니다. 정렬된 다단 본문이 표처럼 보일 수 있으므로 기본값은 아닙니다. `clip=`은 사각형 안에 완전히 들어가는 표만 남깁니다.
@@ -472,6 +514,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 | `DocumentLimits`, `DocumentLimits.web()` | 신뢰할 수 없는 입력을 위한 리소스 제한. [보안](security.md#untrusted-pdfs) 참고 |
 | `OcrEngine` | 재사용 가능한 OCR 엔진. [오프라인 OCR](ocr.md) 참고 |
 | `Canvas`, `PathBuilder`, `TextFit` | [캔버스](#canvas) 참고 |
+| `create(...)`, `Builder`, `Standard`, `TagRole` | [새 문서](#create) 참고 |
 | `Font`, `Shape` | [Font](#font)와 [도형](#shapes) 참고 |
 | `Base14_fontnames`, `Base14_fontdict` | `fontname=`이 받는 Standard 14 글꼴 이름 |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [저수준 객체](#low-level-objects) |

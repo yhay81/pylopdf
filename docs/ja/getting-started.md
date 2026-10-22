@@ -158,6 +158,8 @@ with pylopdf.open("input.pdf") as doc:
     doc.save("canvas.pdf")
 ```
 
+タグ付きPDF/UAファイルのような新しい文書を書き出すには、[`pylopdf.create()`](api.md#create)を使います。そのページも同じキャンバスで描きます。
+
 ## スキャン・フォーム・Markdown { #scans-forms-markdown }
 
 ```python

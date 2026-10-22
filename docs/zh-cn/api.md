@@ -263,6 +263,48 @@ with page.draw() as canvas:
 
 `page.draw(underlay=True)`写入到页面现有内容的下方。画布多次绘制的图像或页面，或文档之前已放置过的图像或页面，只存储一份。页面按调用`canvas.page()`时的状态绘制。`draw(item)`会重现项的裁剪、组不透明度和混合模式，但不重现其软蒙版；文本段、图像和图案颜料暂时还无法绘制。一个画布最多容纳1,048,576个路径点，最多嵌套16层作用域；超出时会抛出`LimitError`，其代码为`path_point_count`或`canvas_scope_depth`。
 
+## 新文档 { #create }
+
+`pylopdf.create()`开始创建一个由krilla整体写出的文档。`builder.page(size)`为新页面返回一个[画布](#canvas)，该页面在其`with`块结束时加入文档；`builder.to_bytes()`返回文件，`builder.finish()`则将其作为`Document`打开。
+
+```python
+from pathlib import Path
+
+import pylopdf
+from pylopdf import Color, TagRole
+
+font = pylopdf.Font(fontfile="NotoSans-Regular.ttf")
+builder = pylopdf.create(standard="pdf/ua-1", language="en", title="Annual report")
+with builder.page((595.28, 841.89)) as canvas:
+    canvas.bookmark("Summary")
+    with canvas.tag(TagRole.HEADING_1, title="Summary"):
+        canvas.text("Summary", (56, 80), font=font, size=20)
+    with canvas.tag(TagRole.PARAGRAPH):
+        canvas.textbox((56, 100, 539, 300), body, font=font, size=11)
+    with canvas.tag(TagRole.FIGURE, alt="Revenue by quarter"):
+        canvas.image((56, 320, 300, 480), "chart.png")
+    canvas.line((56, 800), (539, 800), stroke=Color(0.6, 0.6, 0.6))
+Path("report.pdf").write_bytes(builder.to_bytes())
+```
+
+| `create()`的参数 | 含义 |
+|---|---|
+| `standard` | 从`"pdf/a-1a"`到`"pdf/a-4f"`、`"pdf/ua-1"`，或其中多个的组合，例如`("pdf/a-2a", "pdf/ua-1")` |
+| `tagged` | 根据`tag`作用域构建结构树；PDF/UA和PDF/A的`a`级别会自动启用它 |
+| `language`、`title`、`author`、`subject`、`keywords` | 文档的BCP 47语言和元数据 |
+| `created` | 创建日期，默认为当前时间；指定固定值可使输出可复现 |
+
+写出指定了`standard`的文档时会对其进行验证；如有违规，则不写出文件，而是抛出`PdfError`，列出krilla发现的所有问题，例如PDF/A-1中的透明效果，或PDF/UA中缺少标题或书签。需要人工判断的要求（例如有意义的替代文本）仍需由你自己满足。
+
+新文档的画布能绘制页面画布所能绘制的内容，但有以下不同：
+
+- 所有字体都会嵌入，因此文本需要OpenType[`Font`](#font)：不指定`font`的文本使用该文字对应的已安装字体extra，而西欧文本在krilla能够绘制Standard 14字体之前都需要指定`font`。
+- `canvas.page()`暂时还不能放置其他页面；请在完成后的文档的页面上绘制它们。
+- `tag(role, *, alt=None, lang=None, title=None, actual_text=None)`把块中绘制的内容作为一个结构元素。角色是`TagRole`的成员，例如`PARAGRAPH`、`HEADING_1`到`HEADING_6`、`LIST`和`LIST_ITEM`、`TABLE`、`TABLE_ROW`和`TABLE_DATA`，以及带有`alt`文本的`FIGURE`。作用域可以嵌套，作用域内的每行文本都是它的一个span；位于所有作用域之外或`ARTIFACT`作用域之内的内容是工件（artifact）。
+- `bookmark(title, *, level=1, at=(0, 0))`添加一个书签条目，显示页面上的`at`位置；级别每次只能加深一级。
+
+添加更多页面后，可以再次调用`finish()`和`to_bytes()`。保存`finish()`返回的`Document`会用lopdf重新写出，因此如需与krilla验证时完全一致的文件，请使用`to_bytes()`。一个文档最多包含65,536页和65,536个书签，一个标签的文本或一个书签标题最多64 KiB（`tag_text_size`）。
+
 ## 表格 { #tables }
 
 `page.find_tables()`查找以框线绘制的表格，包括合并单元格。`strategy="text"`在行和列对齐明确时还能检测无边框表格；它不是默认选项，因为对齐的多栏正文可能看起来像表格。`clip=`只保留完全位于某个矩形内的表格。
@@ -472,6 +514,7 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 | `DocumentLimits`、`DocumentLimits.web()` | 用于不可信输入的资源上限；参见[安全](security.md#untrusted-pdfs) |
 | `OcrEngine` | 可复用的OCR引擎；参见[离线OCR](ocr.md) |
 | `Canvas`、`PathBuilder`、`TextFit` | 参见[画布](#canvas) |
+| `create(...)`、`Builder`、`Standard`、`TagRole` | 参见[新文档](#create) |
 | `Font`、`Shape` | 参见[Font](#font)和[图形](#shapes) |
 | `Base14_fontnames`、`Base14_fontdict` | `fontname=`接受的Standard 14字体名称 |
 | `Name`、`String`、`Array`、`Dictionary`、`Stream`、`Objects` | [底层对象](#low-level-objects) |

@@ -1,10 +1,16 @@
 # Third-party notices
 
 pylopdf includes krilla 0.8.2 in its compiled extension for OpenType text
-generation and font subsetting. krilla is available under MIT OR Apache-2.0:
+generation, font subsetting, and new documents. krilla is available under MIT
+OR Apache-2.0:
 
 - Source: <https://github.com/LaurenzV/krilla>
 - Package: <https://crates.io/crates/krilla/0.8.2>
+
+krilla's image support reads images with png, zune-jpeg, gif 0.14 (MIT OR
+Apache-2.0), image-webp 0.2 (MIT OR Apache-2.0), weezl 0.1 (MIT OR
+Apache-2.0), imagesize 0.14 (MIT), color_quant 1.1 (MIT), and quick-error 2
+(MIT OR Apache-2.0).
 
 pylopdf uses HarfRust 0.14 for OpenType shaping. HarfRust is available under
 the MIT license:

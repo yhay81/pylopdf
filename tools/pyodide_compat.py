@@ -1341,6 +1341,40 @@ def _canvas_results(root: Path) -> dict[str, Any]:
     }
 
 
+def _create_results(root: Path) -> dict[str, Any]:
+    """Write a tagged PDF/UA document with pylopdf.create() and read it back."""
+    import datetime as dt  # noqa: PLC0415
+
+    import pylopdf  # noqa: PLC0415
+    from pylopdf import Color, TagRole  # noqa: PLC0415
+
+    font_path = root / "fonts/pylopdf-fonts-jp/src/pylopdf_fonts_jp/NotoSansJP-Regular.otf"
+    font = pylopdf.Font(fontbuffer=font_path.read_bytes())
+    created = dt.datetime(2026, 1, 2, 3, 4, 5, tzinfo=dt.UTC)
+    builder = pylopdf.create(standard="pdf/ua-1", language="en", title="Contract", created=created)
+    with builder.page((300, 200)) as canvas:
+        canvas.bookmark("Start")
+        with canvas.tag(TagRole.HEADING_1, title="Start"):
+            canvas.text("Start", (20, 40), font=font, size=16)
+        with canvas.tag(TagRole.PARAGRAPH):
+            canvas.text(_JAPANESE, (20, 80), font=font)
+        with canvas.tag(TagRole.FIGURE, alt="A red square"), canvas.opacity(0.5):
+            canvas.rect((20, 100, 80, 160), fill=Color(1, 0, 0))
+    first = builder.to_bytes()
+    _require(first == builder.to_bytes(), "a fixed creation date did not make the output reproducible")
+    document = builder.finish()
+    content = document[0].content()
+    return {
+        "pages": document.page_count,
+        "kinds": [type(item).__name__ for item in content],
+        "marks": [[mark.tag for mark in item.context.marked_content] for item in content],
+        "outline": [list(entry) for entry in document.get_outline()],
+        "text": _digest(document[0].get_text()),
+        "struct_tree": str(document.catalog["StructTreeRoot"]["Type"]),
+        "ua_claim": "pdfuaid" in document.get_xml_metadata(),
+    }
+
+
 def collect_results(root: Path) -> dict[str, Any]:
     """Run compatibility assertions and return stable native/Wasm comparison data."""
     import pylopdf  # noqa: PLC0415
@@ -1364,6 +1398,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "document_properties": _document_property_results(root),
         "content_model": _content_model_results(root),
         "canvas": _canvas_results(root),
+        "create": _create_results(root),
         "threads": {
             "render_pages_workers_4": "serial on Emscripten; bounded rayon pool on native",
         },

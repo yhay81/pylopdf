@@ -138,8 +138,25 @@ class _Shape:
 _Rgba: TypeAlias = tuple[float, float, float, float]
 _CanvasStroke: TypeAlias = tuple[_Rgba, float, int, int, float, list[float], float]
 
+class _Builder:
+    def __init__(
+        self,
+        standards: list[str],
+        tagged: bool,
+        language: str | None = None,
+        title: str | None = None,
+        author: str | None = None,
+        subject: str | None = None,
+        keywords: list[str] = ...,
+        created: tuple[int, int, int, int, int, int, int] | None = None,
+    ) -> None: ...
+    def page_count(self) -> int: ...
+    def is_tagged(self) -> bool: ...
+    def add_page(self, canvas: _Canvas) -> None: ...
+    def finish(self) -> bytes: ...
+
 class _Canvas:
-    def __init__(self, width: float, height: float) -> None: ...
+    def __init__(self, width: float, height: float, new_document: bool = False) -> None: ...
     def is_empty(self) -> bool: ...
     def clear(self) -> None: ...
     def add_path(
@@ -179,7 +196,7 @@ class _Canvas:
     ) -> float: ...
     def add_image(
         self,
-        target: _Document,
+        target: _Document | None,
         data: bytes,
         rect: tuple[float, float, float, float],
         keep_aspect: bool,
@@ -189,7 +206,7 @@ class _Canvas:
     ) -> None: ...
     def add_image_file(
         self,
-        target: _Document,
+        target: _Document | None,
         path: str,
         rect: tuple[float, float, float, float],
         keep_aspect: bool,
@@ -199,12 +216,21 @@ class _Canvas:
     ) -> None: ...
     def add_pixmap(
         self,
-        target: _Document,
+        target: _Document | None,
         pixmap: Pixmap,
         rect: tuple[float, float, float, float],
         keep_aspect: bool,
         rotation: int,
     ) -> None: ...
+    def add_bookmark(self, title: str, level: int, at: tuple[float, float]) -> None: ...
+    def push_tag(
+        self,
+        role: str,
+        alt: str | None = None,
+        lang: str | None = None,
+        title: str | None = None,
+        actual_text: str | None = None,
+    ) -> int: ...
     def add_page(
         self,
         target: _Document,

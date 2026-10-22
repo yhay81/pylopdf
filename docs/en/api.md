@@ -369,6 +369,69 @@ be drawn yet. A canvas holds at most 1,048,576 path points and nests at most
 16 scopes; beyond that, `LimitError` has the code `path_point_count` or
 `canvas_scope_depth`.
 
+## New documents { #create }
+
+`pylopdf.create()` starts a document that krilla writes as a whole.
+`builder.page(size)` returns a [canvas](#canvas) for a new page, which joins
+the document when its `with` block ends; `builder.to_bytes()` returns the
+file and `builder.finish()` opens it as a `Document`.
+
+```python
+from pathlib import Path
+
+import pylopdf
+from pylopdf import Color, TagRole
+
+font = pylopdf.Font(fontfile="NotoSans-Regular.ttf")
+builder = pylopdf.create(standard="pdf/ua-1", language="en", title="Annual report")
+with builder.page((595.28, 841.89)) as canvas:
+    canvas.bookmark("Summary")
+    with canvas.tag(TagRole.HEADING_1, title="Summary"):
+        canvas.text("Summary", (56, 80), font=font, size=20)
+    with canvas.tag(TagRole.PARAGRAPH):
+        canvas.textbox((56, 100, 539, 300), body, font=font, size=11)
+    with canvas.tag(TagRole.FIGURE, alt="Revenue by quarter"):
+        canvas.image((56, 320, 300, 480), "chart.png")
+    canvas.line((56, 800), (539, 800), stroke=Color(0.6, 0.6, 0.6))
+Path("report.pdf").write_bytes(builder.to_bytes())
+```
+
+| Argument of `create()` | Meaning |
+|---|---|
+| `standard` | `"pdf/a-1a"` through `"pdf/a-4f"`, `"pdf/ua-1"`, or several, such as `("pdf/a-2a", "pdf/ua-1")` |
+| `tagged` | Build a structure tree from `tag` scopes; PDF/UA and the PDF/A `a` levels imply it |
+| `language`, `title`, `author`, `subject`, `keywords` | The document's BCP 47 language and metadata |
+| `created` | The creation date, the current time by default; a fixed value makes the output reproducible |
+
+Writing a document with a `standard` validates it, and a violation raises
+`PdfError` that lists every problem krilla finds, such as transparency in
+PDF/A-1 or a missing title or outline in PDF/UA, instead of writing the file.
+Requirements that need judgment, such as meaningful alternate text, remain
+yours.
+
+A new document's canvas draws what a page's canvas draws, with these
+differences:
+
+- Every font is embedded, so text needs an OpenType [`Font`](#font): text
+  without `font` uses an installed font extra for its script, and Western
+  European text needs `font` until krilla draws the Standard 14 fonts.
+- `canvas.page()` cannot place other pages yet; draw them on the finished
+  document's pages.
+- `tag(role, *, alt=None, lang=None, title=None, actual_text=None)` makes
+  what the block draws a structure element. Roles are the `TagRole` members,
+  such as `PARAGRAPH`, `HEADING_1` to `HEADING_6`, `LIST` and `LIST_ITEM`,
+  `TABLE`, `TABLE_ROW`, and `TABLE_DATA`, and `FIGURE` with its `alt` text.
+  Scopes nest, each line of text inside one is a span of it, and content
+  outside every scope, or inside an `ARTIFACT` scope, is an artifact.
+- `bookmark(title, *, level=1, at=(0, 0))` adds an outline entry that shows
+  `at` on the page; a level can grow by one at a time.
+
+`finish()` and `to_bytes()` can be called again after more pages. Saving the
+`Document` that `finish()` returns writes it again with lopdf, so keep
+`to_bytes()` for the file exactly as krilla validated it. A document holds at
+most 65,536 pages and 65,536 bookmarks, and a tag's texts or a bookmark title
+at most 64 KiB (`tag_text_size`).
+
 ## Tables { #tables }
 
 `page.find_tables()` finds tables drawn with ruling lines, including merged
@@ -652,6 +715,7 @@ a rectangle lies inside a quad tests all four corners.
 | `DocumentLimits`, `DocumentLimits.web()` | Resource limits for untrusted input; see [Security](security.md#untrusted-pdfs) |
 | `OcrEngine` | A reusable OCR engine; see [Offline OCR](ocr.md) |
 | `Canvas`, `PathBuilder`, `TextFit` | See [Canvas](#canvas) |
+| `create(...)`, `Builder`, `Standard`, `TagRole` | See [New documents](#create) |
 | `Font`, `Shape` | See [Font](#font) and [Shapes](#shapes) |
 | `Base14_fontnames`, `Base14_fontdict` | The Standard 14 font names that `fontname=` accepts |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [Low-level objects](#low-level-objects) |

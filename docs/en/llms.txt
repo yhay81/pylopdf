@@ -94,6 +94,12 @@ replacement, and the migration hint):
 - Document.xref_stream -> Stream.read: Use doc.objects[xref].read().
 - Document.xref_stream_raw -> Stream.read: Use doc.objects[xref].read(decode=False).
 - Document.xref_xml_metadata -> Document.catalog: Use doc.catalog.get('Metadata'), a Stream whose xref is the metadata object number.
+- DocumentWriter -> Builder: Call pylopdf.create(), draw each page in a `with builder.page(size) as canvas:` block, and write the document with builder.to_bytes() or builder.finish().
+- DocumentWriter.__enter__ -> Builder.page: Draw each page in a `with builder.page(size) as canvas:` block; the block adds the page when it ends.
+- DocumentWriter.__exit__ -> Builder.to_bytes: Write the document with builder.to_bytes(), or open it with builder.finish().
+- DocumentWriter.begin_page -> Builder.page: Use `with builder.page(size) as canvas:`; the canvas draws the page and the block adds it.
+- DocumentWriter.close -> Builder.to_bytes: Write the document with builder.to_bytes(), or open it with builder.finish().
+- DocumentWriter.end_page -> Builder.page: The `with builder.page(size) as canvas:` block adds the page when it ends.
 - FileNotFoundError -> FileNotFoundError: Catch Python's built-in FileNotFoundError, which pylopdf raises for a missing file.
 - IRect.__setitem__ -> IRect: IRect values are immutable; build a new IRect instead.
 - IRect.include_point -> IRect.__or__: Use r | p, which returns a new IRect.

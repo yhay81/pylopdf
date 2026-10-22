@@ -263,6 +263,48 @@ with page.draw() as canvas:
 
 `page.draw(underlay=True)`は、ページの既存の内容の下に書き込みます。1つのキャンバスで何度も描いた画像やページ、または文書が以前に配置した画像やページは、1回だけ格納されます。ページは`canvas.page()`を呼び出した時点の状態で描かれます。`draw(item)`は項目のクリップ、グループの不透明度、ブレンドモードを再現しますが、ソフトマスクは再現しません。テキストラン、画像、パターンのペイントはまだ描けません。1つのキャンバスが保持できるパスの点は1,048,576個まで、スコープの入れ子は16段までです。それを超えると`LimitError`を送出し、そのコードは`path_point_count`または`canvas_scope_depth`です。
 
+## 新しい文書 { #create }
+
+`pylopdf.create()`は、krillaが全体を書き出す文書を作り始めます。`builder.page(size)`は新しいページの[キャンバス](#canvas)を返し、そのページは`with`ブロックが終わったときに文書に加わります。`builder.to_bytes()`はファイルを返し、`builder.finish()`はそれを`Document`として開きます。
+
+```python
+from pathlib import Path
+
+import pylopdf
+from pylopdf import Color, TagRole
+
+font = pylopdf.Font(fontfile="NotoSans-Regular.ttf")
+builder = pylopdf.create(standard="pdf/ua-1", language="en", title="Annual report")
+with builder.page((595.28, 841.89)) as canvas:
+    canvas.bookmark("Summary")
+    with canvas.tag(TagRole.HEADING_1, title="Summary"):
+        canvas.text("Summary", (56, 80), font=font, size=20)
+    with canvas.tag(TagRole.PARAGRAPH):
+        canvas.textbox((56, 100, 539, 300), body, font=font, size=11)
+    with canvas.tag(TagRole.FIGURE, alt="Revenue by quarter"):
+        canvas.image((56, 320, 300, 480), "chart.png")
+    canvas.line((56, 800), (539, 800), stroke=Color(0.6, 0.6, 0.6))
+Path("report.pdf").write_bytes(builder.to_bytes())
+```
+
+| `create()`の引数 | 意味 |
+|---|---|
+| `standard` | `"pdf/a-1a"`から`"pdf/a-4f"`まで、`"pdf/ua-1"`、またはそれらの複数（`("pdf/a-2a", "pdf/ua-1")`など） |
+| `tagged` | `tag`スコープから構造ツリーを作ります。PDF/UAとPDF/Aの`a`レベルでは自動的に有効になります |
+| `language`, `title`, `author`, `subject`, `keywords` | 文書のBCP 47の言語とメタデータ |
+| `created` | 作成日時。既定は現在時刻で、固定の値を指定すると出力を再現できます |
+
+`standard`を指定した文書は書き出すときに検証されます。違反があるとファイルを書き出さずに`PdfError`を送出し、そのエラーにはPDF/A-1での透明効果や、PDF/UAでのタイトルやしおりの欠落など、krillaが見つけたすべての問題が並びます。意味のある代替テキストのように判断を要する要件は、引き続き利用者自身が満たす必要があります。
+
+新しい文書のキャンバスは、ページのキャンバスと同じものを描けますが、次の点が異なります。
+
+- すべてのフォントを埋め込むので、テキストにはOpenTypeの[`Font`](#font)が必要です。`font`を指定しないテキストはその文字体系に対応するインストール済みのフォントのextraで描きます。西欧のテキストは、krillaがStandard 14フォントを描けるようになるまで`font`が必要です。
+- `canvas.page()`はまだほかのページを配置できません。完成した文書のページに描いてください。
+- `tag(role, *, alt=None, lang=None, title=None, actual_text=None)`は、ブロックの中で描いたものを構造要素にします。役割は`TagRole`のメンバーで、`PARAGRAPH`、`HEADING_1`から`HEADING_6`、`LIST`と`LIST_ITEM`、`TABLE`、`TABLE_ROW`、`TABLE_DATA`、そして`alt`テキストを伴う`FIGURE`などがあります。スコープは入れ子にでき、スコープの中のテキストは1行ごとにそのスパンになります。どのスコープにも含まれない内容と、`ARTIFACT`スコープの中の内容はアーティファクトになります。
+- `bookmark(title, *, level=1, at=(0, 0))`は、ページ上の`at`を表示するしおりの項目を追加します。レベルは一度に1つずつしか深くできません。
+
+ページを追加したあとでも、`finish()`と`to_bytes()`をもう一度呼び出せます。`finish()`が返す`Document`を保存するとlopdfで書き直されるので、krillaが検証したとおりのファイルには`to_bytes()`を使ってください。1つの文書が持てるのはページ65,536枚としおり65,536項目まで、1つのタグのテキストや1つのしおりのタイトルは64 KiBまでです（`tag_text_size`）。
+
 ## 表 { #tables }
 
 `page.find_tables()`は、結合セルも含め、罫線で描かれた表を検出します。`strategy="text"`を指定すると、行と列が明確に揃っている罫線のない表も検出します。揃った段組みの文章が表に見えることがあるため、既定にはしていません。`clip=`は、矩形の中に完全に収まる表だけを残します。
@@ -472,6 +514,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | `DocumentLimits`, `DocumentLimits.web()` | 信頼できない入力向けの資源の上限。[セキュリティ](security.md#untrusted-pdfs)を参照 |
 | `OcrEngine` | 再利用できるOCRエンジン。[オフラインOCR](ocr.md)を参照 |
 | `Canvas`, `PathBuilder`, `TextFit` | [キャンバス](#canvas)を参照 |
+| `create(...)`, `Builder`, `Standard`, `TagRole` | [新しい文書](#create)を参照 |
 | `Font`, `Shape` | [Font](#font)と[Shape](#shapes)を参照 |
 | `Base14_fontnames`, `Base14_fontdict` | `fontname=`が受け付けるStandard 14フォントの名前 |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [低レベルオブジェクト](#low-level-objects) |

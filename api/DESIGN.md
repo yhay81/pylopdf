@@ -286,7 +286,8 @@ return one from `builder.page(size)`.
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` → `TextFit` | Wraps with UAX #14; on overflow it draws nothing and reports the shortfall. |
 | `image(rect, source, *, keep_aspect=True, rotate=0)` | `source` is a path, encoded bytes, a `Pixmap`, or an `ImageObject`; the same image is stored once. |
 | `page(rect, source, *, clip=None, keep_aspect=True, rotate=0)` | Places another page, which may belong to the same document. |
-| `clip(path)`, `transform(matrix)`, `opacity(alpha)`, `blend(mode)`, `mask(...)`, `layer(layer)`, `tag(role, ...)` | Context managers that scope a graphics state. |
+| `clip(path)`, `transform(matrix)`, `opacity(alpha)`, `blend(mode)`, `mask(...)`, `layer(layer)`, `tag(role, ...)` | Context managers that scope a graphics state; `tag` scopes build a tagged new document's structure tree. |
+| `bookmark(title, *, level=1, at=(0, 0))` | An outline entry of a new document. |
 | `draw(item)` | Paints a content item. |
 
 Strokes take a paint or a `Stroke(paint=..., width=1.0, cap=LineCap.BUTT,
@@ -300,12 +301,16 @@ for the faces of installed font extras. A `Font` reports `name`, `family`,
 `units_per_em`, and measures with `text_width(text, size)` and
 `has_glyph(char)`.
 
-`pylopdf.create(*, standard=None, tagged=False, language=None, title=None)`
-returns a `Builder` for new documents that krilla writes as a whole:
-`builder.page(size)` returns a canvas for a new page, `tag(...)` scopes give
-the structure tree, and `builder.finish()` returns a `Document`.
-`standard="pdf/a-2b"` or `"pdf/ua-1"` validates with krilla's validators and
-raises on a violation.
+`pylopdf.create(*, standard=None, tagged=False, language=None, title=None,
+author=None, subject=None, keywords=(), created=None)` returns a `Builder`
+for new documents that krilla writes as a whole: `builder.page(size)`
+returns a canvas for a new page, the canvas's `tag(role, ...)` scopes give
+the structure tree and `bookmark(title, level=1)` the outline,
+`builder.to_bytes()` returns the file as krilla wrote it, and
+`builder.finish()` opens it as a `Document`. `standard` takes one name or
+several, such as `("pdf/a-2a", "pdf/ua-1")`; writing validates with krilla's
+validators and raises on a violation. A new document embeds every font, so
+its text needs an OpenType `Font` until krilla draws the Standard 14 fonts.
 
 ## 9. Interaction
 
