@@ -5,7 +5,7 @@ from __future__ import annotations
 import enum
 from typing import Literal, NamedTuple, TypeAlias, TypedDict
 
-from pylopdf._geometry import Matrix, Point, Rect
+from pylopdf._geometry import Point, Rect
 
 
 class LinkKind(enum.IntEnum):
@@ -95,8 +95,6 @@ OcrRotation: TypeAlias = Literal[0, 90, 180, 270]
 FontLanguage: TypeAlias = Literal["ar", "he", "hi", "ja", "ko", "th", "zh-CN", "zh-TW"]
 #: Locale slot used for non-embedded Adobe CJK font fallback.
 CjkFontLanguage: TypeAlias = Literal["ja", "ko", "zh-CN", "zh-TW"]
-#: One vector command: a line or a cubic Bézier in display coordinates.
-DrawingItem: TypeAlias = tuple[Literal["l"], Point, Point] | tuple[Literal["c"], Point, Point, Point, Point]
 
 
 class ImageItem(NamedTuple):
@@ -132,35 +130,6 @@ class ImageItemFull(NamedTuple):
     referencer: int
 
 
-_ImageInfoRequired = TypedDict(
-    "_ImageInfoRequired",
-    {
-        "number": int,
-        "bbox": Rect,
-        "transform": Matrix,
-        "width": int,
-        "height": int,
-        "colorspace": int,
-        "cs-name": str,
-        "xres": int,
-        "yres": int,
-        "bpc": int,
-        "size": int,
-        "has-mask": bool,
-    },
-)
-
-
-class ImageInfo(_ImageInfoRequired, total=False):
-    """One drawn image returned by :meth:`Page.get_image_info`, with pymupdf's keys.
-
-    ``transform`` maps the unit square to ``bbox``. ``xref`` is present with
-    ``xrefs=True`` and is 0 for an inline image or an image mask.
-    """
-
-    xref: int
-
-
 ExtractedImage = TypedDict(
     "ExtractedImage",
     {
@@ -188,30 +157,6 @@ class ImageCompressionResult(TypedDict):
     bytes_before: int
     bytes_after: int
     bytes_saved: int
-
-
-class DrawingInfo(TypedDict):
-    """One vector paint operation returned by :meth:`Page.get_drawings`.
-
-    Keys follow the common pymupdf path dictionary where practical. A combined
-    fill-stroke operator has ``type="fs"``. Pattern paints have no single RGB
-    color or opacity and therefore expose ``None`` for those values.
-    """
-
-    rect: Rect
-    type: Literal["f", "s", "fs"]
-    items: list[DrawingItem]
-    closePath: bool
-    color: tuple[float, float, float] | None
-    fill: tuple[float, float, float] | None
-    stroke_opacity: float | None
-    fill_opacity: float | None
-    even_odd: bool | None
-    width: float | None
-    lineCap: tuple[int, int, int] | None
-    lineJoin: int | None
-    dashes: str | None
-    seqno: int
 
 
 _LinkRequired = TypedDict("_LinkRequired", {"kind": LinkKind, "from": Rect, "xref": int, "id": str})
@@ -353,10 +298,8 @@ for _public in (
     Access,
     ImageItem,
     ImageItemFull,
-    ImageInfo,
     ExtractedImage,
     ImageCompressionResult,
-    DrawingInfo,
     LinkInfo,
     FormFieldInfo,
     PageLabelInfo,

@@ -28,9 +28,10 @@ python -m pylopdf.migrate src/
 It replaces `import fitz` and `import pymupdf`, rewrites the replacements that
 are mechanical (such as opening documents, the page operations that
 `doc.pages` replaces, `get_toc`/`set_toc` with their page numbers,
-`embfile_*`, the `xref_*` stream readers, text and table reading, and the
-in-place `Rect`/`Point`/`Matrix` methods), and adds a `# TODO(pylopdf): …` comment above
-every statement that still needs a person. It then lists those places as
+`embfile_*`, the `xref_*` stream readers, text and table reading, drawings
+and image placements, and the in-place `Rect`/`Point`/`Matrix` methods), and
+adds a `# TODO(pylopdf): …` comment above every statement that still needs a
+person. It then lists those places as
 `path:line: message`. The same command upgrades programs written for
 pylopdf 0.15.
 
@@ -97,9 +98,10 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `page.get_pixmap(matrix=…, dpi=…)` | Same | Only scaling matrices; no `colorspace=` or `annots=` yet; `doc.get_page_pixmap(i)` is `doc.pages[i].get_pixmap()` |
 | `pix.samples`, `width`, `height`, `n`, `alpha`, `stride`, `colorspace`, `save()` | Same | `save()` and `tobytes()` write PNG only |
 | `page.get_svg_image()` | Same | Text is always drawn as paths |
-| `page.get_images()`, `get_image_info()`, `doc.extract_image()` | Same | `get_image_info(hashes=True)` is not supported yet |
-| `page.get_drawings()` | Same | No `extended=`; `page.content().paths` carries clips, groups, and marked content |
-| `page.get_texttrace()`, `get_bboxlog()`, `get_cdrawings()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | Text runs with their glyphs, paths, and images as immutable values; see [Page content](api.md#content) |
+| `page.get_images()`, `doc.extract_image()` | Same | |
+| `page.get_image_info()` | `page.content(text_runs=False, paths=False).images` | `Image` records with `xref`, `bbox`, `matrix` (pymupdf's `transform`), size, color space, mask, and resolution; no `hashes=` yet |
+| `page.get_drawings()`, `get_cdrawings()` | `page.content(text_runs=False, images=False).paths` | `Path` records with `segments`, `fill`, `fill_rule`, `stroke`, and `bbox`; each path's `context` holds the clips, groups, and marked content that `extended=True` listed as entries of their own |
+| `page.get_texttrace()`, `get_bboxlog()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | Text runs with their glyphs, paths, and images as immutable values; see [Page content](api.md#content) |
 | `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | Same | Re-encodes as JPEG only, so resampling needs `quality`; returns statistics instead of `None` |
 
 ### Drawing and annotations { #mapping-drawing }

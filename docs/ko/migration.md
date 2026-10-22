@@ -16,7 +16,7 @@ pip install "pylopdf[migrate]"
 python -m pylopdf.migrate src/
 ```
 
-`import fitz`와 `import pymupdf`를 바꾸고, 기계적으로 처리할 수 있는 대체(문서 열기, `doc.pages`가 대신하는 페이지 작업, 페이지 번호를 포함한 `get_toc`/`set_toc`, `embfile_*`, `xref_*` 스트림 읽기, 텍스트와 표 읽기, `Rect`/`Point`/`Matrix`의 제자리 변경 메서드 등)를 다시 쓰며, 여전히 사람이 손봐야 하는 모든 문 위에 `# TODO(pylopdf): …` 주석을 추가합니다. 그런 다음 해당 위치를 `path:line: message` 형식으로 나열합니다. 같은 명령으로 pylopdf 0.15용으로 작성한 프로그램도 업그레이드할 수 있습니다.
+`import fitz`와 `import pymupdf`를 바꾸고, 기계적으로 처리할 수 있는 대체(문서 열기, `doc.pages`가 대신하는 페이지 작업, 페이지 번호를 포함한 `get_toc`/`set_toc`, `embfile_*`, `xref_*` 스트림 읽기, 텍스트와 표 읽기, 벡터 그림과 이미지 배치, `Rect`/`Point`/`Matrix`의 제자리 변경 메서드 등)를 다시 쓰며, 여전히 사람이 손봐야 하는 모든 문 위에 `# TODO(pylopdf): …` 주석을 추가합니다. 그런 다음 해당 위치를 `path:line: message` 형식으로 나열합니다. 같은 명령으로 pylopdf 0.15용으로 작성한 프로그램도 업그레이드할 수 있습니다.
 
 - `--diff`는 변경 내용을 쓰지 않고 출력합니다.
 - `--check`는 변경될 파일이 있으면 상태 코드 1로 종료합니다. CI용입니다.
@@ -75,9 +75,10 @@ python -m pylopdf.migrate src/
 | `page.get_pixmap(matrix=…, dpi=…)` | 같음 | 배율 행렬만 지원. `colorspace=`, `annots=`는 아직 없음. `doc.get_page_pixmap(i)`는 `doc.pages[i].get_pixmap()`으로 바뀜 |
 | `pix.samples`, `width`, `height`, `n`, `alpha`, `stride`, `colorspace`, `save()` | 같음 | `save()`와 `tobytes()`는 PNG만 기록 |
 | `page.get_svg_image()` | 같음 | 텍스트는 항상 경로로 그림 |
-| `page.get_images()`, `get_image_info()`, `doc.extract_image()` | 같음 | `get_image_info(hashes=True)`는 아직 지원하지 않음 |
-| `page.get_drawings()` | 같음 | `extended=`는 없음. `page.content().paths`에 클립, 그룹, 마크된 콘텐츠가 있음 |
-| `page.get_texttrace()`, `get_bboxlog()`, `get_cdrawings()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | 글리프가 있는 텍스트 런, 경로, 이미지를 불변 값으로 반환. [페이지 내용](api.md#content) 참고 |
+| `page.get_images()`, `doc.extract_image()` | 같음 | |
+| `page.get_image_info()` | `page.content(text_runs=False, paths=False).images` | `xref`, `bbox`, `matrix`(pymupdf의 `transform`), 크기, 색 공간, 마스크, 해상도가 있는 `Image` 레코드. `hashes=`는 아직 지원하지 않음 |
+| `page.get_drawings()`, `get_cdrawings()` | `page.content(text_runs=False, images=False).paths` | `segments`, `fill`, `fill_rule`, `stroke`, `bbox`가 있는 `Path` 레코드. `extended=True`가 별도 항목으로 반환하던 클립, 그룹, 마크된 콘텐츠는 각 경로의 `context`에 있음 |
+| `page.get_texttrace()`, `get_bboxlog()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | 글리프가 있는 텍스트 런, 경로, 이미지를 불변 값으로 반환. [페이지 내용](api.md#content) 참고 |
 | `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | 같음 | JPEG로만 다시 인코딩하므로 리샘플링에는 `quality`가 필요. `None` 대신 통계를 반환 |
 
 ### 그리기와 주석 { #mapping-drawing }

@@ -775,41 +775,33 @@ impl _Document {
         extraction::page_image_inventory(self, page_number)
     }
 
-    /// Describe the images drawn on a one-based page.
-    fn page_image_info(
-        &mut self,
-        py: Python<'_>,
-        page_number: u32,
-    ) -> PyResult<Vec<crate::extract::ImageInfoTuple>> {
-        extraction::page_image_info(self, py, page_number)
-    }
-
     /// Decode one image XObject by object number.
     fn extract_image(&mut self, py: Python<'_>, xref: u32) -> PyResult<ExtractedImageTuple> {
         extraction::extract_image(self, py, xref)
     }
 
-    /// Collect the content model of a one-based page: its painted items in
-    /// paint order and the fonts and graphics contexts they index.
-    #[pyo3(signature = (page_number, annotations, clip, max_elements))]
+    /// Collect the content model of a one-based page: its painted items of
+    /// the kinds selected by `(text_runs, paths, images)`, in paint order,
+    /// and the fonts and graphics contexts they index.
+    #[pyo3(signature = (page_number, kinds, annotations, clip, max_elements))]
     fn page_content(
         &mut self,
         py: Python<'_>,
         page_number: u32,
+        kinds: (bool, bool, bool),
         annotations: bool,
         clip: Option<(f64, f64, f64, f64)>,
         max_elements: Option<usize>,
     ) -> PyResult<Py<PyAny>> {
-        extraction::page_content(self, py, page_number, annotations, clip, max_elements)
-    }
-
-    /// Extract vector paint operations on a one-based page.
-    fn extract_drawings(
-        &mut self,
-        py: Python<'_>,
-        page_number: u32,
-    ) -> PyResult<Vec<crate::extract::DrawingTuple>> {
-        extraction::extract_drawings(self, py, page_number)
+        extraction::page_content(
+            self,
+            py,
+            page_number,
+            kinds,
+            annotations,
+            clip,
+            max_elements,
+        )
     }
 
     /// Downsample and JPEG-recompress the selected safe raster images.

@@ -8,8 +8,8 @@
 //! same paths and glyphs, so text extraction reads what the items show; with
 //! items off, the collector only feeds its sink. Glyph boxes come from the outlines that hayro computes, and from
 //! interpreting Type 3 glyph procedures. One element budget bounds glyphs, path
-//! and clip segments, and items, and every collection grows fallibly, so a
-//! refusal returns no partial result.
+//! and clip segments, stroke dash lengths, and items, and every collection
+//! grows fallibly, so a refusal returns no partial result.
 
 use std::collections::HashMap;
 
@@ -128,7 +128,7 @@ const MAX_CACHED_GLYPHS: usize = 65_536;
 
 /// Why an interpretation stopped.
 pub(crate) enum ContentError {
-    /// More glyphs, segments, and items than the budget allows.
+    /// More glyphs, segments, dash lengths, and items than the budget allows.
     ElementCount(usize),
     /// A collection could not grow.
     Allocation(String),
@@ -423,6 +423,11 @@ impl StrokeRecord {
         })
     }
 
+    /// The number of dash lengths, which count against the element budget.
+    fn dash_count(&self) -> usize {
+        self.dashes.len()
+    }
+
     fn is_finite(&self) -> bool {
         paint_is_finite(&self.paint)
             && self.width.is_finite()
@@ -647,10 +652,31 @@ impl<'a> Device<'a> for InkBounds {
     fn pop_transparency_group(&mut self) {}
 }
 
+/// The kinds of item that a collector records.
+#[derive(Clone, Copy)]
+pub(crate) struct ItemKinds {
+    pub(crate) text_runs: bool,
+    pub(crate) paths: bool,
+    pub(crate) images: bool,
+}
+
+impl ItemKinds {
+    /// Record no items, only feed the sink.
+    pub(crate) const NONE: Self = Self {
+        text_runs: false,
+        paths: false,
+        images: false,
+    };
+
+    fn any(self) -> bool {
+        self.text_runs || self.paths || self.images
+    }
+}
+
 pub(crate) struct ContentCollector<S> {
     sink: S,
-    /// Whether to record items, or only to feed the sink.
-    items: bool,
+    /// The items to record; with none, the collector only feeds the sink.
+    kinds: ItemKinds,
     records: Vec<Record>,
     fonts: Vec<FontTuple>,
     font_indexes: HashMap<u128, u32>,
@@ -675,12 +701,12 @@ pub(crate) struct ContentCollector<S> {
 }
 
 impl<S: ContentSink> ContentCollector<S> {
-    /// A collector that feeds `sink` and, when `items` is set, records items
-    /// within `max_elements`.
-    pub(crate) fn new(sink: S, items: bool, max_elements: Option<usize>) -> Self {
+    /// A collector that feeds `sink` and records the items of `kinds` within
+    /// `max_elements`.
+    pub(crate) fn new(sink: S, kinds: ItemKinds, max_elements: Option<usize>) -> Self {
         Self {
             sink,
-            items,
+            kinds,
             records: Vec::new(),
             fonts: Vec::new(),
             font_indexes: HashMap::new(),
@@ -877,6 +903,7 @@ impl<S: ContentSink> ContentCollector<S> {
         {
             return Ok(());
         }
+        self.charge(stroke.as_ref().map_or(0, StrokeRecord::dash_count))?;
         let context = self.item_context(props.blend_mode, props.soft_mask.as_ref())?;
         if fill.is_none()
             && pending == Some(Pending::Path)
@@ -949,7 +976,7 @@ impl<S: ContentSink> ContentCollector<S> {
                 }
             }
         }
-        if self.items {
+        if self.kinds.text_runs {
             self.record_text_item(run, props, mode, completes_fill)?;
         }
         if is_fill {
@@ -996,6 +1023,7 @@ impl<S: ContentSink> ContentCollector<S> {
         {
             return Ok(());
         }
+        self.charge(stroke.as_ref().map_or(0, StrokeRecord::dash_count))?;
         if completes_fill
             && let Some(Record::Text(previous)) = self.records.last_mut()
             && previous.render_mode == RENDER_FILL
@@ -1252,7 +1280,7 @@ impl<'a, S: ContentSink> Device<'a> for ContentCollector<S> {
     fn draw_path(&mut self, path: &BezPath, props: DrawProps<'a>, mode: &DrawMode) {
         let pending = self.pending.take();
         self.sink.path(path, props.transform, mode);
-        if !self.items {
+        if !self.kinds.paths {
             return;
         }
         self.run(|this| match mode {
@@ -1267,7 +1295,7 @@ impl<'a, S: ContentSink> Device<'a> for ContentCollector<S> {
 
     fn push_clip_path(&mut self, clip: &ClipPath) {
         self.pending = None;
-        if self.items {
+        if self.kinds.any() {
             self.run(|this| this.push_clip(clip));
         }
     }
@@ -1279,7 +1307,7 @@ impl<'a, S: ContentSink> Device<'a> for ContentCollector<S> {
         blend: BlendMode,
     ) {
         self.pending = None;
-        if self.items {
+        if self.kinds.any() {
             self.run(|this| this.push_group(opacity, mask.as_ref(), blend));
         }
     }
@@ -1291,7 +1319,7 @@ impl<'a, S: ContentSink> Device<'a> for ContentCollector<S> {
 
     fn draw_image(&mut self, image: Image<'a, '_>, props: ImageDrawProps<'a>) {
         self.pending = None;
-        if self.items {
+        if self.kinds.images {
             self.run(|this| this.record_image(&image, &props));
         }
     }
@@ -1310,7 +1338,7 @@ impl<'a, S: ContentSink> Device<'a> for ContentCollector<S> {
 
     fn begin_marked_content(&mut self, tag: &[u8], mcid: Option<i32>) {
         self.pending = None;
-        if self.items {
+        if self.kinds.any() {
             self.run(|this| this.begin_mark(tag, mcid));
         }
     }
@@ -1328,12 +1356,13 @@ pub(crate) fn collect_page_content(
     pdf: &Pdf,
     page: &Page<'_>,
     settings: InterpreterSettings,
+    kinds: ItemKinds,
     clip: Option<BBox>,
     max_elements: Option<usize>,
 ) -> Result<PageContent, ContentError> {
     let cache = InterpreterCache::new();
     let mut context = extraction_context(pdf, page, &cache, settings);
-    let mut collector = ContentCollector::new(NoSink, true, max_elements);
+    let mut collector = ContentCollector::new(NoSink, kinds, max_elements);
     interpret_page(page, &mut context, &mut collector);
     collector.finish(clip).map(|(content, NoSink)| content)
 }

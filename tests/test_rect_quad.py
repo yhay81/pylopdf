@@ -600,7 +600,7 @@ def test_rectangles_drive_drawing_and_search_on_rotated_pages(rotation: int) -> 
         assert hit.intersects(box)
         assert (hit | box) == box
         assert (hit & box) == hit
-        drawn = page.get_drawings()[0]["rect"]
+        drawn = page.content().paths[0].bbox
         assert drawn == pytest.approx(box, abs=1e-3)
 
 

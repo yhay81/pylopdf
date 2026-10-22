@@ -58,7 +58,7 @@ them.
 | --- | --- | --- |
 | Handle | Document-backed objects: `Page`, `Annotation`, `Link`, `Field`, `Widget`, `Attachment`, `OutlineItem`, low-level objects | A view of a document, a generation, and an object number that reads the document on every access. Equality compares those; a stale handle raises `StaleObjectError`. |
 | Value | Geometry, colors, fonts, pixmaps, content items | Immutable and hashable where its content allows. |
-| Record | Results such as `Word`, `Block`, `Table`, `OcrWord`, `ImageInfo` | `@dataclass(frozen=True, slots=True, kw_only=True)` with named fields; no positional tuples. |
+| Record | Results such as `Word`, `Block`, `Table`, `OcrWord`, `Probe` | `@dataclass(frozen=True, slots=True, kw_only=True)` with named fields; no positional tuples. |
 | Specification | Input that describes something to create: `Highlight(...)`, `Encryption(...)`, `PageLabelRange(...)` | A frozen dataclass validated on construction. |
 | Enum | Codes and flags | `IntEnum`, `IntFlag`, or `StrEnum` classes; no module-level constants. |
 | Option | A choice among strings, such as `format="png"` | A `Literal` type, with one `@overload` per value when the value changes the return type. |
@@ -252,7 +252,7 @@ interpret the page separately and agree with it on the bundled corpus.
 
 | API | Notes |
 | --- | --- |
-| `page.content(*, clip=None, annotations=True)` → `Content` | The graphics model of section 3. |
+| `page.content(*, text_runs=True, paths=True, images=True, clip=None, annotations=True)` → `Content` | The graphics model of section 3; the three kinds select the items to build. |
 | `page.text(*, clip=None, ...)` → `str` | Reading order. |
 | `page.words(*, clip=None, ...)` → `list[Word]` | `Word(text, bbox, block, line, index)`. |
 | `page.layout(*, clip=None, chars=False, ...)` → `Layout` | `Block`, `Line`, `Span`, and, with `chars=True`, `Char` records with provenance; `to_dict()` serializes it in pymupdf's dictionary shape. |
@@ -445,7 +445,7 @@ hint.
 | `get_text("text")`, `get_text("words")`, `get_text("blocks" / "dict" / "rawdict")` | `text()`, `words()`, `layout()` |
 | `search_for(text, ...)` | `search(text, ...)` |
 | `find_tables(...)` → `TableFinder` | `tables(...)` → `list[Table]`; `Table.extract()` and `to_markdown()` become `rows` and `markdown()` |
-| `get_drawings()`, `get_image_info()` | `content().paths`, `content().images` |
+| `get_drawings()`, `get_image_info()` | `content(text_runs=False, images=False).paths`, `content(text_runs=False, paths=False).images` |
 | `get_images(full=)` | `page.resources.images` |
 | `annots()`, `add_highlight_annot(...)` | `page.annotations`, `page.annotations.add(Highlight(...))` |
 | `get_links()`, `insert_link(link)` | `page.links`, `page.links.add(rect, target)` |

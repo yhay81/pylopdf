@@ -448,19 +448,57 @@ def _matrix(values: Sequence[float]) -> Matrix:
     return Matrix._make(values)
 
 
+# The core keeps only finite geometry, so points and boxes skip the checks of
+# their constructors, which cost more than the rest of a path's record.
+_new_tuple = tuple.__new__
+
+
+def _point(x: float, y: float) -> Point:
+    """Build a point from two finite floats that the core already checked."""
+    return _new_tuple(Point, (x, y))
+
+
+def _rect(values: Sequence[float]) -> Rect:
+    """Build a rectangle from four finite floats that the core already checked."""
+    return _new_tuple(Rect, values)
+
+
+def _glyph(glyph_id: int | None, text: str | None, matrix: Matrix, advance: float | None, bbox: Rect | None) -> Glyph:
+    """Build a :class:`Glyph` through its slots.
+
+    A page can paint hundreds of thousands of glyphs, and the frozen
+    dataclass's ``__init__`` sets each field through ``object.__setattr__``.
+    """
+    glyph = _new_object(Glyph)
+    _set_glyph_id(glyph, glyph_id)
+    _set_glyph_text(glyph, text)
+    _set_glyph_matrix(glyph, matrix)
+    _set_glyph_advance(glyph, advance)
+    _set_glyph_bbox(glyph, bbox)
+    return glyph
+
+
+_new_object = object.__new__
+_set_glyph_id = Glyph.glyph_id.__set__
+_set_glyph_text = Glyph.text.__set__
+_set_glyph_matrix = Glyph.matrix.__set__
+_set_glyph_advance = Glyph.advance.__set__
+_set_glyph_bbox = Glyph.bbox.__set__
+
+
 def _segments(kinds: bytes, coords: list[float]) -> tuple[Segment, ...]:
     segments: list[Segment] = []
     position = 0
     for kind in kinds:
         if kind == _MOVE:
-            segments.append(MoveTo(Point(coords[position], coords[position + 1])))
+            segments.append(MoveTo(_point(coords[position], coords[position + 1])))
             position += 2
         elif kind == _LINE:
-            segments.append(LineTo(Point(coords[position], coords[position + 1])))
+            segments.append(LineTo(_point(coords[position], coords[position + 1])))
             position += 2
         elif kind == _CURVE:
             x1, y1, x2, y2, x3, y3 = coords[position : position + 6]
-            segments.append(CurveTo(Point(x1, y1), Point(x2, y2), Point(x3, y3)))
+            segments.append(CurveTo(_point(x1, y1), _point(x2, y2), _point(x3, y3)))
             position += 6
         else:
             segments.append(_CLOSE_PATH)
@@ -477,7 +515,7 @@ def _soft_mask(raw: tuple[int, bool] | None) -> SoftMask | None:
 class _Converter:
     """Turn the core's tuples into values, sharing equal paints."""
 
-    def __init__(self, fonts: list[Any], states: list[GraphicsContext]) -> None:
+    def __init__(self, fonts: list[Any], states: _Contexts) -> None:
         self.fonts = [
             FontRef(
                 name=name,
@@ -509,7 +547,7 @@ class _Converter:
             )
         else:
             paint = TilingPattern(
-                bbox=Rect(*values[0:4]),
+                bbox=_rect(values[0:4]),
                 x_step=values[4],
                 y_step=values[5],
                 matrix=_matrix(values[6:12]),
@@ -536,12 +574,12 @@ class _Converter:
         ids, texts, matrices, advances, boxes = glyphs
         return TextRun(
             glyphs=tuple(
-                Glyph(
-                    glyph_id=glyph_id,
-                    text=text,
-                    matrix=_matrix(matrices[index * 6 : index * 6 + 6]),
-                    advance=advance,
-                    bbox=None if box is None else Rect(*box),
+                _glyph(
+                    glyph_id,
+                    text,
+                    _new_tuple(Matrix, matrices[index * 6 : index * 6 + 6]),
+                    advance,
+                    None if box is None else _new_tuple(Rect, box),
                 )
                 for index, (glyph_id, text, advance, box) in enumerate(zip(ids, texts, advances, boxes, strict=True))
             ),
@@ -549,7 +587,7 @@ class _Converter:
             render_mode=_RENDER_MODES[render_mode],
             fill=None if fill is None else self.paint(fill),
             stroke=self.stroke(stroke),
-            bbox=Rect(*bbox),
+            bbox=_rect(bbox),
             context=self.states[state],
             blend_mode=_BLEND_MODES[blend],
             soft_mask=_soft_mask(soft_mask),
@@ -562,7 +600,7 @@ class _Converter:
             fill=None if fill is None else self.paint(fill),
             fill_rule=FillRule.EVEN_ODD if even_odd else FillRule.NONZERO,
             stroke=self.stroke(stroke),
-            bbox=Rect(*bbox),
+            bbox=_rect(bbox),
             context=self.states[state],
             blend_mode=_BLEND_MODES[blend],
             soft_mask=_soft_mask(soft_mask),
@@ -592,42 +630,69 @@ class _Converter:
             encoded_size=encoded_size,
             resolution=tuple(resolution),
             matrix=_matrix(matrix),
-            bbox=Rect(*bbox),
+            bbox=_rect(bbox),
             context=self.states[state],
             blend_mode=_BLEND_MODES[blend],
             soft_mask=_soft_mask(soft_mask),
         )
 
 
+class _Contexts:
+    """The core's graphics contexts, each built when an item first refers to it."""
+
+    def __init__(self, clips: list[Any], groups: list[Any], marks: list[Any], states: list[Any]) -> None:
+        self.raw = (clips, groups, marks)
+        self.states = states
+        self.clips: dict[int, Clip] = {}
+        self.groups: dict[int, TransparencyGroup] = {}
+        self.marks: dict[int, MarkedContent] = {}
+        self.contexts: dict[int, GraphicsContext] = {}
+
+    def clip(self, index: int) -> Clip:
+        value = self.clips.get(index)
+        if value is None:
+            kinds, coords, even_odd, bbox = self.raw[0][index]
+            value = self.clips[index] = Clip(
+                segments=_segments(kinds, coords),
+                fill_rule=FillRule.EVEN_ODD if even_odd else FillRule.NONZERO,
+                bbox=_rect(bbox),
+            )
+        return value
+
+    def group(self, index: int) -> TransparencyGroup:
+        value = self.groups.get(index)
+        if value is None:
+            opacity, blend, soft_mask = self.raw[1][index]
+            value = self.groups[index] = TransparencyGroup(
+                opacity=opacity,
+                blend_mode=_BLEND_MODES[blend],
+                soft_mask=_soft_mask(soft_mask),
+            )
+        return value
+
+    def mark(self, index: int) -> MarkedContent:
+        value = self.marks.get(index)
+        if value is None:
+            tag, mcid = self.raw[2][index]
+            value = self.marks[index] = MarkedContent(tag=tag, mcid=mcid)
+        return value
+
+    def __getitem__(self, index: int) -> GraphicsContext:
+        value = self.contexts.get(index)
+        if value is None:
+            clip_indexes, group_indexes, mark_indexes = self.states[index]
+            value = self.contexts[index] = GraphicsContext(
+                clips=tuple(self.clip(clip) for clip in clip_indexes),
+                groups=tuple(self.group(group) for group in group_indexes),
+                marked_content=tuple(self.mark(mark) for mark in mark_indexes),
+            )
+        return value
+
+
 def _content_from_core(raw: Any) -> Content:  # noqa: ANN401 - the core's nested tuples.
     """Build a :class:`Content` from ``_Document.page_content``."""
     items, fonts, clips, groups, marks, states = raw
-    clip_values = [
-        Clip(
-            segments=_segments(kinds, coords),
-            fill_rule=FillRule.EVEN_ODD if even_odd else FillRule.NONZERO,
-            bbox=Rect(*bbox),
-        )
-        for kinds, coords, even_odd, bbox in clips
-    ]
-    group_values = [
-        TransparencyGroup(
-            opacity=opacity,
-            blend_mode=_BLEND_MODES[blend],
-            soft_mask=_soft_mask(soft_mask),
-        )
-        for opacity, blend, soft_mask in groups
-    ]
-    mark_values = [MarkedContent(tag=tag, mcid=mcid) for tag, mcid in marks]
-    contexts = [
-        GraphicsContext(
-            clips=tuple(clip_values[index] for index in clip_indexes),
-            groups=tuple(group_values[index] for index in group_indexes),
-            marked_content=tuple(mark_values[index] for index in mark_indexes),
-        )
-        for clip_indexes, group_indexes, mark_indexes in states
-    ]
-    converter = _Converter(fonts, contexts)
+    converter = _Converter(fonts, _Contexts(clips, groups, marks, states))
     converted: list[ContentItem] = []
     for kind, item in items:
         if kind == _TEXT_RUN:

@@ -86,15 +86,21 @@ def _inserted_image_bbox(page: pylopdf.Page) -> tuple[float, ...]:
     return tuple(image["bbox"])
 
 
+def _rgb(paint: pylopdf.Paint | None) -> tuple[float, float, float] | None:
+    return paint.rgb if isinstance(paint, pylopdf.Color) else None
+
+
 def _red_rects(page: pylopdf.Page) -> list[tuple[float, ...]]:
     return [
-        tuple(drawing["rect"]) for drawing in page.get_drawings() if RED in (drawing.get("color"), drawing.get("fill"))
+        tuple(path.bbox)
+        for path in page.content().paths
+        if RED in (_rgb(path.fill), _rgb(path.stroke.paint if path.stroke else None))
     ]
 
 
 def _square(page: pylopdf.Page) -> tuple[float, ...]:
-    (drawing,) = [drawing for drawing in page.get_drawings() if drawing.get("fill") == (0.0, 0.0, 1.0)]
-    return tuple(drawing["rect"])
+    (path,) = [path for path in page.content().paths if _rgb(path.fill) == (0.0, 0.0, 1.0)]
+    return tuple(path.bbox)
 
 
 @pytest.mark.parametrize("rotation", ROTATIONS)

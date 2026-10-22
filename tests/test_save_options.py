@@ -95,7 +95,7 @@ def test_saving_compresses_and_prunes_by_default() -> None:
     assert b"% PLAIN" not in default
     assert b"/FlateDecode" in default
     assert b"(UNREACHABLE)" not in default
-    assert pylopdf.open(default).pages[0].get_drawings() == pylopdf.open(plain).pages[0].get_drawings()
+    assert pylopdf.open(default).pages[0].content() == pylopdf.open(plain).pages[0].content()
 
 
 def test_a_save_that_changes_nothing_keeps_the_original_bytes() -> None:

@@ -1,4 +1,4 @@
-"""Extraction records: words, the layout, drawings, and links."""
+"""Extraction records: words, the layout, page content, and links."""
 
 from __future__ import annotations
 
@@ -82,14 +82,16 @@ def _drawing_page() -> pylopdf.Page:
     return pylopdf.open(data).pages[0]
 
 
-def test_drawings_report_their_paint_order_as_seqno() -> None:
-    drawings = _drawing_page().get_drawings()
+def test_content_lists_paths_and_text_in_paint_order() -> None:
+    content = _drawing_page().content()
 
-    assert [drawing["type"] for drawing in drawings] == ["f", "fs", "s"]
-    # The text run between the first two paths takes its own number, and the
-    # fill and the stroke of B take one each, as MuPDF numbers them.
-    assert [drawing["seqno"] for drawing in drawings] == [0, 2, 4]
-    assert "layer" not in drawings[0]
+    # B paints one path with a fill and a stroke.
+    assert [type(item).__name__ for item in content] == ["Path", "TextRun", "Path", "Path"]
+    assert [(path.fill is not None, path.stroke is not None) for path in content.paths] == [
+        (True, False),
+        (True, True),
+        (False, True),
+    ]
 
 
 def _link_page(annotation: str, *, indirect: bool) -> pylopdf.Page:

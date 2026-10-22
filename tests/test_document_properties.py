@@ -490,7 +490,7 @@ def test_reads_leave_is_dirty_false() -> None:
     page.layout().to_dict()
     page.get_pixmap()
     page.get_links()
-    page.get_drawings()
+    page.content()
     page.search("a")
     doc.markdown()
     doc.get_outline()

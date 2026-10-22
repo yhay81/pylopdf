@@ -317,59 +317,49 @@ the concept and API overview.
   collectors grow fallibly. Allocation refusal fails the interpretation
   without caching a partial page. Ruby, warichu, and mixed-orientation
   typography are not interpreted.
-- `Page.get_drawings` uses a separate hayro Device and releases the GIL. It
-  returns interpreted fill/stroke paint operations as pymupdf-style
-  `DrawingInfo` mappings in rotation-resolved display coordinates. Commands are
-  self-contained lines or cubics; quadratics convert exactly to cubics, and
-  adjacent fill/stroke callbacks for one PDF operator combine as `type="fs"`.
-  Solid paints expose normalized RGB and opacity; patterns retain geometry with
-  `None` paint values. Clipping/group/soft-mask structure and clip-resolved
-  visibility, optional-content layer names, text, images, and annotations are
-  outside this path API. Optional-content visibility is still applied. Reject
-  output above 8,192 paths, 131,072 commands, or 131,072 aggregate stroke-dash
-  values rather than returning a partial result. Transform, bound, and compute
-  each path bbox in one element pass without cloning the complete path.
-  Interpreted commands retain a static kind plus an inline four-point buffer,
-  avoiding one String and point-Vec allocation per command. Dash syntax and
-  public command/path tuples materialize only after their aggregate admissions,
-  grow fallibly, and return no partial result on allocation refusal.
 - `Page.content()` is the content model (`rust/src/content_model.rs`,
   `src/pylopdf/_content.py`). `ContentCollector`, the hayro Device that text
   extraction also runs through its `ContentSink` (items off, so no glyph
   boxes, contexts, or records are built for text alone), records each paint
-  callback as a `TextRun`, `Path`, or `Image` in display
-  coordinates, with the item's blend mode, soft mask, and an interned
-  graphics context of the clip, transparency-group, and marked-content
-  stacks; items painted in one context share one Python context object.
-  hayro paints `B` and the fill-and-stroke render mode as a fill followed by
-  a stroke of the same geometry, so a stroke that directly follows a fill of
-  equal segments in the same context completes it; any other callback in
-  between keeps them two items, where `get_drawings` merges any later stroke
-  of equal geometry. Glyph boxes are exact: an outline glyph's path is cached
-  in glyph space by `identifier().cache_key()` (at most 65,536 glyphs) and
-  mapped by corners under axis-aligned transforms and by segments otherwise;
-  a Type 3 procedure is interpreted once into the `InkBounds` device and its
-  glyph-space box mapped by corners. Items whose geometry or paint is not
-  finite are left out, because `Rect` and `Matrix` refuse them. One
-  `max_elements` budget (262,144 by default, `content_element_count`) counts
-  glyphs, path and clip segments, items, and context entries before `clip=`
-  filtering; every collection grows fallibly and a refusal returns nothing.
-  Python builds the records from flat tuples; `_matrix` uses
-  `Matrix._make` because the core already checked finiteness, which keeps
-  conversion near 3 µs per glyph. What hayro does not report (color spaces,
-  marked-content properties, font dictionaries, Type 3 font identity,
+  callback as a `TextRun`, `Path`, or `Image` in display coordinates, of the
+  kinds that `text_runs`, `paths`, and `images` select (`ItemKinds`; an
+  unselected kind is never built, so `content(text_runs=False)` costs about
+  what an interpretation does), with the item's blend mode, soft mask, and an
+  interned graphics context of the clip, transparency-group, and
+  marked-content stacks; items painted in one context share one Python context
+  object. hayro paints `B` and the fill-and-stroke render mode as a fill
+  followed by a stroke of the same geometry, so a stroke that directly follows
+  a fill of equal segments in the same context completes it; any other
+  callback in between keeps them two items. Glyph boxes are exact: an outline
+  glyph's path is cached in glyph space by `identifier().cache_key()` (at most
+  65,536 glyphs) and mapped by corners under axis-aligned transforms and by
+  segments otherwise; a Type 3 procedure is interpreted once into the
+  `InkBounds` device and its glyph-space box mapped by corners. Items whose
+  geometry or paint is not finite are left out, because `Rect` and `Matrix`
+  refuse them. One `max_elements` budget (262,144 by default,
+  `content_element_count`) counts glyphs, path and clip segments, stroke dash
+  lengths, items, and context entries before `clip=` filtering; dash lengths
+  count because every `Stroke` copies its dash array, which one `d` operator
+  can make as long as the content allows and every later stroke repeats. Every
+  collection grows fallibly and a refusal returns nothing. Python builds the
+  records from flat tuples. The core keeps only finite geometry, so points,
+  boxes, and matrices skip their constructors' checks, glyphs are filled
+  through their slot descriptors, and a graphics context, with its clips,
+  groups, and marked content, is built only when an item refers to it, which
+  keeps conversion near 2 µs per glyph and lets a selection that keeps few
+  items skip the contexts of the others. What hayro does not report (color
+  spaces, marked-content properties, font dictionaries, Type 3 font identity,
   clipping render modes, item sources, `sh` as such, image-mask streams) is
-  absent rather than guessed, and is listed under Content model in
-  ROADMAP.md. `tests/test_content_model.py` requires the paths, image
-  placements, and glyph origins of every corpus page to equal `get_drawings`
-  (split into single fill and stroke operations), `get_image_info`, and
-  `rawdict`.
+  absent rather than guessed, and is listed under Content model in ROADMAP.md;
+  hayro hides an image mask's stream, so a mask reports xref 0.
+  `content().paths` and `content().images` replace pymupdf's `get_drawings`
+  and `get_image_info`. `tests/test_content_model.py` requires the glyph
+  origins of every corpus page to equal those of `layout(chars=True)`.
 - `Page.get_images(full=)` lists the image XObjects that the page's inherited
   resources and, depth first, its Form XObjects' resources reach, once each in
   resource order, from the lopdf graph (`page_image_inventory`, at most 4,096
   images and Forms and 32 levels, `image_inventory_count`).
-  `Page.get_image_info` describes drawn placements through a hayro device;
-  hayro hides an image mask's stream, so masks report xref 0.
+  `page.content().images` describes drawn placements.
   `Document.extract_image(xref)` copies the image without its masks, and the
   objects it reaches, into a one-page document drawing it at pixel size,
   runs a fresh `ContentGuard` on it, and decodes it with the placement
@@ -2013,12 +2003,12 @@ the concept and API overview.
   added and `_Shape.add_path` repeats the 1,048,576-point bound
   (`path_point_count`). krilla writes a path that is one rectangle as `re`
   in its own corner order and skips the fill of a zero-area path, so
-  `get_drawings` can list such a path differently from pymupdf's output
-  while it renders the same. `morph=` and `oc=` are not supported; the
-  canvas covers transforms and optional content. `Shape.width`, `height`,
-  `x`, `y`, `pctm`, and `ipctm` describe pymupdf's unrotated space, so the
-  capability map lists them as non-goals; `shape.page.rect` gives the
-  drawing area. `breadth` on the wavy lines and `fullSector` on
+  `content().paths` can list such a path differently from pymupdf's
+  `get_drawings` while it renders the same. `morph=` and `oc=` are not
+  supported; the canvas covers transforms and optional content.
+  `Shape.width`, `height`, `x`, `y`, `pctm`, and `ipctm` describe pymupdf's
+  unrotated space, so the capability map lists them as non-goals;
+  `shape.page.rect` gives the drawing area. `breadth` on the wavy lines and `fullSector` on
   `Shape.draw_sector` keep pymupdf's positions.
 - Generated text and widget appearance PDFs import through
   `generated_pdf::load` in `rust/src/generated_pdf.rs`; never pass krilla

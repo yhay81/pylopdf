@@ -16,7 +16,7 @@ pip install "pylopdf[migrate]"
 python -m pylopdf.migrate src/
 ```
 
-`import fitz`と`import pymupdf`を置き換え、機械的に置き換えられるもの（文書を開く処理、`doc.pages`に置き換わるページ操作、ページ番号を含む`get_toc`/`set_toc`、`embfile_*`、`xref_*`のストリーム読み出し、テキストと表の読み取り、その場で値を変える`Rect`/`Point`/`Matrix`のメソッドなど）を書き換え、人手が必要な文の上には`# TODO(pylopdf): …`コメントを付けます。最後に、それらの箇所を`path:line: message`の形で一覧表示します。同じコマンドで、pylopdf 0.15向けに書かれたプログラムも更新できます。
+`import fitz`と`import pymupdf`を置き換え、機械的に置き換えられるもの（文書を開く処理、`doc.pages`に置き換わるページ操作、ページ番号を含む`get_toc`/`set_toc`、`embfile_*`、`xref_*`のストリーム読み出し、テキストと表の読み取り、ベクタ図形と画像の配置、その場で値を変える`Rect`/`Point`/`Matrix`のメソッドなど）を書き換え、人手が必要な文の上には`# TODO(pylopdf): …`コメントを付けます。最後に、それらの箇所を`path:line: message`の形で一覧表示します。同じコマンドで、pylopdf 0.15向けに書かれたプログラムも更新できます。
 
 - `--diff`は書き込まずに変更内容を表示します。
 - `--check`は変更されるファイルがあると終了コード1を返します。CI向けです。
@@ -75,9 +75,10 @@ python -m pylopdf.migrate src/
 | `page.get_pixmap(matrix=…, dpi=…)` | 同じ | 拡大縮小の行列のみ。`colorspace=`と`annots=`はまだありません。`doc.get_page_pixmap(i)`は`doc.pages[i].get_pixmap()`になります |
 | `pix.samples`, `width`, `height`, `n`, `alpha`, `stride`, `colorspace`, `save()` | 同じ | `save()`と`tobytes()`はPNGのみを書き出します |
 | `page.get_svg_image()` | 同じ | テキストは常にパスとして描きます |
-| `page.get_images()`, `get_image_info()`, `doc.extract_image()` | 同じ | `get_image_info(hashes=True)`にはまだ対応していません |
-| `page.get_drawings()` | 同じ | `extended=`はありません。`page.content().paths`がクリップ、グループ、マーク付きコンテンツを持ちます |
-| `page.get_texttrace()`, `get_bboxlog()`, `get_cdrawings()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | グリフを持つテキストラン、パス、画像を不変の値で返します。[ページの内容](api.md#content)を参照 |
+| `page.get_images()`, `doc.extract_image()` | 同じ | |
+| `page.get_image_info()` | `page.content(text_runs=False, paths=False).images` | `xref`、`bbox`、`matrix`（pymupdfの`transform`）、サイズ、色空間、マスク、解像度を持つ`Image`レコード。`hashes=`にはまだ対応していません |
+| `page.get_drawings()`, `get_cdrawings()` | `page.content(text_runs=False, images=False).paths` | `segments`、`fill`、`fill_rule`、`stroke`、`bbox`を持つ`Path`レコード。`extended=True`が別の項目として返したクリップ、グループ、マーク付きコンテンツは、各パスの`context`が持ちます |
+| `page.get_texttrace()`, `get_bboxlog()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | グリフを持つテキストラン、パス、画像を不変の値で返します。[ページの内容](api.md#content)を参照 |
 | `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | 同じ | JPEGへの再エンコードのみなので、再サンプリングには`quality`が必要です。`None`ではなく統計情報を返します |
 
 ### 描き込みと注釈 { #mapping-drawing }

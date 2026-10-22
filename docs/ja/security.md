@@ -86,7 +86,7 @@ limits = pylopdf.DocumentLimits(
 | `markdown()`, `Table.markdown()` | 出力64 MiB | `max_size` |
 | `Pixmap.tobytes()`, `Page.get_svg_image()` | 出力64 MiB | `max_size` |
 | `Page.search()` | 結果4,096件 | `max_hits` |
-| `Page.content()` | グリフ、パスとクリップのセグメント、項目で合わせて262,144 | `max_elements` |
+| `Page.content()` | グリフ、パスとクリップのセグメント、線の破線の長さ、項目で合わせて262,144 | `max_elements` |
 | `Page.insert_text()`, `insert_textbox()` | テキスト1 MiBと4,096行 | `max_text_size` |
 | 描画、フォーム、`Font`へのフォント入力 | フォント1つあたり64 MiB | `max_font_size` |
 | `Page.insert_image()` | 入力64 MiBと6,400万画素 | `max_size`, `max_pixels` |
@@ -109,7 +109,7 @@ limits = pylopdf.DocumentLimits(
 | `file_size`, `page_count`, `object_count`, `object_depth` | 文書が`DocumentLimits`の構造上の上限を超えた |
 | `decompressed_size`, `page_content_size`, `total_decompressed_size`, `decompression_unverifiable`, `stream_filter_count` | ストリームの展開後のサイズが許容を超えた、または出力の大きさを制限できないフィルター（16個を超える連鎖したフィルターを含む）を使っている |
 | `text_size`, `text_glyph_count`, `interpretation_size` | 抽出やレンダリングがポリシーの許容を超えて読み込もうとした |
-| `content_element_count` | ページが描くグリフ、セグメント、項目が`max_elements`より多い |
+| `content_element_count` | ページが描くグリフ、セグメント、破線の長さ、項目が`max_elements`より多い |
 | `recovery_scan_size` | 壊れたファイルの修復に不当な量の作業が必要になる |
 | `content_nesting_depth`, `resource_nesting_depth` | ページの入れ子が深すぎて、解釈するのが安全でない。[後述](#built-in-protections)を参照 |
 | `pdf_output_size`, `render_output_size`, `markdown_output_size`, `svg_output_size`, `pixmap_output_size`, `replacement_output_size` | 出力が`max_size`を超える |

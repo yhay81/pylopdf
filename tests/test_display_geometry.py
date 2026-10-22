@@ -208,9 +208,7 @@ def test_images_and_shapes_land_on_their_display_rectangles(name: str, rotation:
         shape.finish(fill=(0.0, 0.0, 1.0), color=None)
 
     assert [tuple(image["bbox"]) for image in drawn_images(page)] == [pytest.approx((200, 100, 260, 160), abs=1e-3)]
-    assert [tuple(drawing["rect"]) for drawing in page.get_drawings()] == [
-        pytest.approx((100, 100, 150, 130), abs=1e-3)
-    ]
+    assert [tuple(path.bbox) for path in page.content().paths] == [pytest.approx((100, 100, 150, 130), abs=1e-3)]
 
 
 @pages

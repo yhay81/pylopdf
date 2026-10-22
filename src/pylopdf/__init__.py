@@ -151,11 +151,9 @@ from pylopdf._types import (
     Access,
     DocumentComplexity,
     DocumentMetadata,
-    DrawingInfo,
     ExtractedImage,
     FormFieldInfo,
     ImageCompressionResult,
-    ImageInfo,
     ImageItem,
     ImageItemFull,
     LinkInfo,
@@ -270,8 +268,6 @@ __all__ = [
     "DocumentComplexity",
     "DocumentLimits",
     "DocumentMetadata",
-    "DrawingInfo",
-    "DrawingItem",
     "EncryptedDocumentError",
     "Encryption",
     "ExtractedImage",
@@ -288,7 +284,6 @@ __all__ = [
     "IdentityMatrix",
     "Image",
     "ImageCompressionResult",
-    "ImageInfo",
     "ImageItem",
     "ImageItemFull",
     "ImageMask",
@@ -366,7 +361,6 @@ __all__ += ["Pixmap", "PylopdfWarning"]
 OcrRotation: TypeAlias = _types.OcrRotation
 FontLanguage: TypeAlias = _types.FontLanguage
 CjkFontLanguage: TypeAlias = _types.CjkFontLanguage
-DrawingItem: TypeAlias = _types.DrawingItem
 FormFieldType: TypeAlias = _types.FormFieldType
 ContentItem: TypeAlias = _content.ContentItem
 Paint: TypeAlias = _content.Paint

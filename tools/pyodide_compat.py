@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from pylopdf import DocumentComplexity
+    from pylopdf import Path as ContentPath
 
 _ASSETS = (
     "tests/assets/real_world/pdf20-simple.pdf",
@@ -39,7 +40,7 @@ _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _EXPECTED_TWO_PAGES = 2
 _EXPECTED_MERGED_PAGES = 3
 _SENATE_ROTATION = 90
-_MIN_FORM_DRAWINGS = 400
+_MIN_FORM_ITEMS = 400
 # Keep required Unicode fixture data escaped so repository prose remains English.
 _RIGHT_COLUMN = "\u53f3\u5074\u5217"
 _LEFT_COLUMN = "\u5de6\u5074\u5217"
@@ -51,6 +52,11 @@ _HEBREW = "\u05e9\u05dc\u05d5\u05dd"
 
 def _delete_page(document: Any, index: int) -> None:  # noqa: ANN401 - pylopdf imports lazily.
     del document.pages[index]
+
+
+def _path_paints(path: ContentPath) -> str:
+    """Name what a content path paints: "f", "s", or "fs", as pymupdf names it."""
+    return ("f" if path.fill is not None else "") + ("s" if path.stroke is not None else "")
 
 
 def _require(condition: bool, message: str) -> None:  # noqa: FBT001
@@ -442,16 +448,18 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
     form_text = form.pages[0].text()
     form_markdown = form.pages[0].markdown()
     form_tables = form.pages[0].tables()
-    form_drawings = form.pages[0].get_drawings()
-    seqnos = [drawing["seqno"] for drawing in form_drawings]
-    _require(seqnos == sorted(set(seqnos)), "drawing paint order is not strictly increasing")
+    form_paths = form.pages[0].content(text_runs=False, images=False).paths
+    _require(
+        all(path.fill is not None or path.stroke is not None for path in form_paths),
+        "a content path paints nothing",
+    )
     _require(len(form.pages) == _EXPECTED_TWO_PAGES, "Form 1040 fixture has the wrong page count")
     _require("U.S. Individual Income Tax Return" in form_text, "Form 1040 text is incomplete")
     _require(len(form_tables) == 1, "Form 1040 bordered table was not detected")
     form_table = form_tables[0]
     _require((len(form_table.rows), len(form_table.rows[0])) == (2, 7), "Form 1040 table shape changed")
     _require("Full-time<br>student" in form_markdown, "Form 1040 table was not integrated into Markdown")
-    _require(len(form_drawings) >= _MIN_FORM_DRAWINGS, "Form 1040 vector extraction is incomplete")
+    _require(len(form_paths) >= _MIN_FORM_ITEMS, "Form 1040 vector extraction is incomplete")
 
     senate = pylopdf.open((real_world / "senate-expenditures.pdf").read_bytes())
     senate_lines = senate.pages[0].tables()
@@ -479,9 +487,9 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
     _require(len(bounded_scan.pages) == 1, "web limits rejected a representative scan")
     scan_inventory = scan.pages[0].get_images(full=True)
     _require(len(scan_inventory) >= 1, "the scan lists no image XObject")
-    scan_placements = scan.pages[0].get_image_info(xrefs=True)
+    scan_placements = scan.pages[0].content(text_runs=False, paths=False).images
     _require(
-        {info["xref"] for info in scan_placements} <= {item.xref for item in scan_inventory},
+        {image.xref for image in scan_placements} <= {item.xref for item in scan_inventory},
         "a drawn image is missing from the inventory",
     )
     scan_image = scan.extract_image(scan_inventory[0].xref)
@@ -530,8 +538,8 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
             "markdown_sha256": _digest(form_markdown),
             "shape": [len(form_table.rows), len(form_table.rows[0])],
             "confidence": round(form_table.diagnostics.confidence, 6),
-            "drawing_count": len(form_drawings),
-            "drawing_types": sorted({drawing["type"] for drawing in form_drawings}),
+            "path_count": len(form_paths),
+            "path_paints": sorted({_path_paints(path) for path in form_paths}),
         },
         "rotated_tables": {
             "rotation": senate.pages[0].rotation,
@@ -716,14 +724,14 @@ def _shape_results(font: bytes) -> dict[str, Any]:
             shape.insert_text((120, 80), _JAPANESE + "\n" + _JAPANESE, font=face, fontsize=8, lineheight=1.5),
         ]
         spare = shape.insert_textbox((30, 180, 170, 260), _JAPANESE * 6, font=face, fontsize=10)
-    drawings = page.get_drawings()
-    _require(len(drawings) == 1, "a finished shape did not draw one path")
+    paths = page.content().paths
+    _require(len(paths) == 1, "a finished shape did not draw one path")
     data = document.to_bytes()
     _require(data.count(b"/FontFile") == 1, "a shape commit embedded a font more than once")
     words = [[word.text, round(word.bbox.x0, 2), round(word.bbox.y0, 2)] for word in page.words()]
     return {
         "ends": [[round(value, 6) for value in point] for point in ends],
-        "drawing": [drawings[0]["type"], [round(value, 2) for value in drawings[0]["rect"]]],
+        "drawing": [_path_paints(paths[0]), [round(value, 2) for value in paths[0].bbox]],
         "lines": lines,
         "spare": round(spare, 4),
         "words": words,
@@ -1078,7 +1086,7 @@ def _save_option_results() -> dict[str, Any]:
 
 def _geometry_results() -> dict[str, Any]:
     """Check immutable affine values and their use by the PDF drawing API."""
-    from pylopdf import Document, Matrix, Point, open  # noqa: A004, PLC0415
+    from pylopdf import Document, LineTo, Matrix, MoveTo, Point, open  # noqa: A004, PLC0415
 
     transform = Matrix(2, 3) * Matrix(1, 0, 0, 1, 20, 30)
     point = Point(10, 20)
@@ -1105,8 +1113,8 @@ def _geometry_results() -> dict[str, Any]:
     with open(saved) as reopened:
         text = reopened.pages[0].text().strip()
         _require(text == "Affine", "transformed text failed to survive save/reopen")
-        line = reopened.pages[0].get_drawings()[0]["items"][0]
-        _require(line == ("l", Point(40, 90), Point(80, 90)), "transformed line changed")
+        line = reopened.pages[0].content().paths[0].segments
+        _require(line == (MoveTo(Point(40, 90)), LineTo(Point(80, 90))), "transformed line changed")
         _require(reopened.pages[0].get_pixmap(alpha=True).width == page_size, "transformed drawing failed to render")
     rectangles = _rectangle_results()
     return {
@@ -1319,7 +1327,7 @@ def _content_model_results(root: Path) -> dict[str, Any]:
     form = pylopdf.open(root / "tests/assets/real_world/f1040.pdf").pages[0].content()
     runs = form.text_runs
     glyphs = [glyph for run in runs for glyph in run.glyphs]
-    _require(len(runs) > _MIN_FORM_DRAWINGS, "Form 1040 content has too few text runs")
+    _require(len(runs) > _MIN_FORM_ITEMS, "Form 1040 content has too few text runs")
     _require(all(glyph.bbox is None or glyph.bbox.is_valid for glyph in glyphs), "a glyph box is invalid")
     marked = sorted({mark.tag for run in runs for mark in run.context.marked_content})
     type3 = pylopdf.open(root / "tests/assets/real_world/pdfium-type3.pdf").pages[0].content()

@@ -6,6 +6,6 @@ stroke; images carry their object number, format, mask, and placement. Each
 item has its blend mode, soft mask, and the clips, transparency groups, and
 marked content around it. `clip=` keeps the items in a rectangle,
 `annotations=False` leaves out annotation appearances, and `max_elements`
-bounds one call. It replaces pymupdf's `get_texttrace`, `get_bboxlog`,
-`get_cdrawings`, `get_displaylist`, `run`, `get_image_rects`, and
-`get_image_bbox`.
+bounds one call. It replaces pymupdf's `get_drawings`, `get_image_info`,
+`get_texttrace`, `get_bboxlog`, `get_cdrawings`, `get_displaylist`, `run`,
+`get_image_rects`, and `get_image_bbox`.

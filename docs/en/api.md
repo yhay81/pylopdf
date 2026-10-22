@@ -183,8 +183,7 @@ no page was added, deleted, or reordered in between.
 | `tables(*, strategy="lines", clip=None)` | Tables as a list of `Table` records; see [Tables](#tables) |
 | `markdown(*, table_strategy="lines")` | Markdown for this page |
 | `ocr(...)`, `apply_ocr(*, words=None, ...)` | OCR, and an invisible text layer from it or from another engine's words; see [Offline OCR](ocr.md) |
-| `content(*, clip=None, annotations=True)` | Every text run, path, and image the page paints; see [Page content](#content) |
-| `get_drawings()` | Vector paths; see [Vector drawings](#drawings) |
+| `content(*, text_runs=True, paths=True, images=True, clip=None, annotations=True)` | Every text run, path, and image the page paints; see [Page content](#content) |
 | `get_links()` | Links with their targets |
 | `get_label()` | The page label, such as `"iv"` |
 
@@ -203,7 +202,6 @@ are not interpreted.
 | `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` | Render to a [`Pixmap`](#pixmap) |
 | `get_svg_image(*, matrix=None, text_as_path=True)` | Render to an SVG string |
 | `get_images(*, full=False)` | The image objects the page uses, as `ImageItem` tuples |
-| `get_image_info(*, hashes=False, xrefs=False)` | Where each image is drawn, with its size and transform |
 
 As in pymupdf, a pixmap is RGB on white by default and RGBA with
 `alpha=True`. `dpi` takes precedence over `matrix`, which must be a scaling
@@ -333,24 +331,18 @@ style flags.
   with that group. A clip that covers the whole visible area is left out, as
   hayro leaves it out.
 
-`clip=` keeps the items whose box meets a rectangle, and `annotations=False`
-leaves out annotation appearances. One call reads at most `max_elements`
-glyphs, path and clip segments, and items, 262,144 by default.
+`text_runs=False`, `paths=False`, and `images=False` leave out that kind of
+item without building it, so reading only the paths or the images of a
+text-heavy page is many times faster. `clip=` keeps the items whose box meets
+a rectangle, and `annotations=False` leaves out annotation appearances. One call reads at most `max_elements`
+glyphs, path and clip segments, stroke dash lengths, and items, 262,144 by
+default.
 
 What hayro does not report yet is not in the model: the color space and
 components of a color, layer names and the other marked-content properties,
 the font dictionary behind a `FontRef`, and the object of an image mask. They
 are listed as
 [engine work](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#engine-work).
-
-## Vector drawings { #drawings }
-
-`page.get_drawings()` returns one `DrawingInfo` dictionary per filled or
-stroked path, in pymupdf's format: `type` (`"f"`, `"s"`, or `"fs"`), `items`
-(lines and cubic curves), `rect`, colors, opacity, line width, cap, join,
-dashes, and `seqno`. Paths filled with a pattern have `None` colors. The paths
-of [`page.content()`](#content) also carry their clips, groups, and marked
-content.
 
 ## Canvas { #canvas }
 
@@ -784,12 +776,12 @@ Constants keep pymupdf's names and are also grouped in enums:
 are `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`,
 `ShadingType`, `SoftMaskType`, and `ImageMask`.
 
-Text, table, and OCR results are records: frozen dataclasses such as `Word`,
-`Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, and
-`OcrWord`. Other dictionaries returned by the API are plain `dict` objects,
-described for type checkers by `TypedDict` classes such as `DrawingInfo`,
-`ImageInfo`, `LinkInfo`, `FormFieldInfo`, and `DocumentMetadata`, and
-`ImageItem` and `OutlineEntry` are named tuples.
+Text, table, OCR, and page content results are records: frozen dataclasses
+such as `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`,
+`TableDiagnostics`, `OcrWord`, `Path`, and `Image`. Other dictionaries
+returned by the API are plain `dict` objects, described for type checkers by
+`TypedDict` classes such as `LinkInfo`, `FormFieldInfo`, and
+`DocumentMetadata`, and `ImageItem` and `OutlineEntry` are named tuples.
 
 ## Exceptions and warnings { #exceptions }
 
