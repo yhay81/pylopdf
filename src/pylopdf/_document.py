@@ -287,6 +287,7 @@ class Document:
         __getattr__ = hinted_getattr
         __getitem__ = hinted_protocol("'Document' object is not subscriptable; use doc.pages[index]")
         __iter__ = hinted_protocol("'Document' object is not iterable; iterate over doc.pages")
+        __delitem__ = hinted_protocol("'Document' object does not support item deletion; use del doc.pages[index]")
 
     def __init__(self, *, limits: DocumentLimits | None = None) -> None:
         """Create an empty document; :func:`open` opens an existing one.

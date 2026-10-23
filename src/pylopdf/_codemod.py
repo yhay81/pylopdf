@@ -85,6 +85,11 @@ MODULE_MEMBER_RENAMES = {
         for member in pylopdf.BlendMode
     },
     **{f"PDF_BORDER_STYLE_{member.name}": f"BorderStyle.{member.name}" for member in pylopdf.BorderStyle},
+    "PDF_PAGE_LABEL_DECIMAL": "PageLabelStyle.DECIMAL",
+    "PDF_PAGE_LABEL_ROMAN_UC": "PageLabelStyle.UPPER_ROMAN",
+    "PDF_PAGE_LABEL_ROMAN_LC": "PageLabelStyle.LOWER_ROMAN",
+    "PDF_PAGE_LABEL_ALPHA_UC": "PageLabelStyle.UPPER_LETTERS",
+    "PDF_PAGE_LABEL_ALPHA_LC": "PageLabelStyle.LOWER_LETTERS",
     "SigFlag_SignaturesExist": "SignatureFlags.SIGNATURES_EXIST",
     "SigFlag_AppendOnly": "SignatureFlags.APPEND_ONLY",
     "Identity": "Matrix.IDENTITY",

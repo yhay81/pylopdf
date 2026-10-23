@@ -138,6 +138,7 @@ replacement, and the migration hint):
 - DisplayList.rect -> Page.rect: Read page.rect, the display area in which the content items are positioned.
 - Document.FormFonts -> Document.catalog: list(doc.catalog['AcroForm']['DR']['Font']) names the form's font resources; doc.form.font chooses the face that fills draw with.
 - Document.__contains__ -> Pages.__contains__: Test page in doc.pages, which takes Page views.
+- Document.__delitem__ -> Pages.__delitem__: Use del doc.pages[i] or del doc.pages[a:b].
 - Document.__getitem__ -> Pages.__getitem__: Use doc.pages[i]; doc.pages also takes slices.
 - Document.__len__ -> Pages.__len__: Use len(doc.pages).
 - Document.authenticate -> Document.unlock: Use doc.unlock(password), which returns Access.USER or Access.OWNER and raises PasswordError for a wrong password.
@@ -157,6 +158,7 @@ replacement, and the migration hint):
 - Document.extract_image -> ImageObject.extract: Use doc.images[xref].extract(), which returns an EncodedImage with format, data, and resolution; the size, color space, filters, and masks are properties of doc.images[xref].
 - Document.fullcopy_page -> Pages.insert: Use doc.pages.insert(to, doc.pages[i]), or doc.pages.extend(doc.pages[i]) to append.
 - Document.get_new_xref -> Objects.add: Call doc.objects.add(value), which creates the object and returns its object number.
+- Document.get_outline_xrefs -> OutlineItem.xref: Use [item.xref for item in doc.outline.walk()].
 - Document.get_page_images -> Page.resources: Use doc.pages[i].resources.images.
 - Document.get_page_labels -> Document.page_labels: Read doc.page_labels, a list of PageLabelRange(start, style, prefix, first) records.
 - Document.get_page_numbers -> Pages.labeled: Use doc.pages.labeled(label).
@@ -167,6 +169,7 @@ replacement, and the migration hint):
 - Document.get_xml_metadata -> Document.xmp: doc.xmp returns the XMP packet as text, or None without one where pymupdf returns an empty string.
 - Document.has_annots -> Page.annotations: any(page.annotations for page in doc.pages)
 - Document.has_links -> Page.links: any(page.links for page in doc.pages)
+- Document.insert_page -> Pages.new: Use page = doc.pages.new(size, index=i), then draw the text inside with page.draw() as canvas: canvas.text(text, at).
 - Document.insert_pdf -> Pages.insert: Use doc.pages.insert(index, other.pages[a:b + 1]), or doc.pages.extend(other.pages) to append.
 - Document.is_encrypted -> Document.needs_password: Read doc.needs_password, which is true until unlock() succeeds.
 - Document.is_form_pdf -> Document.form: len(doc.form) counts the form's fields; an empty doc.form means no form.
@@ -180,6 +183,7 @@ replacement, and the migration hint):
 - Document.new_page -> Pages.new: Use doc.pages.new((width, height), index=i); without index the page is appended.
 - Document.page_annot_xrefs -> Annotation.xref: [(annotation.xref, annotation.type) for annotation in doc.pages[n].annotations]
 - Document.page_count -> Pages.__len__: Use len(doc.pages).
+- Document.page_cropbox -> PageBoxes.crop: Read doc.pages[i].boxes.crop, in PDF user space as stored.
 - Document.page_xref -> Page.xref: Use doc.pages[i].xref.
 - Document.pagelayout -> Document.page_layout: doc.page_layout returns a PageLayout, SinglePage when unset.
 - Document.pagemode -> Document.page_mode: doc.page_mode returns a PageMode, UseNone when unset.
@@ -290,6 +294,7 @@ replacement, and the migration hint):
 - PDF_CH_FIELD_IS_* -> FieldFlags: Choice field flags such as PDF_CH_FIELD_IS_COMBO and PDF_CH_FIELD_IS_MULTI_SELECT are FieldFlags members such as FieldFlags.COMBO and MULTI_SELECT.
 - PDF_ENCRYPT_* -> Encryption: Pass encryption=Encryption(user_password=..., owner_password=..., permissions=...) to save() or to_bytes(), which writes AES-256 encryption; encryption=None writes none.
 - PDF_FIELD_IS_* -> FieldFlags: PDF_FIELD_IS_READ_ONLY, PDF_FIELD_IS_REQUIRED, and PDF_FIELD_IS_NO_EXPORT are FieldFlags.READ_ONLY, REQUIRED, and NO_EXPORT, which doc.form[name].flags returns.
+- PDF_PAGE_LABEL_* -> PageLabelStyle: PageLabelStyle members name the label styles, such as PageLabelStyle.LOWER_ROMAN for PDF_PAGE_LABEL_ROMAN_LC; PageLabelRange(style=None) labels with the prefix only, for PDF_PAGE_LABEL_NONE.
 - PDF_PERM_* -> Permissions: PDF_PERM_PRINT is Permissions.PRINT, and so on.
 - PDF_TX_FIELD_IS_* -> FieldFlags: Text field flags such as PDF_TX_FIELD_IS_MULTILINE and PDF_TX_FIELD_IS_COMB are FieldFlags members such as FieldFlags.MULTILINE and COMB.
 - PDF_WIDGET_TX_FORMAT_* -> Field.scripts: Text formats are Acrobat scripts: set field.scripts[ScriptTrigger.FORMAT] and [ScriptTrigger.KEYSTROKE], for example to AFDate_FormatEx("yyyy-mm-dd").
