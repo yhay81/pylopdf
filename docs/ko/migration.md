@@ -100,7 +100,10 @@ python -m pylopdf.migrate src/
 | pymupdf | pylopdf | 비고 |
 |---|---|---|
 | `page.insert_text()`, `insert_textbox()` | 같음 | `font=`, `fontbuffer=`, `font_language=`도 받음. [텍스트와 글꼴](api.md#fonts) 참고 |
-| `pymupdf.Font(...)`, `font.text_length()`, `has_glyph()` | 같음 | Standard 14 글꼴, OpenType 파일, 설치된 글꼴 extra. pymupdf의 다른 내장 글꼴과 `script=`, `ordering=`, `embed=`는 사용할 수 없음 |
+| `pymupdf.Font(...)` | `Font.standard(name)`, `Font.from_file(path)`, `Font.from_bytes(data)`, `Font.installed(language=...)` | PostScript 이름으로 지정하는 Standard 14 글꼴(`"helv"`는 `"Helvetica"`), OpenType 파일, 설치된 글꼴 extra. pymupdf의 다른 내장 글꼴과 `script=`, `ordering=`, `embed=`는 사용할 수 없음 |
+| `font.text_length(text, fontsize)`, `pymupdf.get_text_length(text, fontname, fontsize)` | `font.text_width(text, size)` | `size`에는 기본값이 없음. `font.text_height(text, size, width=...)`는 줄바꿈한 텍스트를 `canvas.textbox`가 그리는 대로 잼 |
+| `font.has_glyph(ord(c))` | `font.has_glyph(c)` | 문자 자체를 받고, 글리프 번호가 아니라 불리언을 반환 |
+| `pymupdf.Base14_fontnames`, `Base14_fontdict` | `typing.get_args(pylopdf.StandardFontName)` | `Font.standard()`가 받는 14개의 PostScript 이름 |
 | `page.insert_image(rect, filename=/stream=/pixmap=)` | 같음 | JPEG, PNG, `Pixmap`. 다른 형식은 Pillow로 변환. 같은 이미지를 두 번 삽입해도 한 번만 저장되므로 `xref=`가 필요 없음 |
 | `page.show_pdf_page(rect, docsrc, pno)` | 같음 | 원본이 같은 문서여도 됨 |
 | `page.new_shape()`, `shape.draw_*`, `finish()`, `insert_text()`, `commit()` | 같음 | `with page.new_shape() as shape:`는 자동으로 커밋. `morph=`와 `oc=`는 아직 지원하지 않음 |

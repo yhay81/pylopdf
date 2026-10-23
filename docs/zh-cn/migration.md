@@ -100,7 +100,10 @@ python -m pylopdf.migrate src/
 | pymupdf | pylopdf | 说明 |
 |---|---|---|
 | `page.insert_text()`、`insert_textbox()` | 相同 | 还接受`font=`、`fontbuffer=`和`font_language=`；参见[文本与字体](api.md#fonts) |
-| `pymupdf.Font(...)`、`font.text_length()`、`has_glyph()` | 相同 | Standard 14字体、OpenType文件和已安装的字体extra；pymupdf的其他内置字体以及`script=`、`ordering=`和`embed=`不可用 |
+| `pymupdf.Font(...)` | `Font.standard(name)`、`Font.from_file(path)`、`Font.from_bytes(data)`、`Font.installed(language=...)` | 按PostScript名称指定的Standard 14字体（`"helv"`对应`"Helvetica"`）、OpenType文件和已安装的字体extra；pymupdf的其他内置字体以及`script=`、`ordering=`和`embed=`不可用 |
+| `font.text_length(text, fontsize)`、`pymupdf.get_text_length(text, fontname, fontsize)` | `font.text_width(text, size)` | `size`没有默认值；`font.text_height(text, size, width=...)`按`canvas.textbox`的绘制方式测量换行后的文本 |
+| `font.has_glyph(ord(c))` | `font.has_glyph(c)` | 接受字符本身，返回布尔值而不是字形编号 |
+| `pymupdf.Base14_fontnames`、`Base14_fontdict` | `typing.get_args(pylopdf.StandardFontName)` | `Font.standard()`接受的14个PostScript名称 |
 | `page.insert_image(rect, filename=/stream=/pixmap=)` | 相同 | JPEG、PNG或`Pixmap`；其他格式请用Pillow转换。同一图像插入两次只存储一份，因此不需要`xref=` |
 | `page.show_pdf_page(rect, docsrc, pno)` | 相同 | 源文档可以是同一个文档 |
 | `page.new_shape()`、`shape.draw_*`、`finish()`、`insert_text()`、`commit()` | 相同 | `with page.new_shape() as shape:`会自动提交；尚不支持`morph=`和`oc=` |

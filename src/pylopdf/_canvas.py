@@ -26,7 +26,7 @@ from pylopdf._content import (
     Segment,
     Stroke,
 )
-from pylopdf._fonts import Font, _regular_instance, _require_winansi, _resolve_generation_font
+from pylopdf._fonts import Font, _regular_instance, _require_winansi, _resolve_generation_font, _textbox_text
 from pylopdf._geometry import Matrix, Point, Rect
 from pylopdf._hints import hinted_getattr
 from pylopdf._limits import (
@@ -834,23 +834,23 @@ class Canvas:
         """Wrap text inside ``rect`` and report how it fits.
 
         Lines break at Unicode line-break opportunities (UAX #14) and, for a
-        word wider than the box, between grapheme clusters. When the text
-        does not fit, nothing is drawn and :attr:`TextFit.spare_height` is
-        the negative shortfall. Tabs become single spaces. The font, paint,
-        and size options follow :meth:`text`.
+        word wider than the box, between grapheme clusters. They are placed
+        as :meth:`text` places them: the first baseline one
+        :attr:`Font.ascender` below the top of ``rect`` and later ones
+        ``line_height`` times ``size`` apart, by default at the font's own
+        line height, and the text fits when the descender of the last line
+        does. When the text does not fit, nothing is drawn and
+        :attr:`TextFit.spare_height` is the negative shortfall;
+        :meth:`Font.text_height` measures the height that the text needs
+        without drawing it. Tabs become single spaces. The font, paint, and
+        size options follow :meth:`text`.
         """
         self._check_open()
         box = _rect(rect, "rect")
-        if not isinstance(text, str):
-            msg = f"text must be a string: {text!r}"
-            raise TypeError(msg)
+        normalized = _textbox_text(text, max_text_size)
         if align not in _ALIGNMENTS:
             msg = f"align must be one of {', '.join(_ALIGNMENTS)}: {align!r}"
             raise ValueError(msg)
-        _validate_optional_positive_int("max_text_size", max_text_size)
-        if max_text_size is not None and len(text) > max_text_size:
-            text = text[: max_text_size + 1]
-        normalized = text.replace("\r\n", "\n").replace("\r", "\n").expandtabs(1)
         if not normalized:
             return TextFit(spare_height=box.y1 - box.y0)
         font_size = _size(size)

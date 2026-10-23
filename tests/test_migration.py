@@ -381,6 +381,21 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ),
         ("import fitz\npage.delete_annot(annot)\n", "del page.annotations[page.annotations.index(annot)]"),
         ("import fitz\ndef f(annot: fitz.Annot) -> None: ...\n", "def f(annot: pylopdf.Annotation) -> None: ..."),
+        ("import fitz\nfont = fitz.Font('helv')\n", 'font = pylopdf.Font.standard("Helvetica")'),
+        ("import fitz\nfont = fitz.Font(fontname='times-bold')\n", 'font = pylopdf.Font.standard("Times-Bold")'),
+        ("import fitz\nfont = fitz.Font(fontfile=path)\n", "font = pylopdf.Font.from_file(path)"),
+        ("import fitz\nfont = fitz.Font(fontbuffer=data, embed=1)\n", "font = pylopdf.Font.from_bytes(data)"),
+        (
+            "from fitz import Font\nwidth = Font('tibo').text_length(text, fontsize=9)\n",
+            'width = Font.standard("Times-Bold").text_width(text, 9)',
+        ),
+        ("import fitz\nwidth = font.text_length(text)\n", "width = font.text_width(text, 11)"),
+        (
+            "import fitz\nwidth = fitz.get_text_length(text, fontname='cour', fontsize=10)\n",
+            'width = pylopdf.Font.standard("Courier").text_width(text, 10)',
+        ),
+        ("import fitz\nfound = font.has_glyph(ord(char))\n", "found = font.has_glyph(char)"),
+        ("import fitz\nfound = font.has_glyph(0x3042)\n", "found = font.has_glyph(chr(0x3042))"),
     ],
 )
 def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> None:
@@ -458,6 +473,23 @@ def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> N
                 'labels = [{"startpage": label.start, "style": label.style or "", "prefix": label.prefix, '
                 '"firstpagenum": label.first} for label in doc.page_labels]'
             ),
+        ),
+        (
+            "import pylopdf\nfont = pylopdf.Font(language='ja', is_serif=True, is_bold=True)\n",
+            "font = pylopdf.Font.installed(language='ja', serif=True, weight=700)",
+        ),
+        (
+            "from pylopdf import Font\nfont = Font(family='Noto Sans Hebrew', weight=650, is_italic=False)\n",
+            "font = Font.installed(family='Noto Sans Hebrew', weight=650)",
+        ),
+        (
+            "import pylopdf\nfont = pylopdf.Font(fontfile=p, fontindex=1, weight=700, max_font_size=None)\n",
+            "font = pylopdf.Font.from_file(p, index=1, weight=700, max_size=None)",
+        ),
+        ("import pylopdf\nfont = pylopdf.Font(None, None, data)\n", "font = pylopdf.Font.from_bytes(data)"),
+        (
+            "import pylopdf\nwidth = font.text_length('x', max_text_size=None)\n",
+            "width = font.text_width('x', 11, max_text_size=None)",
         ),
     ],
 )
@@ -620,6 +652,11 @@ def test_codemod_marks_probe_results_for_review(migrate_source: Migrate) -> None
             "import pylopdf\nentries = doc.outline.entries()\ndoc.outline = entries\nfirst: pylopdf.Outline\n"
             "for item in doc.outline.walk():\n    item.title = item.title.upper()\nlabels = doc.page_labels\n"
         ),
+        (
+            "import pylopdf\nfont = pylopdf.Font.from_file(path, weight=700)\n"
+            "base = pylopdf.Font.standard('Helvetica')\n"
+            "width = font.text_width('x', 11) + font.text_height('x', 11, width=100)\nfound = font.has_glyph('x')\n"
+        ),
     ],
 )
 def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, source: str) -> None:
@@ -694,6 +731,14 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import fitz\nannot = page.first_annot\n", "Annotation handles have typed properties"),
         ("import fitz\nannot = page.add_highlight_annot(start=a, stop=b)\n", "page.annotations.add(Highlight("),
         ("import pylopdf\nannots = page.annots()\n", "links are in page.links"),
+        ("import fitz\nfont = fitz.Font('cjk')\n", "pymupdf's other built-in fonts"),
+        ("import fitz\nfont = fitz.Font(ordering=0)\n", "pymupdf's other built-in fonts"),
+        ("import fitz\nfont = fitz.Font(language='ja')\n", "Font.installed(language=..., family=...)"),
+        ("import pylopdf\nfont = pylopdf.Font(language='ja', allow_regular_fallback=True)\n", "Font.installed("),
+        ("import pylopdf\nfont = pylopdf.Font(family='Noto Serif JP', is_serif=True)\n", "Font.installed("),
+        ("import fitz\nfound = font.has_glyph(code)\n", "returns whether the face has a glyph for it"),
+        ("import fitz\nwidth = font.text_length(text, wmode=1)\n", "Font.text_length is Font.text_width"),
+        ("import fitz\nnames = fitz.Base14_fontnames\n", "typing.get_args(pylopdf.StandardFontName)"),
     ],
 )
 def test_codemod_marks_what_it_cannot_rewrite(migrate_source: Migrate, source: str, hint: str) -> None:

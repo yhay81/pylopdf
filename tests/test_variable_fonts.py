@@ -55,7 +55,7 @@ VARIABLE_FONT_FILES = {
     ("th", False): "NotoSansThai-Variable.ttf",
     ("th", True): "NotoSerifThai-Variable.ttf",
 }
-# Where a face comes from: Font(language=...), or its file as fontfile or fontbuffer.
+# Where a face comes from: Font.installed(language=...), or its file as fontfile or fontbuffer.
 SOURCES = ["language", "fontfile", "fontbuffer"]
 EXPLICIT_SOURCES = ["fontfile", "fontbuffer"]
 BOLD_FLAG = 16
@@ -105,18 +105,18 @@ def _variable_font(
     """
     if source == "language":
         pytest.importorskip(EXTRA_MODULES[language])
-        return pylopdf.Font(language=language, is_serif=serif, weight=weight)
+        return pylopdf.Font.installed(language=language, serif=serif, weight=weight)
     path = _variable_font_path(language, serif)
     if source == "fontfile":
-        return pylopdf.Font(fontfile=path, weight=weight)
-    return pylopdf.Font(fontbuffer=path.read_bytes(), weight=weight)
+        return pylopdf.Font.from_file(path, weight=weight)
+    return pylopdf.Font.from_bytes(path.read_bytes(), weight=weight)
 
 
 def _bold_font(source: str, language: pylopdf.FontLanguage, serif: bool) -> pylopdf.Font:  # noqa: FBT001
     """Load the bold instance as each source requests it: is_bold for a lookup, weight for a file."""
     if source == "language":
         pytest.importorskip(EXTRA_MODULES[language])
-        return pylopdf.Font(language=language, is_serif=serif, is_bold=True)
+        return pylopdf.Font.installed(language=language, serif=serif, weight=700)
     return _variable_font(source, language, serif, weight=700)
 
 
@@ -167,15 +167,15 @@ def test_hebrew_generation_embeds_the_regular_instance() -> None:
 
 def test_font_language_selects_the_regular_hebrew_instance() -> None:
     pytest.importorskip("pylopdf_fonts_he")
-    regular = pylopdf.Font(language="he")
-    thin = pylopdf.Font(language="he", weight=100)
+    regular = pylopdf.Font.installed(language="he")
+    thin = pylopdf.Font.installed(language="he", weight=100)
 
     assert (regular.name, regular.family, regular.weight) == ("Noto Sans Hebrew Regular", "Noto Sans Hebrew", 400)
     assert not regular.is_bold
     assert (thin.name, thin.weight) == ("Noto Sans Hebrew Thin", 100)
     for weight, advances in SHALOM_ADVANCES.items():
-        face = pylopdf.Font(language="he", weight=weight)
-        assert [face.text_length(char, 1000) for char in SHALOM] == pytest.approx(advances)
+        face = pylopdf.Font.installed(language="he", weight=weight)
+        assert [face.text_width(char, 1000) for char in SHALOM] == pytest.approx(advances)
     # Drawing with the font extra draws what the Font draws.
     expected, actual = (_new_page() for _ in range(2))
     expected[1].insert_text((20, 60), HEBREW, fontsize=18, font=regular)
@@ -188,14 +188,12 @@ def test_explicit_variable_font_input_keeps_its_default_instance() -> None:
     doc, page = _new_page(500, 300)
 
     page.insert_text((20, 150), SHALOM, fontsize=100, fontbuffer=data)
-    face = pylopdf.Font(fontbuffer=data)
+    face = pylopdf.Font.from_bytes(data)
 
     assert {span["font"] for span in _spans(page)} == {"NotoSansHebrew-Thin"}
     widths = [char["bbox"][2] - char["bbox"][0] for char in _chars(page)]
     assert widths == pytest.approx([advance / 10 for advance in SHALOM_ADVANCES[100]])
     assert (face.name, face.weight) == ("Noto Sans Hebrew Thin", 100)
-    with pytest.raises(pylopdf.PdfError, match="used as given"):
-        pylopdf.Font(fontbuffer=data, is_bold=True)
     assert len(doc.pages) == 1
 
 
@@ -209,7 +207,7 @@ def test_an_explicit_weight_selects_an_instance_of_the_input(source: str) -> Non
     assert (regular.name, regular.weight, regular.is_bold) == ("Noto Sans Hebrew Regular", 400, False)
     for weight, advances in SHALOM_ADVANCES.items():
         face = _variable_font(source, "he", False, weight=weight)
-        assert [face.text_length(char, 1000) for char in SHALOM] == pytest.approx(advances)
+        assert [face.text_width(char, 1000) for char in SHALOM] == pytest.approx(advances)
     _doc, page = _new_page(500, 300)
     page.insert_text((20, 150), SHALOM, fontsize=100, font=regular)
     assert {span["font"] for span in _spans(page)} == {"NotoSansHebrew-Regular"}
@@ -258,12 +256,8 @@ def test_explicit_input_refuses_weights_that_the_font_does_not_define() -> None:
     # The same face without its weight axis has only its default instance's weight.
     static = _without_weight_axis(HEBREW_SANS.read_bytes())
     with pytest.raises(pylopdf.PdfError, match="no weight axis, and its only face is weight-100, not regular; load"):
-        pylopdf.Font(fontbuffer=static, weight=400)
-    assert pylopdf.Font(fontbuffer=static, weight=100).name == "Noto Sans Hebrew Thin"
-    # The style options still select only installed extras' faces.
-    for option in ({"is_bold": True}, {"is_italic": True}, {"is_serif": True}, {"allow_regular_fallback": True}):
-        with pytest.raises(pylopdf.PdfError, match="used as given"):
-            pylopdf.Font(fontfile=HEBREW_SANS, weight=700, **option)  # ty: ignore[invalid-argument-type]
+        pylopdf.Font.from_bytes(static, weight=400)
+    assert pylopdf.Font.from_bytes(static, weight=100).name == "Noto Sans Hebrew Thin"
 
 
 @pytest.mark.parametrize("source", SOURCES)
@@ -286,7 +280,7 @@ def test_variable_faces_provide_named_weight_instances(
     assert (semibold.name, semibold.weight, semibold.is_bold) == (f"{family} SemiBold", 600, True)
     assert (between.name, between.weight) == (f"{family} 650wght", 650)
     # Heavier instances of these faces advance farther.
-    widths = [font.text_length(text, 20) for font in (regular, semibold, between, bold)]
+    widths = [font.text_width(text, 20) for font in (regular, semibold, between, bold)]
     assert widths == sorted(widths)
     assert widths[0] < widths[-1]
     # The weight axis varies neither the em, the line metrics, nor the style.
@@ -318,7 +312,7 @@ def test_a_bold_instance_measures_and_draws_the_same_width(
 
     chars = _chars(page)
     assert min(char["origin"][0] for char in chars) == pytest.approx(x, abs=1e-3)
-    assert max(char["bbox"][2] for char in chars) == pytest.approx(x + bold.text_length(text, size), abs=1e-2)
+    assert max(char["bbox"][2] for char in chars) == pytest.approx(x + bold.text_width(text, size), abs=1e-2)
     spans = _spans(page)
     # The subset carries the instance's PostScript name, family without spaces.
     assert {span["font"] for span in spans} == {f"{(bold.family or '').replace(' ', '')}-Bold"}
@@ -339,7 +333,7 @@ def test_a_prefix_of_a_bold_line_ends_where_the_next_glyph_begins(source: str) -
     page.insert_text((x, 80), text, font=bold, fontsize=size)
 
     following = next(char for char in _chars(page) if char["c"] == text[len(prefix)])
-    assert following["origin"][0] == pytest.approx(x + bold.text_length(prefix, size), abs=1e-3)
+    assert following["origin"][0] == pytest.approx(x + bold.text_width(prefix, size), abs=1e-3)
 
 
 @pytest.mark.parametrize("source", SOURCES)
@@ -355,14 +349,14 @@ def test_textbox_lays_out_a_bold_instance_with_its_advances(source: str) -> None
     line_height = bold.ascender - bold.descender
     assert spare == pytest.approx(rect[3] - rect[1] - (line_height - bold.descender) * 16, abs=1e-6)
     line = page.layout().to_dict()["blocks"][0]["lines"][0]
-    assert line["bbox"][0] == pytest.approx(rect[2] - bold.text_length(HEBREW, 16), abs=1e-2)
+    assert line["bbox"][0] == pytest.approx(rect[2] - bold.text_width(HEBREW, 16), abs=1e-2)
     assert line["bbox"][2] == pytest.approx(rect[2], abs=1e-2)
 
 
 def test_each_weight_on_a_page_keeps_its_own_subset_name() -> None:
     pytest.importorskip("pylopdf_fonts_he")
     doc, page = _new_page(400, 300)
-    faces = [pylopdf.Font(language="he", weight=weight) for weight in (100, 400, 650, 700, 900)]
+    faces = [pylopdf.Font.installed(language="he", weight=weight) for weight in (100, 400, 650, 700, 900)]
 
     for index, face in enumerate(faces):
         page.insert_text((20, 40 + 50 * index), HEBREW, font=face, fontsize=20)
@@ -389,27 +383,22 @@ def test_each_weight_on_a_page_keeps_its_own_subset_name() -> None:
 def test_a_weight_outside_the_axis_is_refused() -> None:
     pytest.importorskip("pylopdf_fonts_ar")
     pytest.importorskip("pylopdf_fonts_he")
-    with pytest.raises(pylopdf.PdfError, match=r"installs 'Noto Naskh Arabic' with weights 400 through 700; pass its"):
-        pylopdf.Font(language="ar", is_serif=True, weight=900)
+    with pytest.raises(pylopdf.PdfError, match=r"installs 'Noto Naskh Arabic' with weights 400 through 700; load its"):
+        pylopdf.Font.installed(language="ar", serif=True, weight=900)
     with pytest.raises(pylopdf.PdfError, match=r"'Noto Sans Hebrew' with weights 100 through 900.*weight-1000 face"):
-        pylopdf.Font(language="he", weight=1000)
-    with pytest.raises(pylopdf.PdfError, match=r"installs one 'Noto Sans Hebrew' face; pass its bold italic face"):
-        pylopdf.Font(language="he", is_bold=True, is_italic=True)
-
-    with pytest.warns(pylopdf.PylopdfWarning, match="has no weight-50 'Noto Sans Hebrew' face") as record:
-        fallback = pylopdf.Font(language="he", weight=50, allow_regular_fallback=True)
-    assert (fallback.name, fallback.weight) == ("Noto Sans Hebrew Regular", 400)
-    assert record[0].filename == __file__
-    assert pylopdf.Font(language="ar", is_serif=True, weight=700).name == "Noto Naskh Arabic Bold"
+        pylopdf.Font.installed(language="he", weight=1000)
+    with pytest.raises(pylopdf.PdfError, match=r"installs one 'Noto Sans Hebrew' face; load its bold italic face"):
+        pylopdf.Font.installed(language="he", weight=700, italic=True)
+    assert pylopdf.Font.installed(language="ar", serif=True, weight=700).name == "Noto Naskh Arabic Bold"
 
 
 def test_family_selects_the_same_instances_as_language() -> None:
     pytest.importorskip("pylopdf_fonts_he")
-    for options in ({}, {"is_bold": True}, {"weight": 650}):
-        by_family = pylopdf.Font(family="Noto Sans Hebrew", **options)  # ty: ignore[invalid-argument-type]
-        by_language = pylopdf.Font(language="he", **options)  # ty: ignore[invalid-argument-type]
+    for weight in (None, 700, 650):
+        by_family = pylopdf.Font.installed(family="Noto Sans Hebrew", weight=weight)
+        by_language = pylopdf.Font.installed(language="he", weight=weight)
         assert (by_family.name, by_family.weight) == (by_language.name, by_language.weight)
-        assert by_family.text_length(HEBREW, 12) == by_language.text_length(HEBREW, 12)
+        assert by_family.text_width(HEBREW, 12) == by_language.text_width(HEBREW, 12)
 
 
 def test_static_and_default_weight_faces_draw_as_before() -> None:
@@ -515,13 +504,13 @@ def test_form_appearances_draw_a_bold_instance_with_its_advances(source: str) ->
     lines = [line for block in page.layout().to_dict()["blocks"] for line in block["lines"]]
     first_name, _code, second_name = sorted(lines, key=lambda line: line["bbox"][1])
     for name in (first_name, second_name):
-        assert name["bbox"][0] == pytest.approx(278 - bold.text_length(HEBREW, 12), abs=1e-3)
+        assert name["bbox"][0] == pytest.approx(278 - bold.text_width(HEBREW, 12), abs=1e-3)
         assert name["bbox"][2] == pytest.approx(278, abs=1e-3)
     # Three characters take the middle positions 1 through 3 of six.
     cell = 256 / 6
     comb = sorted((char for char in _chars(page) if 90 < char["origin"][1] < 120), key=lambda char: char["origin"][0])
     assert [char["c"] for char in comb] == ["A", "1", "2"]
-    expected = [22 + (1 + index) * cell + (cell - bold.text_length(char, 12)) / 2 for index, char in enumerate("A12")]
+    expected = [22 + (1 + index) * cell + (cell - bold.text_width(char, 12)) / 2 for index, char in enumerate("A12")]
     assert [char["origin"][0] for char in comb] == pytest.approx(expected, abs=1e-3)
     reopened = pylopdf.open(saved)
     assert {field["name"]: field["value"] for field in reopened.get_form_fields()} == {"name": HEBREW, "code": "A12"}
@@ -545,17 +534,17 @@ def test_form_font_of_an_installed_extra_draws_what_automatic_selection_draws() 
     automatic, explicit = (pylopdf.open(_aligned_form_pdf()) for _ in range(2))
 
     automatic.set_form_field("name", HEBREW)
-    explicit.set_form_field("name", HEBREW, font=pylopdf.Font(language="he"))
+    explicit.set_form_field("name", HEBREW, font=pylopdf.Font.installed(language="he"))
 
     assert explicit.to_bytes() == automatic.to_bytes()
 
 
 def test_weights_share_the_installed_font_file() -> None:
     pytest.importorskip("pylopdf_fonts_he")
-    pylopdf.Font(language="he")
+    pylopdf.Font.installed(language="he")
     reads = _Document.package_font_reads()
 
-    faces = [pylopdf.Font(language="he", weight=weight) for weight in (100, 300, 700, 900)]
+    faces = [pylopdf.Font.installed(language="he", weight=weight) for weight in (100, 300, 700, 900)]
     _doc, page = _new_page()
     page.insert_text((20, 60), HEBREW, fontsize=12, font_language="he")
 

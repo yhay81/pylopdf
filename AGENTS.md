@@ -1940,36 +1940,44 @@ the concept and API overview.
   Keep third-party acknowledgements in `NOTICE.md` and include both license
   files through PEP 639. The Windows abi3 wheel measured 5.42 MB after
   integration, up from 4.44 MB.
-- `pylopdf.Font` follows pymupdf's `Font(fontname, fontfile, fontbuffer)` and
-  wraps `_Font` (`rust/src/font.rs`): either an OpenType face, held as shared
-  bytes plus the HarfRust font that shapes them and checked by krilla as
-  well, or a Standard 14 font. `text_length` measures OpenType text with
-  `generate::shaped_line_width`, the sum of shaped advances that places every
-  glyph krilla draws and that textbox and form layout wrap with, and Standard
-  14 text with `draw::standard_text_width`, which Standard 14 layout uses;
-  keep generation and measurement on those so a measured line stays the drawn
-  width. Drawing with an OpenType `font=` (`insert_text`, `insert_textbox`,
-  and `set_form_field`) passes the same bytes and index as `fontbuffer`, and
-  a face loaded without `weight` produces byte-identical output. A Standard
-  14 `font=` follows the `fontname` path of `insert_text` and
-  `insert_textbox`; `set_form_field` refuses it, because its Standard 14
-  path draws Helvetica only. `language=` and `family=` look up only the
-  faces of installed font extras, by the family names in
-  `_FONT_EXTRA_FAMILIES`. There is no font registry or other process-global
-  font state, and pylopdf never scans system font directories, so
-  output depends only on the fonts passed in. A face that does not match
-  `is_bold`, `is_italic`, or `weight` raises unless `allow_regular_fallback`
-  is set, which warns; never synthesize a weight by stroking, overprinting, or
-  render-mode changes. The `fontfile` and `fontbuffer` drawing arguments,
-  and `Font(fontfile=)` or `Font(fontbuffer=)` without `weight`, load a
-  variable font at its default instance, which need not be regular (Noto
-  Sans CJK JP's is Thin). The keyword-only `weight` extends a loaded face:
-  `_face_at_weight` selects that instance with
-  `_Font.with_weight`, so `weight=400` differs from an omitted weight, and
-  refuses a weight outside the axis; a static face must already declare the
-  requested weight class, and pylopdf never relabels it. `is_bold`,
-  `is_italic`, and `is_serif` keep pymupdf's lookup meaning and raise with
-  `fontname` and font files instead of selecting an instance there.
+- `pylopdf.Font` (`src/pylopdf/_fonts.py`) wraps `_Font` (`rust/src/font.rs`):
+  either an OpenType face, held as shared bytes plus the HarfRust font that
+  shapes them and checked by krilla as well, or a Standard 14 font. It has no
+  public constructor; `Font(...)` raises a `TypeError` that names the four
+  factories, which build one through `Font._wrap`. `Font.standard(name)`
+  takes the 14 PostScript names of `StandardFontName`, exactly;
+  `Font.from_file(path, /, *, index, weight, max_size)` and
+  `Font.from_bytes(data, /, ...)` load an OpenType face under the 64 MiB
+  default boundary; and `Font.installed(*, language, family, serif, weight,
+  italic)` selects the face of an installed font extra by the family names in
+  `_FONT_EXTRA_FAMILIES`, under the same boundary without a parameter.
+  `text_width` measures OpenType text with `generate::shaped_line_width`, the
+  sum of shaped advances that places every glyph krilla draws and that
+  textbox and form layout wrap with, and Standard 14 text with
+  `draw::standard_text_width`, which Standard 14 layout uses; keep
+  generation and measurement on those so a measured line stays the drawn
+  width. `text_height` runs the canvas's textbox layout, `generate::textbox_layout`
+  or `draw::standard_textbox_layout` with `LinePlacement::lines`, on text
+  normalized as `Canvas.textbox` normalizes it (`_textbox_text`) and returns
+  `TextBoxLayout::height`, so a textbox of that height fits with zero spare
+  height. `has_glyph(char)` takes one character and returns a bool. Drawing
+  with an OpenType `font=` (`insert_text`, `insert_textbox`, and
+  `set_form_field`) passes the same bytes and index as `fontbuffer`, and a
+  face loaded without `weight` produces byte-identical output. A Standard 14
+  `font=` follows the `fontname` path of `insert_text` and `insert_textbox`;
+  `set_form_field` refuses it, because its Standard 14 path draws Helvetica
+  only. There is no font registry or other process-global font state, and
+  pylopdf never scans system font directories, so output depends only on the
+  fonts passed in. A request that a face does not provide, a weight or an
+  italic style of an installed extra, raises; never synthesize a weight by
+  stroking, overprinting, or render-mode changes. The `fontfile` and
+  `fontbuffer` drawing arguments, and `Font.from_file` or `Font.from_bytes`
+  without `weight`, load a variable font at its default instance, which need
+  not be regular (Noto Sans CJK JP's is Thin). `weight` extends a loaded
+  face: `_face_at_weight` selects that instance with `_Font.with_weight`, so
+  `weight=400` differs from an omitted weight, and refuses a weight outside
+  the axis; a static face must already declare the requested weight class,
+  and pylopdf never relabels it.
 - The `ar`, `he`, `hi`, and `th` extras ship variable fonts with `wght` axes
   (100 through 900; Noto Naskh Arabic 400 through 700), and the default
   instance of Noto Sans Hebrew is Thin (weight class 100).
@@ -1985,9 +1993,8 @@ the concept and API overview.
   byte-identical, and a weight outside the axis fails instead of being
   clamped by krilla and HarfRust. Python passes the regular weight for faces
   of installed extras on every drawing path, path or bytes, and
-  `Font(language=...)` and `Font(family=...)` select another weight, from
-  `weight=` or `is_bold=True`, with `_Font.with_weight`, which shares the
-  face's bytes and package slot. An instance reports its axis value as
+  `Font.installed()` selects another weight from `weight=` with
+  `_Font.with_weight`, which shares the face's bytes and package slot. An instance reports its axis value as
   `weight`, counts as bold from 600, and takes its named instance's style
   in `name` (`Noto Sans Hebrew Bold`, else `650wght`). krilla names a subset
   after name ID 6, the default instance's PostScript name, so
@@ -2001,7 +2008,7 @@ the concept and API overview.
   differ from the shaped advance by one font unit while glyph positions
   follow HarfRust; every Hebrew and Thai letter of the bundled faces matched
   at the weights measured. The Pyodide contract has no font extras; it
-  covers instancing through `Font(fontbuffer=..., weight=...)` with the
+  covers instancing through `Font.from_bytes(data, weight=...)` with the
   repository's Noto Sans Hebrew, and native tests cover the extras.
 - `Canvas` (`src/pylopdf/_canvas.py`, recorded by `_Canvas` in
   `rust/src/canvas.rs`) records structured operations in the order of the
@@ -2143,8 +2150,11 @@ the concept and API overview.
   the first baseline one ascender below the top and later ones `lineheight`
   times the ascender apart, and fits `lineheight` times `fontsize` per line
   plus one descender, so its fit check does not follow the drawn lines when
-  the ascender differs from 1 em, as in pymupdf; the canvas's `textbox`
-  replaces this method in the API reset and need not keep the mismatch.
+  the ascender differs from 1 em, as in pymupdf. The canvas's `textbox`,
+  which replaces this method in the API reset, places lines with
+  `LinePlacement::lines` instead: the first baseline one ascender below the
+  top, later ones the `text` leading apart, and room down to the last line's
+  descender, which `Font.text_height` reports.
   Form appearances keep the OS/2 or AFM-bounding-box metrics
   (`font_vertical_metrics`, `standard_vertical_metrics`) and
   `LinePlacement::Stacked`, so their output did not change. `LineMetrics`

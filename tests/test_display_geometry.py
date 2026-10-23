@@ -157,7 +157,7 @@ def test_text_drawn_at_a_display_point_is_extracted_there(name: str, rotation: i
     elif via == "textbox":
         assert page.insert_textbox((40.0, 40.0, 300.0, 100.0), "Probe", fontsize=12) > 0
         # The first baseline lies one ascender below the top of the box.
-        point = (40.0, 40.0 + pylopdf.Font("helv").ascender * 12)
+        point = (40.0, 40.0 + pylopdf.Font.standard("Helvetica").ascender * 12)
     else:
         page.apply_ocr(words=ocr_words([(40.0, 40.0, 100.0, 52.0, "Probe")]), skip_existing=False)
         assert page.search("Probe") == [pytest.approx((40.0, 40.0, 100.0, 52.0), abs=0.1)]

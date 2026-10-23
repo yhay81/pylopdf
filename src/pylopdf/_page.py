@@ -714,14 +714,14 @@ class Page:
         limited to WinAnsi, roughly Latin-1.
 
         Pass a :class:`Font` as ``font`` to draw with a face loaded once, such as
-        a bold face; :meth:`Font.text_length` measures what this call draws.
+        a bold face; :meth:`Font.text_width` measures what this call draws.
         ``font`` cannot be combined with ``fontfile``, ``fontbuffer``,
         ``fontindex``, or ``font_language``, and ``fontname`` is then ignored.
 
         Pass exactly one of ``fontfile`` or ``fontbuffer`` to subset-embed an
         arbitrary OpenType font through krilla. This enables Unicode text,
         including shaped CJK and RTL scripts. A variable font is drawn at its
-        default instance; ``font=Font(fontfile=..., weight=...)`` draws another
+        default instance; ``font=Font.from_file(path, weight=...)`` draws another
         instance on its weight axis. Script extras ``pylopdf[ar]``,
         ``[he]``, ``[hi]``, and ``[th]`` plus locale extras ``[jp]``, ``[ko]``,
         ``[zh-cn]``, and ``[zh-tw]`` provide matching fonts.
@@ -937,7 +937,7 @@ class Page:
         wrapping. Pass a :class:`Font` as ``font``, or exactly one of
         ``fontfile`` or ``fontbuffer``, for HarfRust-shaped Unicode and a krilla
         subset-embedded OpenType font. Lines are measured with the advances
-        that :meth:`Font.text_length` returns. ``font`` cannot be combined with
+        that :meth:`Font.text_width` returns. ``font`` cannot be combined with
         the other font sources or ``fontindex``. ``fontfile`` and
         ``fontbuffer`` draw a variable font at its default instance, and a
         :class:`Font` loaded with ``weight`` draws another instance.

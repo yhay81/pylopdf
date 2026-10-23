@@ -47,7 +47,7 @@ use crate::document::{
 use crate::draw::{self, DeviceColor, ImageParts};
 use crate::font::{_Font, DrawFace};
 use crate::generate::{self, GenerationFace, GlyphRun};
-use crate::layout::MAX_GENERATED_TEXT_LINES;
+use crate::layout::{LinePlacement, MAX_GENERATED_TEXT_LINES};
 use crate::pixmap::Pixmap;
 use crate::placement_reuse::{FormSource, ImageDigest};
 use crate::shape::GeneratedDocument;
@@ -1914,6 +1914,7 @@ impl _Canvas {
         text_metrics(size, line_height)?;
         let max_lines = max_text_size.map(|_| MAX_GENERATED_TEXT_LINES);
         let face = font.get();
+        let placement = LinePlacement::lines(face.line_metrics(), line_height);
         match face.draw_face() {
             DrawFace::Embedded(face) => {
                 let font_size =
@@ -1925,7 +1926,7 @@ impl _Canvas {
                             rect,
                             text,
                             size,
-                            line_height,
+                            placement,
                             align,
                             max_lines,
                         )
@@ -1952,7 +1953,7 @@ impl _Canvas {
                             (rect[2] - rect[0], rect[3] - rect[1]),
                             name,
                             size,
-                            line_height,
+                            placement,
                             align == 3,
                             max_lines,
                         )

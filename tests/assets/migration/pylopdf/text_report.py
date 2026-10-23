@@ -22,6 +22,10 @@ hits = page.search("brown")
 assert len(hits) == 1 and hits[0].width > 0
 words = [word.text for word in page.words()]
 assert words[:2] == ["Chapter", "2"], words
+width = pylopdf.Font.standard("Helvetica").text_width("The quick brown fox", 11)
+font = pylopdf.Font.standard("Helvetica")
+assert font.text_width("The quick brown fox", 11) == width
+assert 40 + width < page.rect.width, width
 
 doc.metadata.update({"title": "Report", "author": "Example"})
 reopened = pylopdf.open(doc.to_bytes())

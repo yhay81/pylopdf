@@ -60,7 +60,7 @@ def _language(language: object) -> CjkFontLanguage:
 
 def _installed(language: CjkFontLanguage) -> FallbackFont:
     """Return the faces of the installed font extra for ``language``."""
-    return FallbackFont(Font(language=language), Font(language=language, is_serif=True))
+    return FallbackFont(Font.installed(language=language), Font.installed(language=language, serif=True))
 
 
 def _installed_languages() -> list[CjkFontLanguage]:

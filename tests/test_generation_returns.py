@@ -53,31 +53,6 @@ def test_show_pdf_page_returns_the_form_xref() -> None:
     assert "Stamp" in pylopdf.open(target.to_bytes()).pages[1].text()
 
 
-def test_base14_tables_match_pymupdf() -> None:
-    assert pylopdf.Base14_fontnames == (
-        "Courier",
-        "Courier-Oblique",
-        "Courier-Bold",
-        "Courier-BoldOblique",
-        "Helvetica",
-        "Helvetica-Oblique",
-        "Helvetica-Bold",
-        "Helvetica-BoldOblique",
-        "Times-Roman",
-        "Times-Italic",
-        "Times-Bold",
-        "Times-BoldItalic",
-        "Symbol",
-        "ZapfDingbats",
-    )
-    assert pylopdf.Base14_fontdict["helv"] == "Helvetica"
-    assert pylopdf.Base14_fontdict["times-bolditalic"] == "Times-BoldItalic"
-    assert pylopdf.Base14_fontdict["zadb"] == "ZapfDingbats"
-    assert len(pylopdf.Base14_fontdict) == 28
-    with pytest.raises(TypeError):
-        pylopdf.Base14_fontdict["new"] = "Helvetica"  # ty: ignore[invalid-assignment]
-
-
 @pytest.mark.parametrize(
     ("fontname", "base_font"),
     [

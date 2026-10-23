@@ -123,7 +123,10 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | pymupdf | pylopdf | Notes |
 |---|---|---|
 | `page.insert_text()`, `insert_textbox()` | Same | Also accept `font=`, `fontbuffer=`, and `font_language=`; see [Text and fonts](api.md#fonts) |
-| `pymupdf.Font(...)`, `font.text_length()`, `has_glyph()` | Same | Standard 14 fonts, OpenType files, and installed font extras; pymupdf's other built-in fonts and `script=`, `ordering=`, and `embed=` are not available |
+| `pymupdf.Font(...)` | `Font.standard(name)`, `Font.from_file(path)`, `Font.from_bytes(data)`, `Font.installed(language=...)` | Standard 14 fonts by PostScript name, such as `"Helvetica"` for `"helv"`, OpenType files, and installed font extras; pymupdf's other built-in fonts and `script=`, `ordering=`, and `embed=` are not available |
+| `font.text_length(text, fontsize)`, `pymupdf.get_text_length(text, fontname, fontsize)` | `font.text_width(text, size)` | `size` has no default; `font.text_height(text, size, width=...)` also measures wrapped text as `canvas.textbox` draws it |
+| `font.has_glyph(ord(c))` | `font.has_glyph(c)` | Takes the character and returns a bool, not the glyph number |
+| `pymupdf.Base14_fontnames`, `Base14_fontdict` | `typing.get_args(pylopdf.StandardFontName)` | The 14 PostScript names that `Font.standard()` takes |
 | `page.insert_image(rect, filename=/stream=/pixmap=)` | Same | JPEG, PNG, or `Pixmap`; convert other formats with Pillow. The same image inserted twice is stored once, so `xref=` is not needed |
 | `page.show_pdf_page(rect, docsrc, pno)` | Same | The source can be the same document |
 | `page.new_shape()`, `shape.draw_*`, `finish()`, `insert_text()`, `commit()` | Same | `with page.new_shape() as shape:` commits automatically; `morph=` and `oc=` are not supported yet |

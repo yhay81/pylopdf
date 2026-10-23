@@ -662,9 +662,9 @@ def _font_results(page: Any, font: bytes) -> dict[str, Any]:  # noqa: ANN401 - p
     """Draw with a reusable Font and require its measurement to match the drawing."""
     import pylopdf  # noqa: PLC0415
 
-    face = pylopdf.Font(fontbuffer=font)
+    face = pylopdf.Font.from_bytes(font)
     text = _JAPANESE + "AVA"
-    measured = face.text_length(text, 18)
+    measured = face.text_width(text, 18)
     page.insert_text((20, 115), text, fontsize=18, font=face)
     drawn = [
         span
@@ -676,9 +676,9 @@ def _font_results(page: Any, font: bytes) -> dict[str, Any]:  # noqa: ANN401 - p
     _require(len(drawn) == 1, "a Font run did not extract as one span")
     _require(
         abs(drawn[0]["chars"][-1]["bbox"][2] - (20 + measured)) < 0.01,  # noqa: PLR2004 - PDF real precision.
-        "Font.text_length differs from the drawn advance",
+        "Font.text_width differs from the drawn advance",
     )
-    standard = pylopdf.Font("helv")
+    standard = pylopdf.Font.standard("Helvetica")
     return {
         "name": face.name,
         "weight": face.weight,
@@ -687,12 +687,13 @@ def _font_results(page: Any, font: bytes) -> dict[str, Any]:  # noqa: ANN401 - p
         "units_per_em": face.units_per_em,
         "ascender": face.ascender,
         "descender": face.descender,
-        "text_length": measured,
-        "glyphs": [face.has_glyph(ord(character)) for character in _JAPANESE],
+        "text_width": measured,
+        "glyphs": [face.has_glyph(character) for character in [*_JAPANESE, "\U0001f980"]],
         "standard": [
             standard.name,
-            standard.text_length("AVA", 18),
-            standard.has_glyph(ord("A")),
+            standard.text_width("AVA", 18),
+            standard.has_glyph("A"),
+            standard.has_glyph("\u3042"),
             standard.ascender,
             standard.descender,
         ],
@@ -703,7 +704,7 @@ def _shape_results(font: bytes) -> dict[str, Any]:
     """Draw paths and mixed-font text with one Shape and record what it placed."""
     import pylopdf  # noqa: PLC0415
 
-    face = pylopdf.Font(fontbuffer=font)
+    face = pylopdf.Font.from_bytes(font)
     document = pylopdf.Document()
     page = document.pages.new((300, 200))
     page.rotation = 90
@@ -771,10 +772,10 @@ def _variable_font_results(font: bytes) -> dict[str, Any]:
     """
     import pylopdf  # noqa: PLC0415
 
-    as_given = pylopdf.Font(fontbuffer=font)
-    regular = pylopdf.Font(fontbuffer=font, weight=400)
-    bold = pylopdf.Font(fontbuffer=font, weight=700)
-    measured = bold.text_length(_HEBREW, 18)
+    as_given = pylopdf.Font.from_bytes(font)
+    regular = pylopdf.Font.from_bytes(font, weight=400)
+    bold = pylopdf.Font.from_bytes(font, weight=700)
+    measured = bold.text_width(_HEBREW, 18)
     document = pylopdf.Document()
     page = document.pages.new((240, 80))
     page.insert_text((20, 50), _HEBREW, fontsize=18, font=bold)
@@ -792,9 +793,9 @@ def _variable_font_results(font: bytes) -> dict[str, Any]:
     )
     return {
         "faces": [[face.name, face.weight] for face in (as_given, regular, bold)],
-        "advances": [face.text_length(_HEBREW, 1000) for face in (as_given, regular, bold)],
-        "text_length": measured,
-        "outside_axis": _exception_name(lambda: pylopdf.Font(fontbuffer=font, weight=1000)),
+        "advances": [face.text_width(_HEBREW, 1000) for face in (as_given, regular, bold)],
+        "text_width": measured,
+        "outside_axis": _exception_name(lambda: pylopdf.Font.from_bytes(font, weight=1000)),
         "form": _variable_font_form_results(bold),
     }
 
@@ -830,12 +831,12 @@ def _variable_font_form_results(bold: Any) -> dict[str, Any]:  # noqa: ANN401 - 
     fonts = sorted({span["font"] for line in lines for span in line["spans"]})
     _require(fonts == ["NotoSansHebrew-Bold"], "a form appearance embedded another instance")
     _require(
-        abs(name["bbox"][0] - (278 - bold.text_length(_HEBREW, 12))) < 0.01,  # noqa: PLR2004 - PDF real precision.
+        abs(name["bbox"][0] - (278 - bold.text_width(_HEBREW, 12))) < 0.01,  # noqa: PLR2004 - PDF real precision.
         "a right-aligned form appearance did not end its text at the measured advance",
     )
     cell = 256 / 6
     origins = sorted(char["origin"][0] for span in code["spans"] for char in span["chars"])
-    expected = [22 + (1 + index) * cell + (cell - bold.text_length(char, 12)) / 2 for index, char in enumerate("A12")]
+    expected = [22 + (1 + index) * cell + (cell - bold.text_width(char, 12)) / 2 for index, char in enumerate("A12")]
     _require(
         len(origins) == len(expected) and all(abs(a - b) < 0.01 for a, b in zip(origins, expected, strict=True)),  # noqa: PLR2004 - PDF real precision.
         "comb positions differ from the measured advances",
@@ -844,7 +845,9 @@ def _variable_font_form_results(bold: Any) -> dict[str, Any]:  # noqa: ANN401 - 
     return {
         "values": sorted([field["name"], field["value"]] for field in reopened.get_form_fields()),
         "fonts": fonts,
-        "standard_font": _exception_name(lambda: document.set_form_field("code", "A1", font=pylopdf.Font("helv"))),
+        "standard_font": _exception_name(
+            lambda: document.set_form_field("code", "A1", font=pylopdf.Font.standard("Helvetica"))
+        ),
     }
 
 
@@ -1406,8 +1409,8 @@ def _canvas_results(root: Path) -> dict[str, Any]:
     import pylopdf  # noqa: PLC0415
     from pylopdf import Color, Matrix, PathBuilder, Stroke  # noqa: PLC0415
 
-    font = pylopdf.Font(
-        fontbuffer=(root / "fonts/pylopdf-fonts-jp/src/pylopdf_fonts_jp/NotoSansJP-Regular.otf").read_bytes()
+    font = pylopdf.Font.from_bytes(
+        (root / "fonts/pylopdf-fonts-jp/src/pylopdf_fonts_jp/NotoSansJP-Regular.otf").read_bytes()
     )
     source = pylopdf.open(root / "tests/assets/real_world/pdf20-simple.pdf")
     document = pylopdf.Document()
@@ -1423,7 +1426,10 @@ def _canvas_results(root: Path) -> dict[str, Any]:
             canvas.image((0, 0, 40, 20), swatch)
             canvas.page((50, 0, 150, 100), source.pages[0])
         fit = canvas.textbox((10, 140, 140, 190), "Wrapped text " * 20, size=8)
+        height = font.text_height(_JAPANESE * 3, 10, width=60)
+        exact = canvas.textbox((150, 100, 210, 100 + height), _JAPANESE * 3, font=font, size=10)
     _require(not fit.fits, "the overflowing textbox drew")
+    _require(exact.spare_height == 0, "a textbox of the measured height did not fit exactly")
     content = page.content()
     return {
         "kinds": [type(item).__name__ for item in content],
@@ -1431,6 +1437,7 @@ def _canvas_results(root: Path) -> dict[str, Any]:
         "opacities": [round(float(item.context.opacity), 2) for item in content][:6],
         "text": _digest(page.text()),
         "spare_height": round(fit.spare_height, 2),
+        "text_height": round(height, 3),
     }
 
 
@@ -1442,7 +1449,7 @@ def _create_results(root: Path) -> dict[str, Any]:
     from pylopdf import Color, TagRole  # noqa: PLC0415
 
     font_path = root / "fonts/pylopdf-fonts-jp/src/pylopdf_fonts_jp/NotoSansJP-Regular.otf"
-    font = pylopdf.Font(fontbuffer=font_path.read_bytes())
+    font = pylopdf.Font.from_bytes(font_path.read_bytes())
     created = dt.datetime(2026, 1, 2, 3, 4, 5, tzinfo=dt.UTC)
     builder = pylopdf.create(standard="pdf/ua-1", language="en", title="Contract", created=created)
     with builder.page((300, 200)) as canvas:

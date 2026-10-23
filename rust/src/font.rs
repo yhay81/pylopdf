@@ -3,11 +3,11 @@
 //! `pylopdf.Font` wraps a `_Font`, which holds either an OpenType face or a
 //! Standard 14 font. An OpenType face keeps a `generate::GenerationFace`:
 //! its shared bytes and the HarfRust font that shapes them, at the instance
-//! of a variable face that `with_weight` selected. `text_length` measures
+//! of a variable face that `with_weight` selected. `text_width` measures
 //! with `generate::shaped_line_width`, the sum that places every glyph
-//! generation draws, and drawing passes the same face to the paths that
-//! `fontbuffer` uses. A Standard 14 font is not embedded; it measures with
-//! the Adobe AFM widths that Standard 14 text layout uses.
+//! generation draws, and `text_height` wraps text with the layout and line
+//! placement of the canvas's `textbox`. A Standard 14 font is not embedded;
+//! it measures with the Adobe AFM widths that Standard 14 text layout uses.
 
 use std::sync::Arc;
 
@@ -20,12 +20,13 @@ use read_fonts::tables::os2::SelectionFlags;
 use read_fonts::types::NameId;
 
 use crate::document::{
-    DEFAULT_MAX_FONT_INPUT_SIZE, DEFAULT_MAX_GENERATED_TEXT_SIZE, PdfError, load_generation_font,
-    validate_font_input, validate_generated_text_input,
+    DEFAULT_MAX_FONT_INPUT_SIZE, DEFAULT_MAX_GENERATED_TEXT_SIZE, PdfError, generated_text_err,
+    load_generation_font, validate_font_input, validate_generated_text_input,
+    validate_generated_text_line_count,
 };
 use crate::draw;
 use crate::generate::{self, GenerationFace, ShapingFont, WeightAxis};
-use crate::layout::LineMetrics;
+use crate::layout::{LineMetrics, LinePlacement, MAX_GENERATED_TEXT_LINES};
 
 /// The OS/2 weight class of a face that has no OS/2 table: Regular.
 const DEFAULT_WEIGHT_CLASS: u16 = 400;
@@ -195,8 +196,9 @@ impl _Font {
         }
     }
 
-    /// The ascender and descender that `insert_text` and `insert_textbox`
-    /// place lines with, as pymupdf's `Font` reports them.
+    /// The ascender and descender that text and textboxes place lines with:
+    /// what FreeType reads for an OpenType face, and the bounding box of the
+    /// URW font that MuPDF draws a Standard 14 font with.
     pub(crate) fn line_metrics(&self) -> LineMetrics {
         match &self.face {
             Face::OpenType(face) => face.line_metrics,
@@ -398,49 +400,112 @@ impl _Font {
     }
 
     /// Measure one line as drawing places it, in PDF units.
-    #[pyo3(signature = (text, fontsize, max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)))]
-    fn text_length(
+    #[pyo3(signature = (text, size, max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)))]
+    fn text_width(
         &self,
         py: Python<'_>,
         text: &str,
-        fontsize: f64,
+        size: f64,
         max_text_size: Option<usize>,
     ) -> PyResult<f64> {
         validate_generated_text_input(std::iter::once(text.as_bytes()), max_text_size)?;
         if text.contains(['\n', '\r']) {
             return Err(PdfError::new_err(
-                "text_length measures one line; split text at line breaks first",
+                "text_width measures one line; split text at line breaks first",
             ));
         }
-        if !(fontsize.is_finite() && fontsize > 0.0) {
-            return Err(PyValueError::new_err(format!(
-                "fontsize must be a positive number: {fontsize}"
-            )));
-        }
+        positive("size", size)?;
         match &self.face {
-            Face::OpenType(face) => py.detach(|| {
-                generate::shaped_line_width(face.generation.shaping_font(), text, fontsize)
-            }),
-            Face::Standard(font, _) => draw::standard_text_width(text, *font, fontsize),
+            Face::OpenType(face) => py
+                .detach(|| generate::shaped_line_width(face.generation.shaping_font(), text, size)),
+            Face::Standard(font, _) => draw::standard_text_width(text, *font, size),
         }
         .map_err(PdfError::new_err)
     }
 
-    /// Return the glyph number of `codepoint`, or 0 when the face has none.
+    /// Return the height that the canvas's `textbox` needs for `text`
+    /// wrapped `width` wide: the distance from the top of the box to the
+    /// descender of the last line. `text` has its line breaks normalized to
+    /// `\n` and its tabs expanded, as the textbox takes it.
+    #[pyo3(signature = (
+        text,
+        size,
+        width,
+        line_height=None,
+        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
+    ))]
+    fn text_height(
+        &self,
+        py: Python<'_>,
+        text: &str,
+        size: f64,
+        width: f64,
+        line_height: Option<f64>,
+        max_text_size: Option<usize>,
+    ) -> PyResult<f64> {
+        validate_generated_text_line_count(text.split('\n').count(), max_text_size)?;
+        validate_generated_text_input(std::iter::once(text.as_bytes()), max_text_size)?;
+        positive("size", size)?;
+        positive("width", width)?;
+        if let Some(line_height) = line_height {
+            positive("line_height", line_height)?;
+        }
+        let placement = LinePlacement::lines(self.line_metrics(), line_height);
+        let max_lines = max_text_size.map(|_| MAX_GENERATED_TEXT_LINES);
+        let layout = match &self.face {
+            Face::OpenType(face) => py.detach(|| {
+                generate::textbox_layout(
+                    face.generation.shaping_font(),
+                    text,
+                    (width, 0.0),
+                    size,
+                    placement,
+                    false,
+                    max_lines,
+                )
+            }),
+            Face::Standard(_, name) => py.detach(|| {
+                draw::standard_textbox_layout(
+                    text,
+                    (width, 0.0),
+                    name,
+                    size,
+                    placement,
+                    false,
+                    max_lines,
+                )
+            }),
+        }
+        .map_err(generated_text_err)?;
+        Ok(layout.height)
+    }
+
+    /// Return whether the face has a glyph for `codepoint`.
     ///
-    /// A Standard 14 font is not embedded and has no glyph numbers; its
-    /// number is the character's code in the font's encoding.
-    fn has_glyph(&self, codepoint: u32) -> u32 {
+    /// A Standard 14 font has one when its encoding, WinAnsi for the text
+    /// fonts, maps the character to a glyph of the font.
+    fn has_glyph(&self, codepoint: u32) -> bool {
         match &self.face {
             Face::OpenType(face) => face
                 .generation
                 .shaping_font()
                 .charmap()
                 .map_unicode(codepoint)
-                .map_or(0, |glyph| glyph.to_u32()),
+                .is_some_and(|glyph| glyph.to_u32() != 0),
             Face::Standard(font, _) => char::from_u32(codepoint)
                 .and_then(|character| draw::standard_glyph_code(*font, character))
-                .map_or(0, u32::from),
+                .is_some(),
         }
+    }
+}
+
+/// Refuse a measure that is not a positive finite number.
+fn positive(name: &str, value: f64) -> PyResult<()> {
+    if value.is_finite() && value > 0.0 {
+        Ok(())
+    } else {
+        Err(PyValueError::new_err(format!(
+            "{name} must be a positive number: {value}"
+        )))
     }
 }

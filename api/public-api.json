@@ -9,8 +9,6 @@
     "Array",
     "Attachment",
     "Attachments",
-    "Base14_fontdict",
-    "Base14_fontnames",
     "BlendMode",
     "Block",
     "Builder",
@@ -164,6 +162,7 @@
     "StaleObjectError",
     "StalePageError",
     "Standard",
+    "StandardFontName",
     "Stream",
     "String",
     "Stroke",
@@ -748,31 +747,6 @@
         ],
         "returns": "None"
       }
-    },
-    "Base14_fontdict": {
-      "kind": "constant",
-      "value": {
-        "repr": "mappingproxy({'courier': 'Courier', 'courier-oblique': 'Courier-Oblique', 'courier-bold': 'Courier-Bold', 'courier-boldoblique': 'Courier-BoldOblique', 'helvetica': 'Helvetica', 'helvetica-oblique': 'Helvetica-Oblique', 'helvetica-bold': 'Helvetica-Bold', 'helvetica-boldoblique': 'Helvetica-BoldOblique', 'times-roman': 'Times-Roman', 'times-italic': 'Times-Italic', 'times-bold': 'Times-Bold', 'times-bolditalic': 'Times-BoldItalic', 'symbol': 'Symbol', 'zapfdingbats': 'ZapfDingbats', 'helv': 'Helvetica', 'hebo': 'Helvetica-Bold', 'heit': 'Helvetica-Oblique', 'hebi': 'Helvetica-BoldOblique', 'cour': 'Courier', 'cobo': 'Courier-Bold', 'coit': 'Courier-Oblique', 'cobi': 'Courier-BoldOblique', 'tiro': 'Times-Roman', 'tibo': 'Times-Bold', 'tiit': 'Times-Italic', 'tibi': 'Times-BoldItalic', 'symb': 'Symbol', 'zadb': 'ZapfDingbats'})"
-      }
-    },
-    "Base14_fontnames": {
-      "kind": "constant",
-      "value": [
-        "Courier",
-        "Courier-Oblique",
-        "Courier-Bold",
-        "Courier-BoldOblique",
-        "Helvetica",
-        "Helvetica-Oblique",
-        "Helvetica-Bold",
-        "Helvetica-BoldOblique",
-        "Times-Roman",
-        "Times-Italic",
-        "Times-Bold",
-        "Times-BoldItalic",
-        "Symbol",
-        "ZapfDingbats"
-      ]
     },
     "BlendMode": {
       "kind": "enum",
@@ -3010,6 +2984,68 @@
           "kind": "property",
           "returns": "str | None"
         },
+        "from_bytes": {
+          "kind": "classmethod",
+          "signature": {
+            "parameters": [
+              {
+                "annotation": "bytes | bytearray | memoryview",
+                "kind": "positional_only",
+                "name": "data"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "index"
+              },
+              {
+                "annotation": "int | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "weight"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              }
+            ],
+            "returns": "Font"
+          }
+        },
+        "from_file": {
+          "kind": "classmethod",
+          "signature": {
+            "parameters": [
+              {
+                "annotation": "str | os.PathLike[str]",
+                "kind": "positional_only",
+                "name": "path"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "index"
+              },
+              {
+                "annotation": "int | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "weight"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              }
+            ],
+            "returns": "Font"
+          }
+        },
         "has_glyph": {
           "kind": "method",
           "signature": {
@@ -3019,12 +3055,50 @@
                 "name": "self"
               },
               {
-                "annotation": "int | str",
+                "annotation": "str",
                 "kind": "positional_or_keyword",
-                "name": "chr"
+                "name": "char"
               }
             ],
-            "returns": "int"
+            "returns": "bool"
+          }
+        },
+        "installed": {
+          "kind": "classmethod",
+          "signature": {
+            "parameters": [
+              {
+                "annotation": "FontLanguage | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "language"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "family"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "serif"
+              },
+              {
+                "annotation": "int | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "weight"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "italic"
+              }
+            ],
+            "returns": "Font"
           }
         },
         "is_bold": {
@@ -3043,7 +3117,20 @@
           "kind": "property",
           "returns": "str | None"
         },
-        "text_length": {
+        "standard": {
+          "kind": "classmethod",
+          "signature": {
+            "parameters": [
+              {
+                "annotation": "StandardFontName",
+                "kind": "positional_or_keyword",
+                "name": "name"
+              }
+            ],
+            "returns": "Font"
+          }
+        },
+        "text_height": {
           "kind": "method",
           "signature": {
             "parameters": [
@@ -3058,9 +3145,47 @@
               },
               {
                 "annotation": "float",
-                "default": 11,
                 "kind": "positional_or_keyword",
-                "name": "fontsize"
+                "name": "size"
+              },
+              {
+                "annotation": "float",
+                "kind": "keyword_only",
+                "name": "width"
+              },
+              {
+                "annotation": "float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "line_height"
+              },
+              {
+                "annotation": "int | None",
+                "default": 1048576,
+                "kind": "keyword_only",
+                "name": "max_text_size"
+              }
+            ],
+            "returns": "float"
+          }
+        },
+        "text_width": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "text"
+              },
+              {
+                "annotation": "float",
+                "kind": "positional_or_keyword",
+                "name": "size"
               },
               {
                 "annotation": "int | None",
@@ -3084,76 +3209,14 @@
       "signature": {
         "parameters": [
           {
-            "annotation": "str | None",
-            "default": null,
-            "kind": "positional_or_keyword",
-            "name": "fontname"
+            "annotation": "object",
+            "kind": "var_positional",
+            "name": "_args"
           },
           {
-            "annotation": "str | os.PathLike[str] | None",
-            "default": null,
-            "kind": "positional_or_keyword",
-            "name": "fontfile"
-          },
-          {
-            "annotation": "bytes | None",
-            "default": null,
-            "kind": "positional_or_keyword",
-            "name": "fontbuffer"
-          },
-          {
-            "annotation": "FontLanguage | None",
-            "default": null,
-            "kind": "keyword_only",
-            "name": "language"
-          },
-          {
-            "annotation": "bool",
-            "default": false,
-            "kind": "keyword_only",
-            "name": "is_bold"
-          },
-          {
-            "annotation": "bool",
-            "default": false,
-            "kind": "keyword_only",
-            "name": "is_italic"
-          },
-          {
-            "annotation": "bool",
-            "default": false,
-            "kind": "keyword_only",
-            "name": "is_serif"
-          },
-          {
-            "annotation": "int | None",
-            "default": null,
-            "kind": "keyword_only",
-            "name": "weight"
-          },
-          {
-            "annotation": "int",
-            "default": 0,
-            "kind": "keyword_only",
-            "name": "fontindex"
-          },
-          {
-            "annotation": "str | None",
-            "default": null,
-            "kind": "keyword_only",
-            "name": "family"
-          },
-          {
-            "annotation": "bool",
-            "default": false,
-            "kind": "keyword_only",
-            "name": "allow_regular_fallback"
-          },
-          {
-            "annotation": "int | None",
-            "default": 67108864,
-            "kind": "keyword_only",
-            "name": "max_font_size"
+            "annotation": "object",
+            "kind": "var_keyword",
+            "name": "_kwargs"
           }
         ],
         "returns": "None"
@@ -10312,6 +10375,10 @@
       "value": {
         "repr": "typing.Literal['pdf/a-1a', 'pdf/a-1b', 'pdf/a-2a', 'pdf/a-2b', 'pdf/a-2u', 'pdf/a-3a', 'pdf/a-3b', 'pdf/a-3u', 'pdf/a-4', 'pdf/a-4e', 'pdf/a-4f', 'pdf/ua-1']"
       }
+    },
+    "StandardFontName": {
+      "kind": "type-alias",
+      "target": "Literal['Courier', 'Courier-Oblique', 'Courier-Bold', 'Courier-BoldOblique', 'Helvetica', 'Helvetica-Oblique', 'Helvetica-Bold', 'Helvetica-BoldOblique', 'Times-Roman', 'Times-Italic', 'Times-Bold', 'Times-BoldItalic', 'Symbol', 'ZapfDingbats']"
     },
     "Stream": {
       "kind": "class",

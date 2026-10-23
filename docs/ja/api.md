@@ -401,7 +401,18 @@ with page.draw() as canvas:
 
 パスは`Color`の塗りと線を取ります。線は、幅、線端、角の形、マイター限界、破線を持つ`Stroke`か、1ポイントの線を表す`Color`です。どちらも指定しないパスは1ポイントの黒い線で描かれます。色の`alpha`は、その塗りや線を半透明にします。`PathBuilder`は`move_to`、`line_to`、`curve_to`、`quad_to`、`close`で形状を組み立て、`rect`、`ellipse`、`circle`、`polygon`、`sector`、`zigzag`、`wave`で図形をまるごと追加します。どのメソッドもビルダー自身を返すので、呼び出しを連鎖できます。
 
-テキストは[`Font`](#font)で描きます。OpenTypeフォントはHarfRustで字形処理し、何回の呼び出しで使ってもキャンバスごとに1回だけサブセットとして埋め込みます。`font`を指定しない場合、西欧のテキストはHelveticaで、それ以外のテキストはその文字体系に対応するインストール済みの[フォントのextra](getting-started.md#installation)で描きます。テキストは塗り、線、またはその両方で描けます。`textbox`はUnicodeが改行を許す位置で行を折り返します。テキストが収まらないときは何も描かず、`TextFit.spare_height`は不足分を表す負の値になるので、`fit.fits`は偽になります。
+テキストは[`Font`](#font)で描きます。OpenTypeフォントはHarfRustで字形処理し、何回の呼び出しで使ってもキャンバスごとに1回だけサブセットとして埋め込みます。`font`を指定しない場合、西欧のテキストはHelveticaで、それ以外のテキストはその文字体系に対応するインストール済みの[フォントのextra](getting-started.md#installation)で描きます。テキストは塗り、線、またはその両方で描けます。`text`は各行を前の行から`line_height × size`下に置き、既定ではフォント自身の行の高さ（アセンダーからディセンダーを引いた値）を使います。`textbox`はUnicodeが改行を許す位置で行を折り返し、同じ間隔で行を置きます。最初のベースラインは`rect`の上端からアセンダー1つ分下です。テキストが収まらないときは何も描かず、`TextFit.spare_height`は不足分を表す負の値になるので、`fit.fits`は偽になります。[`Font.text_height`](#font)を使うと、textboxが必要とする高さを描く前に測れるので、テキストを囲む枠の大きさや改ページを決められます。
+
+```python
+font = pylopdf.Font.from_file("NotoSansJP-Bold.otf")
+height = font.text_height(note, 10.5, width=300)
+if y + height + 16 > page.rect.height - 40:
+    page = doc.pages.new()
+    y = 40
+with page.draw() as canvas:
+    canvas.rect((40, y, 356, y + height + 16), radius=4, stroke=navy)
+    canvas.textbox((48, y + 8, 348, y + 8 + height), note, font=font, size=10.5)
+```
 
 次の4つのコンテキストマネージャは、その中で描いたものすべてに適用され、入れ子にできます。
 
@@ -424,7 +435,7 @@ from pathlib import Path
 import pylopdf
 from pylopdf import Color, TagRole
 
-font = pylopdf.Font(fontfile="NotoSans-Regular.ttf")
+font = pylopdf.Font.from_file("NotoSans-Regular.ttf")
 builder = pylopdf.create(standard="pdf/ua-1", language="en", title="Annual report")
 with builder.page((595.28, 841.89)) as canvas:
     canvas.bookmark("Summary")
@@ -497,24 +508,26 @@ page.insert_textbox(rect, text, *, align=pylopdf.TEXT_ALIGN_LEFT,
 ### Font { #font }
 
 ```python
-pylopdf.Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None,
-             is_bold=False, is_italic=False, is_serif=False, weight=None,
-             fontindex=0, family=None, allow_regular_fallback=False)
+pylopdf.Font.standard(name)
+pylopdf.Font.from_file(path, /, *, index=0, weight=None, max_size=64 MiB)
+pylopdf.Font.from_bytes(data, /, *, index=0, weight=None, max_size=64 MiB)
+pylopdf.Font.installed(*, language=None, family=None, serif=False, weight=None, italic=False)
 ```
 
 | 例 | 読み込むもの |
 |---|---|
-| `Font("helv")`, `Font("Times-Bold")` | Standard 14フォント |
-| `Font(fontfile="NotoSans-Regular.ttf")` | OpenTypeファイル |
-| `Font(fontfile="NotoSansCJKjp-VF.otf", weight=700)` | 可変フォントの1つの太さ |
-| `Font(language="ja")`, `Font(family="Noto Sans JP")` | インストール済みextraのフォント。`is_serif=True`で明朝体（セリフ体）を選びます |
-| `Font(language="he", is_bold=True)` | インストール済み可変フォントのBoldの太さ |
+| `Font.standard("Helvetica")`, `Font.standard("Times-Bold")` | Standard 14フォント（PostScript名で指定） |
+| `Font.from_file("NotoSansJP-Bold.otf")`, `Font.from_bytes(data)` | OpenTypeフォント（ファイルまたはそのバイト列から） |
+| `Font.from_file("NotoSansCJKjp-VF.otf", weight=700)` | 可変フォントの1つの太さ |
+| `Font.from_file("fonts.ttc", index=1)` | フォントコレクションの1つのフェイス |
+| `Font.installed(language="ja")`, `Font.installed(family="Noto Sans JP")` | インストール済みextraのフォント。`serif=True`でその言語の明朝体（セリフ体）を選びます |
+| `Font.installed(language="he", weight=700)` | インストール済み可変フォントのBoldの太さ |
 
-メソッドとプロパティ: `text_length(text, fontsize=11)`（カーニングを含む、描いたときの幅）、`ascender`、`descender`、`has_glyph(chr)`、`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`、`units_per_em`。
+フォントは、[キャンバス](#canvas)が描くとおりにテキストを測ります。`text_width(text, size)`は1行の幅で、カーニングと合字を含みます。`text_height(text, size, *, width, line_height=None)`は、テキストを幅`width`ポイントで折り返したときに`canvas.textbox`が必要とする高さです。この高さのtextboxにはテキストがちょうど収まります。プロパティは`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`、`units_per_em`、`ascender`、`descender`で、`has_glyph(char)`はフェイスがその文字のグリフを持つかどうかを返します。`typing.get_args(pylopdf.StandardFontName)`は`Font.standard()`が受け付ける14の名前を列挙します。Standard 14フォントは埋め込まれず、西欧（WinAnsi）の文字しか書けません。
 
 `weight`を指定せずに読み込んだ可変フォントは既定のインスタンスを使いますが、それがRegularの太さとは限りません。可変フォントのNoto Sans CJK JPの既定はThinです。Regularにするには`weight=400`を渡してください。描画メソッドの`fontfile`と`fontbuffer`引数も既定のインスタンスを使います。別の太さで描くには、`Font`を`font=`に渡してください。
 
-アラビア語・ヘブライ語・ヒンディー語・タイ語のextraは可変フォントを含むので、軸上の任意の太さを使えます（100–900。Noto Naskh Arabicは400–700）。CJKのextraはスタイルごとにRegularのフォントを1つだけ含みます。そのため`Font(language="ja", is_bold=True)`は`PdfError`を送出します。代わりに太字のファイルを`fontfile=`で読み込むか、`allow_regular_fallback=True`を渡して警告付きでRegularのフォントを受け入れてください。pylopdfがグリフを変形して太字や斜体を真似ることはありません。
+アラビア語・ヘブライ語・ヒンディー語・タイ語のextraは可変フォントを含むので、軸上の任意の太さを使えます（100–900。Noto Naskh Arabicは400–700）。CJKのextraはスタイルごとにRegularのフォントを1つだけ含みます。そのため`Font.installed(language="ja", weight=700)`は`PdfError`を送出します。Noto Sans JP Boldのような太字のフェイスを`Font.from_file()`で読み込んでください。pylopdfがグリフを変形して太字や斜体を真似ることはありません。
 
 pylopdfはシステムのフォントディレクトリを探さず、グローバルなフォント登録の仕組みも持たないため、出力は渡したフォントだけで決まります。
 
@@ -523,8 +536,8 @@ pylopdfはシステムのフォントディレクトリを探さず、グロー�
 `page.new_shape()`は`Shape`を返します。複数のパスとテキストを1つの単位として描くための、pymupdfの仕組みです。
 
 ```python
-regular = pylopdf.Font("helv")
-bold = pylopdf.Font("hebo")
+regular = pylopdf.Font.standard("Helvetica")
+bold = pylopdf.Font.standard("Helvetica-Bold")
 body = "Findings are listed below. " * 20
 
 with page.new_shape() as shape:
@@ -675,8 +688,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | `OcrEngine` | 再利用できるOCRエンジン。[オフラインOCR](ocr.md)を参照 |
 | `Canvas`, `PathBuilder`, `TextFit` | [キャンバス](#canvas)を参照 |
 | `create(...)`, `Builder`, `Standard`, `TagRole` | [新しい文書](#create)を参照 |
-| `Font`, `Shape` | [Font](#font)と[Shape](#shapes)を参照 |
-| `Base14_fontnames`, `Base14_fontdict` | `fontname=`が受け付けるStandard 14フォントの名前 |
+| `Font`, `StandardFontName`, `Shape` | [Font](#font)と[Shape](#shapes)を参照 |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [低レベルオブジェクト](#low-level-objects) |
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`ほかの内容の型 | [ページの内容](#content) |
 | `Colorspace` | [`Pixmap`](#pixmap)の色空間。`GRAY`と`RGB` |

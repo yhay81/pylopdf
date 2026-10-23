@@ -401,7 +401,18 @@ with page.draw() as canvas:
 
 路径接受`Color`填充和描边：描边可以是带有宽度、线帽、连接方式、斜接限制和虚线的`Stroke`，也可以是表示1点宽线条的`Color`。两者都未指定的路径以1点宽的黑线描边。颜色的`alpha`使相应的填充或描边半透明。`PathBuilder`用`move_to`、`line_to`、`curve_to`、`quad_to`和`close`构建几何形状，并用`rect`、`ellipse`、`circle`、`polygon`、`sector`、`zigzag`和`wave`添加完整的图形；每个方法都返回构建器本身，因此可以链式调用。
 
-文本用[`Font`](#font)绘制。OpenType字体用HarfRust进行字形整形（shaping），并以子集形式嵌入；无论有多少次调用用到它，每个画布只嵌入一次。不指定`font`时，西欧文本用Helvetica绘制，其他文本用该文字对应的已安装[字体extra](getting-started.md#installation)绘制。文本可以填充、描边或两者兼有。`textbox`在Unicode允许换行的位置断行；文本放不下时不绘制任何内容，`TextFit.spare_height`为表示不足量的负值，因此`fit.fits`为假。
+文本用[`Font`](#font)绘制。OpenType字体用HarfRust进行字形整形（shaping），并以子集形式嵌入；无论有多少次调用用到它，每个画布只嵌入一次。不指定`font`时，西欧文本用Helvetica绘制，其他文本用该文字对应的已安装[字体extra](getting-started.md#installation)绘制。文本可以填充、描边或两者兼有。`text`把每一行放在上一行下方`line_height × size`处，默认使用字体自身的行高，即上伸部减去下伸部。`textbox`在Unicode允许换行的位置断行，并以相同的间距排列各行，第一条基线位于`rect`顶边下方一个上伸部处；文本放不下时不绘制任何内容，`TextFit.spare_height`为表示不足量的负值，因此`fit.fits`为假。[`Font.text_height`](#font)在绘制之前测出textbox所需的高度，可据此确定文本外框的大小或决定分页：
+
+```python
+font = pylopdf.Font.from_file("NotoSansJP-Bold.otf")
+height = font.text_height(note, 10.5, width=300)
+if y + height + 16 > page.rect.height - 40:
+    page = doc.pages.new()
+    y = 40
+with page.draw() as canvas:
+    canvas.rect((40, y, 356, y + height + 16), radius=4, stroke=navy)
+    canvas.textbox((48, y + 8, 348, y + 8 + height), note, font=font, size=10.5)
+```
 
 以下四个上下文管理器作用于其中绘制的所有内容，并且可以嵌套：
 
@@ -424,7 +435,7 @@ from pathlib import Path
 import pylopdf
 from pylopdf import Color, TagRole
 
-font = pylopdf.Font(fontfile="NotoSans-Regular.ttf")
+font = pylopdf.Font.from_file("NotoSans-Regular.ttf")
 builder = pylopdf.create(standard="pdf/ua-1", language="en", title="Annual report")
 with builder.page((595.28, 841.89)) as canvas:
     canvas.bookmark("Summary")
@@ -497,24 +508,26 @@ page.insert_textbox(rect, text, *, align=pylopdf.TEXT_ALIGN_LEFT,
 ### Font { #font }
 
 ```python
-pylopdf.Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None,
-             is_bold=False, is_italic=False, is_serif=False, weight=None,
-             fontindex=0, family=None, allow_regular_fallback=False)
+pylopdf.Font.standard(name)
+pylopdf.Font.from_file(path, /, *, index=0, weight=None, max_size=64 MiB)
+pylopdf.Font.from_bytes(data, /, *, index=0, weight=None, max_size=64 MiB)
+pylopdf.Font.installed(*, language=None, family=None, serif=False, weight=None, italic=False)
 ```
 
 | 示例 | 加载的字体 |
 |---|---|
-| `Font("helv")`、`Font("Times-Bold")` | Standard 14字体 |
-| `Font(fontfile="NotoSans-Regular.ttf")` | OpenType文件 |
-| `Font(fontfile="NotoSansCJKjp-VF.otf", weight=700)` | 可变字体的某个字重 |
-| `Font(language="ja")`、`Font(family="Noto Sans JP")` | 已安装extra中的字体；`is_serif=True`选择衬线体 |
-| `Font(language="he", is_bold=True)` | 已安装可变字体的粗体字重 |
+| `Font.standard("Helvetica")`、`Font.standard("Times-Bold")` | Standard 14字体，按PostScript名称指定 |
+| `Font.from_file("NotoSansJP-Bold.otf")`、`Font.from_bytes(data)` | OpenType字体，来自文件或其字节 |
+| `Font.from_file("NotoSansCJKjp-VF.otf", weight=700)` | 可变字体的某个字重 |
+| `Font.from_file("fonts.ttc", index=1)` | 字体集合中的一个字体 |
+| `Font.installed(language="ja")`、`Font.installed(family="Noto Sans JP")` | 已安装extra中的字体；`serif=True`选择该语言的衬线体 |
+| `Font.installed(language="he", weight=700)` | 已安装可变字体的粗体字重 |
 
-方法和属性：`text_length(text, fontsize=11)`（实际绘制的宽度，含字距调整）、`ascender`、`descender`、`has_glyph(chr)`、`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`和`units_per_em`。
+字体按[画布](#canvas)的绘制方式测量文本。`text_width(text, size)`是一行的宽度，含字距调整和连字。`text_height(text, size, *, width, line_height=None)`是文本按`width`点宽度换行时`canvas.textbox`所需的高度，因此这个高度的textbox正好容纳该文本。属性有`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`、`units_per_em`、`ascender`和`descender`；`has_glyph(char)`返回字体是否有该字符的字形。`typing.get_args(pylopdf.StandardFontName)`列出`Font.standard()`接受的14个名称。Standard 14字体不嵌入，只能书写西欧（WinAnsi）字符。
 
 不指定`weight`加载的可变字体使用其默认实例，而默认实例不一定是常规字重：可变字体Noto Sans CJK JP的默认实例是Thin。要使用常规字重，请传入`weight=400`。绘制方法的`fontfile`和`fontbuffer`参数同样使用默认实例；要以其他字重绘制，请将`Font`作为`font=`传入。
 
-阿拉伯语、希伯来语、印地语和泰语的extra提供可变字体，因此字重轴上的任意字重都可以使用（100–900；Noto Naskh Arabic为400–700）。CJK extra每种样式只提供一个常规字重的字体：`Font(language="ja", is_bold=True)`会抛出`PdfError`，请改用`fontfile=`加载粗体文件，或传入`allow_regular_fallback=True`以接受常规字体并发出警告。pylopdf从不通过扭曲字形来模仿粗体或斜体。
+阿拉伯语、希伯来语、印地语和泰语的extra提供可变字体，因此字重轴上的任意字重都可以使用（100–900；Noto Naskh Arabic为400–700）。CJK extra每种样式只提供一个常规字重的字体：`Font.installed(language="ja", weight=700)`会抛出`PdfError`，请用`Font.from_file()`加载Noto Sans JP Bold等粗体字体。pylopdf从不通过扭曲字形来模仿粗体或斜体。
 
 pylopdf不搜索系统字体目录，也没有全局字体注册表，因此输出只取决于你传入的字体。
 
@@ -523,8 +536,8 @@ pylopdf不搜索系统字体目录，也没有全局字体注册表，因此输�
 `page.new_shape()`返回`Shape`，这是pymupdf中把多条路径和多段文本作为一个整体绘制的工具：
 
 ```python
-regular = pylopdf.Font("helv")
-bold = pylopdf.Font("hebo")
+regular = pylopdf.Font.standard("Helvetica")
+bold = pylopdf.Font.standard("Helvetica-Bold")
 body = "Findings are listed below. " * 20
 
 with page.new_shape() as shape:
@@ -675,8 +688,7 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 | `OcrEngine` | 可复用的OCR引擎；参见[离线OCR](ocr.md) |
 | `Canvas`、`PathBuilder`、`TextFit` | 参见[画布](#canvas) |
 | `create(...)`、`Builder`、`Standard`、`TagRole` | 参见[新文档](#create) |
-| `Font`、`Shape` | 参见[Font](#font)和[图形](#shapes) |
-| `Base14_fontnames`、`Base14_fontdict` | `fontname=`接受的Standard 14字体名称 |
+| `Font`、`StandardFontName`、`Shape` | 参见[Font](#font)和[图形](#shapes) |
 | `Name`、`String`、`Array`、`Dictionary`、`Stream`、`Objects` | [底层对象](#low-level-objects) |
 | `Content`、`TextRun`、`Path`、`Image`、`Glyph`、`FontRef`、`Color`、`Stroke`、`GraphicsContext`及其他内容类型 | [页面内容](#content) |
 | `Colorspace` | [`Pixmap`](#pixmap)的颜色空间：`GRAY`和`RGB` |

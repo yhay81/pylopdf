@@ -290,8 +290,10 @@ Workstream Writing.
   fonts; `image`; `page`, which places another page; the scoped states
   `clip`, `transform`, `opacity`, and `blend` (all done), then `mask`,
   `layer`, and `tag`; and `draw(item)`, which paints a content item again
-  (done for paths). Still to come: `rotate` for text, and `clip` and
-  `rotate` for placed pages.
+  (done for paths). `textbox` places lines as `text` does, and
+  `Font.text_height` measures the height it needs before drawing (done).
+  Still to come: `rotate` for text, and `clip` and `rotate` for placed
+  pages.
 - One commit places one Form XObject whose content pylopdf composes in
   display space (done). Paths, clips, transforms, and blend modes are
   operators; an opacity scope is a transparency group Form; text in an
@@ -410,8 +412,14 @@ the canvas.
   annotation with its popup; `AnnotationType` and `AnnotationFlags` replace
   `AnnotType` and `AnnotFlags`. The other specifications and editable
   properties come with the Interaction milestone.
-- Still to come, each with its codemod rules: forms and widgets, writing,
-  and the remaining constants and records.
+- Done: fonts. `Font.standard()`, `Font.from_file()`, `Font.from_bytes()`,
+  and `Font.installed()` replace the `Font(...)` constructor,
+  `text_width()` replaces `text_length()`, `text_height()` measures wrapped
+  text as the canvas's `textbox` places it, `has_glyph()` returns a bool,
+  and `StandardFontName` replaces `Base14_fontnames` and `Base14_fontdict`.
+- Still to come, each with its codemod rules: forms and widgets, the
+  canvas in place of the page's drawing methods and `Shape`, and the
+  remaining constants and records.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs

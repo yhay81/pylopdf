@@ -63,6 +63,23 @@ OcrRotation: TypeAlias = Literal[0, 90, 180, 270]
 FontLanguage: TypeAlias = Literal["ar", "he", "hi", "ja", "ko", "th", "zh-CN", "zh-TW"]
 #: Locale slot used for non-embedded Adobe CJK font fallback.
 CjkFontLanguage: TypeAlias = Literal["ja", "ko", "zh-CN", "zh-TW"]
+#: The PostScript name of a Standard 14 font, which :meth:`Font.standard` takes.
+StandardFontName: TypeAlias = Literal[
+    "Courier",
+    "Courier-Oblique",
+    "Courier-Bold",
+    "Courier-BoldOblique",
+    "Helvetica",
+    "Helvetica-Oblique",
+    "Helvetica-Bold",
+    "Helvetica-BoldOblique",
+    "Times-Roman",
+    "Times-Italic",
+    "Times-Bold",
+    "Times-BoldItalic",
+    "Symbol",
+    "ZapfDingbats",
+]
 
 
 class ImageCompressionResult(TypedDict):

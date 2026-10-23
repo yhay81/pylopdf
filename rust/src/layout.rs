@@ -19,6 +19,8 @@ pub struct TextBoxLine {
 /// Textbox layout computed before any PDF objects are mutated.
 pub struct TextBoxLayout {
     pub lines: Vec<TextBoxLine>,
+    /// The height that the lines need, which the placement defines.
+    pub height: f64,
     pub spare_height: f64,
     pub ascent: f64,
     pub leading: f64,
@@ -103,9 +105,9 @@ impl LineMetrics {
 /// How a textbox places its lines vertically and decides whether they fit.
 #[derive(Clone, Copy)]
 pub enum LinePlacement {
-    /// Form appearances: the first baseline `ascent` em below the box top,
-    /// later ones `line_height` em apart, and room from the first line's
-    /// ascent to the last line's descent.
+    /// The canvas and form appearances: the first baseline `ascent` em below
+    /// the box top, later ones `line_height` em apart, and room from the
+    /// first line's ascent to the last line's descent.
     Stacked {
         ascent: f64,
         descent: f64,
@@ -127,6 +129,18 @@ impl LinePlacement {
     pub fn textbox(metrics: LineMetrics, lineheight: Option<f64>) -> Self {
         Self::Ascender {
             metrics,
+            line_height: metrics.line_height(lineheight),
+        }
+    }
+
+    /// Place lines as the canvas's `text` spaces them: the first baseline
+    /// one ascender below the box top, later ones `lineheight` em apart, by
+    /// default the font's line height (see [`LineMetrics::line_height`]),
+    /// and room down to the last line's descender.
+    pub fn lines(metrics: LineMetrics, lineheight: Option<f64>) -> Self {
+        Self::Stacked {
+            ascent: metrics.ascender,
+            descent: -metrics.descender,
             line_height: metrics.line_height(lineheight),
         }
     }
@@ -192,12 +206,14 @@ where
         lines.extend(paragraph_lines);
     }
 
-    let mut spare_height = height - placement.required_height(lines.len(), font_size);
+    let required = placement.required_height(lines.len(), font_size);
+    let mut spare_height = height - required;
     if spare_height.abs() <= FIT_TOLERANCE {
         spare_height = 0.0;
     }
     Ok(TextBoxLayout {
         lines,
+        height: required,
         spare_height,
         ascent: placement.ascent(),
         leading: placement.leading(font_size),

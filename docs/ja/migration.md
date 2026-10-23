@@ -100,7 +100,10 @@ python -m pylopdf.migrate src/
 | pymupdf | pylopdf | 備考 |
 |---|---|---|
 | `page.insert_text()`, `insert_textbox()` | 同じ | `font=`、`fontbuffer=`、`font_language=`も受け付けます。[テキストとフォント](api.md#fonts)を参照 |
-| `pymupdf.Font(...)`, `font.text_length()`, `has_glyph()` | 同じ | Standard 14フォント、OpenTypeファイル、インストール済みのフォントextra。pymupdfのほかの内蔵フォントと、`script=`、`ordering=`、`embed=`は使えません |
+| `pymupdf.Font(...)` | `Font.standard(name)`, `Font.from_file(path)`, `Font.from_bytes(data)`, `Font.installed(language=...)` | PostScript名で指定するStandard 14フォント（`"helv"`は`"Helvetica"`）、OpenTypeファイル、インストール済みのフォントextra。pymupdfのほかの内蔵フォントと、`script=`、`ordering=`、`embed=`は使えません |
+| `font.text_length(text, fontsize)`, `pymupdf.get_text_length(text, fontname, fontsize)` | `font.text_width(text, size)` | `size`に既定値はありません。`font.text_height(text, size, width=...)`は、折り返したテキストを`canvas.textbox`が描くとおりに測ります |
+| `font.has_glyph(ord(c))` | `font.has_glyph(c)` | 文字そのものを受け取り、グリフ番号ではなく真偽値を返します |
+| `pymupdf.Base14_fontnames`, `Base14_fontdict` | `typing.get_args(pylopdf.StandardFontName)` | `Font.standard()`が受け付ける14のPostScript名 |
 | `page.insert_image(rect, filename=/stream=/pixmap=)` | 同じ | JPEG、PNG、`Pixmap`。ほかの形式はPillowで変換してください。同じ画像を2回挿入しても1回だけ格納されるので、`xref=`は不要です |
 | `page.show_pdf_page(rect, docsrc, pno)` | 同じ | 取り込み元は同じ文書でもかまいません |
 | `page.new_shape()`, `shape.draw_*`, `finish()`, `insert_text()`, `commit()` | 同じ | `with page.new_shape() as shape:`は自動で確定します。`morph=`と`oc=`にはまだ対応していません |

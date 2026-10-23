@@ -186,7 +186,7 @@ def test_lines_below_the_page_are_left_out_as_in_pymupdf(
 ) -> None:
     page = _page()
     if "font" in options:
-        options = {**options, "font": pylopdf.Font(options["font"])}
+        options = {**options, "font": pylopdf.Font.standard(options["font"])}
 
     assert _insert_text(page, via, text, point, **options) == len(spans)
     _assert_spans(page, spans)
@@ -216,7 +216,7 @@ def test_embedded_fonts_leave_out_lines_below_the_page_as_in_pymupdf(
     sources: dict[str, Any] = {
         "fontfile": NOTO_SANS_JP,
         "fontbuffer": NOTO_SANS_JP.read_bytes(),
-        "font": pylopdf.Font(fontfile=NOTO_SANS_JP),
+        "font": pylopdf.Font.from_file(NOTO_SANS_JP),
     }
 
     assert _insert_text(page, via, JAPANESE, point, **{source: sources[source]}, **options) == 3

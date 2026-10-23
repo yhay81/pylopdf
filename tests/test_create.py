@@ -35,7 +35,7 @@ PHOTO_JPEG = base64.b64decode(
 
 @pytest.fixture(scope="module")
 def font() -> pylopdf.Font:
-    return pylopdf.Font(fontfile=NOTO_SANS_JP)
+    return pylopdf.Font.from_file(NOTO_SANS_JP)
 
 
 def _items(page: pylopdf.Page) -> list[Any]:

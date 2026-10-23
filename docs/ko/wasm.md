@@ -90,7 +90,7 @@ WebAssembly 런타임인지 확인하려면 `sys.platform == "emscripten"`을 �
 |---|---|
 | `doc.render(workers=...)` | 받아들이지만 페이지를 하나씩 차례로 렌더링 |
 | 내장 OCR(`OcrEngine`, `ocr`, `apply_ocr`) | 사용 불가. `OcrError`가 발생합니다. 다른 곳에서 OCR을 실행하고 그 단어를 `Page.apply_ocr(words=...)`로 추가하세요 |
-| 글꼴 extra(`pylopdf[jp]` 등) | 테스트하지 않음. 글꼴 데이터를 `fontbuffer=`나 `doc.fallback_fonts`의 `Font(fontbuffer=...)`로 직접 전달하세요 |
+| 글꼴 extra(`pylopdf[jp]` 등) | 테스트하지 않음. 글꼴 데이터를 `fontbuffer=`나 `doc.fallback_fonts`의 `Font.from_bytes(data)`로 직접 전달하세요 |
 
 큰 페이지를 높은 해상도로 렌더링하면 PDF 파일 자체가 작더라도 이미지 전체가 메모리에 필요하며, 리소스 제한은 오래 실행되는 호출을 멈추지 않습니다. 네이티브 Python과 마찬가지로 호스트에서 시간 제한을 강제하세요.
 

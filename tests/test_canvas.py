@@ -139,7 +139,7 @@ def test_drawing_keeps_paint_order() -> None:
         canvas.rect((10, 10, 60, 60), fill=RED)
         canvas.text("first", (10, 90))
         canvas.rect((70, 10, 120, 60), fill=BLUE)
-        canvas.text("second", (10, 120), font=pylopdf.Font(fontfile=NOTO_SANS_JP))
+        canvas.text("second", (10, 120), font=pylopdf.Font.from_file(NOTO_SANS_JP))
         canvas.rect((130, 10, 180, 60), fill=BLACK)
     kinds = [type(item).__name__ for item in _items(page)]
     assert kinds == ["Path", "TextRun", "Path", "TextRun", "Path"]
@@ -148,7 +148,7 @@ def test_drawing_keeps_paint_order() -> None:
 
 def test_text_in_standard_and_embedded_fonts() -> None:
     _doc, page = _new_page(400, 200)
-    font = pylopdf.Font(fontfile=NOTO_SANS_JP)
+    font = pylopdf.Font.from_file(NOTO_SANS_JP)
     with page.draw() as canvas:
         canvas.text("Helvetica text", (20, 40), size=12, fill=RED)
         canvas.text("日本語の文章", (20, 80), font=font, size=16, fill=BLUE)
@@ -176,7 +176,7 @@ def test_non_winansi_text_without_a_font_uses_an_installed_extra() -> None:
 @pytest.mark.parametrize("embedded", [False, True])
 def test_text_can_be_stroked(embedded: bool) -> None:  # noqa: FBT001 - parametrized.
     _doc, page = _new_page()
-    font = pylopdf.Font(fontfile=NOTO_SANS_JP) if embedded else None
+    font = pylopdf.Font.from_file(NOTO_SANS_JP) if embedded else None
     with page.draw() as canvas:
         canvas.text("Outline", (20, 40), font=font, size=20, fill=None, stroke=Stroke(paint=RED, width=0.5))
         canvas.text("Both", (20, 80), font=font, size=20, fill=BLUE, stroke=RED)
@@ -195,7 +195,7 @@ def test_text_can_be_stroked(embedded: bool) -> None:  # noqa: FBT001 - parametr
 @pytest.mark.parametrize("embedded", [False, True])
 def test_translucent_text(embedded: bool) -> None:  # noqa: FBT001 - parametrized.
     _doc, page = _new_page()
-    font = pylopdf.Font(fontfile=NOTO_SANS_JP) if embedded else None
+    font = pylopdf.Font.from_file(NOTO_SANS_JP) if embedded else None
     with page.draw() as canvas:
         canvas.text("faint", (20, 40), font=font, fill=Color(0, 0, 0, 0.5))
     (run,) = page.content().text_runs
@@ -211,13 +211,13 @@ def test_text_needs_a_fill_or_a_stroke() -> None:
 def test_standard_14_text_must_be_winansi() -> None:
     _doc, page = _new_page()
     with page.draw() as canvas, pytest.raises(ValueError, match="WinAnsi"):
-        canvas.text("日本", (10, 10), font=pylopdf.Font("helv"))
+        canvas.text("日本", (10, 10), font=pylopdf.Font.standard("Helvetica"))
 
 
 @pytest.mark.parametrize("embedded", [False, True])
 def test_textbox_fits_or_draws_nothing(embedded: bool) -> None:  # noqa: FBT001 - parametrized.
     _doc, page = _new_page()
-    font = pylopdf.Font(fontfile=NOTO_SANS_JP) if embedded else None
+    font = pylopdf.Font.from_file(NOTO_SANS_JP) if embedded else None
     with page.draw() as canvas:
         fit = canvas.textbox((10, 10, 150, 100), "A short paragraph that wraps onto lines.", font=font, size=10)
         overflow = canvas.textbox((10, 120, 60, 130), "Far too much text for this box", font=font, size=10)

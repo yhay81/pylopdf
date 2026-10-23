@@ -14,11 +14,14 @@ import math
 import re
 import struct
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 import pylopdf
+
+if TYPE_CHECKING:
+    from pylopdf import StandardFontName
 
 FONT_ROOT = Path(__file__).parents[1] / "fonts"
 NOTO_SANS_JP = FONT_ROOT / "pylopdf-fonts-jp" / "src" / "pylopdf_fonts_jp" / "NotoSansJP-Regular.otf"
@@ -26,7 +29,7 @@ NOTO_SANS_HEBREW = FONT_ROOT / "pylopdf-fonts-he" / "src" / "pylopdf_fonts_he" /
 
 # pymupdf's Font(name) metrics of the Standard 14 fonts: the bounding boxes of
 # the URW fonts that MuPDF draws them with, not Adobe's AFM metrics.
-STANDARD_METRICS = {
+STANDARD_METRICS: dict[StandardFontName, tuple[float, float]] = {
     "Courier": (0.932, -0.317),
     "Courier-Oblique": (0.92, -0.317),
     "Courier-Bold": (1.007, -0.393),
@@ -131,15 +134,15 @@ def _insert_textbox(page: pylopdf.Page, via: str, rect: tuple[float, ...], text:
 
 
 @pytest.mark.parametrize(("name", "metrics"), STANDARD_METRICS.items())
-def test_standard_14_fonts_report_pymupdfs_metrics(name: str, metrics: tuple[float, float]) -> None:
-    font = pylopdf.Font(name)
+def test_standard_14_fonts_report_pymupdfs_metrics(name: StandardFontName, metrics: tuple[float, float]) -> None:
+    font = pylopdf.Font.standard(name)
 
     assert (font.ascender, font.descender) == pytest.approx(metrics, abs=1e-9)
 
 
 @pytest.mark.parametrize(("path", "metrics"), FACE_METRICS.items())
 def test_bundled_faces_report_pymupdfs_metrics(path: str, metrics: tuple[float, float]) -> None:
-    font = pylopdf.Font(fontfile=FONT_ROOT / path)
+    font = pylopdf.Font.from_file(FONT_ROOT / path)
 
     assert (font.ascender, font.descender) == pytest.approx(metrics, abs=1e-9)
 
@@ -158,7 +161,7 @@ def test_bundled_faces_report_pymupdfs_metrics(path: str, metrics: tuple[float, 
     ],
 )
 def test_faces_report_the_metrics_mupdf_reads(patch: dict[str, Any], metrics: tuple[float, float]) -> None:
-    font = pylopdf.Font(fontbuffer=_patched(**patch))
+    font = pylopdf.Font.from_bytes(_patched(**patch))
 
     assert (font.ascender, font.descender) == pytest.approx(metrics, abs=1e-9)
 
@@ -209,7 +212,7 @@ def test_insert_text_places_lines_as_pymupdf_does(
 
 @pytest.mark.parametrize("via", ["page", "shape"])
 def test_a_loaded_font_places_lines_with_its_own_metrics(via: str) -> None:
-    font = pylopdf.Font(fontfile=NOTO_SANS_JP)
+    font = pylopdf.Font.from_file(NOTO_SANS_JP)
     page = _page()
 
     _insert_text(page, via, JAPANESE, font=font)
