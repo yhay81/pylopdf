@@ -1456,6 +1456,44 @@ def _object_model_results() -> dict[str, Any]:
     }
 
 
+def _optional_content_results() -> dict[str, Any]:
+    """Show and hide optional-content groups and read the change back from rendering and extraction."""
+    import pylopdf  # noqa: PLC0415
+
+    content = "/OC /L1 BDC BT /F1 12 Tf 20 150 Td (Bravo) Tj ET EMC /OC /L2 BDC 0 0 1 rg 20 20 50 50 re f EMC"
+    data = _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [5 0 R 6 0 R] /D << /OFF [6 0 R] >> >> >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: (
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R "
+                "/Resources << /Font << /F1 7 0 R >> /Properties << /L1 5 0 R /L2 6 0 R >> >> >>"
+            ),
+            4: f"<< /Length {len(content)} >>\nstream\n{content}\nendstream",
+            5: "<< /Type /OCG /Name (Notes) >>",
+            6: "<< /Type /OCG /Name (Hidden) /Intent [/View /Design] >>",
+            7: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        }
+    )
+    document = pylopdf.open(data)
+    page = document.pages[0]
+    before = [page.text().split(), memoryview(page.pixmap()).tolist()[155][45]]
+    notes, hidden = document.layers
+    notes.is_visible = False
+    hidden.is_visible = True
+    added = document.layers.add("Ébauche", visible=False, intent=("Design",))
+    after = [page.text().split(), memoryview(page.pixmap()).tolist()[155][45]]
+    saved = pylopdf.open(document.to_bytes())
+    _require(before[0] == ["Bravo"] and after[0] == [], "layer visibility did not change extraction")
+    _require(before[1] != after[1], "layer visibility did not change rendering")
+    return {
+        "before": before,
+        "after": after,
+        "added": [added.name, list(added.intent), added.is_visible],
+        "saved": [[layer.name, list(layer.intent), layer.is_visible] for layer in saved.layers],
+    }
+
+
 def _document_property_results(root: Path) -> dict[str, Any]:
     """Read and write XMP metadata and the catalog's viewer and marking properties."""
     import pylopdf  # noqa: PLC0415
@@ -1708,6 +1746,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "flatten": _flatten_results(),
         "ocr_layer": _ocr_layer_results(),
         "object_model": _object_model_results(),
+        "optional_content": _optional_content_results(),
         "document_properties": _document_property_results(root),
         "content_model": _content_model_results(root),
         "canvas": _canvas_results(root),

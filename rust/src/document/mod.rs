@@ -77,6 +77,7 @@ mod images;
 mod indexed;
 mod input;
 mod labels;
+mod layers;
 mod limits;
 mod loading;
 /// The typed low-level object model behind `Document.objects`.
@@ -103,6 +104,7 @@ use self::geometry::*;
 pub(crate) use self::images::*;
 pub(crate) use self::input::*;
 use self::labels::*;
+use self::layers::*;
 use self::limits::*;
 pub(crate) use self::lowlevel::{_decode_text_string, _encode_text_string, StaleObjectError};
 use self::lowlevel::{DEFAULT_MAX_STREAM_DATA_SIZE, Root, Step};
@@ -1619,6 +1621,41 @@ impl _Document {
         labels: Vec<(i64, Option<String>, Option<String>, i64)>,
     ) -> PyResult<()> {
         labels::set_page_labels(self, labels)
+    }
+
+    /// Return the optional-content groups that `/OCProperties /OCGs` lists.
+    fn layers(&self) -> PyResult<Vec<(u32, u16)>> {
+        layers::layers(self)
+    }
+
+    /// Return one group's name, intents, and visibility under `/D`.
+    fn layer_info(&self, layer: (u32, u16)) -> PyResult<LayerInfo> {
+        layers::layer_info(self, layer)
+    }
+
+    /// Add an optional-content group and return its object ID.
+    fn add_layer(
+        &mut self,
+        name: &str,
+        intents: Vec<String>,
+        visible: bool,
+    ) -> PyResult<(u32, u16)> {
+        layers::add_layer(self, name, intents, visible)
+    }
+
+    /// Show or hide a group in the default configuration.
+    fn set_layer_visible(&mut self, layer: (u32, u16), visible: bool) -> PyResult<()> {
+        layers::set_layer_visible(self, layer, visible)
+    }
+
+    /// Replace a group's `/Name`.
+    fn set_layer_name(&mut self, layer: (u32, u16), name: &str) -> PyResult<()> {
+        layers::set_layer_name(self, layer, name)
+    }
+
+    /// Replace a group's `/Intent`.
+    fn set_layer_intent(&mut self, layer: (u32, u16), intents: Vec<String>) -> PyResult<()> {
+        layers::set_layer_intent(self, layer, intents)
     }
 
     /// Return AcroForm fields as `(full name, xref, kind, value, flags)`.

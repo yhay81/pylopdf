@@ -110,6 +110,7 @@ from pylopdf._form import (
 from pylopdf._geometry import IRect, Matrix, Point, Quad, Rect
 from pylopdf._hints import missing_attribute
 from pylopdf._images import EncodedImage, ImageObject, Images, Resources
+from pylopdf._layers import Layer, Layers
 from pylopdf._limits import DocumentLimits
 from pylopdf._links import Destinations, Link, Links
 from pylopdf._metadata import MarkInfo, Metadata, PageLayout, PageMode, PdfaClaim
@@ -199,6 +200,8 @@ __all__ = [
     "Images",
     "Ink",
     "Launch",
+    "Layer",
+    "Layers",
     "Layout",
     "LimitError",
     "Line",

@@ -109,8 +109,8 @@ the concept and API overview.
     `document/{loading,saving,limits,streams,lowlevel}.rs`;
     `src/pylopdf/_objects.py`.
   - Structure: `page_cleanup.rs`, `structure_prune.rs`;
-    `document/{page_tree,navigation,outline,labels,metadata,attachments}.rs`;
-    `src/pylopdf/_attachments.py`, `_boxes.py`, `_metadata.py`,
+    `document/{page_tree,navigation,outline,labels,layers,metadata,attachments}.rs`;
+    `src/pylopdf/_attachments.py`, `_boxes.py`, `_layers.py`, `_metadata.py`,
     `_outline.py`, `_page_labels.py`, and `_targets.py`.
   - Content: `content_guard.rs`, `content_scan.rs`, `graph_guard.rs`,
     `postscript_scan.rs`, `read_depth.rs`, and the content model,
@@ -2699,6 +2699,27 @@ the concept and API overview.
   entry/text boundary before PyO3 copying with `page_label_input_size`; the
   core's `set_page_labels` repeats it and invalidates caches only after
   success.
+- `doc.layers` (`src/pylopdf/_layers.py`, `rust/src/document/layers.rs`)
+  lists the dictionaries that `/OCProperties /OCGs` references, once each in
+  that order, as `Layer` handles (document, object epoch, object ID) that
+  raise `StaleObjectError` once the object is no dictionary or the epoch
+  changed. Visibility follows hayro-interpret 0.8's `OcgState::from_catalog`
+  exactly, because hayro is what renders and extracts: only the default
+  configuration `/D` counts; `/BaseState /OFF` hides every group that `/OCGs`
+  lists, then `/ON` shows and `/OFF` hides, so a group in both is hidden; any
+  other group is visible, and only references count as array entries.
+  `is_visible` writes remove the group from `/ON` and `/OFF` and list it
+  again only where the base state disagrees, so arrays never grow from
+  repeated toggles; a group outside `/OCGs` joins it, and showing a group
+  hides the others of each `/RBGroups` array that holds it. Edits plan the
+  complete `/OCProperties`, `/OCGs`, and `/D` before any mutation, store
+  indirect parts back in their objects and `/D`'s arrays direct, and keep
+  placements. `add` creates `/OCProperties` (with `/D /Order`) when absent
+  and appends to an existing `/Order` only. Arrays stop at 65,536 entries
+  (`layer_count`), one group's name and intents at 1 MiB (`layer_text_size`),
+  and written names at 1 MiB (`layer_input_size`); intents are 1 to 64 PDF
+  names of printable ASCII without delimiters. hayro ignores `/VE`, an
+  annotation's own `/OC`, other configurations, and intents (#338).
 - `Document.pdfa_claim` releases the GIL and applies a 1 MiB decoded XMP
   limit to every filter layer; the core's `pdfa_claim(max_size)` takes the
   bound, which `None` lifts, and failures use

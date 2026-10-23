@@ -66,6 +66,8 @@
     "Images",
     "Ink",
     "Launch",
+    "Layer",
+    "Layers",
     "Layout",
     "LimitError",
     "Line",
@@ -2880,6 +2882,10 @@
           "kind": "property",
           "returns": "str | None"
         },
+        "layers": {
+          "kind": "property",
+          "returns": "Layers"
+        },
         "limits": {
           "kind": "property",
           "returns": "DocumentLimits"
@@ -5660,6 +5666,138 @@
             "annotation": "str",
             "kind": "positional_or_keyword",
             "name": "file"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "Layer": {
+      "kind": "class",
+      "members": {
+        "intent": {
+          "kind": "property",
+          "returns": "tuple[str, ...]"
+        },
+        "is_visible": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "name": {
+          "kind": "property",
+          "returns": "str"
+        },
+        "obj": {
+          "kind": "property",
+          "returns": "Dictionary"
+        },
+        "xref": {
+          "kind": "property",
+          "returns": "int"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "xref"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "generation"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "Layers": {
+      "kind": "class",
+      "members": {
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | slice",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              }
+            ],
+            "returns": "Layer | list[Layer]"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[Layer]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        },
+        "add": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_only",
+                "name": "name"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "visible"
+              },
+              {
+                "annotation": "Iterable[str]",
+                "default": [
+                  "View"
+                ],
+                "kind": "keyword_only",
+                "name": "intent"
+              }
+            ],
+            "returns": "Layer"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
           }
         ],
         "returns": "None"
