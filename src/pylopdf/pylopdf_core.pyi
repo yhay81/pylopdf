@@ -419,14 +419,23 @@ class _Document:
     def save_incremental(self, path: str, compress: bool) -> None: ...
     def save_bytes_incremental(self, compress: bool, max_size: int | None = None) -> bytes: ...
     def save_encrypted(
-        self, path: str, user_password: str, owner_password: str, permissions: int, file_encryption_key: bytes
-    ) -> None: ...
-    def save_bytes_encrypted(
         self,
+        path: str,
+        method: str,
         user_password: str,
         owner_password: str,
         permissions: int,
         file_encryption_key: bytes,
+        document_id: bytes,
+    ) -> None: ...
+    def save_bytes_encrypted(
+        self,
+        method: str,
+        user_password: str,
+        owner_password: str,
+        permissions: int,
+        file_encryption_key: bytes,
+        document_id: bytes,
         max_size: int | None = None,
     ) -> bytes: ...
     def outline_entries(

@@ -7,7 +7,9 @@ user password.
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -15,7 +17,18 @@ import pylopdf
 
 ASSETS = Path(__file__).parent / "assets" / "encrypted"
 
-USER_PROTECTED = ["user-rc4-40.pdf", "user-rc4-128.pdf", "user-aes-128.pdf", "user-aes-256.pdf"]
+#: Every standard security handler revision, by the fixture that uses it.
+HANDLERS = {
+    "user-rc4-40.pdf": "Standard V1 R2 40-bit RC4",
+    "user-rc4-128.pdf": "Standard V2 R3 128-bit RC4",
+    "user-r4-rc4-128.pdf": "Standard V4 R4 128-bit RC4",
+    "user-aes-128.pdf": "Standard V4 R4 128-bit AES",
+    "user-aes-128-plain-metadata.pdf": "Standard V4 R4 128-bit AES",
+    "user-aes-256-r5.pdf": "Standard V5 R5 256-bit AES",
+    "user-aes-256.pdf": "Standard V5 R6 256-bit AES",
+    "user-aes-256-object-streams.pdf": "Standard V5 R6 256-bit AES",
+}
+USER_PROTECTED = list(HANDLERS)
 USER = pytest.mark.parametrize("name", USER_PROTECTED)
 
 
@@ -304,7 +317,10 @@ def test_the_owner_password_defaults_to_the_user_password(three_page_pdf: bytes)
         ({"owner_password": 1}, TypeError, "owner_password must be a str or None"),
         ({"permissions": "all"}, TypeError, "permissions must be Permissions flags"),
         ({"permissions": True}, TypeError, "permissions must be Permissions flags"),
-        ({"method": "rc4-128"}, ValueError, "method must be 'aes-256'"),
+        ({"method": "rc4-128"}, ValueError, "does not write rc4-128 encryption"),
+        ({"method": "RC4-40"}, ValueError, "does not write RC4-40 encryption"),
+        ({"method": "aes"}, ValueError, "method must be 'aes-256' or 'aes-128'"),
+        ({"method": "keep", "user_password": "u"}, ValueError, "Encryption.KEEP takes the passwords"),
     ],
 )
 def test_encryption_validates_its_fields(arguments: dict[str, object], error: type[Exception], message: str) -> None:
@@ -329,3 +345,128 @@ def test_saving_refuses_other_encryption_values(value: object, three_page_pdf: b
         doc.save(tmp_path / "out.pdf", encryption=value)  # ty: ignore[invalid-argument-type]
     assert not (tmp_path / "out.pdf").exists()
     assert doc.to_bytes() == before
+
+
+@USER
+def test_every_standard_handler_reads_with_both_passwords(name: str) -> None:
+    for password, access in (("userpw", pylopdf.Access.USER), ("ownerpw", pylopdf.Access.OWNER)):
+        with pylopdf.open(ASSETS / name, password=password) as doc:
+            assert doc.encryption_method == HANDLERS[name]
+            assert [page.text().strip() for page in doc.pages] == ["Encrypted page one", "Encrypted page two"]
+            if access is pylopdf.Access.OWNER:
+                assert doc.permissions == pylopdf.Permissions.ALL
+
+
+@pytest.mark.parametrize("name", ["user-r4-rc4-128.pdf", "user-aes-128-plain-metadata.pdf"])
+def test_metadata_that_the_handler_leaves_unencrypted_reads_as_written(name: str) -> None:
+    # Both fixtures set /EncryptMetadata false, so the XMP packet is stored in clear.
+    assert b"Encrypted fixture" in (ASSETS / name).read_bytes()
+    with pylopdf.open(ASSETS / name, password="userpw") as doc:
+        assert doc.xmp is not None
+        assert "Encrypted fixture" in doc.xmp
+
+
+def test_metadata_in_an_encrypted_object_stream_reads() -> None:
+    raw = (ASSETS / "user-aes-256-object-streams.pdf").read_bytes()
+    assert b"Encrypted fixture" not in raw
+    with pylopdf.open(raw, password="userpw") as doc:
+        assert doc.xmp is not None
+        assert "Encrypted fixture" in doc.xmp
+
+
+def test_aes_128_output(three_page_pdf: bytes) -> None:
+    doc = pylopdf.open(three_page_pdf)
+    assert "ID" not in doc.trailer
+    encryption = pylopdf.Encryption(user_password="u", owner_password="o", method="aes-128")
+
+    data = doc.to_bytes(encryption=encryption)
+
+    assert b"/AESV2" in data
+    locked = pylopdf.open(data)
+    assert locked.needs_password
+    # AES-128 derives its key from the document ID, which the output gains.
+    assert "ID" not in doc.trailer
+    for password, access in (("u", pylopdf.Access.USER), ("o", pylopdf.Access.OWNER)):
+        reopened = pylopdf.open(data)
+        assert reopened.unlock(password) is access
+        assert reopened.encryption_method == "Standard V4 R4 128-bit AES"
+        assert "Page one" in reopened.pages[0].text()
+
+
+@pytest.mark.parametrize(
+    ("method", "description"),
+    [("aes-128", "Standard V4 R4 128-bit AES"), ("aes-256", "Standard V5 R6 256-bit AES")],
+)
+def test_pikepdf_reads_aes_output(
+    three_page_pdf: bytes, method: Literal["aes-128", "aes-256"], description: str
+) -> None:
+    pikepdf = pytest.importorskip("pikepdf", reason="interop group (pikepdf) is not installed")
+    encryption = pylopdf.Encryption(
+        user_password="u", owner_password="o", permissions=pylopdf.Permissions.PRINT, method=method
+    )
+    data = pylopdf.open(three_page_pdf).to_bytes(encryption=encryption)
+
+    for password in ("u", "o"):
+        with pikepdf.open(io.BytesIO(data), password=password) as pdf:
+            assert len(pdf.pages) == 3
+            # qpdf reads /Length of every encryption dictionary, which
+            # ISO 32000-2 Table 20 defines only for V 2 and 3.
+            warnings = [w for w in pdf.check_pdf_syntax() if "dictionary key /Length" not in w]
+            assert warnings == []
+            assert pdf.allow.print_lowres
+            assert not pdf.allow.extract
+    assert pylopdf.open(data, password="u").encryption_method == description
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["user-aes-128.pdf", "user-aes-128-plain-metadata.pdf", "user-aes-256.pdf", "user-aes-256-object-streams.pdf"],
+)
+def test_keep_writes_the_input_encryption(name: str) -> None:
+    doc = pylopdf.open(ASSETS / name, password="userpw")
+    doc.metadata["title"] = "Kept"
+    permissions = pylopdf.open(ASSETS / name, password="userpw").permissions
+
+    data = doc.to_bytes(encryption=pylopdf.Encryption.KEEP)
+
+    assert pylopdf.open(data).needs_password
+    for password, access in (("userpw", pylopdf.Access.USER), ("ownerpw", pylopdf.Access.OWNER)):
+        with pylopdf.open(data, password=password) as reopened:
+            assert reopened.encryption_method == HANDLERS[name]
+            assert reopened.metadata["title"] == "Kept"
+            assert "Encrypted page two" in reopened.pages[1].text()
+            if access is pylopdf.Access.USER:
+                assert reopened.permissions == permissions
+    # The document in memory stays decrypted.
+    assert "Encrypt" not in doc.trailer
+
+
+def test_keep_saves_to_a_file(tmp_path: Path) -> None:
+    doc = pylopdf.open(ASSETS / "user-aes-256.pdf", password="ownerpw")
+    target = tmp_path / "kept.pdf"
+
+    doc.save(target, encryption=pylopdf.Encryption.KEEP)
+
+    assert pylopdf.open(target).needs_password
+    assert "Encrypted page one" in pylopdf.open(target, password="userpw").pages[0].text()
+
+
+@pytest.mark.parametrize("name", ["user-rc4-40.pdf", "user-rc4-128.pdf", "user-r4-rc4-128.pdf", "user-aes-256-r5.pdf"])
+def test_keep_refuses_rc4_and_revision_5(name: str) -> None:
+    doc = pylopdf.open(ASSETS / name, password="userpw")
+
+    with pytest.raises(pylopdf.PdfError, match="cannot keep this document's encryption"):
+        doc.to_bytes(encryption=pylopdf.Encryption.KEEP)
+
+
+def test_keep_writes_an_unencrypted_document_without_encryption(three_page_pdf: bytes) -> None:
+    data = pylopdf.open(three_page_pdf).to_bytes(encryption=pylopdf.Encryption.KEEP)
+
+    assert b"/Encrypt" not in data
+    assert "Page one" in pylopdf.open(data).pages[0].text()
+
+
+def test_keep_is_one_constant() -> None:
+    assert pylopdf.Encryption(method="keep") == pylopdf.Encryption.KEEP
+    assert repr(pylopdf.Encryption.KEEP) == "Encryption.KEEP"
+    assert pylopdf.Encryption.KEEP.method == "keep"

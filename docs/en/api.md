@@ -62,8 +62,14 @@ and streams, `renumber=True` numbers the remaining objects consecutively, and
 `object_streams=True` packs objects into compressed object streams. These
 options change the document itself, not only the output. To encrypt, pass
 `encryption=Encryption(user_password=..., owner_password=...,
-permissions=...)`, which writes AES-256 encryption; the owner password
-defaults to the user password, and the document in memory stays unencrypted.
+permissions=...)`, which writes AES-256 encryption, or add
+`method="aes-128"` for AES-128, which PDF 1.6 readers open as well; the
+owner password defaults to the user password, and the document in memory
+stays unencrypted. pylopdf reads every standard encryption, RC4 included, but
+never writes RC4. `encryption=Encryption.KEEP` writes the encryption the
+document was opened with, keeping its passwords and permissions; it keeps
+AES-128 and AES-256 and refuses RC4. `None`, the default, writes no
+encryption, even for a document that was encrypted.
 
 ```python
 doc.save("out.pdf", dedupe=True, object_streams=True)

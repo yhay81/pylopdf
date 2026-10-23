@@ -304,7 +304,7 @@ replacement, and the migration hint):
 - PDF_BORDER_* -> BorderStyle: PDF_BORDER_STYLE_* are BorderStyle members, which the codemod rewrites; PDF_BORDER_EFFECT_CLOUDY is the clouds intensity (0 to 2) of Square, Circle, and Polygon, read and set as annotation.clouds.
 - PDF_BTN_FIELD_IS_* -> FieldFlags: Button field flags such as PDF_BTN_FIELD_IS_RADIO and PDF_BTN_FIELD_IS_PUSHBUTTON are FieldFlags members such as FieldFlags.RADIO and PUSHBUTTON.
 - PDF_CH_FIELD_IS_* -> FieldFlags: Choice field flags such as PDF_CH_FIELD_IS_COMBO and PDF_CH_FIELD_IS_MULTI_SELECT are FieldFlags members such as FieldFlags.COMBO and MULTI_SELECT.
-- PDF_ENCRYPT_* -> Encryption: Pass encryption=Encryption(user_password=..., owner_password=..., permissions=...) to save() or to_bytes(), which writes AES-256 encryption; encryption=None writes none.
+- PDF_ENCRYPT_* -> Encryption: Pass encryption=Encryption(user_password=..., owner_password=..., permissions=...) to save() or to_bytes(), which writes AES-256, or add method="aes-128"; encryption=Encryption.KEEP keeps the input's AES encryption, and encryption=None, the default, writes none where pymupdf kept it. RC4 is not written.
 - PDF_FIELD_IS_* -> FieldFlags: PDF_FIELD_IS_READ_ONLY, PDF_FIELD_IS_REQUIRED, and PDF_FIELD_IS_NO_EXPORT are FieldFlags.READ_ONLY, REQUIRED, and NO_EXPORT, which doc.form[name].flags returns.
 - PDF_LAYER_UI_* -> LayerOrder: A LayerOrder with a label is a label entry, a layer in one of the configuration's radio_groups a radio button, and any other layer a check box.
 - PDF_OC_* -> Layer.is_visible: Assign layer.is_visible = True or False; toggle with layer.is_visible = not layer.is_visible.

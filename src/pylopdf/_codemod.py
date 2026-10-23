@@ -752,7 +752,8 @@ _TRUE = frozenset({"True", "1"})
 SAVE_MESSAGE = (
     "save() and to_bytes() take compress, prune, dedupe, renumber, object_streams, and "
     "encryption=Encryption(user_password=..., owner_password=..., permissions=...); "
-    "pylopdf writes AES-256 encryption only and has no clean, linear, or ascii option; incremental=True "
+    "pylopdf writes AES-256 and AES-128 encryption only and has no clean, linear, or ascii option; "
+    "incremental=True "
     "takes neither dedupe, renumber, object_streams, nor encryption."
 )
 UNLOCK_MESSAGE = (
@@ -783,8 +784,9 @@ def _encryption_method(text: str) -> str | None:
 def _encryption_option(migrator: _Migrator, bound: dict[str, str]) -> str | None:
     """Return the ``encryption=`` option, ``""`` for none, or ``None`` when it cannot be migrated.
 
-    pymupdf encrypts only with ``encryption=PDF_ENCRYPT_AES_256`` and ignores
-    the passwords otherwise; pylopdf 0.15 encrypted whenever a password was
+    pymupdf encrypts with ``encryption=PDF_ENCRYPT_AES_256`` or ``AES_128``,
+    keeps the input's encryption with ``KEEP``, and ignores the passwords
+    otherwise; pylopdf 0.15 encrypted whenever a password was
     given. An unrecognized value can already use pylopdf's ``Encryption``
     API; a pymupdf module needs a manual review of such a value.
     """
@@ -795,8 +797,8 @@ def _encryption_option(migrator: _Migrator, bound: dict[str, str]) -> str | None
         return None if passwords or migrator.pymupdf() else f"encryption={value}"
     if method is None:
         encrypts = not migrator.pymupdf() and any(bound.get(key, "None") != "None" for key in ("user_pw", "owner_pw"))
-    elif method in {"AES_256", "NONE"}:
-        encrypts = method == "AES_256"
+    elif method in {"AES_256", "AES_128", "NONE", "KEEP"}:
+        encrypts = method != "NONE"
     else:
         return None
     if not encrypts:
@@ -804,12 +806,17 @@ def _encryption_option(migrator: _Migrator, bound: dict[str, str]) -> str | None
     name = migrator.class_name("Encryption")
     if name is None:
         return None
+    if method == "KEEP":
+        # pymupdf ignores the passwords when it keeps the encryption.
+        return f"encryption={name}.KEEP"
     fields = (("user_pw", "user_password"), ("owner_pw", "owner_password"), ("permissions", "permissions"))
     arguments = [
         f"{field}={bound[key]}"
         for key, field in fields
         if key in bound and not (key in {"user_pw", "owner_pw"} and bound[key] == "None")
     ]
+    if method == "AES_128":
+        arguments.append('method="aes-128"')
     return f"encryption={name}({', '.join(arguments)})"
 
 

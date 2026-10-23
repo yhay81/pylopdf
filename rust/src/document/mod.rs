@@ -24,7 +24,7 @@ use hayro::vello_cpu::color::AlphaColor;
 use hayro::vello_cpu::peniko::ImageAlphaType;
 use hayro::vello_cpu::{RasterizerSettings, RenderContext, Resources, TargetInit};
 use hayro::{PixmapSettings, RenderCache, RenderSettings, render_into};
-use lopdf::encryption::crypt_filters::{Aes256CryptFilter, CryptFilter};
+use lopdf::encryption::crypt_filters::{Aes128CryptFilter, Aes256CryptFilter, CryptFilter};
 use lopdf::encryption::{EncryptionState, EncryptionVersion, Permissions};
 use lopdf::{
     DecompressError, Dictionary, Document, LoadOptions, Object, ObjectId, PdfMetadata, SaveOptions,
@@ -105,6 +105,7 @@ pub(crate) use self::forms::*;
 use self::geometry::*;
 pub(crate) use self::images::*;
 use self::incremental::IncrementalBase;
+use self::saving::EncryptionRequest;
 pub(crate) use self::input::*;
 use self::labels::*;
 use self::layers::*;
@@ -1127,53 +1128,64 @@ impl _Document {
         outline::set_outline_open(self, item, is_open)
     }
 
-    /// Save an AES-256 encrypted clone to a file while this document stays plaintext.
+    /// Save an encrypted clone to a file while this document stays plaintext.
+    ///
+    /// `method` is `aes-256`, `aes-128`, or `keep`, which keeps the
+    /// encryption the document was opened with.
+    #[allow(clippy::too_many_arguments)] // One argument per Encryption field.
     fn save_encrypted(
         &self,
         py: Python<'_>,
         path: &str,
+        method: &str,
         user_password: &str,
         owner_password: &str,
         permissions: u64,
         file_encryption_key: &[u8],
+        document_id: &[u8],
     ) -> PyResult<()> {
-        saving::save_encrypted(
-            self,
-            py,
-            path,
+        let request = EncryptionRequest {
+            method,
             user_password,
             owner_password,
             permissions,
             file_encryption_key,
-        )
+            document_id,
+        };
+        saving::save_encrypted(self, py, path, &request)
     }
 
-    /// Serialize an AES-256 encrypted clone while this document stays plaintext.
+    /// Serialize an encrypted clone while this document stays plaintext.
     #[pyo3(signature = (
+        method,
         user_password,
         owner_password,
         permissions,
         file_encryption_key,
+        document_id,
         max_size=None
     ))]
+    #[allow(clippy::too_many_arguments)] // One argument per Encryption field.
     fn save_bytes_encrypted(
         &self,
         py: Python<'_>,
+        method: &str,
         user_password: &str,
         owner_password: &str,
         permissions: u64,
         file_encryption_key: &[u8],
+        document_id: &[u8],
         max_size: Option<usize>,
     ) -> PyResult<Vec<u8>> {
-        saving::save_bytes_encrypted(
-            self,
-            py,
+        let request = EncryptionRequest {
+            method,
             user_password,
             owner_password,
             permissions,
             file_encryption_key,
-            max_size,
-        )
+            document_id,
+        };
+        saving::save_bytes_encrypted(self, py, &request, max_size)
     }
 
     /// Return inherited, normalized 0..360 rotation for a one-based page.
