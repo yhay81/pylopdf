@@ -1640,6 +1640,15 @@ impl _Document {
         metadata::set_language_tag(self, tag)
     }
 
+    /// Replace the catalog's `/ViewerPreferences`, or remove it for `None`.
+    #[pyo3(signature = (entries))]
+    fn set_viewer_preferences(
+        &mut self,
+        entries: Option<Vec<(String, ViewerValue)>>,
+    ) -> PyResult<()> {
+        metadata::set_viewer_preferences(self, entries)
+    }
+
     /// Replace the catalog's `/MarkInfo` dictionary.
     fn set_mark_info(
         &mut self,

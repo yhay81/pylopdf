@@ -1637,6 +1637,13 @@ def _document_property_results(root: Path) -> dict[str, Any]:
     document.page_mode = pylopdf.PageMode.USE_OUTLINES
     document.page_layout = "TwoColumnRight"
     document.mark_info = pylopdf.MarkInfo(marked=True)
+    document.viewer_preferences = pylopdf.ViewerPreferences(
+        display_title=True,
+        direction=pylopdf.ReadingDirection.R2L,
+        duplex=pylopdf.Duplex.SIMPLEX,
+        print_page_ranges=((0, 0),),
+        copies=2,
+    )
     document.language = "zh-TW"
     document.metadata.update(title="Grüße", created="D:20260102030405Z", trapped="True")
     document.pages.new((200, 200))
@@ -1675,6 +1682,7 @@ def _document_property_results(root: Path) -> dict[str, Any]:
         "page_mode": str(saved.page_mode),
         "page_layout": str(saved.page_layout),
         "mark_info": repr(saved.mark_info),
+        "viewer_preferences": repr(saved.viewer_preferences),
         "language": saved.language,
         "outline": [
             [

@@ -341,6 +341,7 @@ del doc.fallback_fonts            # back to the installed font extras
 | `language` | The document's language as a complete BCP 47 tag, such as `zh-TW` or `sr-Latn-RS`, or `None`. Assign a tag to write it and `del doc.language` to remove it; a malformed tag raises |
 | `page_mode`, `page_layout` | How a viewer opens the document, as `PageMode` and `PageLayout` members such as `PageMode.USE_OUTLINES` or `PageLayout.TWO_COLUMN_LEFT`; `USE_NONE` and `SINGLE_PAGE` when unset. Assign a member or its exact name |
 | `mark_info` | The tagged-PDF flags as a `MarkInfo(marked=, user_properties=, suspects=)` record, or `None` when absent. Assigning writes all three flags; `del` removes them |
+| `viewer_preferences` | The `/ViewerPreferences` as a `ViewerPreferences` record, or `None` when absent: `hide_toolbar`, `hide_menubar`, `hide_window_ui`, `fit_window`, `center_window`, `display_title`, `non_full_screen_page_mode` (a `PageMode`), `direction` (`ReadingDirection.L2R` or `R2L`), `view_area`, `view_clip`, `print_area`, `print_clip` (`PageBoundary` members), `print_scaling` (`PrintScaling`), `duplex` (`Duplex`), `pick_tray_by_pdf_size`, `print_page_ranges` (zero-based `(first, last)` pairs), `copies`, and `enforce` (preference names), each `None` when absent. Assigning a record writes the fields that are set; `del` removes the dictionary |
 | `objects`, `trailer`, `catalog` | Direct access to PDF objects; see [Low-level objects](#low-level-objects) |
 
 `language` keeps the complete tag, where pymupdf's keeps at most three
