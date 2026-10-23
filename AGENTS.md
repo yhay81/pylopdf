@@ -2256,6 +2256,19 @@ the concept and API overview.
   removal and splitting also update direct or indirect `/CO` arrays for
   nested fields. Adding a button synchronizes every widget's state with the
   field value, and a new field cannot duplicate a non-terminal field name.
+- `field.scripts` and `widget.scripts` (`Scripts` in `_form.py`) map
+  `ScriptTrigger` to JavaScript text through `field_scripts`,
+  `set_field_script`, `widget_scripts`, and `set_widget_script`. Field
+  triggers are `/AA` `K`, `F`, `V`, and `C`; widget triggers are `/AA` `Fo`,
+  `Bl`, `E`, `X`, `D`, and `U`, and `/A` for activation. A field merged with
+  its widget holds both in one `/AA`, and each mapping lists its own. Reads
+  take `/S /JavaScript` actions whose `/JS` is a text string or a stream
+  decoded under the 1 MiB `script_size` bound, which also caps the scripts
+  of one call and each written script, and skip other actions. Writes store
+  a direct action with a text string, copy an indirect `/AA` into the
+  dictionary first, remove an emptied `/AA`, and keep the AcroForm `/CO`
+  listing each field with a calculation (read through an indirect `/CO`,
+  rewritten direct). pylopdf never runs scripts.
 - AcroForm filling writes `/V`, synchronizes button `/AS`, and regenerates
   widget `/AP /N`. Text and choice appearances auto-fit in widget-local
   coordinates, respect inherited `/Q` and multiline `/Ff`, and reuse the Core

@@ -969,6 +969,8 @@ def _widget_results() -> dict[str, Any]:
         page.widgets.add(pylopdf.RadioButton("plan", (60, 10, 75, 25), on_state="Pro"))
         page.widgets.add(pylopdf.ComboBox("level", (80, 10, 190, 25), choices=["low", "high"], value="high"))
         document.form["plan"].value = "Pro"
+        field.scripts[pylopdf.ScriptTrigger.CALCULATE] = "event.value = 'Ada';"
+        name.scripts[pylopdf.ScriptTrigger.FOCUS] = "focus();"
         saved = document.to_bytes()
     with pylopdf.open(saved) as reopened:
         name, check, *created = reopened.pages[0].widgets
@@ -982,6 +984,11 @@ def _widget_results() -> dict[str, Any]:
             "states": list(check.button_states),
             "text": reopened.pages[0].text().strip(),
             "field": [reopened.form["name"].label, reopened.form["name"].max_length, reopened.form["name"].value],
+            "scripts": [
+                {str(key): value for key, value in reopened.form["name"].scripts.items()},
+                {str(key): value for key, value in name.scripts.items()},
+                len(reopened.catalog["AcroForm"]["CO"]),
+            ],
         }
     _require(result["text"].split()[0] == "Ada", "the restyled widget lost its value")
     return result

@@ -101,6 +101,8 @@ from pylopdf._form import (
     ListBox,
     PushButton,
     RadioButton,
+    Scripts,
+    ScriptTrigger,
     SignatureField,
     TextField,
 )
@@ -251,6 +253,8 @@ __all__ = [
     "Redaction",
     "RemoteDestination",
     "Resources",
+    "ScriptTrigger",
+    "Scripts",
     "Segment",
     "ShadingPattern",
     "ShadingType",

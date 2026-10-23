@@ -3366,3 +3366,254 @@ pub(super) fn remove_field(this: &mut _Document, py: Python<'_>, xref: u32) -> P
         result
     })
 }
+
+/// The `/AA` keys of a field's triggers (ISO 32000-2 Table 199).
+const FIELD_TRIGGERS: [&str; 4] = ["K", "F", "V", "C"];
+
+/// The `/AA` keys of a widget's triggers (Table 197), and `A`, its
+/// activation action.
+const WIDGET_TRIGGERS: [&str; 7] = ["Fo", "Bl", "E", "X", "D", "U", "A"];
+
+/// The most bytes of JavaScript that one script holds.
+const MAX_SCRIPT_BYTES: usize = 1024 * 1024;
+
+/// The JavaScript source of an action dictionary, or `None` for another
+/// action; a stream is decoded under the script bound.
+fn javascript_source(doc: &Document, action: &Object) -> PyResult<Option<String>> {
+    let Some(action) = deref_dict_ref(doc, action) else {
+        return Ok(None);
+    };
+    if !matches!(
+        action
+            .get(b"S")
+            .map(|kind| deref_object(doc, kind))
+            .and_then(Object::as_name),
+        Ok(b"JavaScript")
+    ) {
+        return Ok(None);
+    }
+    match action.get(b"JS").map(|source| deref_object(doc, source)) {
+        Ok(source @ Object::String(bytes, _)) => {
+            if bytes.len() > MAX_SCRIPT_BYTES {
+                return Err(limit_err(
+                    "script_size",
+                    format!("a script exceeds the {MAX_SCRIPT_BYTES}-byte safety limit"),
+                ));
+            }
+            Ok(Some(decode_text_string(source).unwrap_or_default()))
+        }
+        Ok(Object::Stream(stream)) => {
+            let data =
+                decoded_stream_content(stream, Some(MAX_SCRIPT_BYTES), "script_size", "a script")?;
+            Ok(Some(String::from_utf8_lossy(&data).into_owned()))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// The JavaScript scripts of `dict` for `triggers`, in that order.
+fn read_scripts(
+    doc: &Document,
+    dict: &Dictionary,
+    triggers: &[&str],
+) -> PyResult<Vec<(String, String)>> {
+    let mut out = Vec::new();
+    let additional = dict.get(b"AA").ok().and_then(|aa| deref_dict_ref(doc, aa));
+    let mut total = 0usize;
+    for trigger in triggers {
+        let action = if *trigger == "A" {
+            dict.get(b"A").ok()
+        } else {
+            additional.and_then(|aa| aa.get(trigger.as_bytes()).ok())
+        };
+        if let Some(action) = action
+            && let Some(source) = javascript_source(doc, action)?
+        {
+            total = total.saturating_add(source.len());
+            if total > MAX_SCRIPT_BYTES {
+                return Err(limit_err(
+                    "script_size",
+                    format!("scripts exceed the {MAX_SCRIPT_BYTES}-byte safety limit"),
+                ));
+            }
+            try_push_form(&mut out, ((*trigger).to_owned(), source), "scripts")?;
+        }
+    }
+    Ok(out)
+}
+
+/// Set or remove the JavaScript of one trigger of `dict`.
+fn write_script(dict: &mut Dictionary, trigger: &str, source: Option<&str>) {
+    let action = source.map(|source| {
+        Object::Dictionary(dictionary! {
+            "S" => "JavaScript",
+            "JS" => text_string(source),
+        })
+    });
+    if trigger == "A" {
+        match action {
+            Some(action) => dict.set("A", action),
+            None => {
+                dict.remove(b"A");
+            }
+        }
+        return;
+    }
+    let mut additional = match dict.get(b"AA") {
+        Ok(Object::Dictionary(aa)) => aa.clone(),
+        _ => Dictionary::new(),
+    };
+    match action {
+        Some(action) => additional.set(trigger, action),
+        None => {
+            additional.remove(trigger.as_bytes());
+        }
+    }
+    if additional.is_empty() {
+        dict.remove(b"AA");
+    } else {
+        dict.set("AA", additional);
+    }
+}
+
+fn validate_script(trigger: &str, triggers: &[&str], source: Option<&str>) -> PyResult<()> {
+    if !triggers.contains(&trigger) {
+        return Err(PdfError::new_err(format!(
+            "unknown script trigger {trigger:?}"
+        )));
+    }
+    if source.is_some_and(|source| source.len() > MAX_SCRIPT_BYTES) {
+        return Err(limit_err(
+            "script_size",
+            format!("a script exceeds the {MAX_SCRIPT_BYTES}-byte safety limit"),
+        ));
+    }
+    Ok(())
+}
+
+/// Implements [`_Document::field_scripts`].
+pub(super) fn field_scripts(
+    this: &_Document,
+    py: Python<'_>,
+    xref: u32,
+) -> PyResult<Vec<(String, String)>> {
+    py.detach(|| {
+        let field_id = this.form_field_id(xref)?;
+        let field = this.doc.get_dictionary(field_id).map_err(to_py_err)?;
+        read_scripts(&this.doc, field, &FIELD_TRIGGERS)
+    })
+}
+
+/// Implements [`_Document::set_field_script`]: set or remove one field
+/// script, keeping `/CO` listing every field with a calculation.
+pub(super) fn set_field_script(
+    this: &mut _Document,
+    xref: u32,
+    trigger: &str,
+    source: Option<&str>,
+) -> PyResult<()> {
+    validate_script(trigger, &FIELD_TRIGGERS, source)?;
+    let field_id = this.form_field_id(xref)?;
+    // An indirect /AA is copied into the field, which then owns it.
+    let additional = match this
+        .doc
+        .get_dictionary(field_id)
+        .map_err(to_py_err)?
+        .get(b"AA")
+    {
+        Ok(Object::Reference(id)) => this.doc.get_dictionary(*id).ok().cloned(),
+        _ => None,
+    };
+    this.invalidate_hayro_pdf_keeping_placements();
+    let field = this
+        .doc
+        .get_object_mut(field_id)
+        .and_then(Object::as_dict_mut)
+        .map_err(to_py_err)?;
+    if let Some(additional) = additional {
+        field.set("AA", additional);
+    }
+    write_script(field, trigger, source);
+    if trigger == "C" {
+        let form_id = this.acroform_object()?;
+        // An indirect /CO is read through and replaced by a direct array.
+        let mut order = match this
+            .doc
+            .get_dictionary(form_id)
+            .map_err(to_py_err)?
+            .get(b"CO")
+            .map(|order| deref_object(&this.doc, order))
+        {
+            Ok(Object::Array(order)) => order.clone(),
+            _ => Vec::new(),
+        };
+        let form = this
+            .doc
+            .get_object_mut(form_id)
+            .and_then(Object::as_dict_mut)
+            .map_err(to_py_err)?;
+        order.retain(|item| !matches!(item, Object::Reference(id) if *id == field_id));
+        if source.is_some() {
+            order.push(Object::Reference(field_id));
+        }
+        if order.is_empty() {
+            form.remove(b"CO");
+        } else {
+            form.set("CO", Object::Array(order));
+        }
+    }
+    Ok(())
+}
+
+/// Implements [`_Document::widget_scripts`].
+pub(super) fn widget_scripts(
+    this: &_Document,
+    py: Python<'_>,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+) -> PyResult<Vec<(String, String)>> {
+    py.detach(|| {
+        let page_id = this.page_id(page_number)?;
+        let (_, widget) = this.annotation_at(page_id, index, xref)?;
+        read_scripts(&this.doc, widget, &WIDGET_TRIGGERS)
+    })
+}
+
+/// Implements [`_Document::set_widget_script`]; returns the widget's
+/// object number, which a widget stored in `/Annots` itself gains here.
+pub(super) fn set_widget_script(
+    this: &mut _Document,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+    trigger: &str,
+    source: Option<&str>,
+) -> PyResult<u32> {
+    validate_script(trigger, &WIDGET_TRIGGERS, source)?;
+    let page_id = this.page_id(page_number)?;
+    let (_, widget) = this.annotation_at(page_id, index, xref)?;
+    if !matches!(
+        widget.get(b"Subtype").and_then(Object::as_name),
+        Ok(b"Widget")
+    ) {
+        return Err(StaleObjectError::new_err(format!(
+            "annotation {xref} is no longer a widget"
+        )));
+    }
+    let additional = match widget.get(b"AA") {
+        Ok(Object::Reference(id)) => this.doc.get_dictionary(*id).ok().cloned(),
+        _ => None,
+    };
+    let (_, id) = edited_annotation(this, page_id, index, xref)?;
+    let widget = this
+        .doc
+        .get_object_mut(id)
+        .and_then(Object::as_dict_mut)
+        .map_err(to_py_err)?;
+    if let Some(additional) = additional {
+        widget.set("AA", additional);
+    }
+    write_script(widget, trigger, source);
+    Ok(id.0)
+}

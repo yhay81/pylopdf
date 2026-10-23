@@ -992,6 +992,26 @@ for widget in doc.form["customer"].widgets:
     widget.font_size = 10
 ```
 
+Fields and widgets hold JavaScript actions in `scripts`, a mutable mapping
+from `ScriptTrigger` to script text. `field.scripts` takes the field triggers
+`KEYSTROKE`, `FORMAT`, `VALIDATE`, and `CALCULATE` (a calculated field is
+listed in the form's `/CO` calculation order), and `widget.scripts` the
+widget triggers `FOCUS`, `BLUR`, `ENTER`, `EXIT`, `DOWN`, `UP`, and
+`ACTIVATE`, the action a pushbutton runs. pylopdf stores scripts and never
+runs them; number and date formats are Acrobat's format scripts:
+
+```python
+from pylopdf import ScriptTrigger
+
+total = doc.form["total"]
+total.scripts[ScriptTrigger.FORMAT] = 'AFNumber_Format(2, 0, 0, 0, "", true);'
+total.scripts[ScriptTrigger.KEYSTROKE] = 'AFNumber_Keystroke(2, 0, 0, 0, "", true);'
+total.scripts[ScriptTrigger.CALCULATE] = 'AFSimple_Calculate("SUM", ["a", "b"]);'
+del total.scripts[ScriptTrigger.CALCULATE]
+```
+
+A script is at most 1 MiB of UTF-8 (`LimitError` code `script_size`).
+
 ## Attachments { #attachments }
 
 `doc.attachments` is a mapping from names to `Attachment` objects:

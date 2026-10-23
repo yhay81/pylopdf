@@ -289,6 +289,7 @@ replacement, and the migration hint):
 - PDF_FIELD_IS_* -> FieldFlags: PDF_FIELD_IS_READ_ONLY, PDF_FIELD_IS_REQUIRED, and PDF_FIELD_IS_NO_EXPORT are FieldFlags.READ_ONLY, REQUIRED, and NO_EXPORT, which doc.form[name].flags returns.
 - PDF_PERM_* -> Permissions: PDF_PERM_PRINT is Permissions.PRINT, and so on.
 - PDF_TX_FIELD_IS_* -> FieldFlags: Text field flags such as PDF_TX_FIELD_IS_MULTILINE and PDF_TX_FIELD_IS_COMB are FieldFlags members such as FieldFlags.MULTILINE and COMB.
+- PDF_WIDGET_TX_FORMAT_* -> Field.scripts: Text formats are Acrobat scripts: set field.scripts[ScriptTrigger.FORMAT] and [ScriptTrigger.KEYSTROKE], for example to AFDate_FormatEx("yyyy-mm-dd").
 - PDF_WIDGET_TYPE_* -> FieldType: doc.form[name].type is a FieldType member: TEXT, CHECKBOX, RADIO, PUSHBUTTON, COMBOBOX, LISTBOX, SIGNATURE, or UNKNOWN.
 - Page.add_caret_annot -> Annotations.add: page.annotations.add(Caret(point)) adds a caret in a 20-point square and returns its Annotation.
 - Page.add_circle_annot -> Annotations.add: page.annotations.add(Circle(rect, color=..., interior_color=..., border=Border(...))) adds an ellipse with its appearance and returns its Annotation.
@@ -433,8 +434,16 @@ replacement, and the migration hint):
 - Widget.on_state -> Widget.on_state: widget.on_state is the state that selects a check box or radio button.
 - Widget.rb_parent -> Widget.field: widget.field is the radio group's Field.
 - Widget.reset -> Field.reset: widget.field.reset() restores the field's default_value, or clears it, and draws its widgets again.
+- Widget.script -> Widget.scripts: widget.scripts[ScriptTrigger.ACTIVATE] = js sets the JavaScript action the widget runs when activated (/A).
+- Widget.script_blur -> Widget.scripts: widget.scripts[ScriptTrigger.BLUR] = js sets the script run when the widget loses focus.
+- Widget.script_calc -> Field.scripts: widget.field.scripts[ScriptTrigger.CALCULATE] = js sets the calculation script and lists the field in /CO.
+- Widget.script_change -> Field.scripts: widget.field.scripts[ScriptTrigger.VALIDATE] = js sets the script run when the value changes.
+- Widget.script_focus -> Widget.scripts: widget.scripts[ScriptTrigger.FOCUS] = js sets the script run when the widget receives focus.
+- Widget.script_format -> Field.scripts: widget.field.scripts[ScriptTrigger.FORMAT] = js sets the formatting script.
+- Widget.script_stroke -> Field.scripts: widget.field.scripts[ScriptTrigger.KEYSTROKE] = js sets the keystroke script.
 - Widget.text_font -> Widget.font: widget.font is the Standard 14 Font that /DA names, assignable with Font.standard(...).
 - Widget.text_fontsize -> Widget.font_size: widget.font_size is the /DA size, 0 to fit the text; assignable.
+- Widget.text_format -> Field.scripts: Number, date, time, and percent formats are Acrobat scripts: set field.scripts[ScriptTrigger.FORMAT] and [ScriptTrigger.KEYSTROKE], for example to 'AFNumber_Format(2, 0, 0, 0, "", true);'.
 - Widget.text_maxlen -> Field.max_length: widget.field.max_length is the text field's /MaxLen, assignable and deletable.
 - Widget.update -> Widget: Assign widget properties; each assignment draws the widget again, so there is no update().
 - csGRAY -> Colorspace: Use pylopdf.Colorspace.GRAY.
