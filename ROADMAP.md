@@ -318,9 +318,9 @@ Workstream Writing.
   `clip`, `transform`, `opacity`, and `blend` (all done), then `mask`,
   `layer`, and `tag`; and `draw(item)`, which paints a content item again
   (done for paths). `textbox` places lines as `text` does, and
-  `Font.text_height` measures the height it needs before drawing (done).
-  Still to come: `rotate` for text, and `clip` and `rotate` for placed
-  pages.
+  `Font.text_height` measures the height it needs before drawing, and
+  `rotate` turns text clockwise in right angles (both done). Still to come:
+  `clip` and `rotate` for placed pages.
 - One commit places one Form XObject whose content pylopdf composes in
   display space (done). Paths, clips, transforms, and blend modes are
   operators; an opacity scope is a transparency group Form; text in an

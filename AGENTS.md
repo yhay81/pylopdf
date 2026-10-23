@@ -2048,7 +2048,12 @@ the concept and API overview.
   a page of the target's own pre-commit revision under the new revision
   unless the canvas drew on that page. `draw(item)` takes `Path` items only
   and repeats their clips, group opacities, and blend modes, not soft
-  masks. Limits: 1,048,576 path points of paths and clips together
+  masks. Text with `rotate` is recorded inside a transform of its own, a
+  `Push`/`Pop` pair that is no scope of the caller's and does not count
+  toward the scope depth, turning clockwise about the first baseline's start,
+  or, for a textbox, mapping a box at the origin whose sides follow the
+  turned lines onto the rectangle; both backends draw that transform as any
+  other. Limits: 1,048,576 path points of paths and clips together
   (`path_point_count`) and 16 open scopes (`canvas_scope_depth`); text keeps
   the 1 MiB and 4,096-line text budget, and each image its 64 MiB and
   64,000,000-pixel input limits.

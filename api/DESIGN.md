@@ -283,8 +283,8 @@ return one from `builder.page(size)`.
 | --- | --- |
 | `path(path, *, fill=None, stroke=None, fill_rule=FillRule.NONZERO)` | `path` is a `Path` item or a geometry built with `PathBuilder`, whose constructors also cover sectors, wavy lines, and zigzag lines. |
 | `line`, `rect(rect, *, radius=0, ...)`, `circle`, `ellipse`, `polygon`, `bezier` | Shortcuts that build one path. |
-| `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None, rotate=0)` | Shaped with HarfRust and embedded as a subset by krilla. The fill and the stroke select the render mode; invisible text belongs to `page.apply_ocr`. |
-| `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` → `TextFit` | Wraps with UAX #14 and places lines as `text` does, the first baseline one ascender below the top; on overflow it draws nothing and reports the shortfall. |
+| `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None, rotate=0)` | Shaped with HarfRust and embedded as a subset by krilla. The fill and the stroke select the render mode; invisible text belongs to `page.apply_ocr`. `rotate` turns the lines clockwise about `at` in right angles, as `image` turns images; a `transform` scope turns by other angles. |
+| `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, rotate=0, ...)` → `TextFit` | Wraps with UAX #14 and places lines as `text` does, the first baseline one ascender below the top; on overflow it draws nothing and reports the shortfall. `rotate` turns the lines inside `rect`, which they then wrap across for 90 and 270. |
 | `image(rect, source, *, keep_aspect=True, rotate=0)` | `source` is a path, encoded bytes, a `Pixmap`, or an `ImageObject`; the same image is stored once. |
 | `page(rect, source, *, clip=None, keep_aspect=True, rotate=0)` | Places another page, which may belong to the same document. |
 | `clip(path)`, `transform(matrix)`, `opacity(alpha)`, `blend(mode)`, `mask(...)`, `layer(layer)`, `tag(role, ...)` | Context managers that scope a graphics state; `tag` scopes build a tagged new document's structure tree. |

@@ -1841,7 +1841,7 @@ def _text_options(args: _Arguments, names: tuple[str, ...]) -> dict[str, str] | 
     if bound is None or len(args.positional) > 2:  # noqa: PLR2004 - the position and the text.
         return None
     options = {key: value for key, value in bound.items() if value not in TEXT_DEFAULTS.get(key, ())}
-    unsupported = {"set_simple", "encoding", "render_mode", "border_width", "miter_limit", "rotate", "morph"}
+    unsupported = {"set_simple", "encoding", "render_mode", "border_width", "miter_limit", "morph"}
     if unsupported & set(options) or {"stroke_opacity", "oc", "fill"} & set(options):
         return None
     return options
@@ -1882,10 +1882,21 @@ def _text_keywords(migrator: _Migrator, options: dict[str, str]) -> list[str] | 
         if paint is None:
             return None
         keywords.append(f"fill={paint}")
-    for option, keyword in (("lineheight", "line_height"), ("max_text_size", "max_text_size")):
-        if option in options:
-            keywords.append(f"{keyword}={options[option]}")
+    if "lineheight" in options:
+        keywords.append(f"line_height={options['lineheight']}")
+    if "rotate" in options and (rotate := _canvas_rotation(migrator, options["rotate"])) != "0":
+        keywords.append(f"rotate={rotate}")
+    if "max_text_size" in options:
+        keywords.append(f"max_text_size={options['max_text_size']}")
     return None if font is None else keywords
+
+
+def _canvas_rotation(migrator: _Migrator, rotate: str) -> str:
+    """Return the canvas ``rotate=`` of a pymupdf angle, which turns anticlockwise where the canvas turns clockwise."""
+    if not migrator.pymupdf():
+        return rotate
+    angle = _int_literal(rotate)
+    return f"-{_receiver(cst.parse_expression(rotate))}" if angle is None else str(-angle % 360)
 
 
 def _canvas_block(migrator: _Migrator, receiver: str, options: dict[str, str], body: Callable[[str], str]) -> str:
@@ -1988,13 +1999,8 @@ def _image_block(migrator: _Migrator, receiver: str, args: _Arguments) -> str | 
     keywords = []
     if "keep_proportion" in options:
         keywords.append(f"keep_aspect={options['keep_proportion']}")
-    if "rotate" in options:
-        rotate = options["rotate"]
-        if migrator.pymupdf():
-            angle = _int_literal(rotate)
-            rotate = f"-{_receiver(cst.parse_expression(rotate))}" if angle is None else str(-angle % 360)
-        if rotate != "0":
-            keywords.append(f"rotate={rotate}")
+    if "rotate" in options and (rotate := _canvas_rotation(migrator, options["rotate"])) != "0":
+        keywords.append(f"rotate={rotate}")
     keywords.extend(f"{key}={options[key]}" for key in ("max_size", "max_pixels") if key in options)
     arguments = ", ".join([options["rect"], options[sources[0]], *keywords])
     return _canvas_block(migrator, receiver, options, lambda canvas: f"{canvas}.image({arguments})")
