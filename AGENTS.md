@@ -2979,6 +2979,16 @@ target surface.
 - Every feature pull request meets the definition of done in ROADMAP.md,
   names its milestone, and implements against api/DESIGN.md. Concurrent pull
   requests stay inside one workstream's modules.
+- GitHub issues track the roadmap, as ROADMAP.md's Tracking section
+  describes: the pinned root issue #325 has one `Milestone: <name>` tracker
+  per milestone, Engine work (#324) with one sub-issue per engine, the 1.0
+  gates, and the continuous tracks. Every pull request closes or references
+  one of them and checks the boxes it completes; a new TODO becomes a box or
+  a sub-issue there, never a note elsewhere; and an engine workaround links
+  its upstream issue or pull request from its engine's sub-issue. After a
+  capability-map edit, run `python tools/roadmap_issues.py sync`, which
+  rewrites only the generated capability list of each tracker. A milestone
+  changed in ROADMAP.md changes its tracker's checklists by hand.
 - v1.0 has no target date. It requires a capability map without planned
   entries, every engine workaround removed or justified, the canonical
   workflows documented and tested, independent field reports, and the
