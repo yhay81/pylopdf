@@ -46,6 +46,12 @@ the concept and API overview.
   losses together. Rendering reports end-to-end PNG time plus cold and warm
   Pixmap rasterization and PNG encoding time and size for both pylopdf and
   pymupdf, so encoder settings cannot hide rasterization losses.
+- `uv run --all-extras --with pymupdf python bench/interaction.py` — compare
+  every annotation type that pylopdf creates, rendered by hayro and MuPDF on
+  unturned and turned pages, what pymupdf reads of pylopdf's links, pymupdf
+  filling pylopdf's fields for pylopdf to read back, and `flatten()` against
+  `bake()`. Results are written to `bench/results/interaction-latest.md`;
+  pymupdf stays a development-only oracle.
 - `py -3.14t bench/free_threaded.py` — measure independent-document extraction
   without the GIL. Results are written separately to
   `bench/results/free-threaded-latest.md` so regular benchmark runs cannot
