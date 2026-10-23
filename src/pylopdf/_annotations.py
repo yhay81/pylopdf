@@ -7,10 +7,12 @@ import math
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, TypeAlias, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast, overload
 
+from pylopdf._canvas import _canvas_font
 from pylopdf._content import BlendMode, Color
 from pylopdf._errors import StalePageError
+from pylopdf._fonts import Font
 from pylopdf._geometry import Point, Quad, Rect
 from pylopdf._hints import hinted_getattr
 from pylopdf._limits import _validate_cumulative_utf8_input, _validate_rect
@@ -446,6 +448,19 @@ class Annotation:
             return None
         start, end = endings
         return _LINE_ENDINGS[start], _LINE_ENDINGS[end]
+
+    @property
+    def rotation(self) -> int:
+        """Return how far the annotation's content is turned clockwise as the page is displayed.
+
+        That is the page's rotation less the annotation's ``/Rotate``, which
+        turns the content counterclockwise in PDF user space: a free text
+        that :class:`FreeText` wrote upright reads 0 on any page.
+        """
+        self._read()
+        stored = self.obj.get("Rotate")
+        turn = stored if isinstance(stored, int) and not isinstance(stored, bool) and stored % 90 == 0 else 0
+        return (self._page.rotation - turn) % 360
 
     def _edit(self, method: str, *args: object) -> None:
         page = self._page
@@ -956,6 +971,128 @@ class Note:
         }
 
 
+#: The ``/Q`` code of each free-text alignment.
+_FREE_TEXT_ALIGNMENTS = ("left", "center", "right")
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class FreeText:
+    """Text written on the page in a box, as ``page.annotations.add`` takes it.
+
+    ``rect`` is the box in display coordinates and ``text`` its text, laid
+    out as :meth:`Canvas.textbox` lays it out: wrapped, ``align``-ed, and in
+    ``font`` at ``size`` points and ``text_color``. Without ``font``, WinAnsi
+    text is drawn in Helvetica and other text in the face of an installed
+    font extra, as on a canvas; a Standard 14 font is named in the
+    annotation, so other viewers can redraw it, and an OpenType face is
+    embedded. ``color`` fills the box, ``border`` outlines it in the text
+    color, and ``rotate`` turns the text clockwise by a multiple of 90
+    degrees as the page is displayed. ``callout`` draws a line from the
+    display point that the text explains, through an optional knee, to the
+    box, with ``callout_ending`` at the explained point. Text that does not
+    fit raises :class:`PdfError`.
+    """
+
+    rect: Rect
+    text: str
+    font: Font | None
+    size: float
+    text_color: Color
+    color: Color | None
+    border: Border
+    align: Literal["left", "center", "right"]
+    rotate: int
+    callout: tuple[Point, ...] | None
+    callout_ending: LineEnding
+    opacity: float
+
+    def __init__(  # noqa: PLR0913 - the text's style options.
+        self,
+        rect: Sequence[float],
+        text: str,
+        *,
+        font: Font | None = None,
+        size: float = 11.0,
+        text_color: Color = Color(0.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        color: Color | None = None,
+        border: Border = Border(0),  # noqa: B008 - Border is immutable.
+        align: Literal["left", "center", "right"] = "left",
+        rotate: int = 0,
+        callout: Sequence[Point | Sequence[float]] | None = None,
+        callout_ending: LineEnding = LineEnding.NONE,
+        opacity: float = 1.0,
+    ) -> None:
+        """Validate the specification; the text is bounded before anything else is read."""
+        if not isinstance(text, str):
+            msg = f"text must be a str: {type(text).__name__}"
+            raise TypeError(msg)
+        _validate_cumulative_utf8_input(
+            ("FreeText", text, _DATE_PLACEHOLDER, _DATE_PLACEHOLDER),
+            _MAX_ANNOTATION_INPUT_TEXT_SIZE,
+            limit_code="annotation_input_size",
+            input_label="annotation subtype and contents input",
+        )
+        if font is not None and not isinstance(font, Font):
+            msg = f"font must be a pylopdf.Font or None, not {type(font).__name__}"
+            raise TypeError(msg)
+        size = _number(size, "size")
+        if not 0 < size <= 10000:  # noqa: PLR2004 - the core's bound.
+            msg = f"size must be greater than 0 and at most 10000: {size!r}"
+            raise ValueError(msg)
+        if not isinstance(border, Border):
+            msg = f"border must be a Border: {border!r}"
+            raise TypeError(msg)
+        if align not in _FREE_TEXT_ALIGNMENTS:
+            msg = f"align must be one of {', '.join(_FREE_TEXT_ALIGNMENTS)}: {align!r}"
+            raise ValueError(msg)
+        if isinstance(rotate, bool) or not isinstance(rotate, int) or rotate % 90:
+            msg = f"rotate must be a multiple of 90: {rotate!r}"
+            raise ValueError(msg)
+        points = None
+        if callout is not None:
+            if isinstance(callout, (str, bytes)) or not isinstance(callout, Sequence) or not 2 <= len(callout) <= 3:  # noqa: PLR2004
+                msg = "callout must hold 2 or 3 points: the point it explains, an optional knee, and the box"
+                raise ValueError(msg)
+            points = tuple(Point(*_point(point)) for point in callout)
+        object.__setattr__(self, "rect", Rect(*_validate_rect(rect)))
+        object.__setattr__(self, "text", text)
+        object.__setattr__(self, "font", font)
+        object.__setattr__(self, "size", size)
+        object.__setattr__(self, "text_color", _opaque_color(text_color, "text_color"))
+        object.__setattr__(self, "color", _optional_color(color, "color"))
+        object.__setattr__(self, "border", border)
+        object.__setattr__(self, "align", align)
+        object.__setattr__(self, "rotate", rotate % 360)
+        object.__setattr__(self, "callout", points)
+        object.__setattr__(self, "callout_ending", LineEnding(callout_ending))
+        object.__setattr__(self, "opacity", _opacity(opacity))
+
+    def _payload(self) -> dict[str, Any]:
+        face = _canvas_font(self.text, self.font)
+        border = self.border
+        spec: dict[str, Any] = {
+            "subtype": "FreeText",
+            "rect": tuple(self.rect),
+            "contents": self.text,
+            "created": _now(),
+            "color": None if self.color is None else self.color.rgb,
+            "border": (border.width, _BORDER_STYLE_NAMES[border.style], list(border.dashes)),
+            "opacity": self.opacity,
+            "text_color": self.text_color.rgb,
+            "font_size": self.size,
+            "align": _FREE_TEXT_ALIGNMENTS.index(self.align),
+            "rotate": self.rotate,
+        }
+        if face.standard_name is None:
+            spec["font"] = face
+        else:
+            spec["font_name"] = face.standard_name
+        if self.callout is not None:
+            spec["callout"] = [tuple(point) for point in self.callout]
+            spec["callout_ending"] = _LINE_ENDING_NAMES[self.callout_ending]
+        return spec
+
+
 def _point(value: object) -> tuple[float, float]:
     if isinstance(value, (str, bytes)) or not isinstance(value, Sequence) or len(value) != 2:  # noqa: PLR2004
         msg = f"a point is a Point or a pair of numbers: {value!r}"
@@ -1189,7 +1326,18 @@ class Ink(_Drawn):
 
 #: The specifications that ``page.annotations.add`` takes.
 AnnotationSpecification: TypeAlias = (
-    Highlight | Underline | StrikeOut | Squiggly | Note | Square | Circle | LineAnnotation | Polygon | PolyLine | Ink
+    Highlight
+    | Underline
+    | StrikeOut
+    | Squiggly
+    | Note
+    | FreeText
+    | Square
+    | Circle
+    | LineAnnotation
+    | Polygon
+    | PolyLine
+    | Ink
 )
 _SPECIFICATIONS = (
     Highlight,
@@ -1197,6 +1345,7 @@ _SPECIFICATIONS = (
     StrikeOut,
     Squiggly,
     Note,
+    FreeText,
     Square,
     Circle,
     LineAnnotation,
@@ -1279,6 +1428,7 @@ for _public in (
     Border,
     BorderStyle,
     Circle,
+    FreeText,
     Highlight,
     Ink,
     LineAnnotation,

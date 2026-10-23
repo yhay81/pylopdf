@@ -298,7 +298,7 @@ impl _Font {
 
     /// A Standard 14 font, by its PostScript name.
     #[staticmethod]
-    fn standard(name: &str) -> PyResult<Self> {
+    pub(crate) fn standard(name: &str) -> PyResult<Self> {
         let canonical = STANDARD_NAMES
             .into_iter()
             .find(|candidate| *candidate == name)
@@ -312,7 +312,7 @@ impl _Font {
 
     /// The PostScript name of a Standard 14 font, or `None` for OpenType.
     #[getter]
-    fn standard_name(&self) -> Option<&'static str> {
+    pub(crate) fn standard_name(&self) -> Option<&'static str> {
         match self.face {
             Face::Standard(_, name) => Some(name),
             Face::OpenType(_) => None,

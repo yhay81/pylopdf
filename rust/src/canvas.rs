@@ -2327,7 +2327,7 @@ impl _Canvas {
         max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE),
         rotation=0
     ))]
-    fn add_textbox(
+    pub(crate) fn add_textbox(
         &mut self,
         py: Python<'_>,
         rect: (f64, f64, f64, f64),

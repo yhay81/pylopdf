@@ -422,6 +422,10 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "import fitz\npage.add_text_annot(p, t, icon='Help')\n",
             "page.annotations.add(pylopdf.Note(p, contents=t, icon=pylopdf.NoteIcon.HELP))",
         ),
+        (
+            "import fitz\npage.add_freetext_annot(r, 'hi', fontsize=9, fill_color=(1, 1, 0))\n",
+            "page.annotations.add(pylopdf.FreeText(r, 'hi', size=9, color=pylopdf.Color(1, 1, 0)))",
+        ),
         ("import fitz\nannot = page.add_rect_annot(r)\n", "annot = page.annotations.add(pylopdf.Square(r))"),
         ("import fitz\nannot = page.add_circle_annot(rect=r)\n", "annot = page.annotations.add(pylopdf.Circle(r))"),
         ("import fitz\npage.add_line_annot(a, b)\n", "page.annotations.add(pylopdf.LineAnnotation(a, b))"),

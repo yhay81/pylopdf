@@ -359,8 +359,8 @@ listed. A handle reads the document on every access and has `type`, an
 `interior_color` as `Color` records or `None`, `opacity`, `border`, a
 `Border` record or `None`, `blend_mode`, a `BlendMode` member or `None`,
 `flags`, an `AnnotationFlags` value, `vertices`, `strokes`, and
-`line_endings`, `popup_rect`, `is_open`, `in_reply_to`, and `replies`, and
-`xref`, `obj`, and `page`.
+`line_endings`, `popup_rect`, `is_open`, `in_reply_to`, `replies`, and
+`rotation`, and `xref`, `obj`, and `page`.
 
 `page.annotations.add(specification)` adds the annotation that a
 specification describes, with its appearance, so every viewer draws it
@@ -375,6 +375,7 @@ time of their creation in `created` and `modified`.
 | `StrikeOut(rects, *, color=Color(1, 0, 0), opacity=1.0, contents=None)` | A one-point line through the middle of each rectangle |
 | `Squiggly(rects, *, color=Color(1, 0, 0), opacity=1.0, contents=None)` | A zigzag along the bottom of each rectangle |
 | `Note(at, *, contents=None, icon=NoteIcon.NOTE, color=Color(1, 1, 0), opacity=1.0, is_open=False)` | A note shown as a 20-point icon whose top-left corner is `at`; `NoteIcon` has `COMMENT`, `HELP`, `INSERT`, `KEY`, `NEW_PARAGRAPH`, `NOTE`, and `PARAGRAPH` |
+| `FreeText(rect, text, *, font=None, size=11, text_color=Color(0, 0, 0), color=None, border=Border(0), align="left", rotate=0, callout=None, callout_ending=LineEnding.NONE, opacity=1.0)` | Text in a box, laid out as `Canvas.textbox` lays it out: `color` fills the box, `border` outlines it in the text colour, `rotate` turns the text clockwise as displayed, and `callout` draws a line from the point the text explains, through an optional knee, to the box |
 | `Square(rect, *, color=Color(1, 0, 0), interior_color=None, border=Border(), opacity=1.0, blend_mode=None, contents=None)` | A rectangle whose border `color` strokes and `interior_color` fills; either may be `None` |
 | `Circle(rect, *, ...)` | The ellipse inscribed in `rect`, with the fields of `Square` |
 | `LineAnnotation(start, end, *, color=Color(1, 0, 0), interior_color=None, border=Border(), line_endings=(LineEnding.NONE, LineEnding.NONE), opacity=1.0, blend_mode=None, contents=None)` | A straight line with a shape at each end, whose closed shapes `interior_color` fills |
@@ -398,6 +399,14 @@ annotation holds at most 65,536 points (`LimitError` code
 the points back as `vertices` (a line's two ends, or a polygon's or
 polyline's points) or `strokes` (an ink annotation's), and the shapes as
 `line_endings`; each is `None` for other types.
+
+Without `font`, free text in WinAnsi characters is drawn in Helvetica and
+other text in the face of an installed font extra, as on a canvas. A
+Standard 14 font is named in `/DA`, so other viewers can redraw the text,
+and an OpenType face is embedded in the appearance. Text that does not fit
+its box raises `PdfError` and adds nothing. `rotation` reads how far an
+annotation's content is turned clockwise as the page is displayed, 0 for
+free text written upright.
 
 A handle's `popup_rect` is the display rectangle of its popup, the window
 that shows the annotation's text, or `None`: assigning a rectangle adds or
@@ -1048,7 +1057,7 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |
 | `Colorspace` | The color spaces of a [`Pixmap`](#pixmap): `GRAY` and `RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [Outline and page labels](#outline) |
-| `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `AnnotationSpecification`, `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Note`, `NoteIcon`, `Square`, `Circle`, `LineAnnotation`, `Polygon`, `PolyLine`, `Ink`, `Border`, `BorderStyle`, `LineEnding`, `Link`, `Links` | [Annotations and links](#page-annotations) |
+| `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `AnnotationSpecification`, `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Note`, `NoteIcon`, `FreeText`, `Square`, `Circle`, `LineAnnotation`, `Polygon`, `PolyLine`, `Ink`, `Border`, `BorderStyle`, `LineEnding`, `Link`, `Links` | [Annotations and links](#page-annotations) |
 | `PageBoxes` | [Page geometry](#page-geometry) |
 | `Form`, `Field`, `FieldType`, `FieldFlags`, `FieldChoice` | [Forms](#forms) |
 | `FallbackFont`, `FallbackFonts` | [Rendering and images](#document-rendering) |

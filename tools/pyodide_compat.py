@@ -1197,6 +1197,7 @@ def _annotation_results() -> dict[str, Any]:
         Circle,
         Color,
         Document,
+        FreeText,
         Ink,
         LineAnnotation,
         LineEnding,
@@ -1221,6 +1222,7 @@ def _annotation_results() -> dict[str, Any]:
         note = page.annotations.add(Note((150, 10), contents="note", icon=NoteIcon.HELP))
         note.popup_rect = (100, 40, 190, 90)
         note.is_open = True
+        page.annotations.add(FreeText((110, 120, 190, 160), "Free", callout=[(150, 190), (150, 160)]))
         data = document.to_bytes()
     with pylopdf.open(data) as reopened:
         page = reopened.pages[0]
@@ -1244,6 +1246,7 @@ def _annotation_results() -> dict[str, Any]:
                 else [ending.value for ending in annotation.line_endings],
                 "popup_rect": None if annotation.popup_rect is None else list(annotation.popup_rect),
                 "is_open": annotation.is_open,
+                "rotation": annotation.rotation,
             }
             for annotation in page.annotations
         ]
@@ -1251,7 +1254,8 @@ def _annotation_results() -> dict[str, Any]:
         samples = bytes(pixmap)
         inside = list(samples[(25 * pixmap.width + 35) * 3 : (25 * pixmap.width + 35) * 3 + 3])
     _require(
-        [entry["type"] for entry in annotations] == ["SQUARE", "CIRCLE", "LINE", "INK", "SQUIGGLY", "TEXT"],
+        [entry["type"] for entry in annotations]
+        == ["SQUARE", "CIRCLE", "LINE", "INK", "SQUIGGLY", "TEXT", "FREE_TEXT"],
         "annotation types changed",
     )
     _require(inside == [255, 255, 0], "the square's appearance did not render")

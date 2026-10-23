@@ -11,6 +11,7 @@ use lopdf::{Dictionary, Document, Object};
 use pyo3::prelude::*;
 
 use crate::canvas::{_Canvas, BLEND_MODES, StrokeArgs};
+use crate::font::_Font;
 
 /// Bézier control-point distance of a quarter ellipse, as a fraction of its radius.
 const KAPPA: f64 = 0.552_284_749_830_793_4;
@@ -27,6 +28,9 @@ pub(crate) struct Appearance {
     pub(crate) rect: [f64; 4],
     /// The path points that the canvas draws.
     pub(crate) points: usize,
+    /// Whether the annotation's text fit its box; text that does not is not
+    /// drawn.
+    pub(crate) fits: bool,
 }
 
 /// Record a path and count its points.
@@ -48,7 +52,7 @@ pub(crate) fn draws(subtype: &[u8]) -> bool {
         subtype,
         b"Square" | b"Circle" | b"Line" | b"Polygon" | b"PolyLine" | b"Ink"
     ) || is_text_markup(subtype)
-        || subtype == b"Text"
+        || matches!(subtype, b"Text" | b"FreeText")
 }
 
 /// Whether `subtype` is text markup, which `/QuadPoints` place.
@@ -231,6 +235,16 @@ fn rect_differences(doc: &Document, dict: &Dictionary, size: (f64, f64)) -> [f64
 /// that the engine does not draw or a dictionary without a usable `/Rect`
 /// or geometry.
 pub(crate) fn appearance(doc: &Document, dict: &Dictionary) -> PyResult<Option<Appearance>> {
+    appearance_with(doc, dict, None)
+}
+
+/// `appearance`, drawing the text of a free-text annotation with `font`
+/// in place of the Standard 14 font that `/DA` names.
+pub(crate) fn appearance_with(
+    doc: &Document,
+    dict: &Dictionary,
+    font: Option<&Py<_Font>>,
+) -> PyResult<Option<Appearance>> {
     let Some(subtype) = entry(doc, dict, b"Subtype").and_then(|value| value.as_name().ok()) else {
         return Ok(None);
     };
@@ -238,7 +252,7 @@ pub(crate) fn appearance(doc: &Document, dict: &Dictionary) -> PyResult<Option<A
         return Ok(None);
     }
     let points = match subtype {
-        b"Square" | b"Circle" | b"Text" => Vec::new(),
+        b"Square" | b"Circle" | b"Text" | b"FreeText" => Vec::new(),
         _ => match point_lists(doc, dict, subtype) {
             Some(points) => points,
             None => return Ok(None),
@@ -282,6 +296,7 @@ pub(crate) fn appearance(doc: &Document, dict: &Dictionary) -> PyResult<Option<A
     let depth = blend.map(|mode| canvas.push_blend(mode)).transpose()?;
     let to_canvas = |(x, y): (f64, f64)| (x - x0, y1 - y);
     let mut drawn = 0usize;
+    let mut fits = true;
     match subtype {
         b"Square" | b"Circle" => {
             let stroke = paint.stroke(0, 0);
@@ -331,6 +346,9 @@ pub(crate) fn appearance(doc: &Document, dict: &Dictionary) -> PyResult<Option<A
                     stroke,
                 )?;
             }
+        }
+        b"FreeText" => {
+            fits = draw_free_text(&mut canvas, &mut drawn, doc, dict, &paint, rect, font)?;
         }
         b"Text" => {
             let icon = entry(doc, dict, b"Name")
@@ -452,7 +470,286 @@ pub(crate) fn appearance(doc: &Document, dict: &Dictionary) -> PyResult<Option<A
         matrix: [1.0, 0.0, 0.0, 1.0, x0, y0],
         rect,
         points: drawn,
+        fits,
     }))
+}
+
+/// Standard 14 fonts by the resource names that `/DA` strings give them,
+/// as Acrobat and MuPDF name them.
+pub(crate) const DA_FONTS: [(&str, &str); 14] = [
+    ("Helv", "Helvetica"),
+    ("HeBo", "Helvetica-Bold"),
+    ("HeOb", "Helvetica-Oblique"),
+    ("HeBO", "Helvetica-BoldOblique"),
+    ("TiRo", "Times-Roman"),
+    ("TiBo", "Times-Bold"),
+    ("TiIt", "Times-Italic"),
+    ("TiBI", "Times-BoldItalic"),
+    ("Cour", "Courier"),
+    ("CoBo", "Courier-Bold"),
+    ("CoOb", "Courier-Oblique"),
+    ("CoBO", "Courier-BoldOblique"),
+    ("Symb", "Symbol"),
+    ("ZaDb", "ZapfDingbats"),
+];
+
+/// The longest `/DA` string that is read.
+const MAX_DEFAULT_APPEARANCE: usize = 4_096;
+
+/// The font resource name, size, and colour of a `/DA` string.
+#[derive(Clone, PartialEq, Debug)]
+pub(crate) struct DefaultAppearance {
+    pub(crate) font: String,
+    pub(crate) size: f64,
+    pub(crate) color: (f64, f64, f64),
+}
+
+/// Read `/DA`: the last `Tf` and colour operator of the string; Helvetica,
+/// 12 points, and black for what it does not set.
+pub(crate) fn default_appearance(doc: &Document, dict: &Dictionary) -> DefaultAppearance {
+    let mut result = DefaultAppearance {
+        font: "Helv".to_owned(),
+        size: 12.0,
+        color: (0.0, 0.0, 0.0),
+    };
+    let Some(Object::String(bytes, _)) = entry(doc, dict, b"DA") else {
+        return result;
+    };
+    if bytes.len() > MAX_DEFAULT_APPEARANCE {
+        return result;
+    }
+    let mut operands: Vec<&[u8]> = Vec::new();
+    for token in bytes.split(|byte| byte.is_ascii_whitespace()) {
+        if token.is_empty() {
+            continue;
+        }
+        let number = |index: usize| -> Option<f64> {
+            let operand = operands.get(operands.len().checked_sub(index)?)?;
+            std::str::from_utf8(operand)
+                .ok()?
+                .parse::<f64>()
+                .ok()
+                .filter(|value| value.is_finite())
+        };
+        match token {
+            b"Tf" => {
+                if let (Some(name), Some(size)) = (
+                    operands
+                        .len()
+                        .checked_sub(2)
+                        .and_then(|index| operands.get(index)),
+                    number(1),
+                ) && let Some(name) = name.strip_prefix(b"/")
+                {
+                    result.font = String::from_utf8_lossy(name).into_owned();
+                    if size > 0.0 {
+                        result.size = size;
+                    }
+                }
+            }
+            b"g" => {
+                if let Some(gray) = number(1) {
+                    let gray = gray.clamp(0.0, 1.0);
+                    result.color = (gray, gray, gray);
+                }
+            }
+            b"rg" => {
+                if let (Some(red), Some(green), Some(blue)) = (number(3), number(2), number(1)) {
+                    result.color = (
+                        red.clamp(0.0, 1.0),
+                        green.clamp(0.0, 1.0),
+                        blue.clamp(0.0, 1.0),
+                    );
+                }
+            }
+            b"k" => {
+                if let (Some(cyan), Some(magenta), Some(yellow), Some(black)) =
+                    (number(4), number(3), number(2), number(1))
+                {
+                    let [cyan, magenta, yellow, black] =
+                        [cyan, magenta, yellow, black].map(|value| value.clamp(0.0, 1.0));
+                    result.color = (
+                        (1.0 - cyan) * (1.0 - black),
+                        (1.0 - magenta) * (1.0 - black),
+                        (1.0 - yellow) * (1.0 - black),
+                    );
+                }
+            }
+            _ => {
+                operands.push(token);
+                continue;
+            }
+        }
+        operands.clear();
+    }
+    result
+}
+
+/// The Standard 14 font that a `/DA` resource name selects, Helvetica for
+/// any other name.
+pub(crate) fn da_font(name: &str) -> &'static str {
+    DA_FONTS
+        .iter()
+        .find(|(known, _)| *known == name)
+        .map_or("Helvetica", |(_, font)| font)
+}
+
+/// The space between a free text's border and its text.
+const FREE_TEXT_PADDING: f64 = 2.0;
+
+/// Draw a free-text annotation: its box inside `/RD`, filled with `/C`
+/// and outlined in the text colour, the callout line of `/CL` with the `/LE`
+/// ending at its first point, and `/Contents` laid out in the box with the
+/// font, size, and colour of `/DA`, aligned by `/Q`, and turned
+/// counterclockwise by `/Rotate`. Return whether the text fit.
+fn draw_free_text(
+    canvas: &mut _Canvas,
+    drawn: &mut usize,
+    doc: &Document,
+    dict: &Dictionary,
+    paint: &Paint,
+    rect: [f64; 4],
+    font: Option<&Py<_Font>>,
+) -> PyResult<bool> {
+    let [x0, y0, x1, y1] = rect;
+    let to_canvas = |(x, y): (f64, f64)| (x - x0, y1 - y);
+    let size = (x1 - x0, y1 - y0);
+    let da = default_appearance(doc, dict);
+    let (red, green, blue) = da.color;
+    let text_color = (red, green, blue, paint.alpha);
+    let [left, top, right, bottom] = rect_differences(doc, dict, size);
+    let inner = [left, top, size.0 - right, size.1 - bottom];
+    let width = if border(doc, dict).is_some() {
+        paint.width
+    } else {
+        0.0
+    };
+    let fill = paint
+        .stroke
+        .map(|(red, green, blue)| ((red, green, blue, paint.alpha), false));
+    let stroke: Option<StrokeArgs> =
+        (width > 0.0).then(|| (text_color, width, 0, 0, 10.0, paint.dashes.clone(), 0.0));
+    let half = if stroke.is_some() { width / 2.0 } else { 0.0 };
+    let (a0, b0, a1, b1) = (
+        inner[0] + half,
+        inner[1] + half,
+        inner[2] - half,
+        inner[3] - half,
+    );
+    if (fill.is_some() || stroke.is_some()) && a1 > a0 && b1 > b0 {
+        add_path(
+            canvas,
+            drawn,
+            "mlllh",
+            vec![a0, b0, a1, b0, a1, b1, a0, b1],
+            fill,
+            stroke,
+        )?;
+    }
+    // The callout line from the point it shows to the box.
+    if let Some(values) = numbers(doc, dict, b"CL", 6)
+        && matches!(values.len(), 4 | 6)
+    {
+        let points: Vec<(f64, f64)> = values
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| (pair[0], pair[1]))
+            .collect();
+        let line_width = width.max(1.0);
+        let line: StrokeArgs = (text_color, line_width, 0, 0, 10.0, Vec::new(), 0.0);
+        let (operators, coordinates) = polyline(&points, to_canvas);
+        add_path(canvas, drawn, &operators, coordinates, None, Some(line))?;
+        let ending = entry(doc, dict, b"LE")
+            .and_then(|value| match value {
+                Object::Name(name) => Some(name.as_slice()),
+                Object::Array(items) => items
+                    .first()
+                    .and_then(|item| resolve(doc, item).as_name().ok()),
+                _ => None,
+            })
+            .and_then(|name| {
+                LINE_ENDINGS
+                    .iter()
+                    .position(|known| known.as_bytes() == name)
+            })
+            .unwrap_or(0);
+        let ending_paint = Paint {
+            stroke: Some(da.color),
+            interior: color(doc, dict, b"IC"),
+            width: line_width,
+            dashes: Vec::new(),
+            alpha: paint.alpha,
+        };
+        draw_ending(
+            canvas,
+            drawn,
+            &ending_paint,
+            ending,
+            points[0],
+            points[1],
+            to_canvas,
+        )?;
+    }
+    // The text.
+    let text = match entry(doc, dict, b"Contents") {
+        Some(Object::String(bytes, _)) => {
+            lopdf::decode_text_string(&Object::String(bytes.clone(), lopdf::StringFormat::Literal))
+                .unwrap_or_default()
+        }
+        _ => String::new(),
+    };
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    let inset = width + FREE_TEXT_PADDING;
+    let box_rect = (
+        inner[0] + inset,
+        inner[1] + inset,
+        inner[2] - inset,
+        inner[3] - inset,
+    );
+    if text.trim().is_empty() || box_rect.2 <= box_rect.0 || box_rect.3 <= box_rect.1 {
+        return Ok(text.trim().is_empty());
+    }
+    let align = match entry(doc, dict, b"Q") {
+        Some(Object::Integer(value @ 0..=2)) => *value as u8,
+        _ => 0,
+    };
+    // /Rotate turns counterclockwise in user space; the canvas turns text
+    // clockwise in its own space, which is user space flipped.
+    let turn = (360 - rotation(doc, dict)) % 360;
+    Python::attach(|py| -> PyResult<bool> {
+        let standard;
+        let face = match font {
+            Some(font) => font.bind(py),
+            None => {
+                standard = Bound::new(py, _Font::standard(da_font(&da.font))?)?;
+                &standard
+            }
+        };
+        let spare = canvas.add_textbox(
+            py,
+            box_rect,
+            &text,
+            face,
+            da.size,
+            None,
+            align,
+            Some(text_color),
+            None,
+            Some(crate::document::DEFAULT_MAX_GENERATED_TEXT_SIZE),
+            turn,
+        )?;
+        Ok(spare >= 0.0)
+    })
+}
+
+/// The `/Rotate` of an annotation, a multiple of 90 from 0 to 270; other
+/// values read as 0.
+pub(crate) fn rotation(doc: &Document, dict: &Dictionary) -> i64 {
+    match entry(doc, dict, b"Rotate") {
+        Some(Object::Integer(value)) if value % 90 == 0 => value.rem_euclid(360),
+        _ => 0,
+    }
 }
 
 /// Draw the icon of a note, `/Name`, in a 20-unit square scaled to `size`:

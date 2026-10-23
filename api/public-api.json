@@ -46,6 +46,7 @@
     "FontLanguage",
     "FontRef",
     "Form",
+    "FreeText",
     "Glyph",
     "GraphicsContext",
     "Highlight",
@@ -238,6 +239,10 @@
           "kind": "property",
           "returns": "list[Annotation]"
         },
+        "rotation": {
+          "kind": "property",
+          "returns": "int"
+        },
         "strokes": {
           "kind": "property",
           "returns": "tuple[tuple[Point, ...], ...] | None"
@@ -297,7 +302,7 @@
     },
     "AnnotationSpecification": {
       "kind": "type-alias",
-      "target": "pylopdf.Highlight | pylopdf.Underline | pylopdf.StrikeOut | pylopdf.Squiggly | pylopdf.Note | pylopdf.Square | pylopdf.Circle | pylopdf.LineAnnotation | pylopdf.Polygon | pylopdf.PolyLine | pylopdf.Ink"
+      "target": "pylopdf.Highlight | pylopdf.Underline | pylopdf.StrikeOut | pylopdf.Squiggly | pylopdf.Note | pylopdf.FreeText | pylopdf.Square | pylopdf.Circle | pylopdf.LineAnnotation | pylopdf.Polygon | pylopdf.PolyLine | pylopdf.Ink"
     },
     "AnnotationType": {
       "kind": "enum",
@@ -3626,6 +3631,154 @@
             "annotation": "Document",
             "kind": "positional_or_keyword",
             "name": "document"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "FreeText": {
+      "annotations": {
+        "align": "Literal['left', 'center', 'right']",
+        "border": "Border",
+        "callout": "tuple[Point, ...] | None",
+        "callout_ending": "LineEnding",
+        "color": "Color | None",
+        "font": "Font | None",
+        "opacity": "float",
+        "rect": "Rect",
+        "rotate": "int",
+        "size": "float",
+        "text": "str",
+        "text_color": "Color"
+      },
+      "dataclass_fields": [
+        "rect",
+        "text",
+        "font",
+        "size",
+        "text_color",
+        "color",
+        "border",
+        "align",
+        "rotate",
+        "callout",
+        "callout_ending",
+        "opacity"
+      ],
+      "kind": "class",
+      "members": {
+        "align": {
+          "kind": "property"
+        },
+        "border": {
+          "kind": "property"
+        },
+        "callout": {
+          "kind": "property"
+        },
+        "callout_ending": {
+          "kind": "property"
+        },
+        "color": {
+          "kind": "property"
+        },
+        "font": {
+          "kind": "property"
+        },
+        "opacity": {
+          "kind": "property"
+        },
+        "rect": {
+          "kind": "property"
+        },
+        "rotate": {
+          "kind": "property"
+        },
+        "size": {
+          "kind": "property"
+        },
+        "text": {
+          "kind": "property"
+        },
+        "text_color": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Sequence[float]",
+            "kind": "positional_or_keyword",
+            "name": "rect"
+          },
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "text"
+          },
+          {
+            "annotation": "Font | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "font"
+          },
+          {
+            "annotation": "float",
+            "default": 11.0,
+            "kind": "keyword_only",
+            "name": "size"
+          },
+          {
+            "annotation": "Color",
+            "default": {
+              "repr": "Color(red=0.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "text_color"
+          },
+          {
+            "annotation": "Color | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "color"
+          },
+          {
+            "annotation": "Border",
+            "default": {
+              "repr": "Border(width=0.0, style=<BorderStyle.SOLID: 'solid'>, dashes=())"
+            },
+            "kind": "keyword_only",
+            "name": "border"
+          },
+          {
+            "annotation": "Literal['left', 'center', 'right']",
+            "default": "left",
+            "kind": "keyword_only",
+            "name": "align"
+          },
+          {
+            "annotation": "int",
+            "default": 0,
+            "kind": "keyword_only",
+            "name": "rotate"
+          },
+          {
+            "annotation": "Sequence[Point | Sequence[float]] | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "callout"
+          },
+          {
+            "annotation": "LineEnding",
+            "default": "none",
+            "kind": "keyword_only",
+            "name": "callout_ending"
+          },
+          {
+            "annotation": "float",
+            "default": 1.0,
+            "kind": "keyword_only",
+            "name": "opacity"
           }
         ],
         "returns": "None"
