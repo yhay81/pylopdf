@@ -102,40 +102,27 @@ pub(crate) fn path_io_err(prefix: &str, path: &str, error: &std::io::Error) -> P
     }
 }
 
-/// Convert a lenient-load failure, including a refused recovery scan.
+/// Convert a lenient-load failure.
 ///
 /// Input that cannot be parsed raises `MalformedPdfError`; a wrong password and an
 /// exceeded decompression budget keep `PasswordError` and `LimitError`.
 pub(super) fn recovery_load_err(
     prefix: Option<&str>,
-    error: &recovery::LoadError,
+    error: &lopdf::Error,
     limit_code: &'static str,
 ) -> PyErr {
     match error {
-        recovery::LoadError::Pdf(
-            error @ (lopdf::Error::Decryption(_)
-            | lopdf::Error::InvalidPassword
-            | lopdf::Error::Decompress(DecompressError::MemoryLimitExceeded { .. })),
-        ) => load_err(prefix, error, limit_code),
-        recovery::LoadError::Pdf(error) => {
+        lopdf::Error::Decryption(_)
+        | lopdf::Error::InvalidPassword
+        | lopdf::Error::Decompress(DecompressError::MemoryLimitExceeded { .. }) => {
+            load_err(prefix, error, limit_code)
+        }
+        error => {
             let chain = LopdfErrorChain(error);
             MalformedPdfError::new_err(match prefix {
                 Some(prefix) => format!("{prefix}: {chain}"),
                 None => chain.to_string(),
             })
-        }
-        recovery::LoadError::RecoveryScan { work, budget } => {
-            let message = format!(
-                "cross-reference recovery could scan about {work} bytes, exceeding the \
-                 {budget}-byte linear safety limit for this input"
-            );
-            limit_err(
-                "recovery_scan_size",
-                match prefix {
-                    Some(prefix) => format!("{prefix}: {message}"),
-                    None => message,
-                },
-            )
         }
     }
 }

@@ -135,7 +135,6 @@ change.
 | `decompressed_size`, `page_content_size`, `total_decompressed_size`, `decompression_unverifiable`, `stream_filter_count` | A stream decodes to more than allowed, or uses filters whose output cannot be bounded (including more than 16 chained filters) |
 | `text_size`, `text_glyph_count`, `interpretation_size` | Extraction or rendering would read more than the policy allows |
 | `content_element_count` | A page paints more glyphs, segments, dash lengths, and items than `max_elements` |
-| `recovery_scan_size` | Repairing a damaged file would take an unreasonable amount of work |
 | `content_nesting_depth`, `resource_nesting_depth` | A page is built so deeply nested that interpreting it is unsafe; see [below](#built-in-protections) |
 | `pdf_output_size`, `render_output_size`, `markdown_output_size`, `svg_output_size`, `pixmap_output_size`, `replacement_output_size` | Output would exceed `max_size` |
 | `search_input_size`, `search_hit_count` | The search text is over 4,096 bytes, or there are more results than `max_hits` |

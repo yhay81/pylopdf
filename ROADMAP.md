@@ -502,7 +502,6 @@ engine's maintainer.
 | hayro-svg | Text kept as text, and a transform | `svg()` takes neither `text_as_path` nor `matrix` |
 | lopdf | A public object parser and serializer | pylopdf's own value conversion |
 | lopdf | A requested rebuild of the cross-reference table; rebuilding when the catalog or page tree is unreadable, or when a corrected offset misses later objects, and for truncated files | the forced rebuild in `recovery.rs`, and inputs rejected today |
-| lopdf | A linear scan for unterminated streams during recovery | the `recovery_scan_size` pre-scan |
 | lopdf | Linear graph traversal in pruning, renumbering, and deletion | `prune.rs` and `renumber.rs` |
 | lopdf | Checked object-number allocation | most of `unallocated.rs` |
 | lopdf | Parsing small documents on the calling thread instead of the rayon pool | `generated_pdf.rs`, if krilla's Form output does not remove it first |

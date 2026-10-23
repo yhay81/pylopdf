@@ -110,7 +110,6 @@ limits = pylopdf.DocumentLimits(
 | `decompressed_size`, `page_content_size`, `total_decompressed_size`, `decompression_unverifiable`, `stream_filter_count` | ストリームの展開後のサイズが許容を超えた、または出力の大きさを制限できないフィルター（16個を超える連鎖したフィルターを含む）を使っている |
 | `text_size`, `text_glyph_count`, `interpretation_size` | 抽出やレンダリングがポリシーの許容を超えて読み込もうとした |
 | `content_element_count` | ページが描くグリフ、セグメント、破線の長さ、項目が`max_elements`より多い |
-| `recovery_scan_size` | 壊れたファイルの修復に不当な量の作業が必要になる |
 | `content_nesting_depth`, `resource_nesting_depth` | ページの入れ子が深すぎて、解釈するのが安全でない。[後述](#built-in-protections)を参照 |
 | `pdf_output_size`, `render_output_size`, `markdown_output_size`, `svg_output_size`, `pixmap_output_size`, `replacement_output_size` | 出力が`max_size`を超える |
 | `search_input_size`, `search_hit_count` | 検索テキストが4,096バイトを超える、または結果が`max_hits`より多い |

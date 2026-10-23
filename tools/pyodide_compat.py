@@ -352,23 +352,17 @@ def _recovery_results(pdf20_bytes: bytes, form_bytes: bytes) -> dict[str, Any]:
             ),
         }
 
-    def limit_code(callback: Callable[[], object]) -> str:
-        try:
-            callback()
-        except pylopdf.LimitError as error:
-            return error.code
-        msg = "hostile recovery input unexpectedly opened"
-        raise RuntimeError(msg)
-
-    hostile = b"%PDF-1.4\n" + b"stream\n" * 16_384
+    # lopdf 0.46 skips unterminated stream keywords in one pass.
+    unterminated = b"%PDF-1.4\n" + b"1 0 obj\n<</Length 5>>stream\n" * 16_384
+    unterminated += b"trailer\n<</Root 1 0 R>>\nstartxref\n0\n%%EOF\n"
     return {
         "offset_corrected": recovered(shift_startxref(pdf20_bytes, 12)),
         "rebuilt": recovered(corrupt_startxref_keyword(pdf20_bytes)),
         # lopdf 0.46 rebuilds files that only have cross-reference streams.
         "xref_stream_damage": recovered(corrupt_startxref_keyword(form_bytes)),
-        "recovery_scan": [
-            limit_code(lambda: pylopdf.open(hostile)),
-            limit_code(lambda: pylopdf.probe(hostile)),
+        "unterminated_streams": [
+            _exception_name(lambda: len(pylopdf.open(unterminated).pages)),
+            pylopdf.probe(unterminated).is_repaired,
         ],
     }
 

@@ -13,11 +13,6 @@
 use lopdf::xref::XrefEntry;
 use lopdf::{Document, LoadOptions, Object, PdfMetadata};
 
-/// Bytes inspected per input byte allowed for lopdf's reconstruction scan.
-const RECOVERY_SCAN_WORK_FACTOR: u64 = 64;
-/// Fixed reconstruction-scan allowance added to the per-byte budget.
-const RECOVERY_SCAN_WORK_SLACK: u64 = 64 * 1024 * 1024;
-
 /// Cross-reference recovery performed by lopdf.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum XrefRecovery {
@@ -49,71 +44,6 @@ impl XrefRecovery {
             }
         }
     }
-}
-
-/// Why a lenient load did not produce a document or metadata.
-pub enum LoadError {
-    Pdf(lopdf::Error),
-    /// Reconstruction could scan more than the linear budget allows.
-    RecoveryScan {
-        work: u64,
-        budget: u64,
-    },
-}
-
-fn find(data: &[u8], needle: &[u8]) -> Option<usize> {
-    data.windows(needle.len())
-        .position(|window| window == needle)
-}
-
-fn rfind(data: &[u8], needle: &[u8]) -> Option<usize> {
-    data.windows(needle.len())
-        .rposition(|window| window == needle)
-}
-
-/// Bound lopdf's object-header scan before any lenient load.
-///
-/// When standard resolution fails, lopdf skips each `stream` payload by
-/// searching forward for `endstream`. Without one, it searches backward for
-/// the object's `obj` and `/Length` and then resumes one byte later, so every
-/// later unterminated keyword repeats a scan to the end of the input.
-/// Terminated payloads are skipped, so their searches cover disjoint ranges.
-/// Damaged real files hold at most a truncated final stream after the last
-/// `endstream`; hostile input can repeat the keyword until recovery becomes
-/// quadratic. Estimate the scan as if recovery were needed, because lopdf
-/// decides only after parsing starts, and refuse input beyond a linear budget.
-fn check_recovery_scan_work(data: &[u8]) -> Result<(), LoadError> {
-    // lopdf scans from its first header and rejects input without one earlier.
-    let Some(header) = find(data, b"%PDF-") else {
-        return Ok(());
-    };
-    let buffer = &data[header..];
-    let length = buffer.len();
-    let budget = (length as u64)
-        .saturating_mul(RECOVERY_SCAN_WORK_FACTOR)
-        .saturating_add(RECOVERY_SCAN_WORK_SLACK);
-    let tail = rfind(buffer, b"endstream").map_or(0, |position| position + b"endstream".len());
-    let mut last_obj = rfind(&buffer[..tail], b"obj");
-    let mut work = length as u64;
-    for position in tail..length {
-        if position >= 3 && &buffer[position - 3..position] == b"obj" {
-            last_obj = Some(position - 3);
-        }
-        if buffer[position..].starts_with(b"stream")
-            && !buffer[..position].ends_with(b"end")
-            && matches!(buffer.get(position + 6), Some(b'\r' | b'\n'))
-        {
-            let forward = length - position;
-            let backward = last_obj.map_or(position, |obj| 2 * (position - obj));
-            work = work
-                .saturating_add(forward as u64)
-                .saturating_add(backward as u64);
-            if work > budget {
-                return Err(LoadError::RecoveryScan { work, budget });
-            }
-        }
-    }
-    Ok(())
 }
 
 /// Return a copy of `data` that ends with a `startxref` past the end of the
@@ -177,10 +107,8 @@ fn misses_entries(document: &Document) -> bool {
 pub fn load_document(
     data: &[u8],
     options: LoadOptions,
-) -> Result<(Document, Option<XrefRecovery>), LoadError> {
-    check_recovery_scan_work(data)?;
-    let mut document =
-        Document::load_mem_with_options(data, options.clone()).map_err(LoadError::Pdf)?;
+) -> Result<(Document, Option<XrefRecovery>), lopdf::Error> {
+    let mut document = Document::load_mem_with_options(data, options.clone())?;
     let mut recovery = XrefRecovery::from_lopdf(document.xref_recovery);
     let reachable = page_tree_reachable(&document);
     let partial = recovery == Some(XrefRecovery::OffsetCorrected) && misses_entries(&document);
@@ -216,13 +144,12 @@ pub fn load_document(
 pub fn load_metadata(
     data: &[u8],
     password: Option<&str>,
-) -> Result<(PdfMetadata, Option<XrefRecovery>), LoadError> {
-    check_recovery_scan_work(data)?;
+) -> Result<(PdfMetadata, Option<XrefRecovery>), lopdf::Error> {
     let probe = |input: &[u8]| match password {
         Some(password) => Document::load_metadata_mem_with_password(input, password),
         None => Document::load_metadata_mem(input),
     };
-    let metadata = probe(data).map_err(LoadError::Pdf)?;
+    let metadata = probe(data)?;
     let recovery = XrefRecovery::from_lopdf(metadata.xref_recovery);
     if recovery != Some(XrefRecovery::Reconstructed)
         && !metadata.encrypted

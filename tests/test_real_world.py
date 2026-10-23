@@ -532,20 +532,25 @@ def test_recovered_documents_keep_document_limits() -> None:
     assert caught.value.code == "decompressed_size"
 
 
-def test_unterminated_stream_keywords_cannot_make_recovery_quadratic() -> None:
-    """Refuse input whose lopdf reconstruction scan would exceed a linear budget.
+def test_unterminated_stream_keywords_keep_recovery_linear() -> None:
+    """Rebuild input full of unterminated ``stream`` keywords in linear time.
 
-    lopdf rescans the rest of the input after every ``stream`` keyword that has
-    no later ``endstream``; this 1 MiB input used to take over a minute.
+    lopdf 0.45 rescanned the rest of the input after every ``stream`` keyword
+    that had no later ``endstream``, so a 1 MiB input took over a minute and
+    pylopdf refused such input before loading. lopdf 0.46 skips them in one
+    pass (J-F-Liu/lopdf#610): these 8 MiB inputs take about 0.1 s.
     """
-    hostile = b"%PDF-1.4\n" + b"stream\n" * 150_000
+    trailer = b"trailer\n<</Root 1 0 R>>\nstartxref\n0\n%%EOF\n"
+    rebuilt = b"%PDF-1.4\n" + b"1 0 obj\n<</Length 5>>stream\n" * 300_000 + trailer
+    rejected = b"%PDF-1.4\n" + b"stream\n" * 1_200_000 + trailer
     start = time.perf_counter()
-    for load in (lambda: pylopdf.open(hostile), lambda: pylopdf.probe(hostile)):
-        with pytest.raises(pylopdf.LimitError) as caught:
-            load()
-        assert caught.value.code == "recovery_scan_size"
+    for load in (pylopdf.open, pylopdf.probe):
+        with pytest.warns(pylopdf.PylopdfWarning, match=REBUILT_WARNING):
+            assert load(rebuilt).is_repaired is True
+        with pytest.raises(pylopdf.MalformedPdfError):
+            load(rejected)
     elapsed = time.perf_counter() - start
-    assert elapsed < 2.0, f"recovery-scan refusal took {elapsed:.2f}s"
+    assert elapsed < 2.0, f"recovery of unterminated streams took {elapsed:.2f}s"
 
 
 def test_repeated_xref_keywords_fail_without_quadratic_scanning() -> None:
