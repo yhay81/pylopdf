@@ -1351,6 +1351,33 @@ impl _Document {
         annotations::read_annotation_geometry(self, py, page_number, index, xref)
     }
 
+    /// Create a field with its first widget, or add a widget to an existing
+    /// field, on a one-based page; return the widget's object number.
+    fn add_widget(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        spec: forms::FieldSpec,
+    ) -> PyResult<u32> {
+        forms::add_widget(self, py, page_number, spec)
+    }
+
+    /// Remove one widget of a one-based page, and its field with the last one.
+    fn remove_widget(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+    ) -> PyResult<()> {
+        forms::remove_widget(self, py, page_number, index, xref)
+    }
+
+    /// Remove a field with all its widgets.
+    fn remove_field(&mut self, py: Python<'_>, xref: u32) -> PyResult<()> {
+        forms::remove_field(self, py, xref)
+    }
+
     /// Return a field's label, maximum length, default value, and the
     /// document's `/NeedAppearances`.
     fn field_details(&self, py: Python<'_>, xref: u32) -> PyResult<forms::FieldDetails> {

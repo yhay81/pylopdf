@@ -940,6 +940,25 @@ lengths are respected; a value that is too long raises and leaves the document
 unchanged. Rich text, push button actions, and signatures are not supported;
 see [ecosystem recipes](ecosystem.md#signatures) for signing.
 
+`page.widgets.add(specification)` creates a field with its widget on the
+page and returns the `Widget`; a specification whose name is already a field
+of the form adds another widget to that field, which must be of the same
+kind, such as another button of a radio group. `del page.widgets[i]` removes
+a widget, and its field with the last one, and `del doc.form[name]` removes a
+field with all its widgets. A new field's name has no dots.
+
+| Specification | Creates |
+|---|---|
+| `TextField(name, rect, *, value=None, default_value=None, max_length=None, font=None, font_size=0, text_color=Color(0, 0, 0), align="left", label=None, flags=FieldFlags(0), border=Border(1), border_color=Color(0, 0, 0), background_color=None)` | A text field; `flags` adds `MULTILINE`, `PASSWORD`, `COMB`, `REQUIRED`, `READ_ONLY`, and the other `FieldFlags` |
+| `CheckBox(name, rect, *, checked=False, on_state="Yes", ...)` | A check box drawn with a check mark |
+| `RadioButton(name, rect, *, on_state, selected=False, ...)` | One button of the radio group `name` |
+| `ComboBox(name, rect, *, choices, value=None, ...)`, `ListBox(...)` | Choice fields whose `choices` are `FieldChoice` records or strings |
+| `PushButton(name, rect, *, caption=None, ...)` | A button that holds no value, with its caption |
+| `SignatureField(name, rect, ...)` | An unsigned signature field for a signing tool such as pyHanko |
+
+Widgets on a turned page show upright (`/MK /R`). Fields that pylopdf
+creates can be filled by pylopdf and by other tools such as pymupdf.
+
 A field also has `label` (its `/TU` description), `max_length` (a text
 field's `/MaxLen`), and `default_value` (`/DV`), all assignable and
 deletable; `flags` and a choice field's `choices` (an iterable of

@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import enum
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeAlias, cast
 
+from pylopdf._annotations import _BORDER_STYLE_NAMES, Border, _opaque_color
+from pylopdf._content import Color
 from pylopdf._fonts import Font, _form_generation_font, _package_face_weight, _regular_instance
-from pylopdf._limits import _DEFAULT_MAX_FONT_INPUT_SIZE, _validate_cumulative_utf8_input, _validate_utf8_text_input
+from pylopdf._geometry import Rect
+from pylopdf._limits import (
+    _DEFAULT_MAX_FONT_INPUT_SIZE,
+    _validate_cumulative_utf8_input,
+    _validate_rect,
+    _validate_utf8_text_input,
+)
 from pylopdf._widgets import Widget
 from pylopdf.pylopdf_core import PdfError, StaleObjectError, _Font
 
@@ -466,6 +474,11 @@ class Form(Mapping[str, Field]):
             raise KeyError(name)
         return Field(self._document, xref)
 
+    def __delitem__(self, name: str) -> None:
+        """Remove the field named ``name`` with all its widgets; another name raises :class:`KeyError`."""
+        field = self[name]
+        self._document._doc.remove_field(field.xref)
+
     def __iter__(self) -> Iterator[str]:
         """Iterate over the field names in sorted order."""
         return iter(list(self._xrefs()))
@@ -481,4 +494,499 @@ class Form(Mapping[str, Field]):
 
 # The package re-exports these names; reprs, pickles, and documentation name them.
 for _public in (Field, FieldChoice, FieldFlags, FieldType, Form):
+    _public.__module__ = "pylopdf"
+
+
+#: The ``/Q`` code of each field text alignment.
+_FIELD_ALIGNMENTS = ("left", "center", "right")
+
+
+class _FieldSpecification:
+    """The fields and validation that every field specification shares."""
+
+    __slots__ = ()
+
+    _kind: ClassVar[str]
+    name: str
+    rect: Rect
+    label: str | None
+    flags: FieldFlags
+    border: Border
+    border_color: Color | None
+    background_color: Color | None
+
+    def _common(  # noqa: PLR0913, PLR0917 - the shared fields, as each __init__ received them.
+        self,
+        name: object,
+        rect: Sequence[float],
+        label: object,
+        flags: object,
+        border: object,
+        border_color: object,
+        background_color: object,
+    ) -> None:
+        _field_text(name, "name")
+        if label is not None:
+            _field_text(label, "label")
+        if isinstance(flags, bool) or not isinstance(flags, int):
+            msg = f"flags is a FieldFlags value: {flags!r}"
+            raise TypeError(msg)
+        if not isinstance(border, Border):
+            msg = f"border must be a Border: {border!r}"
+            raise TypeError(msg)
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "rect", Rect(*_validate_rect(rect)))
+        object.__setattr__(self, "label", label)
+        object.__setattr__(self, "flags", FieldFlags(flags))
+        object.__setattr__(self, "border", border)
+        object.__setattr__(self, "border_color", None if border_color is None else _opaque_color(border_color))
+        object.__setattr__(
+            self,
+            "background_color",
+            None if background_color is None else _opaque_color(background_color, "background_color"),
+        )
+
+    def _text_style(self, font: object, font_size: object, text_color: object, align: object) -> None:
+        if font is not None and (not isinstance(font, Font) or font._font.standard_name is None):
+            msg = "a field names a Standard 14 Font, such as Font.standard('Courier'); doc.form.font draws others"
+            raise TypeError(msg)
+        if isinstance(font_size, bool) or not isinstance(font_size, (int, float)) or not 0 <= font_size <= 10000:  # noqa: PLR2004
+            msg = f"font_size is a number from 0, which fits the text, to 10000: {font_size!r}"
+            raise ValueError(msg)
+        if align not in _FIELD_ALIGNMENTS:
+            msg = f"align must be one of {', '.join(_FIELD_ALIGNMENTS)}: {align!r}"
+            raise ValueError(msg)
+        object.__setattr__(self, "font", font)
+        object.__setattr__(self, "font_size", float(font_size))
+        object.__setattr__(self, "text_color", _opaque_color(text_color, "text_color"))
+        object.__setattr__(self, "align", align)
+
+    def _payload(self, document: Document) -> dict[str, Any]:
+        border = self.border
+        spec: dict[str, Any] = {
+            "kind": self._kind,
+            "name": self.name,
+            "rect": tuple(self.rect),
+            "label": self.label,
+            "flags": int(self.flags),
+            "border": (border.width, _BORDER_STYLE_NAMES[border.style], list(border.dashes)),
+            "border_color": None if self.border_color is None else self.border_color.rgb,
+            "background_color": None if self.background_color is None else self.background_color.rgb,
+        }
+        font = getattr(self, "font", None)
+        if hasattr(self, "text_color"):
+            spec["text_color"] = cast("Color", getattr(self, "text_color")).rgb  # noqa: B009
+            spec["font_size"] = getattr(self, "font_size")  # noqa: B009
+            spec["align"] = _FIELD_ALIGNMENTS.index(getattr(self, "align"))  # noqa: B009
+            if font is not None:
+                spec["font_name"] = cast("Font", font)._font.standard_name
+        value = getattr(self, "value", None)
+        if isinstance(value, str):
+            face = _value_face(document, value)
+            if face is not None:
+                spec["font"] = face
+        return spec
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class TextField(_FieldSpecification):
+    """A text field, or another widget of the text field of that name, as ``page.widgets.add`` takes it.
+
+    ``rect`` is in display coordinates. ``value`` and ``default_value`` are
+    the field's text, drawn in ``font`` (a Standard 14 font; values it cannot
+    encode use :attr:`Form.font` or an installed font extra), ``font_size``
+    (0 fits the text), ``text_color``, and ``align``. ``flags`` adds
+    :class:`FieldFlags` such as ``MULTILINE``, ``PASSWORD``, ``COMB``,
+    ``REQUIRED``, or ``READ_ONLY``; ``max_length`` bounds the text.
+    """
+
+    _kind: ClassVar[str] = "text"
+    name: str
+    rect: Rect
+    value: str | None
+    default_value: str | None
+    max_length: int | None
+    font: Font | None
+    font_size: float
+    text_color: Color
+    align: Literal["left", "center", "right"]
+    label: str | None
+    flags: FieldFlags
+    border: Border
+    border_color: Color | None
+    background_color: Color | None
+
+    def __init__(  # noqa: PLR0913 - the field's options.
+        self,
+        name: str,
+        rect: Sequence[float],
+        *,
+        value: str | None = None,
+        default_value: str | None = None,
+        max_length: int | None = None,
+        font: Font | None = None,
+        font_size: float = 0,
+        text_color: Color = Color(0.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        align: Literal["left", "center", "right"] = "left",
+        label: str | None = None,
+        flags: FieldFlags = FieldFlags(0),  # noqa: B008 - FieldFlags is immutable.
+        border: Border = Border(1),  # noqa: B008 - Border is immutable.
+        border_color: Color | None = Color(0.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        background_color: Color | None = None,
+    ) -> None:
+        """Validate the specification."""
+        self._common(name, rect, label, flags, border, border_color, background_color)
+        self._text_style(font, font_size, text_color, align)
+        for text, field in ((value, "value"), (default_value, "default_value")):
+            if text is not None:
+                _field_text(text, field)
+        if max_length is not None and (
+            isinstance(max_length, bool) or not isinstance(max_length, int) or not 0 <= max_length <= 1_000_000  # noqa: PLR2004
+        ):
+            msg = f"max_length is an int from 0 to 1000000: {max_length!r}"
+            raise ValueError(msg)
+        object.__setattr__(self, "value", value)
+        object.__setattr__(self, "default_value", default_value)
+        object.__setattr__(self, "max_length", max_length)
+
+    def _payload(self, document: Document) -> dict[str, Any]:
+        spec = _FieldSpecification._payload(self, document)
+        spec.update(value=self.value, default_value=self.default_value, max_length=self.max_length)
+        return spec
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class CheckBox(_FieldSpecification):
+    """A check box, as ``page.widgets.add`` takes it.
+
+    ``on_state`` names the state that ``checked`` selects, ``"Yes"`` by
+    default; the box draws a check mark in its border.
+    """
+
+    _kind: ClassVar[str] = "checkbox"
+    name: str
+    rect: Rect
+    checked: bool
+    on_state: str
+    label: str | None
+    flags: FieldFlags
+    border: Border
+    border_color: Color | None
+    background_color: Color | None
+
+    def __init__(  # noqa: PLR0913 - the field's options.
+        self,
+        name: str,
+        rect: Sequence[float],
+        *,
+        checked: bool = False,
+        on_state: str = "Yes",
+        label: str | None = None,
+        flags: FieldFlags = FieldFlags(0),  # noqa: B008 - FieldFlags is immutable.
+        border: Border = Border(1),  # noqa: B008 - Border is immutable.
+        border_color: Color | None = Color(0.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        background_color: Color | None = None,
+    ) -> None:
+        """Validate the specification."""
+        self._common(name, rect, label, flags, border, border_color, background_color)
+        if not isinstance(checked, bool):
+            msg = f"checked is a bool: {checked!r}"
+            raise TypeError(msg)
+        _button_state(on_state)
+        object.__setattr__(self, "checked", checked)
+        object.__setattr__(self, "on_state", on_state)
+
+    def _payload(self, document: Document) -> dict[str, Any]:
+        spec = _FieldSpecification._payload(self, document)
+        spec.update(on_state=self.on_state, value=self.on_state if self.checked else None)
+        return spec
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class RadioButton(_FieldSpecification):
+    """One button of a radio group, as ``page.widgets.add`` takes it.
+
+    Buttons that share ``name`` form one group, each selecting its own
+    ``on_state``; ``selected`` selects this one.
+    """
+
+    _kind: ClassVar[str] = "radio"
+    name: str
+    rect: Rect
+    on_state: str
+    selected: bool
+    label: str | None
+    flags: FieldFlags
+    border: Border
+    border_color: Color | None
+    background_color: Color | None
+
+    def __init__(  # noqa: PLR0913 - the field's options.
+        self,
+        name: str,
+        rect: Sequence[float],
+        *,
+        on_state: str,
+        selected: bool = False,
+        label: str | None = None,
+        flags: FieldFlags = FieldFlags(0),  # noqa: B008 - FieldFlags is immutable.
+        border: Border = Border(1),  # noqa: B008 - Border is immutable.
+        border_color: Color | None = Color(0.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        background_color: Color | None = None,
+    ) -> None:
+        """Validate the specification."""
+        self._common(name, rect, label, flags, border, border_color, background_color)
+        if not isinstance(selected, bool):
+            msg = f"selected is a bool: {selected!r}"
+            raise TypeError(msg)
+        _button_state(on_state)
+        object.__setattr__(self, "on_state", on_state)
+        object.__setattr__(self, "selected", selected)
+
+    def _payload(self, document: Document) -> dict[str, Any]:
+        spec = _FieldSpecification._payload(self, document)
+        spec.update(on_state=self.on_state, value=self.on_state if self.selected else None)
+        return spec
+
+
+class _ChoiceSpecification(_FieldSpecification):
+    """The fields of combo and list boxes."""
+
+    __slots__ = ()
+
+    def _choices(self, choices: object, value: object, default_value: object) -> None:
+        if isinstance(choices, (str, bytes)) or not isinstance(choices, Iterable):
+            msg = f"choices is an iterable of FieldChoice records or strings: {choices!r}"
+            raise TypeError(msg)
+        options: list[FieldChoice] = []
+        for choice in choices:
+            if len(options) >= _MAX_FIELD_CHOICES:
+                msg = f"a choice field has at most {_MAX_FIELD_CHOICES} choices"
+                raise ValueError(msg)
+            if isinstance(choice, str):
+                options.append(FieldChoice(value=choice, label=choice))
+            elif isinstance(choice, FieldChoice):
+                options.append(choice)
+            else:
+                msg = f"a choice is a FieldChoice or a str: {choice!r}"
+                raise TypeError(msg)
+        _validate_cumulative_utf8_input(
+            (text for option in options for text in (option.value, option.label)),
+            _MAX_FORM_FIELD_INPUT_SIZE,
+            limit_code="form_field_input_size",
+            input_label="field choices",
+        )
+        for text, field in ((value, "value"), (default_value, "default_value")):
+            if text is not None:
+                _field_text(text, field)
+        object.__setattr__(self, "choices", tuple(options))
+        object.__setattr__(self, "value", value)
+        object.__setattr__(self, "default_value", default_value)
+
+    def _payload(self, document: Document) -> dict[str, Any]:
+        spec = _FieldSpecification._payload(self, document)
+        spec.update(
+            choices=[(choice.value, choice.label) for choice in getattr(self, "choices")],  # noqa: B009
+            value=getattr(self, "value"),  # noqa: B009
+            default_value=getattr(self, "default_value"),  # noqa: B009
+        )
+        return spec
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ComboBox(_ChoiceSpecification):
+    """A drop-down choice field, as ``page.widgets.add`` takes it.
+
+    ``choices`` are :class:`FieldChoice` records or strings; ``flags`` with
+    ``FieldFlags.EDIT`` also takes typed text. The value is drawn as in a
+    :class:`TextField`.
+    """
+
+    _kind: ClassVar[str] = "combobox"
+    name: str
+    rect: Rect
+    choices: tuple[FieldChoice, ...]
+    value: str | None
+    default_value: str | None
+    font: Font | None
+    font_size: float
+    text_color: Color
+    align: Literal["left", "center", "right"]
+    label: str | None
+    flags: FieldFlags
+    border: Border
+    border_color: Color | None
+    background_color: Color | None
+
+    def __init__(  # noqa: PLR0913 - the field's options.
+        self,
+        name: str,
+        rect: Sequence[float],
+        *,
+        choices: Iterable[FieldChoice | str],
+        value: str | None = None,
+        default_value: str | None = None,
+        font: Font | None = None,
+        font_size: float = 0,
+        text_color: Color = Color(0.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        align: Literal["left", "center", "right"] = "left",
+        label: str | None = None,
+        flags: FieldFlags = FieldFlags(0),  # noqa: B008 - FieldFlags is immutable.
+        border: Border = Border(1),  # noqa: B008 - Border is immutable.
+        border_color: Color | None = Color(0.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        background_color: Color | None = None,
+    ) -> None:
+        """Validate the specification."""
+        self._common(name, rect, label, flags, border, border_color, background_color)
+        self._text_style(font, font_size, text_color, align)
+        self._choices(choices, value, default_value)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ListBox(_ChoiceSpecification):
+    """A list of choices, as ``page.widgets.add`` takes it.
+
+    The fields are those of :class:`ComboBox`; ``FieldFlags.MULTI_SELECT``
+    lets the user select several.
+    """
+
+    _kind: ClassVar[str] = "listbox"
+    name: str
+    rect: Rect
+    choices: tuple[FieldChoice, ...]
+    value: str | None
+    default_value: str | None
+    font: Font | None
+    font_size: float
+    text_color: Color
+    align: Literal["left", "center", "right"]
+    label: str | None
+    flags: FieldFlags
+    border: Border
+    border_color: Color | None
+    background_color: Color | None
+
+    def __init__(  # noqa: PLR0913 - the field's options.
+        self,
+        name: str,
+        rect: Sequence[float],
+        *,
+        choices: Iterable[FieldChoice | str],
+        value: str | None = None,
+        default_value: str | None = None,
+        font: Font | None = None,
+        font_size: float = 0,
+        text_color: Color = Color(0.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        align: Literal["left", "center", "right"] = "left",
+        label: str | None = None,
+        flags: FieldFlags = FieldFlags(0),  # noqa: B008 - FieldFlags is immutable.
+        border: Border = Border(1),  # noqa: B008 - Border is immutable.
+        border_color: Color | None = Color(0.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        background_color: Color | None = None,
+    ) -> None:
+        """Validate the specification."""
+        self._common(name, rect, label, flags, border, border_color, background_color)
+        self._text_style(font, font_size, text_color, align)
+        self._choices(choices, value, default_value)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class PushButton(_FieldSpecification):
+    """A pushbutton, which holds no value, as ``page.widgets.add`` takes it.
+
+    ``caption`` is drawn centred in ``font``, ``font_size``, and
+    ``text_color``; give it an action with ``widget.scripts``.
+    """
+
+    _kind: ClassVar[str] = "pushbutton"
+    name: str
+    rect: Rect
+    caption: str | None
+    font: Font | None
+    font_size: float
+    text_color: Color
+    align: Literal["left", "center", "right"]
+    label: str | None
+    flags: FieldFlags
+    border: Border
+    border_color: Color | None
+    background_color: Color | None
+
+    def __init__(  # noqa: PLR0913 - the field's options.
+        self,
+        name: str,
+        rect: Sequence[float],
+        *,
+        caption: str | None = None,
+        font: Font | None = None,
+        font_size: float = 0,
+        text_color: Color = Color(0.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        label: str | None = None,
+        flags: FieldFlags = FieldFlags(0),  # noqa: B008 - FieldFlags is immutable.
+        border: Border = Border(1),  # noqa: B008 - Border is immutable.
+        border_color: Color | None = Color(0.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        background_color: Color | None = Color(0.75, 0.75, 0.75),  # noqa: B008 - Color is immutable.
+    ) -> None:
+        """Validate the specification."""
+        self._common(name, rect, label, flags, border, border_color, background_color)
+        self._text_style(font, font_size, text_color, "center")
+        if caption is not None:
+            _field_text(caption, "caption")
+        object.__setattr__(self, "caption", caption)
+
+    def _payload(self, document: Document) -> dict[str, Any]:
+        spec = _FieldSpecification._payload(self, document)
+        spec["caption"] = self.caption
+        return spec
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class SignatureField(_FieldSpecification):
+    """An unsigned signature field, which a signing tool such as pyHanko fills, as ``page.widgets.add`` takes it."""
+
+    _kind: ClassVar[str] = "signature"
+    name: str
+    rect: Rect
+    label: str | None
+    flags: FieldFlags
+    border: Border
+    border_color: Color | None
+    background_color: Color | None
+
+    def __init__(  # noqa: PLR0913 - the field's options.
+        self,
+        name: str,
+        rect: Sequence[float],
+        *,
+        label: str | None = None,
+        flags: FieldFlags = FieldFlags(0),  # noqa: B008 - FieldFlags is immutable.
+        border: Border = Border(1),  # noqa: B008 - Border is immutable.
+        border_color: Color | None = Color(0.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        background_color: Color | None = None,
+    ) -> None:
+        """Validate the specification."""
+        self._common(name, rect, label, flags, border, border_color, background_color)
+
+
+#: The specifications that ``page.widgets.add`` takes.
+FieldSpecification: TypeAlias = TextField | CheckBox | RadioButton | ComboBox | ListBox | PushButton | SignatureField
+_FIELD_SPECIFICATIONS = (TextField, CheckBox, RadioButton, ComboBox, ListBox, PushButton, SignatureField)
+
+
+def _button_state(state: object) -> None:
+    if not isinstance(state, str) or not state or state == "Off":
+        msg = f"a button's on state is a name other than Off: {state!r}"
+        raise ValueError(msg)
+    _field_text(state, "on_state")
+
+
+for _public in (
+    CheckBox,
+    ComboBox,
+    ListBox,
+    PushButton,
+    RadioButton,
+    SignatureField,
+    TextField,
+):
     _public.__module__ = "pylopdf"
