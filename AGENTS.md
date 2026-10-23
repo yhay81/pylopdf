@@ -2516,7 +2516,12 @@ the concept and API overview.
   the 16 MiB TOC text budget, name-tree rewrites share the key-text budget,
   and page links and the OpenAction keep the 1 MiB per-page annotation budget.
   Legacy catalog `/Dests` remains a direct dictionary lookup after a bounded
-  name-tree miss. `Page.links` reuses one `LinkResolutionCache` on
+  name-tree miss. `doc.destinations` (`Destinations` in `_links.py`) reads
+  every name through `named_destinations`: the tree walk under these limits,
+  the first entry of a repeated name winning, then the legacy `/Dests` names
+  that the tree lacks, counted against the same entry and text limits, each
+  resolved with `resolve_destination` and the shared cache. `Page.links`
+  reuses one `LinkResolutionCache` on
   `_Document` until `invalidate_hayro_pdf` drops it on the next edit. It holds
   an owned name-tree index built on the first named lookup; page order and
   reverse page numbers come from the shared page index. The name-tree index

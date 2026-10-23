@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from typing import TYPE_CHECKING, overload
 
 from pylopdf._errors import StalePageError
-from pylopdf._geometry import Rect
+from pylopdf._geometry import Point, Rect
 from pylopdf._hints import hinted_getattr
 from pylopdf._limits import _validate_cumulative_utf8_input, _validate_rect
-from pylopdf._targets import Target, _target_from_core, _target_to_core
+from pylopdf._targets import Destination, Target, _target_from_core, _target_to_core
 from pylopdf.pylopdf_core import StaleObjectError
 
 if TYPE_CHECKING:
+    from pylopdf._document import Document
     from pylopdf._objects import Dictionary
     from pylopdf._page import Page
     from pylopdf._targets import _TargetTuple
@@ -203,6 +204,55 @@ class Links(Sequence[Link]):
         return f"Links({list(self)!r})"
 
 
+class Destinations(Mapping[str, Destination | None]):
+    """The named destinations of a document, as ``doc.destinations`` returns them.
+
+    Keys are the names of the catalog's ``/Names /Dests`` tree, the first
+    entry of a repeated name winning, then those of the legacy ``/Dests``
+    dictionary that the tree lacks; a value is the :class:`Destination` the
+    name leads to, or ``None`` when it names no page. Links and the outline
+    already read named destinations as the destinations they name. The
+    mapping is read-only and reads the document on every access, under the
+    named-destination limits: 65,536 entries or nodes, 131,072 edges, 32
+    levels (``named_destination_count``), and 16 MiB of names
+    (``named_destination_text_size``).
+    """
+
+    __slots__ = ("_document",)
+
+    def __init__(self, document: Document) -> None:
+        """Wrap a document; use ``Document.destinations``."""
+        self._document = document
+
+    def _items(self) -> dict[str, Destination | None]:
+        self._document._ensure_open()
+        return {
+            name: None
+            if target is None
+            else Destination(target[0] - 1, None if target[1] is None else Point(target[1]), target[2])
+            for name, target in self._document._doc.named_destinations()
+        }
+
+    def __getitem__(self, name: str) -> Destination | None:
+        """Return where ``name`` leads; an unknown name raises :class:`KeyError`."""
+        items = self._items()
+        if not isinstance(name, str) or name not in items:
+            raise KeyError(name)
+        return items[name]
+
+    def __iter__(self) -> Iterator[str]:
+        """Iterate over the names, tree entries first."""
+        return iter(list(self._items()))
+
+    def __len__(self) -> int:
+        """Return the number of names."""
+        return len(self._items())
+
+    def __repr__(self) -> str:
+        """Return ``Destinations({...})``."""
+        return f"Destinations({self._items()!r})"
+
+
 # The package re-exports these names; reprs, pickles, and documentation name them.
-for _public in (Link, Links):
+for _public in (Destinations, Link, Links):
     _public.__module__ = "pylopdf"

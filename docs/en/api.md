@@ -481,6 +481,14 @@ has the target `None`. `xref` and `obj` give the annotation's object number
 and its dictionary in the [object model](#low-level-objects), which holds its
 border, color, and flags.
 
+`doc.destinations` is a read-only mapping from the names of the document's
+named destinations to the `Destination` each leads to, or `None` when it
+names no page: the `/Names /Dests` tree first, then the legacy catalog
+`/Dests` dictionary. Links and the outline already read named destinations
+as the destinations they name. Reads stop at 65,536 names
+(`named_destination_count`) and 16 MiB of names
+(`named_destination_text_size`).
+
 ```python
 from pylopdf import Destination
 
