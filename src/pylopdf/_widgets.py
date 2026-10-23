@@ -23,7 +23,7 @@ from pylopdf._limits import _validate_rect
 from pylopdf.pylopdf_core import StaleObjectError
 
 if TYPE_CHECKING:
-    from pylopdf._form import Field
+    from pylopdf._form import Field, FieldSpecification
     from pylopdf._objects import Dictionary
     from pylopdf._page import Page
     from pylopdf.pylopdf_core import _Widget as _WidgetTuple
@@ -302,6 +302,30 @@ class Widgets(Sequence[Widget]):
     def __iter__(self) -> Iterator[Widget]:
         """Iterate over the widgets that the page lists now."""
         return iter(self._handles())
+
+    def __delitem__(self, index: int | slice) -> None:
+        """Remove widgets from the page and their fields; a field goes with its last widget."""
+        selected = self._handles()[index]
+        widgets = selected if isinstance(selected, list) else [selected]
+        page = self._page
+        for widget in widgets:
+            page._document._doc.remove_widget(page._page_number(), widget._index, widget._xref)
+
+    def add(self, specification: FieldSpecification) -> Widget:
+        """Create the field that ``specification`` describes with its widget here, and return the widget.
+
+        A specification whose name is a field of the form adds a widget to
+        that field instead, which must be of the same kind, such as another
+        button of a radio group; a new field's name has no dots.
+        """
+        from pylopdf._form import _FIELD_SPECIFICATIONS  # noqa: PLC0415 - the form module imports this one.
+
+        if not isinstance(specification, _FIELD_SPECIFICATIONS):
+            msg = f"page.widgets.add takes a field specification: {type(specification).__name__}"
+            raise TypeError(msg)
+        page = self._page
+        xref = page._document._doc.add_widget(page._page_number(), specification._payload(page._document))
+        return Widget(page, xref, 0)
 
     def __repr__(self) -> str:
         """Return ``Widgets([...])`` with the page's widgets."""

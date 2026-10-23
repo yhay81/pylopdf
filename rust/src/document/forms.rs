@@ -2495,3 +2495,792 @@ pub(super) fn set_need_appearances_flag(this: &mut _Document, value: bool) -> Py
     this.invalidate_hayro_pdf_keeping_placements();
     this.set_need_appearances(value)
 }
+
+/// A field to create, or a widget to add to an existing field of the same
+/// kind, as `page.widgets.add` passes a field specification.
+#[derive(FromPyObject)]
+#[pyo3(from_item_all)]
+pub(super) struct FieldSpec {
+    /// `text`, `checkbox`, `radio`, `combobox`, `listbox`, `pushbutton`, or
+    /// `signature`.
+    kind: String,
+    name: String,
+    rect: (f64, f64, f64, f64),
+    #[pyo3(default)]
+    value: Option<String>,
+    #[pyo3(default)]
+    default_value: Option<String>,
+    #[pyo3(default)]
+    flags: i64,
+    #[pyo3(default)]
+    label: Option<String>,
+    #[pyo3(default)]
+    max_length: Option<i64>,
+    #[pyo3(default)]
+    choices: Option<Vec<(String, String)>>,
+    #[pyo3(default)]
+    on_state: Option<String>,
+    #[pyo3(default)]
+    caption: Option<String>,
+    #[pyo3(default)]
+    border: Option<(f64, String, Vec<f64>)>,
+    #[pyo3(default)]
+    border_color: Option<(f64, f64, f64)>,
+    #[pyo3(default)]
+    background_color: Option<(f64, f64, f64)>,
+    #[pyo3(default)]
+    text_color: Option<(f64, f64, f64)>,
+    #[pyo3(default)]
+    font_name: Option<String>,
+    #[pyo3(default)]
+    font_size: Option<f64>,
+    #[pyo3(default)]
+    align: Option<u8>,
+    #[pyo3(default)]
+    font: Option<Py<_Font>>,
+}
+
+/// The `/FT` and the `/Ff` bits that make a field of each kind.
+fn field_kind(kind: &str) -> PyResult<(&'static str, i64)> {
+    Ok(match kind {
+        "text" => ("Tx", 0),
+        "checkbox" => ("Btn", 0),
+        // Radio groups keep one button on, as Acrobat creates them.
+        "radio" => ("Btn", (1 << 15) | (1 << 14)),
+        "pushbutton" => ("Btn", 1 << 16),
+        "combobox" => ("Ch", 1 << 17),
+        "listbox" => ("Ch", 0),
+        "signature" => ("Sig", 0),
+        other => return Err(PdfError::new_err(format!("unknown field kind {other:?}"))),
+    })
+}
+
+/// The kind of an existing field, from its `/FT` and `/Ff`.
+fn existing_kind(field_type: &str, flags: i64) -> &'static str {
+    match field_type {
+        "Tx" => "text",
+        "Ch" if flags & (1 << 17) != 0 => "combobox",
+        "Ch" => "listbox",
+        "Btn" if flags & (1 << 16) != 0 => "pushbutton",
+        "Btn" if flags & (1 << 15) != 0 => "radio",
+        "Btn" => "checkbox",
+        "Sig" => "signature",
+        _ => "unknown",
+    }
+}
+
+/// The field entries that a merged field and widget dictionary moves to a
+/// new parent when the field gains a second widget.
+const FIELD_KEYS: [&[u8]; 12] = [
+    b"FT", b"T", b"TU", b"TM", b"Ff", b"V", b"DV", b"AA", b"Opt", b"MaxLen", b"TI", b"I",
+];
+
+impl _Document {
+    /// Return the AcroForm dictionary as an object, moving a direct one
+    /// into an object and creating an empty one with Helvetica as `/DR`.
+    fn acroform_object(&mut self) -> PyResult<ObjectId> {
+        let current = self
+            .doc
+            .catalog()
+            .map_err(to_py_err)?
+            .get(b"AcroForm")
+            .ok()
+            .cloned();
+        let id = match current {
+            Some(Object::Reference(id)) if self.doc.get_dictionary(id).is_ok() => return Ok(id),
+            Some(Object::Dictionary(form)) => self.doc.add_object(form),
+            _ => {
+                let helvetica = self.doc.add_object(dictionary! {
+                    "Type" => "Font",
+                    "Subtype" => "Type1",
+                    "BaseFont" => "Helvetica",
+                    "Encoding" => "WinAnsiEncoding",
+                });
+                self.doc.add_object(dictionary! {
+                    "Fields" => Object::Array(Vec::new()),
+                    "DA" => Object::string_literal("/Helv 0 Tf 0 g"),
+                    "DR" => dictionary! { "Font" => dictionary! { "Helv" => helvetica } },
+                })
+            }
+        };
+        self.doc
+            .catalog_mut()
+            .map_err(to_py_err)?
+            .set("AcroForm", id);
+        Ok(id)
+    }
+
+    /// The AcroForm's `/Fields`, made a direct array of the form dictionary
+    /// when it was an indirect one.
+    fn form_fields_mut(&mut self, form_id: ObjectId) -> PyResult<&mut Vec<Object>> {
+        let fields = match self
+            .doc
+            .get_dictionary(form_id)
+            .map_err(to_py_err)?
+            .get(b"Fields")
+        {
+            Ok(Object::Reference(id)) => self
+                .doc
+                .get_object(*id)
+                .and_then(Object::as_array)
+                .cloned()
+                .unwrap_or_default(),
+            Ok(Object::Array(fields)) => fields.clone(),
+            _ => Vec::new(),
+        };
+        let form = self
+            .doc
+            .get_object_mut(form_id)
+            .and_then(Object::as_dict_mut)
+            .map_err(to_py_err)?;
+        form.set("Fields", Object::Array(fields));
+        form.get_mut(b"Fields")
+            .and_then(Object::as_array_mut)
+            .map_err(to_py_err)
+    }
+
+    /// Remove `id` from the `/Kids` of `parent`, or from `/Fields` and `/CO`
+    /// when `parent` is `None`.
+    fn detach_form_node(&mut self, parent: Option<ObjectId>, id: ObjectId) -> PyResult<()> {
+        let is_id = |item: &Object| matches!(item, Object::Reference(item) if *item == id);
+        match parent {
+            Some(parent) => {
+                let kids = match self
+                    .doc
+                    .get_dictionary(parent)
+                    .map_err(to_py_err)?
+                    .get(b"Kids")
+                {
+                    Ok(Object::Reference(kids)) => *kids,
+                    _ => {
+                        if let Ok(Object::Array(kids)) = self
+                            .doc
+                            .get_object_mut(parent)
+                            .and_then(Object::as_dict_mut)
+                            .and_then(|parent| parent.get_mut(b"Kids"))
+                        {
+                            kids.retain(|item| !is_id(item));
+                        }
+                        return Ok(());
+                    }
+                };
+                if let Ok(kids) = self.doc.get_object_mut(kids).and_then(Object::as_array_mut) {
+                    kids.retain(|item| !is_id(item));
+                }
+            }
+            None => {
+                let form_id = self.acroform_object()?;
+                self.form_fields_mut(form_id)?.retain(|item| !is_id(item));
+                if let Ok(Object::Array(order)) = self
+                    .doc
+                    .get_object_mut(form_id)
+                    .and_then(Object::as_dict_mut)
+                    .and_then(|form| form.get_mut(b"CO"))
+                {
+                    order.retain(|item| !is_id(item));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Take a widget out of every page's `/Annots`.
+    fn unlist_widget(&mut self, widget: ObjectId) -> PyResult<()> {
+        let pages = self.doc.page_count()?;
+        for page_number in 1..=u32::try_from(pages).unwrap_or(u32::MAX) {
+            let page_id = self.page_id(page_number)?;
+            let listed = self.page_annotation_items(page_id)?.is_some_and(|items| {
+                items
+                    .iter()
+                    .any(|item| matches!(item, Object::Reference(id) if *id == widget))
+            });
+            if listed {
+                self.indirect_page_annotations_mut(page_id)?
+                    .retain(|item| !matches!(item, Object::Reference(id) if *id == widget));
+            }
+        }
+        Ok(())
+    }
+
+    /// Remove a terminal field with its widgets: from the pages, and from
+    /// the form tree, removing a parent that it leaves without kids.
+    fn remove_form_field(&mut self, field_id: ObjectId) -> PyResult<()> {
+        for widget in self.field_widgets(field_id)? {
+            self.unlist_widget(widget)?;
+        }
+        let mut node = field_id;
+        loop {
+            let parent = self
+                .doc
+                .get_dictionary(node)
+                .ok()
+                .and_then(|dict| dict.get(b"Parent").ok())
+                .and_then(|parent| parent.as_reference().ok());
+            self.detach_form_node(parent, node)?;
+            let Some(parent) = parent else { break };
+            let empty = field_kids(
+                &self.doc,
+                self.doc.get_dictionary(parent).map_err(to_py_err)?,
+            )
+            .is_none_or(<[Object]>::is_empty);
+            let named = self
+                .doc
+                .get_dictionary(parent)
+                .is_ok_and(|parent| parent.has(b"T") || parent.has(b"FT"));
+            if !empty || !named {
+                break;
+            }
+            node = parent;
+        }
+        Ok(())
+    }
+}
+
+/// Implements [`_Document::add_widget`]: create the field that `spec`
+/// describes with its first widget, or add a widget to the existing field
+/// of that name and kind, and draw it; return the widget's object number.
+pub(super) fn add_widget(
+    this: &mut _Document,
+    py: Python<'_>,
+    page_number: u32,
+    spec: FieldSpec,
+) -> PyResult<u32> {
+    let (crop, rotation) = this.page_display_geometry(page_number)?;
+    let page_id = this.page_id(page_number)?;
+    let (field_type, kind_flags) = field_kind(&spec.kind)?;
+    validate_form_field_input(&spec.name, spec.value.as_deref())?;
+    validate_annotation_input(
+        [
+            spec.label.as_deref().unwrap_or_default().as_bytes(),
+            spec.caption.as_deref().unwrap_or_default().as_bytes(),
+            spec.default_value.as_deref().unwrap_or_default().as_bytes(),
+            spec.on_state.as_deref().unwrap_or_default().as_bytes(),
+        ]
+        .into_iter()
+        .chain(
+            spec.choices
+                .iter()
+                .flatten()
+                .flat_map(|(value, label)| [value.as_bytes(), label.as_bytes()]),
+        ),
+        "field texts",
+    )?;
+    if spec.name.is_empty() {
+        return Err(PdfError::new_err("a field has a name"));
+    }
+    if !(0..=i64::from(u32::MAX)).contains(&spec.flags)
+        || spec.flags & (FIELD_KIND_FLAGS | (1 << 14)) != 0
+    {
+        return Err(PdfError::new_err(
+            "field flags are a 32-bit value without the bits that the kind sets",
+        ));
+    }
+    let (x0, y0, x1, y1) = spec.rect;
+    if ![x0, y0, x1, y1].iter().all(|value| value.is_finite()) || x1 <= x0 || y1 <= y0 {
+        return Err(PdfError::new_err(
+            "a widget rectangle is finite and not empty",
+        ));
+    }
+    if spec
+        .choices
+        .as_ref()
+        .is_some_and(|choices| choices.len() > MAX_FIELD_CHOICES)
+    {
+        return Err(PdfError::new_err(format!(
+            "a choice field has at most {MAX_FIELD_CHOICES} choices"
+        )));
+    }
+    let on_state = spec.on_state.clone().unwrap_or_else(|| "Yes".to_owned());
+    if matches!(spec.kind.as_str(), "checkbox" | "radio")
+        && (on_state.is_empty() || on_state == "Off")
+    {
+        return Err(PdfError::new_err(
+            "a button's on state is a name other than Off",
+        ));
+    }
+    let existing = this
+        .collect_form_fields()?
+        .into_iter()
+        .find(|(name, ..)| *name == spec.name)
+        .map(|(_, id, field_type, flags, _)| (id, existing_kind(&field_type, flags)));
+    match existing {
+        Some((_, kind)) if kind != spec.kind => {
+            return Err(PdfError::new_err(format!(
+                "the form already has a {kind} field named {:?}",
+                spec.name
+            )));
+        }
+        None if spec.name.contains('.') => {
+            return Err(PdfError::new_err(
+                "a new field's name has no dots; dots join the names of a field's parents",
+            ));
+        }
+        _ => {}
+    }
+    let quad = draw::display_rect_quad_pdf(crop, rotation, [x0, y0, x1, y1]);
+    let rect = draw::bounding_rect_iter(quad.iter().copied());
+    let mut widget = dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Widget",
+        "Rect" => Object::Array(rect.iter().map(|&value| Object::Real(value as f32)).collect()),
+        "F" => 4,
+        "P" => page_id,
+    };
+    let mut mark = Dictionary::new();
+    let border_color = spec.border_color.unwrap_or((0.0, 0.0, 0.0));
+    mark.set("BC", rgb_entry("border colour", border_color)?);
+    if let Some(color) = spec.background_color {
+        mark.set("BG", rgb_entry("background colour", color)?);
+    }
+    if let Some(caption) = &spec.caption {
+        mark.set("CA", form_text_string(caption));
+    }
+    // A widget on a turned page shows upright.
+    if rotation != 0 {
+        mark.set("R", rotation);
+    }
+    widget.set("MK", mark);
+    let (width, style, dashes) = spec
+        .border
+        .clone()
+        .unwrap_or_else(|| (1.0, "S".to_owned(), Vec::new()));
+    if !(width.is_finite() && width >= 0.0)
+        || !matches!(style.as_str(), "S" | "D" | "B" | "I" | "U")
+        || dashes.len() > annotation_appearance::MAX_BORDER_DASHES
+        || (!dashes.is_empty() && !annotation_appearance::valid_dashes(&dashes))
+        || (style == "D") == dashes.is_empty()
+    {
+        return Err(PdfError::new_err(
+            "the border is not one that pylopdf writes",
+        ));
+    }
+    let mut border = dictionary! {
+        "W" => Object::Real(width as f32),
+        "S" => Object::Name(style.into_bytes()),
+    };
+    if !dashes.is_empty() {
+        border.set(
+            "D",
+            Object::Array(
+                dashes
+                    .iter()
+                    .map(|&dash| Object::Real(dash as f32))
+                    .collect(),
+            ),
+        );
+    }
+    widget.set("BS", border);
+    if matches!(
+        spec.kind.as_str(),
+        "text" | "combobox" | "listbox" | "pushbutton"
+    ) {
+        let (red, green, blue) = spec.text_color.unwrap_or((0.0, 0.0, 0.0));
+        rgb_entry("text colour", (red, green, blue))?;
+        let resource = match &spec.font_name {
+            Some(name) => annotation_appearance::DA_FONTS
+                .iter()
+                .find(|(_, font)| font == name)
+                .map(|(resource, _)| *resource)
+                .ok_or_else(|| PdfError::new_err(format!("unknown Standard 14 font {name:?}")))?,
+            None => "Helv",
+        };
+        let size = spec.font_size.unwrap_or(0.0);
+        if !(size.is_finite() && (0.0..=10_000.0).contains(&size)) {
+            return Err(PdfError::new_err(
+                "a widget font size is from 0, which fits the text, to 10000",
+            ));
+        }
+        widget.set(
+            "DA",
+            Object::string_literal(format!(
+                "/{resource} {} Tf {} {} {} rg",
+                draw::fmt(size),
+                draw::fmt(red),
+                draw::fmt(green),
+                draw::fmt(blue)
+            )),
+        );
+        if let Some(align) = spec.align {
+            if align > 2 {
+                return Err(PdfError::new_err(
+                    "a field aligns left (0), centre (1), or right (2)",
+                ));
+            }
+            widget.set("Q", i64::from(align));
+        }
+    }
+    let mut field = dictionary! {
+        "FT" => field_type,
+        "T" => form_text_string(&spec.name),
+    };
+    if kind_flags | spec.flags != 0 {
+        field.set("Ff", kind_flags | spec.flags);
+    }
+    if let Some(label) = &spec.label {
+        field.set("TU", form_text_string(label));
+    }
+    if let Some(length) = spec.max_length {
+        if spec.kind != "text" || !(0..=1_000_000).contains(&length) {
+            return Err(PdfError::new_err(
+                "only a text field has a maximum length, from 0 to 1000000",
+            ));
+        }
+        field.set("MaxLen", length);
+    }
+    if let Some(choices) = &spec.choices {
+        if !matches!(spec.kind.as_str(), "combobox" | "listbox") {
+            return Err(PdfError::new_err("only a choice field has choices"));
+        }
+        field.set(
+            "Opt",
+            Object::Array(
+                choices
+                    .iter()
+                    .map(|(value, label)| {
+                        if value == label {
+                            form_text_string(value)
+                        } else {
+                            Object::Array(vec![form_text_string(value), form_text_string(label)])
+                        }
+                    })
+                    .collect(),
+            ),
+        );
+    }
+    if let Some(default) = &spec.default_value {
+        field.set(
+            "DV",
+            if field_type == "Btn" {
+                Object::Name(default.as_bytes().to_vec())
+            } else {
+                form_text_string(default)
+            },
+        );
+    }
+    let font = spec
+        .font
+        .as_ref()
+        .map(|font| {
+            Python::attach(|py| font.borrow(py).face()).ok_or_else(|| {
+                PdfError::new_err("form appearances draw an OpenType Font, not a Standard 14 font")
+            })
+        })
+        .transpose()?
+        .map(FormFont::Face);
+    let append = this.prepare_page_annotation_append(page_id)?;
+
+    this.invalidate_hayro_pdf();
+    let result = py.detach(|| {
+        let original = this.doc.clone();
+        let outcome = (|| -> PyResult<ObjectId> {
+            let form_id = this.acroform_object()?;
+            let widget_id = match existing {
+                Some((field_id, _)) => {
+                    // A merged field and widget becomes a widget of a new
+                    // parent field, which takes its place in the form tree.
+                    let merged = this.doc.get_dictionary(field_id).is_ok_and(|dict| {
+                        matches!(
+                            dict.get(b"Subtype").and_then(Object::as_name),
+                            Ok(b"Widget")
+                        )
+                    });
+                    let parent_id = if merged {
+                        let old = this
+                            .doc
+                            .get_dictionary(field_id)
+                            .map_err(to_py_err)?
+                            .clone();
+                        let mut parent = dictionary! {
+                            "Kids" => Object::Array(vec![Object::Reference(field_id)]),
+                        };
+                        for key in FIELD_KEYS {
+                            if let Ok(value) = old.get(key) {
+                                parent.set(key, value.clone());
+                            }
+                        }
+                        let grand = old.get(b"Parent").and_then(Object::as_reference).ok();
+                        if let Some(grand) = grand {
+                            parent.set("Parent", grand);
+                        }
+                        let parent_id = this.doc.add_object(parent);
+                        let kid = this
+                            .doc
+                            .get_object_mut(field_id)
+                            .and_then(Object::as_dict_mut)
+                            .map_err(to_py_err)?;
+                        for key in FIELD_KEYS {
+                            kid.remove(key);
+                        }
+                        kid.set("Parent", parent_id);
+                        this.replace_form_node(grand, field_id, parent_id)?;
+                        parent_id
+                    } else {
+                        field_id
+                    };
+                    widget.set("Parent", parent_id);
+                    let widget_id = this.doc.add_object(widget);
+                    let parent = this
+                        .doc
+                        .get_object_mut(parent_id)
+                        .and_then(Object::as_dict_mut)
+                        .map_err(to_py_err)?;
+                    match parent.get_mut(b"Kids") {
+                        Ok(Object::Array(kids)) => kids.push(Object::Reference(widget_id)),
+                        Ok(Object::Reference(kids)) => {
+                            let kids = *kids;
+                            this.doc
+                                .get_object_mut(kids)
+                                .and_then(Object::as_array_mut)
+                                .map_err(to_py_err)?
+                                .push(Object::Reference(widget_id));
+                        }
+                        _ => {
+                            parent.set("Kids", Object::Array(vec![Object::Reference(widget_id)]));
+                        }
+                    }
+                    widget_id
+                }
+                None if spec.kind == "radio" => {
+                    field.set("Kids", Object::Array(Vec::new()));
+                    let field_id = this.doc.add_object(field);
+                    widget.set("Parent", field_id);
+                    let widget_id = this.doc.add_object(widget);
+                    if let Ok(field) = this
+                        .doc
+                        .get_object_mut(field_id)
+                        .and_then(Object::as_dict_mut)
+                    {
+                        field.set("Kids", Object::Array(vec![Object::Reference(widget_id)]));
+                    }
+                    this.form_fields_mut(form_id)?
+                        .push(Object::Reference(field_id));
+                    widget_id
+                }
+                None => {
+                    for (key, value) in field {
+                        widget.set(key, value);
+                    }
+                    let widget_id = this.doc.add_object(widget);
+                    this.form_fields_mut(form_id)?
+                        .push(Object::Reference(widget_id));
+                    widget_id
+                }
+            };
+            this.commit_page_annotation_append(page_id, append, widget_id)?;
+            // Draw the widget: a button's two states, else the value.
+            if matches!(spec.kind.as_str(), "checkbox" | "radio") {
+                let widget = this
+                    .doc
+                    .get_dictionary(widget_id)
+                    .map_err(to_py_err)?
+                    .clone();
+                let style = form::WidgetStyle::from_widget(&this.doc, &widget, None)
+                    .map_err(PdfError::new_err)?;
+                let radio = spec.kind == "radio";
+                let on = this.doc.add_object(style.button_stream(true, radio));
+                let off = this.doc.add_object(style.button_stream(false, radio));
+                let selected = spec.value.as_deref() == Some(on_state.as_str());
+                let entry = this
+                    .doc
+                    .get_object_mut(widget_id)
+                    .and_then(Object::as_dict_mut)
+                    .map_err(to_py_err)?;
+                entry.set(
+                    "AP",
+                    dictionary! {
+                        "N" => dictionary! {
+                            on_state.as_bytes() => Object::Reference(on),
+                            "Off" => Object::Reference(off),
+                        },
+                    },
+                );
+                entry.set("AS", if selected { on_state.as_str() } else { "Off" });
+                let field_id = this
+                    .widget_fields()?
+                    .get(&widget_id)
+                    .map(|field| field.0)
+                    .ok_or_else(|| PdfError::new_err("the new widget has no field"))?;
+                let field = this
+                    .doc
+                    .get_object_mut(field_id)
+                    .and_then(Object::as_dict_mut)
+                    .map_err(to_py_err)?;
+                if selected {
+                    field.set("V", Object::Name(on_state.as_bytes().to_vec()));
+                } else if !field.has(b"V") {
+                    field.set("V", "Off");
+                }
+            } else if matches!(spec.kind.as_str(), "text" | "combobox" | "listbox") {
+                let current = this
+                    .collect_form_fields()?
+                    .into_iter()
+                    .find(|(name, ..)| *name == spec.name)
+                    .and_then(|(.., value)| value.map(|value| value.to_string()));
+                let value = spec.value.clone().or(current);
+                this.set_form_field_inner(
+                    &spec.name,
+                    value.as_deref().unwrap_or_default(),
+                    font.as_ref(),
+                )?;
+                if value.is_none() {
+                    let field_id = this
+                        .widget_fields()?
+                        .get(&widget_id)
+                        .map(|field| field.0)
+                        .ok_or_else(|| PdfError::new_err("the new widget has no field"))?;
+                    if let Ok(field) = this
+                        .doc
+                        .get_object_mut(field_id)
+                        .and_then(Object::as_dict_mut)
+                    {
+                        field.remove(b"V");
+                    }
+                }
+            } else {
+                this.redraw_widget(widget_id, font.as_ref())?;
+                if spec.kind == "signature" {
+                    let widget = this
+                        .doc
+                        .get_dictionary(widget_id)
+                        .map_err(to_py_err)?
+                        .clone();
+                    let style = form::WidgetStyle::from_widget(&this.doc, &widget, None)
+                        .map_err(PdfError::new_err)?;
+                    let content = style.decoration_ops();
+                    let appearance = this.doc.add_object(style.stream(None, content));
+                    this.set_widget_normal_appearance(
+                        widget_id,
+                        Some(Object::Reference(appearance)),
+                    )?;
+                }
+            }
+            this.set_need_appearances(!this.form_appearances_complete()?)?;
+            Ok(widget_id)
+        })();
+        match outcome {
+            Ok(widget_id) => Ok(widget_id),
+            Err(error) => {
+                this.doc.replace(original);
+                Err(error)
+            }
+        }
+    })?;
+    Ok(result.0)
+}
+
+impl _Document {
+    /// Make the `/Kids` entry of `parent`, or the `/Fields` and `/CO` entries
+    /// without one, that names `old` name `new`.
+    fn replace_form_node(
+        &mut self,
+        parent: Option<ObjectId>,
+        old: ObjectId,
+        new: ObjectId,
+    ) -> PyResult<()> {
+        let swap = |items: &mut Vec<Object>| {
+            for item in items {
+                if matches!(item, Object::Reference(id) if *id == old) {
+                    *item = Object::Reference(new);
+                }
+            }
+        };
+        match parent {
+            Some(parent) => {
+                let kids = match self
+                    .doc
+                    .get_dictionary(parent)
+                    .map_err(to_py_err)?
+                    .get(b"Kids")
+                {
+                    Ok(Object::Reference(kids)) => Some(*kids),
+                    _ => None,
+                };
+                match kids {
+                    Some(kids) => {
+                        if let Ok(kids) =
+                            self.doc.get_object_mut(kids).and_then(Object::as_array_mut)
+                        {
+                            swap(kids);
+                        }
+                    }
+                    None => {
+                        if let Ok(Object::Array(kids)) = self
+                            .doc
+                            .get_object_mut(parent)
+                            .and_then(Object::as_dict_mut)
+                            .and_then(|parent| parent.get_mut(b"Kids"))
+                        {
+                            swap(kids);
+                        }
+                    }
+                }
+            }
+            None => {
+                let form_id = self.acroform_object()?;
+                swap(self.form_fields_mut(form_id)?);
+                if let Ok(Object::Array(order)) = self
+                    .doc
+                    .get_object_mut(form_id)
+                    .and_then(Object::as_dict_mut)
+                    .and_then(|form| form.get_mut(b"CO"))
+                {
+                    swap(order);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Implements [`_Document::remove_widget`]: take a widget off its page and
+/// out of its field, removing the field with its last widget.
+pub(super) fn remove_widget(
+    this: &mut _Document,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+) -> PyResult<()> {
+    let page_id = this.page_id(page_number)?;
+    let (index, widget) = this.annotation_at(page_id, index, xref)?;
+    if !matches!(
+        widget.get(b"Subtype").and_then(Object::as_name),
+        Ok(b"Widget")
+    ) {
+        return Err(StaleObjectError::new_err(format!(
+            "annotation {xref} is no longer a widget"
+        )));
+    }
+    this.invalidate_hayro_pdf();
+    if xref == 0 {
+        let items = this.indirect_page_annotations_mut(page_id)?;
+        if (index as usize) < items.len() {
+            items.remove(index as usize);
+        }
+        return Ok(());
+    }
+    let widget_id = (xref, 0);
+    let owner = this.widget_fields()?.get(&widget_id).map(|field| field.0);
+    this.unlist_widget(widget_id)?;
+    match owner {
+        Some(field_id) if field_id == widget_id || this.field_widgets(field_id)?.len() <= 1 => {
+            this.remove_form_field(field_id)
+        }
+        Some(_) => {
+            let parent = this
+                .doc
+                .get_dictionary(widget_id)
+                .ok()
+                .and_then(|dict| dict.get(b"Parent").ok())
+                .and_then(|parent| parent.as_reference().ok());
+            this.detach_form_node(parent, widget_id)
+        }
+        None => Ok(()),
+    }
+}
+
+/// Implements [`_Document::remove_field`].
+pub(super) fn remove_field(this: &mut _Document, xref: u32) -> PyResult<()> {
+    let field_id = this.form_field_id(xref)?;
+    this.invalidate_hayro_pdf();
+    this.remove_form_field(field_id)
+}

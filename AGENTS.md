@@ -2240,6 +2240,20 @@ the concept and API overview.
   buttons off), inside a document clone that it restores on failure.
   `field_details` reads `/TU`, the inherited `/MaxLen` and `/DV`, and
   `/NeedAppearances` under the annotation text budgets.
+- `page.widgets.add` passes a `FieldSpec` to `add_widget`, which checks it,
+  prepares the page's annotation append, and then, inside a document clone
+  that a failure restores, creates the AcroForm (`acroform_object`, with
+  Helvetica as `/DR` and `/DA (/Helv 0 Tf 0 g)`) when there is none, adds a
+  merged field and widget to `/Fields` (a radio group: a parent field with
+  the widget as its kid), or, for a name the form has, a kid of that field
+  of the same kind, first splitting a merged field and widget into a new
+  parent that takes its place in `/Fields` or its parent's `/Kids`
+  (`replace_form_node`). It draws the widget: a button's on and Off states,
+  text and choice values through `set_form_field_inner`, a pushbutton's
+  caption, or a signature field's frame. `remove_widget` and `remove_field`
+  take widgets out of every page's `/Annots` and fields out of the tree,
+  removing a named parent that a removal leaves without kids
+  (`remove_form_field`, `detach_form_node`).
 - AcroForm filling writes `/V`, synchronizes button `/AS`, and regenerates
   widget `/AP /N`. Text and choice appearances auto-fit in widget-local
   coordinates, respect inherited `/Q` and multiline `/Ff`, and reuse the Core

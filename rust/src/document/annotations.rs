@@ -1572,7 +1572,10 @@ impl _Document {
     /// rewrite one goes through here first: a handle made before then finds
     /// a reference where it expects a dictionary and goes stale instead of
     /// naming another annotation.
-    fn indirect_page_annotations_mut(&mut self, page_id: ObjectId) -> PyResult<&mut Vec<Object>> {
+    pub(super) fn indirect_page_annotations_mut(
+        &mut self,
+        page_id: ObjectId,
+    ) -> PyResult<&mut Vec<Object>> {
         let mut direct = Vec::new();
         for (position, item) in self
             .page_annotation_items(page_id)?

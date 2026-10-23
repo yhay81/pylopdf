@@ -306,6 +306,7 @@ replacement, and the migration hint):
 - Page.add_strikeout_annot -> Annotations.add: page.annotations.add(StrikeOut(quads)) adds a strikeout with its appearance and returns its Annotation; color is a Color and content becomes contents.
 - Page.add_text_annot -> Annotations.add: page.annotations.add(Note(point, contents=text, icon=NoteIcon.NOTE)) adds a note with its 20-point icon and returns its Annotation.
 - Page.add_underline_annot -> Annotations.add: page.annotations.add(Underline(quads)) adds an underline with its appearance and returns its Annotation; color is a Color and content becomes contents.
+- Page.add_widget -> Widgets.add: page.widgets.add(TextField(name, rect, ...)) creates a field with its widget; CheckBox, RadioButton, ComboBox, ListBox, PushButton, and SignatureField are the other kinds, and a name that the form has adds a widget to that field.
 - Page.annot_names -> Annotation.name: [annotation.name for annotation in page.annotations]
 - Page.annot_xrefs -> Annotation.xref: [(annotation.xref, annotation.type) for annotation in page.annotations]
 - Page.annots -> Page.annotations: page.annotations lists Annotation handles other than links and widgets; filter on annotation.type instead of passing types.
@@ -316,6 +317,7 @@ replacement, and the migration hint):
 - Page.cropbox_position -> Page.boxes: Read page.boxes.crop: its top-left corner is (crop.x0, crop.y1) in PDF user space.
 - Page.delete_annot -> Annotations: del page.annotations[index] removes an annotation with its popup.
 - Page.delete_link -> Links: del page.links[index] removes a link; its annotation goes at the next pruning save.
+- Page.delete_widget -> Widgets: del page.widgets[i] removes a widget, and its field with the last one; del doc.form[name] removes a field with all its widgets.
 - Page.derotation_matrix -> Page.user_to_display: pylopdf reads and writes in display space with the rotation resolved; drop the step, and map display space to PDF user space with ~page.user_to_display.
 - Page.draw_bezier -> Canvas.bezier: Inside with page.draw() as canvas:, call canvas.bezier(p1, p2, p3, p4, stroke=...), or canvas.path(PathBuilder()...) for a closed or filled curve.
 - Page.draw_circle -> Canvas.circle: Inside with page.draw() as canvas:, call canvas.circle(center, radius, fill=..., stroke=...); fill=Color(r, g, b) and stroke=Stroke(paint=Color(r, g, b), width=..., cap=..., join=..., dashes=...) replace color, fill, width, lineCap, lineJoin, and dashes, and a Color's alpha the opacities.

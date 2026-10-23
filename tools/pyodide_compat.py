@@ -971,10 +971,16 @@ def _widget_results() -> dict[str, Any]:
         field.default_value = "Ada"
         field.value = "Grace"
         field.reset()
+        page.widgets.add(pylopdf.RadioButton("plan", (40, 10, 55, 25), on_state="Basic", selected=True))
+        page.widgets.add(pylopdf.RadioButton("plan", (60, 10, 75, 25), on_state="Pro"))
+        page.widgets.add(pylopdf.ComboBox("level", (80, 10, 190, 25), choices=["low", "high"], value="high"))
+        document.form["plan"].value = "Pro"
         saved = document.to_bytes()
     with pylopdf.open(saved) as reopened:
-        name, check = reopened.pages[0].widgets
+        name, check, *created = reopened.pages[0].widgets
         result = {
+            "created": {key: [field.type.value, field.value] for key, field in reopened.form.items()},
+            "created_widgets": len(created),
             "fields": [None if widget.field is None else widget.field.name for widget in (name, check)],
             "rects": [list(widget.rect) for widget in (name, check)],
             "da": name.obj["DA"].text,
@@ -983,7 +989,7 @@ def _widget_results() -> dict[str, Any]:
             "text": reopened.pages[0].text().strip(),
             "field": [reopened.form["name"].label, reopened.form["name"].max_length, reopened.form["name"].value],
         }
-    _require(result["text"] == "Ada", "the restyled widget lost its value")
+    _require(result["text"].split()[0] == "Ada", "the restyled widget lost its value")
     return result
 
 

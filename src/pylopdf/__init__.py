@@ -17,7 +17,7 @@ from typing import (
     TypeAlias,
 )
 
-from pylopdf import _annotations, _content, _types
+from pylopdf import _annotations, _content, _form, _types
 from pylopdf._annotations import (
     Annotation,
     AnnotationFile,
@@ -90,7 +90,20 @@ from pylopdf._errors import (
 )
 from pylopdf._fallback_fonts import FallbackFont, FallbackFonts
 from pylopdf._fonts import Font
-from pylopdf._form import Field, FieldChoice, FieldFlags, FieldType, Form
+from pylopdf._form import (
+    CheckBox,
+    ComboBox,
+    Field,
+    FieldChoice,
+    FieldFlags,
+    FieldType,
+    Form,
+    ListBox,
+    PushButton,
+    RadioButton,
+    SignatureField,
+    TextField,
+)
 from pylopdf._geometry import IRect, Matrix, Point, Quad, Rect
 from pylopdf._hints import missing_attribute
 from pylopdf._images import EncodedImage, ImageObject, Images, Resources
@@ -137,12 +150,14 @@ __all__ = [
     "Canvas",
     "Caret",
     "Char",
+    "CheckBox",
     "Circle",
     "CjkFontLanguage",
     "Clip",
     "ClosePath",
     "Color",
     "Colorspace",
+    "ComboBox",
     "Content",
     "ContentItem",
     "CurveTo",
@@ -161,6 +176,7 @@ __all__ = [
     "Field",
     "FieldChoice",
     "FieldFlags",
+    "FieldSpecification",
     "FieldType",
     "FileAttachment",
     "FillRule",
@@ -190,6 +206,7 @@ __all__ = [
     "LineTo",
     "Link",
     "Links",
+    "ListBox",
     "ListNumbering",
     "MalformedPdfError",
     "MarkInfo",
@@ -227,7 +244,9 @@ __all__ = [
     "PolyLine",
     "Polygon",
     "Probe",
+    "PushButton",
     "Quad",
+    "RadioButton",
     "Rect",
     "Redaction",
     "RemoteDestination",
@@ -235,6 +254,7 @@ __all__ = [
     "Segment",
     "ShadingPattern",
     "ShadingType",
+    "SignatureField",
     "SoftMask",
     "SoftMaskType",
     "Span",
@@ -255,6 +275,7 @@ __all__ = [
     "TableHeaderScope",
     "TagRole",
     "Target",
+    "TextField",
     "TextFit",
     "TextRenderMode",
     "TextRun",
@@ -281,6 +302,7 @@ ContentItem: TypeAlias = _content.ContentItem
 Paint: TypeAlias = _content.Paint
 Segment: TypeAlias = _content.Segment
 AnnotationSpecification: TypeAlias = _annotations.AnnotationSpecification
+FieldSpecification: TypeAlias = _form.FieldSpecification
 
 
 if not TYPE_CHECKING:

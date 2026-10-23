@@ -20,12 +20,14 @@
     "Canvas",
     "Caret",
     "Char",
+    "CheckBox",
     "Circle",
     "CjkFontLanguage",
     "Clip",
     "ClosePath",
     "Color",
     "Colorspace",
+    "ComboBox",
     "Content",
     "ContentItem",
     "CurveTo",
@@ -44,6 +46,7 @@
     "Field",
     "FieldChoice",
     "FieldFlags",
+    "FieldSpecification",
     "FieldType",
     "FileAttachment",
     "FillRule",
@@ -73,6 +76,7 @@
     "LineTo",
     "Link",
     "Links",
+    "ListBox",
     "ListNumbering",
     "MalformedPdfError",
     "MarkInfo",
@@ -111,8 +115,10 @@
     "PolyLine",
     "Polygon",
     "Probe",
+    "PushButton",
     "PylopdfWarning",
     "Quad",
+    "RadioButton",
     "Rect",
     "Redaction",
     "RemoteDestination",
@@ -120,6 +126,7 @@
     "Segment",
     "ShadingPattern",
     "ShadingType",
+    "SignatureField",
     "SoftMask",
     "SoftMaskType",
     "Span",
@@ -140,6 +147,7 @@
     "TableHeaderScope",
     "TagRole",
     "Target",
+    "TextField",
     "TextFit",
     "TextRenderMode",
     "TextRun",
@@ -1855,6 +1863,122 @@
         "returns": "None"
       }
     },
+    "CheckBox": {
+      "annotations": {
+        "_kind": "ClassVar[str]",
+        "background_color": "Color | None",
+        "border": "Border",
+        "border_color": "Color | None",
+        "checked": "bool",
+        "flags": "FieldFlags",
+        "label": "str | None",
+        "name": "str",
+        "on_state": "str",
+        "rect": "Rect"
+      },
+      "dataclass_fields": [
+        "name",
+        "rect",
+        "checked",
+        "on_state",
+        "label",
+        "flags",
+        "border",
+        "border_color",
+        "background_color"
+      ],
+      "kind": "class",
+      "members": {
+        "background_color": {
+          "kind": "property"
+        },
+        "border": {
+          "kind": "property"
+        },
+        "border_color": {
+          "kind": "property"
+        },
+        "checked": {
+          "kind": "property"
+        },
+        "flags": {
+          "kind": "property"
+        },
+        "label": {
+          "kind": "property"
+        },
+        "name": {
+          "kind": "property"
+        },
+        "on_state": {
+          "kind": "property"
+        },
+        "rect": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "name"
+          },
+          {
+            "annotation": "Sequence[float]",
+            "kind": "positional_or_keyword",
+            "name": "rect"
+          },
+          {
+            "annotation": "bool",
+            "default": false,
+            "kind": "keyword_only",
+            "name": "checked"
+          },
+          {
+            "annotation": "str",
+            "default": "Yes",
+            "kind": "keyword_only",
+            "name": "on_state"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "label"
+          },
+          {
+            "annotation": "FieldFlags",
+            "default": 0,
+            "kind": "keyword_only",
+            "name": "flags"
+          },
+          {
+            "annotation": "Border",
+            "default": {
+              "repr": "Border(width=1.0, style=<BorderStyle.SOLID: 'solid'>, dashes=())"
+            },
+            "kind": "keyword_only",
+            "name": "border"
+          },
+          {
+            "annotation": "Color | None",
+            "default": {
+              "repr": "Color(red=0.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "border_color"
+          },
+          {
+            "annotation": "Color | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "background_color"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "Circle": {
       "annotations": {
         "blend_mode": "BlendMode | None",
@@ -2070,6 +2194,178 @@
       "members": {
         "GRAY": "gray",
         "RGB": "rgb"
+      }
+    },
+    "ComboBox": {
+      "annotations": {
+        "_kind": "ClassVar[str]",
+        "align": "Literal['left', 'center', 'right']",
+        "background_color": "Color | None",
+        "border": "Border",
+        "border_color": "Color | None",
+        "choices": "tuple[FieldChoice, ...]",
+        "default_value": "str | None",
+        "flags": "FieldFlags",
+        "font": "Font | None",
+        "font_size": "float",
+        "label": "str | None",
+        "name": "str",
+        "rect": "Rect",
+        "text_color": "Color",
+        "value": "str | None"
+      },
+      "dataclass_fields": [
+        "name",
+        "rect",
+        "choices",
+        "value",
+        "default_value",
+        "font",
+        "font_size",
+        "text_color",
+        "align",
+        "label",
+        "flags",
+        "border",
+        "border_color",
+        "background_color"
+      ],
+      "kind": "class",
+      "members": {
+        "align": {
+          "kind": "property"
+        },
+        "background_color": {
+          "kind": "property"
+        },
+        "border": {
+          "kind": "property"
+        },
+        "border_color": {
+          "kind": "property"
+        },
+        "choices": {
+          "kind": "property"
+        },
+        "default_value": {
+          "kind": "property"
+        },
+        "flags": {
+          "kind": "property"
+        },
+        "font": {
+          "kind": "property"
+        },
+        "font_size": {
+          "kind": "property"
+        },
+        "label": {
+          "kind": "property"
+        },
+        "name": {
+          "kind": "property"
+        },
+        "rect": {
+          "kind": "property"
+        },
+        "text_color": {
+          "kind": "property"
+        },
+        "value": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "name"
+          },
+          {
+            "annotation": "Sequence[float]",
+            "kind": "positional_or_keyword",
+            "name": "rect"
+          },
+          {
+            "annotation": "Iterable[FieldChoice | str]",
+            "kind": "keyword_only",
+            "name": "choices"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "value"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "default_value"
+          },
+          {
+            "annotation": "Font | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "font"
+          },
+          {
+            "annotation": "float",
+            "default": 0,
+            "kind": "keyword_only",
+            "name": "font_size"
+          },
+          {
+            "annotation": "Color",
+            "default": {
+              "repr": "Color(red=0.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "text_color"
+          },
+          {
+            "annotation": "Literal['left', 'center', 'right']",
+            "default": "left",
+            "kind": "keyword_only",
+            "name": "align"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "label"
+          },
+          {
+            "annotation": "FieldFlags",
+            "default": 0,
+            "kind": "keyword_only",
+            "name": "flags"
+          },
+          {
+            "annotation": "Border",
+            "default": {
+              "repr": "Border(width=1.0, style=<BorderStyle.SOLID: 'solid'>, dashes=())"
+            },
+            "kind": "keyword_only",
+            "name": "border"
+          },
+          {
+            "annotation": "Color | None",
+            "default": {
+              "repr": "Color(red=0.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "border_color"
+          },
+          {
+            "annotation": "Color | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "background_color"
+          }
+        ],
+        "returns": "None"
       }
     },
     "Content": {
@@ -3467,6 +3763,10 @@
         "SORT": 524288
       }
     },
+    "FieldSpecification": {
+      "kind": "type-alias",
+      "target": "pylopdf.TextField | pylopdf.CheckBox | pylopdf.RadioButton | pylopdf.ComboBox | pylopdf.ListBox | pylopdf.PushButton | pylopdf.SignatureField"
+    },
     "FieldType": {
       "kind": "enum",
       "members": {
@@ -3928,6 +4228,23 @@
     "Form": {
       "kind": "class",
       "members": {
+        "__delitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "name"
+              }
+            ],
+            "returns": "None"
+          }
+        },
         "__getitem__": {
           "kind": "method",
           "signature": {
@@ -5694,6 +6011,178 @@
             "annotation": "Page",
             "kind": "positional_or_keyword",
             "name": "page"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "ListBox": {
+      "annotations": {
+        "_kind": "ClassVar[str]",
+        "align": "Literal['left', 'center', 'right']",
+        "background_color": "Color | None",
+        "border": "Border",
+        "border_color": "Color | None",
+        "choices": "tuple[FieldChoice, ...]",
+        "default_value": "str | None",
+        "flags": "FieldFlags",
+        "font": "Font | None",
+        "font_size": "float",
+        "label": "str | None",
+        "name": "str",
+        "rect": "Rect",
+        "text_color": "Color",
+        "value": "str | None"
+      },
+      "dataclass_fields": [
+        "name",
+        "rect",
+        "choices",
+        "value",
+        "default_value",
+        "font",
+        "font_size",
+        "text_color",
+        "align",
+        "label",
+        "flags",
+        "border",
+        "border_color",
+        "background_color"
+      ],
+      "kind": "class",
+      "members": {
+        "align": {
+          "kind": "property"
+        },
+        "background_color": {
+          "kind": "property"
+        },
+        "border": {
+          "kind": "property"
+        },
+        "border_color": {
+          "kind": "property"
+        },
+        "choices": {
+          "kind": "property"
+        },
+        "default_value": {
+          "kind": "property"
+        },
+        "flags": {
+          "kind": "property"
+        },
+        "font": {
+          "kind": "property"
+        },
+        "font_size": {
+          "kind": "property"
+        },
+        "label": {
+          "kind": "property"
+        },
+        "name": {
+          "kind": "property"
+        },
+        "rect": {
+          "kind": "property"
+        },
+        "text_color": {
+          "kind": "property"
+        },
+        "value": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "name"
+          },
+          {
+            "annotation": "Sequence[float]",
+            "kind": "positional_or_keyword",
+            "name": "rect"
+          },
+          {
+            "annotation": "Iterable[FieldChoice | str]",
+            "kind": "keyword_only",
+            "name": "choices"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "value"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "default_value"
+          },
+          {
+            "annotation": "Font | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "font"
+          },
+          {
+            "annotation": "float",
+            "default": 0,
+            "kind": "keyword_only",
+            "name": "font_size"
+          },
+          {
+            "annotation": "Color",
+            "default": {
+              "repr": "Color(red=0.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "text_color"
+          },
+          {
+            "annotation": "Literal['left', 'center', 'right']",
+            "default": "left",
+            "kind": "keyword_only",
+            "name": "align"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "label"
+          },
+          {
+            "annotation": "FieldFlags",
+            "default": 0,
+            "kind": "keyword_only",
+            "name": "flags"
+          },
+          {
+            "annotation": "Border",
+            "default": {
+              "repr": "Border(width=1.0, style=<BorderStyle.SOLID: 'solid'>, dashes=())"
+            },
+            "kind": "keyword_only",
+            "name": "border"
+          },
+          {
+            "annotation": "Color | None",
+            "default": {
+              "repr": "Color(red=0.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "border_color"
+          },
+          {
+            "annotation": "Color | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "background_color"
           }
         ],
         "returns": "None"
@@ -8709,6 +9198,153 @@
         "returns": "None"
       }
     },
+    "PushButton": {
+      "annotations": {
+        "_kind": "ClassVar[str]",
+        "align": "Literal['left', 'center', 'right']",
+        "background_color": "Color | None",
+        "border": "Border",
+        "border_color": "Color | None",
+        "caption": "str | None",
+        "flags": "FieldFlags",
+        "font": "Font | None",
+        "font_size": "float",
+        "label": "str | None",
+        "name": "str",
+        "rect": "Rect",
+        "text_color": "Color"
+      },
+      "dataclass_fields": [
+        "name",
+        "rect",
+        "caption",
+        "font",
+        "font_size",
+        "text_color",
+        "align",
+        "label",
+        "flags",
+        "border",
+        "border_color",
+        "background_color"
+      ],
+      "kind": "class",
+      "members": {
+        "align": {
+          "kind": "property"
+        },
+        "background_color": {
+          "kind": "property"
+        },
+        "border": {
+          "kind": "property"
+        },
+        "border_color": {
+          "kind": "property"
+        },
+        "caption": {
+          "kind": "property"
+        },
+        "flags": {
+          "kind": "property"
+        },
+        "font": {
+          "kind": "property"
+        },
+        "font_size": {
+          "kind": "property"
+        },
+        "label": {
+          "kind": "property"
+        },
+        "name": {
+          "kind": "property"
+        },
+        "rect": {
+          "kind": "property"
+        },
+        "text_color": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "name"
+          },
+          {
+            "annotation": "Sequence[float]",
+            "kind": "positional_or_keyword",
+            "name": "rect"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "caption"
+          },
+          {
+            "annotation": "Font | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "font"
+          },
+          {
+            "annotation": "float",
+            "default": 0,
+            "kind": "keyword_only",
+            "name": "font_size"
+          },
+          {
+            "annotation": "Color",
+            "default": {
+              "repr": "Color(red=0.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "text_color"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "label"
+          },
+          {
+            "annotation": "FieldFlags",
+            "default": 0,
+            "kind": "keyword_only",
+            "name": "flags"
+          },
+          {
+            "annotation": "Border",
+            "default": {
+              "repr": "Border(width=1.0, style=<BorderStyle.SOLID: 'solid'>, dashes=())"
+            },
+            "kind": "keyword_only",
+            "name": "border"
+          },
+          {
+            "annotation": "Color | None",
+            "default": {
+              "repr": "Color(red=0.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "border_color"
+          },
+          {
+            "annotation": "Color | None",
+            "default": {
+              "repr": "Color(red=0.75, green=0.75, blue=0.75, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "background_color"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "PylopdfWarning": {
       "bases": [
         "UserWarning"
@@ -9017,6 +9653,121 @@
           }
         ],
         "returns": "Self"
+      }
+    },
+    "RadioButton": {
+      "annotations": {
+        "_kind": "ClassVar[str]",
+        "background_color": "Color | None",
+        "border": "Border",
+        "border_color": "Color | None",
+        "flags": "FieldFlags",
+        "label": "str | None",
+        "name": "str",
+        "on_state": "str",
+        "rect": "Rect",
+        "selected": "bool"
+      },
+      "dataclass_fields": [
+        "name",
+        "rect",
+        "on_state",
+        "selected",
+        "label",
+        "flags",
+        "border",
+        "border_color",
+        "background_color"
+      ],
+      "kind": "class",
+      "members": {
+        "background_color": {
+          "kind": "property"
+        },
+        "border": {
+          "kind": "property"
+        },
+        "border_color": {
+          "kind": "property"
+        },
+        "flags": {
+          "kind": "property"
+        },
+        "label": {
+          "kind": "property"
+        },
+        "name": {
+          "kind": "property"
+        },
+        "on_state": {
+          "kind": "property"
+        },
+        "rect": {
+          "kind": "property"
+        },
+        "selected": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "name"
+          },
+          {
+            "annotation": "Sequence[float]",
+            "kind": "positional_or_keyword",
+            "name": "rect"
+          },
+          {
+            "annotation": "str",
+            "kind": "keyword_only",
+            "name": "on_state"
+          },
+          {
+            "annotation": "bool",
+            "default": false,
+            "kind": "keyword_only",
+            "name": "selected"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "label"
+          },
+          {
+            "annotation": "FieldFlags",
+            "default": 0,
+            "kind": "keyword_only",
+            "name": "flags"
+          },
+          {
+            "annotation": "Border",
+            "default": {
+              "repr": "Border(width=1.0, style=<BorderStyle.SOLID: 'solid'>, dashes=())"
+            },
+            "kind": "keyword_only",
+            "name": "border"
+          },
+          {
+            "annotation": "Color | None",
+            "default": {
+              "repr": "Color(red=0.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "border_color"
+          },
+          {
+            "annotation": "Color | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "background_color"
+          }
+        ],
+        "returns": "None"
       }
     },
     "Rect": {
@@ -9709,6 +10460,100 @@
         "RADIAL": 3,
         "TENSOR_PATCH_MESH": 7,
         "TRIANGLE_MESH": 4
+      }
+    },
+    "SignatureField": {
+      "annotations": {
+        "_kind": "ClassVar[str]",
+        "background_color": "Color | None",
+        "border": "Border",
+        "border_color": "Color | None",
+        "flags": "FieldFlags",
+        "label": "str | None",
+        "name": "str",
+        "rect": "Rect"
+      },
+      "dataclass_fields": [
+        "name",
+        "rect",
+        "label",
+        "flags",
+        "border",
+        "border_color",
+        "background_color"
+      ],
+      "kind": "class",
+      "members": {
+        "background_color": {
+          "kind": "property"
+        },
+        "border": {
+          "kind": "property"
+        },
+        "border_color": {
+          "kind": "property"
+        },
+        "flags": {
+          "kind": "property"
+        },
+        "label": {
+          "kind": "property"
+        },
+        "name": {
+          "kind": "property"
+        },
+        "rect": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "name"
+          },
+          {
+            "annotation": "Sequence[float]",
+            "kind": "positional_or_keyword",
+            "name": "rect"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "label"
+          },
+          {
+            "annotation": "FieldFlags",
+            "default": 0,
+            "kind": "keyword_only",
+            "name": "flags"
+          },
+          {
+            "annotation": "Border",
+            "default": {
+              "repr": "Border(width=1.0, style=<BorderStyle.SOLID: 'solid'>, dashes=())"
+            },
+            "kind": "keyword_only",
+            "name": "border"
+          },
+          {
+            "annotation": "Color | None",
+            "default": {
+              "repr": "Color(red=0.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "border_color"
+          },
+          {
+            "annotation": "Color | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "background_color"
+          }
+        ],
+        "returns": "None"
       }
     },
     "SoftMask": {
@@ -10591,6 +11436,179 @@
         "repr": "pylopdf.Destination | pylopdf.RemoteDestination | pylopdf.Launch | pylopdf.NamedAction | str"
       }
     },
+    "TextField": {
+      "annotations": {
+        "_kind": "ClassVar[str]",
+        "align": "Literal['left', 'center', 'right']",
+        "background_color": "Color | None",
+        "border": "Border",
+        "border_color": "Color | None",
+        "default_value": "str | None",
+        "flags": "FieldFlags",
+        "font": "Font | None",
+        "font_size": "float",
+        "label": "str | None",
+        "max_length": "int | None",
+        "name": "str",
+        "rect": "Rect",
+        "text_color": "Color",
+        "value": "str | None"
+      },
+      "dataclass_fields": [
+        "name",
+        "rect",
+        "value",
+        "default_value",
+        "max_length",
+        "font",
+        "font_size",
+        "text_color",
+        "align",
+        "label",
+        "flags",
+        "border",
+        "border_color",
+        "background_color"
+      ],
+      "kind": "class",
+      "members": {
+        "align": {
+          "kind": "property"
+        },
+        "background_color": {
+          "kind": "property"
+        },
+        "border": {
+          "kind": "property"
+        },
+        "border_color": {
+          "kind": "property"
+        },
+        "default_value": {
+          "kind": "property"
+        },
+        "flags": {
+          "kind": "property"
+        },
+        "font": {
+          "kind": "property"
+        },
+        "font_size": {
+          "kind": "property"
+        },
+        "label": {
+          "kind": "property"
+        },
+        "max_length": {
+          "kind": "property"
+        },
+        "name": {
+          "kind": "property"
+        },
+        "rect": {
+          "kind": "property"
+        },
+        "text_color": {
+          "kind": "property"
+        },
+        "value": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "name"
+          },
+          {
+            "annotation": "Sequence[float]",
+            "kind": "positional_or_keyword",
+            "name": "rect"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "value"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "default_value"
+          },
+          {
+            "annotation": "int | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "max_length"
+          },
+          {
+            "annotation": "Font | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "font"
+          },
+          {
+            "annotation": "float",
+            "default": 0,
+            "kind": "keyword_only",
+            "name": "font_size"
+          },
+          {
+            "annotation": "Color",
+            "default": {
+              "repr": "Color(red=0.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "text_color"
+          },
+          {
+            "annotation": "Literal['left', 'center', 'right']",
+            "default": "left",
+            "kind": "keyword_only",
+            "name": "align"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "label"
+          },
+          {
+            "annotation": "FieldFlags",
+            "default": 0,
+            "kind": "keyword_only",
+            "name": "flags"
+          },
+          {
+            "annotation": "Border",
+            "default": {
+              "repr": "Border(width=1.0, style=<BorderStyle.SOLID: 'solid'>, dashes=())"
+            },
+            "kind": "keyword_only",
+            "name": "border"
+          },
+          {
+            "annotation": "Color | None",
+            "default": {
+              "repr": "Color(red=0.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "border_color"
+          },
+          {
+            "annotation": "Color | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "background_color"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "TextFit": {
       "annotations": {
         "spare_height": "float"
@@ -10985,6 +12003,23 @@
     "Widgets": {
       "kind": "class",
       "members": {
+        "__delitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | slice",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              }
+            ],
+            "returns": "None"
+          }
+        },
         "__getitem__": {
           "kind": "method",
           "signature": {
@@ -11024,6 +12059,23 @@
               }
             ],
             "returns": "int"
+          }
+        },
+        "add": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "FieldSpecification",
+                "kind": "positional_or_keyword",
+                "name": "specification"
+              }
+            ],
+            "returns": "Widget"
           }
         }
       },
