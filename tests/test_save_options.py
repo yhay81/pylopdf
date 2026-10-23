@@ -43,6 +43,7 @@ OPTIONS: list[dict[str, Any]] = [
     {},
     {"renumber": True},
     {"dedupe": True},
+    {"object_streams": True},
     {"dedupe": True, "renumber": True, "object_streams": True},
 ]
 
@@ -50,8 +51,9 @@ OPTIONS: list[dict[str, Any]] = [
 @pytest.mark.parametrize("options", OPTIONS)
 def test_every_option_keeps_text_and_rendering(options: dict[str, Any]) -> None:
     path = REAL_WORLD / "bill-hr815.pdf"
-    expected = _signature(pylopdf.open(path))
     doc = pylopdf.open(path)
+    # Warm this document's text and rendering caches before saving.
+    expected = _signature(doc)
 
     saved = doc.to_bytes(**options)
 
