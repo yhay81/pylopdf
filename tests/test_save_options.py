@@ -223,7 +223,7 @@ def test_identical_pages_annotations_and_layers_are_never_merged() -> None:
 
     reopened = pylopdf.open(saved)
     assert len(reopened.pages) == 2
-    assert len(reopened.pages[0].annots()) == len(reopened.pages[1].annots()) == 1
+    assert len(reopened.pages[0].annotations) == len(reopened.pages[1].annotations) == 1
     assert len(re.findall(rb"/Type\s*/Page\b(?!s)", saved)) == 2
     assert len(re.findall(rb"/Subtype\s*/Square", saved)) == 2
     assert len(re.findall(rb"/Type\s*/OCG", saved)) == 2

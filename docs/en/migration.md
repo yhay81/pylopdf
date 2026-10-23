@@ -64,7 +64,8 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `doc.language`, `set_language(tag)` | `doc.language`, `doc.language = tag` | The complete tag: pymupdf keeps at most three letters, so `zh-TW` and `zh-HK` both become `zh-Hant`; `del doc.language` removes it |
 | `doc.pagemode`, `pagelayout`, `markinfo` and their `set_*` methods | `doc.page_mode`, `page_layout`, `mark_info`, assigned | `PageMode` and `PageLayout` enums and a `MarkInfo` record; names are matched exactly, where pymupdf ignored case |
 | `doc.has_links()` | `any(page.links for page in doc.pages)` | |
-| `doc.has_annots()`, `is_closed` | Same | |
+| `doc.has_annots()` | `any(page.annotations for page in doc.pages)` | |
+| `doc.is_closed` | Same | |
 | `doc.name` | `doc.path` | A `pathlib.Path`, or `None` for a document opened from bytes or created empty; `is_pdf` is gone because every document is a PDF |
 | `doc.needs_pass`, `doc.is_encrypted` | `doc.needs_password` | True until the document is unlocked |
 | `doc.authenticate(password)` | `doc.unlock(password)` | Returns `Access.USER` or `Access.OWNER` and raises `PasswordError` for a wrong password instead of returning 0 |
@@ -127,8 +128,8 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `page.show_pdf_page(rect, docsrc, pno)` | Same | The source can be the same document |
 | `page.new_shape()`, `shape.draw_*`, `finish()`, `insert_text()`, `commit()` | Same | `with page.new_shape() as shape:` commits automatically; `morph=` and `oc=` are not supported yet |
 | `page.draw_line()`, `draw_rect()`, and the other `draw_*` | Same | Style options are keyword-only |
-| `page.annots()`, `annot.type`, `rect`, `info`, `colors`, `flags` | Same | Read-only for now |
-| `page.add_highlight_annot()` | Same | |
+| `page.annots()`, `page.first_annot`, `annot.type`, `rect`, `info`, `colors`, `flags`, `parent` | `page.annotations`, `annotation.type`, `rect`, `contents` and the other texts, `color`, `interior_color`, `flags`, `page` | `Annotation` handles with typed properties: `type` is an `AnnotationType` member and the `info` and `colors` dictionaries become properties. Links and widgets are not listed, and a popup belongs to its annotation; the properties are read-only for now |
+| `page.add_highlight_annot(quads)`, `page.delete_annot(annot)` | `page.annotations.add(Highlight(quads))`, `del page.annotations[i]` | `color` is a `Color` and `content` becomes `contents`; deleting an annotation removes its popup |
 | `page.get_links()`, `page.links()`, `page.first_link`, `page.load_links()` | `page.links` | A sequence of `Link` handles with `rect` and `target` instead of dictionaries and a chain of `Link` objects |
 | `page.insert_link(link)`, `page.update_link(link)`, `page.delete_link(link)` | `page.links.add(rect, target)`, assigning `link.rect` and `link.target`, `del page.links[i]` | A target is a URI string, `Destination(page, point, zoom)`, `RemoteDestination(file, page)`, `Launch(file)`, or `NamedAction(name)`, as in the outline; `isinstance` on it replaces the `LINK_*` kinds |
 | `page.widgets()` | `doc.get_form_fields()`, `doc.set_form_field(name, value)` | Forms are handled per document |
@@ -203,7 +204,7 @@ doc.save("out.pdf", garbage=4, deflate=True)
 import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc.pages[0]
-page.add_highlight_annot(page.search("total"))       # takes the whole list
+page.annotations.add(pylopdf.Highlight(page.search("total")))  # takes the whole list
 page.pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
 doc.save("out.pdf", dedupe=True, renumber=True)
 ```

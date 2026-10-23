@@ -69,6 +69,14 @@ def ocr_words(entries: Iterable[tuple[float, float, float, float, str]]) -> Iter
         yield pylopdf.OcrWord(text=text, bbox=pylopdf.Rect(x0, y0, x1, y1), confidence=1.0)
 
 
+def annotation_subtypes(page: pylopdf.Page) -> list[str | None]:
+    """Return the ``/Subtype`` of every entry of a page's ``/Annots``, links and widgets included."""
+    annots = page.obj.get("Annots")
+    if annots is None:
+        return []
+    return [None if entry is None else entry.get("Subtype") for entry in annots]
+
+
 def outline_tuples(doc: pylopdf.Document) -> list[tuple[int, str, int | None]]:
     """Return ``(level, title, page)`` for every outline item, the shape tests compare."""
     return [(entry.level, entry.title, entry.page) for entry in doc.outline.entries()]

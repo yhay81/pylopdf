@@ -404,8 +404,14 @@ the canvas.
   links take the outline's targets, so they lead to pages, other files,
   files to open, and viewer actions as well as URIs, and `LinkInfo`,
   `LinkKind`, and the `LINK_*` constants are gone.
-- Still to come, each with its codemod rules: annotations, forms and
-  widgets, writing, and the remaining constants and records.
+- Done: annotations. `page.annotations` is a sequence of `Annotation`
+  handles with typed properties for every annotation but links, widgets,
+  and popups, `add(Highlight(...))` adds a highlight, and `del` removes an
+  annotation with its popup; `AnnotationType` and `AnnotationFlags` replace
+  `AnnotType` and `AnnotFlags`. The other specifications and editable
+  properties come with the Interaction milestone.
+- Still to come, each with its codemod rules: forms and widgets, writing,
+  and the remaining constants and records.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
 from pylopdf import _text
-from pylopdf._annots import _SUBTYPE_TYPES, Annot, AnnotType
+from pylopdf._annotations import Annotations
 from pylopdf._boxes import PageBoxes
 from pylopdf._canvas import Canvas
 from pylopdf._content import Content, _content_from_core
@@ -20,7 +20,7 @@ from pylopdf._fonts import (
     _resolve_generation_font,
     _validate_font_choice,
 )
-from pylopdf._geometry import Matrix, Point, Quad, Rect
+from pylopdf._geometry import Matrix, Point, Rect
 from pylopdf._hints import hinted_getattr
 from pylopdf._images import Resources
 from pylopdf._limits import (
@@ -151,26 +151,6 @@ def _validate_image_rotation(rotate: int) -> int:
         msg = f"rotate must be a multiple of 90: {rotate!r}"
         raise ValueError(msg)
     return rotate % 360
-
-
-def _highlight_rects(
-    quads: Sequence[float] | Quad | Sequence[Sequence[float] | Quad] | None,
-) -> Sequence[float] | Sequence[Sequence[float]]:
-    """Resolve pymupdf's ``quads`` argument to rectangles; a quad gives its bounding rectangle."""
-    if quads is None:
-        msg = "quads is required; text selection by start= and stop= is not supported"
-        raise TypeError(msg)
-    if isinstance(quads, Quad):
-        return quads.rect
-    if not isinstance(quads, (list, tuple)):
-        # Map an iterator lazily, so the rectangle limit still stops it early.
-        return cast(
-            "Sequence[Sequence[float]]",
-            (quad.rect if isinstance(quad, Quad) else quad for quad in quads),
-        )
-    if any(isinstance(quad, Quad) for quad in quads):
-        return [quad.rect if isinstance(quad, Quad) else cast("Sequence[float]", quad) for quad in quads]
-    return cast("Sequence[float] | Sequence[Sequence[float]]", quads)
 
 
 class Page:
@@ -1516,92 +1496,15 @@ class Page:
         """Return the page's label, such as ``"iv"`` or ``"A-2"``, or ``""`` without page labels."""
         return _label(_read_page_labels(self._document), self._page_number() - 1)
 
-    def annots(self, *, types: Iterable[int] | None = None) -> list[Annot]:
-        """Return the page's annotations as read-only :class:`Annot` handles.
-
-        As in pymupdf, ``types`` limits the result to the given
-        ``PDF_ANNOT_*`` types. Handles read the document on every access.
-        Reads reject partial output above 4,096 annotations or 1 MiB of
-        aggregate encoded or returned annotation text per call.
-        """
-        wanted = None if types is None else frozenset(int(kind) for kind in types)
-        raw = self._document._doc.read_annotations(self._page_number())
-        handles = [Annot(self, xref, index) for xref, index, *_ in raw]
-        if wanted is None:
-            return handles
-        return [
-            handle
-            for handle, entry in zip(handles, raw, strict=True)
-            if _SUBTYPE_TYPES.get(entry[2], AnnotType.UNKNOWN) in wanted
-        ]
+    @property
+    def annotations(self) -> Annotations:
+        """Return the page's annotations other than links and form widgets, as :class:`Annotation` handles."""
+        return Annotations(self)
 
     @property
     def links(self) -> Links:
         """Return the page's link annotations as a :class:`Links` sequence of :class:`Link` handles."""
         return Links(self)
-
-    def add_highlight_annot(
-        self,
-        quads: Sequence[float] | Quad | Sequence[Sequence[float] | Quad] | None = None,
-        *,
-        color: tuple[float, float, float] = (1.0, 1.0, 0.0),
-        opacity: float = 0.4,
-        content: str | None = None,
-    ) -> Annot:
-        """Add one highlight annotation and return its :class:`Annot`, as pymupdf does.
-
-        ``quads`` is one rectangle or quad, or a sequence of them, in display
-        coordinates; a :class:`Quad` contributes its bounding rectangle. Pass
-        :meth:`search_for` output directly to highlight search results.
-        ``color``, ``opacity``, and ``content`` are extensions.
-        The annotation includes QuadPoints and an appearance stream using
-        Multiply blending, so it looks consistent in pylopdf's renderer and
-        other viewers. Multiple rectangles form one annotation, with at most
-        4,096 rectangles; its subtype and popup ``content`` share a 1 MiB text
-        budget. Oversized text is rejected before rectangle iteration or the
-        Rust boundary with ``LimitError.code == "annotation_input_size"``.
-        """
-        if content is not None and not isinstance(content, str):
-            msg = f"content must be a string or None: {type(content).__name__}"
-            raise TypeError(msg)
-        _validate_cumulative_utf8_input(
-            ("Highlight", "" if content is None else content),
-            _MAX_ANNOTATION_INPUT_TEXT_SIZE,
-            limit_code="annotation_input_size",
-            input_label="annotation subtype and content input",
-        )
-
-        rects = _highlight_rects(quads)
-        iterator = iter(rects)
-        try:
-            first = next(iterator)
-        except StopIteration:
-            msg = "quads must contain at least one rect or quad"
-            raise ValueError(msg) from None
-
-        if isinstance(first, (int, float)):
-            coordinates = [first]
-            for coordinate in iterator:
-                if len(coordinates) >= _RECT_COORDINATE_COUNT:
-                    msg = f"rect must be 4 numbers (x0, y0, x1, y1): {rects!r}"
-                    raise ValueError(msg)
-                coordinates.append(cast("float", coordinate))
-            validated = [_validate_rect(coordinates)]
-        else:
-            validated = [_validate_rect(cast("Sequence[float]", first))]
-            for rect in iterator:
-                if len(validated) >= _MAX_HIGHLIGHT_RECTS:
-                    msg = f"rects cannot contain more than {_MAX_HIGHLIGHT_RECTS} rectangles"
-                    raise ValueError(msg)
-                validated.append(_validate_rect(cast("Sequence[float]", rect)))
-        rgb = _validate_unit_rgb(color)
-        if not (math.isfinite(opacity) and 0.0 < opacity <= 1.0):
-            msg = f"opacity must be greater than 0 and at most 1: {opacity!r}"
-            raise ValueError(msg)
-        xref = self._document._doc.add_highlight_annotation(
-            self._page_number(), validated, rgb, float(opacity), content
-        )
-        return Annot(self, xref, -1)
 
     def pixmap(  # noqa: PLR0913 - rendering options are keyword-only.
         self,

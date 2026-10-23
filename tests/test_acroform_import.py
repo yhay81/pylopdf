@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 import pytest
-from conftest import build_raw_pdf
+from conftest import annotation_subtypes, build_raw_pdf
 
 import pylopdf
 
@@ -152,7 +152,7 @@ def test_insert_pdf_after_existing_pages_registers_f1040_fields(one_page_pdf: by
     dst.pages.insert(0, pylopdf.open(F1040).pages)
     assert len(dst.pages) == 3
     assert len(dst.get_form_fields()) == 199
-    assert len(dst.pages[0].annots(types=[pylopdf.PDF_ANNOT_WIDGET])) == 128
+    assert annotation_subtypes(dst.pages[0]).count("Widget") == 128
     assert "Hello PDF" in dst.pages[2].text()
 
 

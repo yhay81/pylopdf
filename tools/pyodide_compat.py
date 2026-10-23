@@ -1137,7 +1137,7 @@ def _geometry_results() -> dict[str, Any]:
 
 def _rectangle_results() -> dict[str, Any]:
     """Check Rect, IRect, and Quad operators and their use with page geometry."""
-    from pylopdf import INFINITE_RECT, Document, IRect, Matrix, Point, Quad, Rect  # noqa: PLC0415
+    from pylopdf import INFINITE_RECT, Document, Highlight, IRect, Matrix, Point, Quad, Rect  # noqa: PLC0415
 
     rect = Rect(1, 2, 3, 4)
     _require(rect | Point(10, 10) == (1, 2, 10, 10), "rectangle union with a point changed")
@@ -1172,10 +1172,10 @@ def _rectangle_results() -> dict[str, Any]:
         )
         form_xref = boxed.show_pdf_page((60, 60, 160, 160), document, 0)
         placed = [document.objects[image_xref]["Subtype"], document.objects[form_xref]["Subtype"]]
-        highlight = boxed.add_highlight_annot(Rect(20, 20, 80, 40), content="note")
+        highlight = boxed.annotations.add(Highlight(Rect(20, 20, 80, 40), contents="note"))
         boxed.links.add(Rect(20, 50, 80, 70), "https://e.test/")
-        annotations = [(annot.type[1], annot.info["content"]) for annot in boxed.annots()]
-        _require(highlight.xref > 0 and highlight in boxed.annots(), "the highlight returned no handle")
+        annotations = [(annotation.type.name, annotation.contents) for annotation in boxed.annotations]
+        _require(highlight.xref > 0 and highlight in boxed.annotations, "the highlight returned no handle")
         boxed.insert_text((20, 250), "Full name", fontname="Times-Bold")
         full_name = "/BaseFont/Times-Bold" in document.to_bytes().decode("latin-1")
     _require(isinstance(hit, Rect) and hit in box and hit.intersects(box), "search hit left its box")
@@ -1184,7 +1184,7 @@ def _rectangle_results() -> dict[str, Any]:
     _require(trimmed == [10, 10, 390, 290], "the TrimBox did not map to display space")
     _require(reset_cropbox == [0, 0, 200, 300], "assigning the MediaBox kept the CropBox")
     _require(placed == ["Image", "Form"], "placement did not return the placed XObject")
-    _require(annotations == [("Highlight", "note"), ("Link", "")], "annotation handles changed")
+    _require(annotations == [("HIGHLIGHT", "note")], "annotation handles changed")
     _require(full_name, "a full Standard 14 name did not select its font")
     return {
         "cropbox": cropbox,
@@ -1347,7 +1347,7 @@ def _document_property_results(root: Path) -> dict[str, Any]:
         "form_xmp": [len(xmp), _digest(xmp)],
         "form_mark_info": repr(form.mark_info),
         "form_pdfa_claim": repr(form.pdfa_claim),
-        "form_annotations": [any(page.links for page in form.pages), form.has_annots()],
+        "form_annotations": [any(page.links for page in form.pages), any(page.annotations for page in form.pages)],
         "xmp": saved.xmp,
         "page_mode": str(saved.page_mode),
         "page_layout": str(saved.page_layout),

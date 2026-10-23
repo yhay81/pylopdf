@@ -18,7 +18,7 @@ from typing import (
 )
 
 from pylopdf import _content, _types
-from pylopdf._annots import (
+from pylopdf._annotations import (
     PDF_ANNOT_3D,
     PDF_ANNOT_CARET,
     PDF_ANNOT_CIRCLE,
@@ -58,9 +58,11 @@ from pylopdf._annots import (
     PDF_ANNOT_UNKNOWN,
     PDF_ANNOT_WATERMARK,
     PDF_ANNOT_WIDGET,
-    Annot,
-    AnnotFlags,
-    AnnotType,
+    Annotation,
+    AnnotationFlags,
+    Annotations,
+    AnnotationType,
+    Highlight,
 )
 from pylopdf._attachments import Attachment, Attachments
 from pylopdf._boxes import PageBoxes
@@ -223,9 +225,10 @@ __all__ = [
     "TEXT_ALIGN_LEFT",
     "TEXT_ALIGN_RIGHT",
     "Access",
-    "Annot",
-    "AnnotFlags",
-    "AnnotType",
+    "Annotation",
+    "AnnotationFlags",
+    "AnnotationType",
+    "Annotations",
     "Array",
     "Attachment",
     "Attachments",
@@ -263,6 +266,7 @@ __all__ = [
     "FormFieldType",
     "Glyph",
     "GraphicsContext",
+    "Highlight",
     "IRect",
     "Identity",
     "IdentityMatrix",

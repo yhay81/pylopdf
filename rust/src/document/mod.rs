@@ -1395,12 +1395,21 @@ impl _Document {
         )
     }
 
-    /// Read annotations from a one-based page.
-    ///
-    /// Each item is `(Subtype, display Rect, Contents, URI)`. Rect uses rotated
-    /// top-left-origin display space; Contents/URI are optional.
+    /// Read the annotations of a one-based page other than links and
+    /// widgets, with their rectangles in display space.
     fn read_annotations(&self, py: Python<'_>, page_number: u32) -> PyResult<Vec<AnnotationTuple>> {
         annotations::read_annotations(self, py, page_number)
+    }
+
+    /// Read one annotation of a one-based page, found as `read_link` finds a link.
+    fn read_annotation(
+        &self,
+        py: Python<'_>,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+    ) -> PyResult<AnnotationTuple> {
+        annotations::read_annotation(self, py, page_number, index, xref)
     }
 
     /// Read the link annotations of a one-based page with their targets.
@@ -1466,7 +1475,8 @@ impl _Document {
     }
 
     /// Remove annotations, each given as `(index, xref)` and found as
-    /// `read_link` finds a link, from a one-based page's `/Annots`.
+    /// `read_link` finds a link, and the popups they name from a one-based
+    /// page's `/Annots`.
     fn remove_annotations(&mut self, page_number: u32, handles: Vec<(u32, u32)>) -> PyResult<()> {
         annotations::remove_annotations(self, page_number, handles)
     }
@@ -1517,12 +1527,6 @@ impl _Document {
         suspects: bool,
     ) -> PyResult<()> {
         metadata::set_mark_info(self, marked, user_properties, suspects)
-    }
-
-    /// Return whether any page lists a link (`links`) or another
-    /// non-widget annotation.
-    fn has_annotation_kind(&self, py: Python<'_>, links: bool) -> PyResult<bool> {
-        metadata::has_annotation_kind(self, py, links)
     }
 
     /// Read page-label definitions from the PageLabels number tree.

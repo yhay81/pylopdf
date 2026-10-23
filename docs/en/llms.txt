@@ -78,6 +78,19 @@ Migrating pymupdf and pylopdf 0.15 code:
 
 pymupdf name map (generated from api/pymupdf-parity.json; each pymupdf name that pylopdf replaced, its
 replacement, and the migration hint):
+- Annot -> Annotation: page.annotations lists Annotation handles with type, rect, contents, author, subject, created, modified, name, icon, intent, color, interior_color, opacity, flags, xref, and page.
+- Annot.colors -> Annotation.color: Read annotation.color and annotation.interior_color, Color records or None.
+- Annot.flags -> Annotation.flags: annotation.flags is an AnnotationFlags value.
+- Annot.has_popup -> Annotation.obj: 'Popup' in annotation.obj tells whether the annotation has a popup.
+- Annot.info -> Annotation.contents: Read annotation.contents, author, subject, created, modified, name, and icon.
+- Annot.irt_xref -> Annotation.obj: annotation.obj['IRT'] names the annotation that this one replies to.
+- Annot.next -> Annotations: Iterate page.annotations instead of following annot.next.
+- Annot.opacity -> Annotation.opacity: Read annotation.opacity.
+- Annot.parent -> Annotation.page: annotation.page is the page that holds the annotation.
+- Annot.popup_xref -> Annotation.obj: annotation.obj['Popup'] is the popup annotation's dictionary.
+- Annot.rect -> Annotation.rect: Read annotation.rect.
+- Annot.type -> Annotation.type: annotation.type is an AnnotationType member; annotation.obj['Subtype'] holds the name and annotation.intent the intent.
+- Annot.xref -> Annotation.xref: Read annotation.xref.
 - CS_* -> Colorspace: CS_RGB and CS_GRAY are Colorspace.RGB and Colorspace.GRAY; CMYK is not rendered.
 - Colorspace -> Colorspace: Colorspace is an enum: Colorspace.RGB and Colorspace.GRAY replace Colorspace(CS_RGB) and Colorspace(CS_GRAY).
 - DisplayList -> Content: Use the Content that page.content() returns; it records the page's items once and can be read any number of times.
@@ -108,6 +121,7 @@ replacement, and the migration hint):
 - Document.get_page_text -> Page.text: Use doc.pages[i].text(), or words() and layout() for the other options.
 - Document.get_toc -> Document.outline: Use doc.outline.entries(): OutlineEntry records whose destination is a Destination with a zero-based page (entry.page); get_toc used one-based pages.
 - Document.get_xml_metadata -> Document.xmp: doc.xmp returns the XMP packet as text, or None without one where pymupdf returns an empty string.
+- Document.has_annots -> Page.annotations: any(page.annotations for page in doc.pages)
 - Document.has_links -> Page.links: any(page.links for page in doc.pages)
 - Document.insert_pdf -> Pages.insert: Use doc.pages.insert(index, other.pages[a:b + 1]), or doc.pages.extend(other.pages) to append.
 - Document.is_encrypted -> Document.needs_password: Read doc.needs_password, which is true until unlock() succeeds.
@@ -118,6 +132,7 @@ replacement, and the migration hint):
 - Document.name -> Document.path: Read doc.path, a pathlib.Path, or None for a document opened from bytes or created empty.
 - Document.needs_pass -> Document.needs_password: Read doc.needs_password, which is true until unlock() succeeds; pymupdf's needs_pass stays true after authentication.
 - Document.new_page -> Pages.new: Use doc.pages.new((width, height), index=i); without index the page is appended.
+- Document.page_annot_xrefs -> Annotation.xref: [(annotation.xref, annotation.type) for annotation in doc.pages[n].annotations]
 - Document.page_count -> Pages.__len__: Use len(doc.pages).
 - Document.page_xref -> Page.xref: Use doc.pages[i].xref.
 - Document.pagelayout -> Document.page_layout: doc.page_layout returns a PageLayout, SinglePage when unset.
@@ -210,14 +225,20 @@ replacement, and the migration hint):
 - Outline.x -> OutlineItem.destination: Read item.destination.point.x of a Destination with a point.
 - Outline.y -> OutlineItem.destination: Read item.destination.point.y of a Destination with a point.
 - PDF_ENCRYPT_* -> Encryption: Pass encryption=Encryption(user_password=..., owner_password=..., permissions=...) to save() or to_bytes(), which writes AES-256 encryption; encryption=None writes none.
+- Page.add_highlight_annot -> Annotations.add: page.annotations.add(Highlight(quads)) adds a highlight and returns its Annotation; color is a Color and content becomes contents.
+- Page.annot_names -> Annotation.name: [annotation.name for annotation in page.annotations]
+- Page.annot_xrefs -> Annotation.xref: [(annotation.xref, annotation.type) for annotation in page.annotations]
+- Page.annots -> Page.annotations: page.annotations lists Annotation handles other than links and widgets; filter on annotation.type instead of passing types.
 - Page.artbox -> Page.boxes: Read page.boxes.art, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Page.bleedbox -> Page.boxes: Read page.boxes.bleed, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Page.bound -> Page.rect: Read page.rect.
 - Page.cropbox -> Page.boxes: Read page.boxes.crop, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Page.cropbox_position -> Page.boxes: Read page.boxes.crop: its top-left corner is (crop.x0, crop.y1) in PDF user space.
+- Page.delete_annot -> Annotations: del page.annotations[index] removes an annotation with its popup.
 - Page.delete_link -> Links: del page.links[index] removes a link; its annotation goes at the next pruning save.
 - Page.derotation_matrix -> Page.user_to_display: pylopdf reads and writes in display space with the rotation resolved; drop the step, and map display space to PDF user space with ~page.user_to_display.
 - Page.find_tables -> Page.tables: Use page.tables(strategy=..., clip=...), which returns a list of Table records; table.rows replaces extract().
+- Page.first_annot -> Page.annotations: next(iter(page.annotations), None) is the first annotation; iterate page.annotations instead of following annot.next.
 - Page.first_link -> Page.links: next(iter(page.links), None) is the first link; iterate page.links instead of following link.next.
 - Page.get_bboxlog -> Page.content: Call page.content(); every item has a bbox and a kind, and its context lists the clips around it.
 - Page.get_cdrawings -> Page.content: Read page.content().paths, whose segments, paints, and strokes are immutable values.
@@ -238,6 +259,7 @@ replacement, and the migration hint):
 - Page.insert_link -> Links.add: page.links.add(rect, target), where target is a URI string, Destination(page, point, zoom), RemoteDestination(file, page), Launch(file), or NamedAction(name).
 - Page.last_point -> PathBuilder.current_point: Build the path with a PathBuilder and read its current_point, the end of its last segment.
 - Page.links -> Page.links: page.links is a sequence of Link handles: iterate it instead of calling it, and test the type of link.target instead of passing kinds.
+- Page.load_annot -> Page.annotations: Find the annotation in page.annotations by its xref or name.
 - Page.load_links -> Page.links: next(iter(page.links), None) is the first link; iterate page.links instead of following link.next.
 - Page.mediabox -> Page.boxes: Read page.boxes.media.
 - Page.mediabox_size -> Page.boxes: Read page.boxes.media.width and page.boxes.media.height.
@@ -277,10 +299,10 @@ replacement, and the migration hint):
 - set_messages -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
 
 pylopdf 0.15 name map (replaced names that the capability map does not list):
-- AnnotationInfo -> Annot: Page.annots() returns Annot handles instead of AnnotationInfo dictionaries.
-- AnnotationInfo.contents -> Annot.info: Read annot.info["content"].
-- AnnotationInfo.rect -> Annot.rect: Read annot.rect.
-- AnnotationInfo.type -> Annot.type: Read annot.type, a (type code, subtype name) tuple.
+- AnnotationInfo -> Annotation: page.annotations lists Annotation handles instead of AnnotationInfo dictionaries; links are in page.links.
+- AnnotationInfo.contents -> Annotation.contents: Read annotation.contents.
+- AnnotationInfo.rect -> Annotation.rect: Read annotation.rect.
+- AnnotationInfo.type -> Annotation.type: annotation.type is an AnnotationType member; annotation.obj["Subtype"] holds the name.
 - AnnotationInfo.uri -> Link.target: Read link.target of the page's links in page.links.
 - BlockEntry -> Block: page.layout().blocks holds Block records with text, bbox, and lines.
 - Document.__iter__ -> Pages.__iter__: Iterate over doc.pages.

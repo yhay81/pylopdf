@@ -178,7 +178,6 @@ del doc.fallback_fonts            # back to the installed font extras
 | `language` | 文書の言語を表す`zh-TW`や`sr-Latn-RS`のような完全なBCP 47タグ、または`None`。タグを代入すると書き込み、`del doc.language`で削除します。形式の正しくないタグは例外になります |
 | `page_mode`, `page_layout` | ビューアーが文書をどう開くかを表す`PageMode`・`PageLayout`のメンバー（`PageMode.USE_OUTLINES`、`PageLayout.TWO_COLUMN_LEFT`など）。未設定のときは`USE_NONE`と`SINGLE_PAGE`。メンバーかその正確な名前を代入します |
 | `mark_info` | タグ付きPDFのフラグを表す`MarkInfo(marked=, user_properties=, suspects=)`レコード、またはない場合は`None`。代入すると3つのフラグをすべて書き込み、`del`で削除します |
-| `has_annots()` | いずれかのページにリンクとフォームウィジェット以外の注釈があるか。リンクがあるかは`any(page.links for page in doc.pages)`で分かります |
 | `objects`, `trailer`, `catalog` | PDFオブジェクトへの直接アクセス。[低レベルオブジェクト](#low-level-objects)を参照 |
 
 `language`は完全なタグを保持します。pymupdfの`language`はタグを3文字までしか保持しないため、`zh-TW`と`zh-HK`はどちらも`zh-Hant`として読まれます。XMPを書き込むと、保存時にストリームを圧縮してもパケットは圧縮されないので、ファイルの中からXMPを探すツールでも見つけられます。
@@ -253,11 +252,21 @@ page.rotation = 90
 
 | メンバ | 用途 |
 |---|---|
-| `annots(*, types=None)` | `type`、`rect`、`info`、`colors`、`flags`、`xref`を持つ読み取り専用の`Annot`オブジェクト |
-| `add_highlight_annot(quads, *, color=, opacity=0.4, content=None)` | 検索結果など、1つ以上の矩形や四辺形をハイライト |
+| `annotations` | リンクとフォームウィジェット以外のページの注釈を、`Annotation`ハンドルとして |
 | `links` | ページのリンクを、ページが並べる順の`Link`ハンドルとして |
 
-注釈の種類とフラグは`PDF_ANNOT_*`と`PDF_ANNOT_IS_*`の定数です。
+`page.annotations`は、ページが並べる順の`Annotation`ハンドルのシーケンスです。ポップアップはそれを指す注釈に属し、一覧には含まれません。ハンドルはアクセスのたびに文書を読み、`AnnotationType`のメンバである`type`、表示座標の`rect`、テキストの`contents`、`author`、`subject`、`name`、`icon`、`intent`、保存されたPDFの日付文字列としての日付`created`と`modified`、`Color`レコードまたは`None`としての`color`と`interior_color`、`opacity`、`AnnotationFlags`の値である`flags`、それに`xref`、`obj`、`page`を持ちます。`page.annotations.add(Highlight(rects, *, color=Color(1, 1, 0), opacity=0.4, contents=None))`は検索結果など1つ以上の矩形や四辺形をハイライトして新しいハンドルを返し、`del page.annotations[i]`は注釈をそのポップアップとともに削除します。`AnnotationType`と`AnnotationFlags`のメンバはpymupdfの`PDF_ANNOT_*`と`PDF_ANNOT_IS_*`の定数と同じ値です。
+
+```python
+from pylopdf import AnnotationType, Color, Highlight
+
+note = page.annotations.add(Highlight(page.search("total"), color=Color(1, 0.8, 0), contents="Check"))
+for annotation in page.annotations:
+    if annotation.type is AnnotationType.TEXT:
+        print(annotation.author, annotation.contents)
+```
+
+注釈の読み取りは1ページあたり4,096個の注釈と1 MiBのテキストで止まり、ハイライトの`contents`は1 MiBまでです（`LimitError`のコード`annotation_input_size`）。
 
 `page.links`は`Link`ハンドルのシーケンスです。`page.links.add(rect, target)`は表示座標の矩形にリンクを追加してそのハンドルを返し、`del page.links[i]`はリンクを削除します。ハンドルはアクセスのたびに文書を読み、`rect`や`target`への代入でリンクを編集します。リンク先は[しおり](#outline)と同じで、URI文字列、`Destination`、`RemoteDestination`、`Launch`、`NamedAction`のいずれかです。JavaScriptなどpylopdfが読まないアクションのリンクや、どのページも指さない行き先のリンクのリンク先は`None`です。`xref`と`obj`は注釈のオブジェクト番号と、[オブジェクトモデル](#low-level-objects)での辞書を返し、枠線、色、フラグはこの辞書にあります。
 
@@ -672,11 +681,11 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`ほかの内容の型 | [ページの内容](#content) |
 | `Colorspace` | [`Pixmap`](#pixmap)の色空間。`GRAY`と`RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [しおりとページラベル](#outline) |
-| `Link`, `Links` | [注釈とリンク](#page-annotations) |
+| `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `Highlight`, `Link`, `Links` | [注釈とリンク](#page-annotations) |
 | `PageBoxes` | [ページの幾何情報](#page-geometry) |
 | `FallbackFont`, `FallbackFonts` | [レンダリングと画像](#document-rendering) |
 
-定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）、`AnnotFlags`（`PDF_ANNOT_IS_*`）です。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
+定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotationType`（`PDF_ANNOT_*`）、`AnnotationFlags`（`PDF_ANNOT_IS_*`）です。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
 
 テキスト、表、OCR、ページの内容の結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`、しおりの行き先などの変更できないデータクラス（frozen dataclass）です。APIが返すそのほかの辞書はただの`dict`で、型チェッカー向けに`FormFieldInfo`などの`TypedDict`クラスで記述しています。
 

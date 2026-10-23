@@ -535,7 +535,7 @@ def test_links_on_a_rotated_page_use_display_coordinates() -> None:
 def test_deleting_links_removes_them_from_the_page() -> None:
     doc = _three_page_document()
     page = doc.pages[0]
-    page.add_highlight_annot((0, 0, 10, 10))
+    page.annotations.add(pylopdf.Highlight((0, 0, 10, 10)))
     links = [page.links.add((10, 10 + 30 * row, 60, 30 + 30 * row), f"https://e.test/{row}") for row in range(4)]
 
     del page.links[1]
@@ -550,7 +550,7 @@ def test_deleting_links_removes_them_from_the_page() -> None:
     del page.links[::2]
 
     assert [link.target for link in page.links] == ["https://e.test/2"]
-    assert len(page.annots()) == 2  # The highlight stays.
+    assert len(page.annotations) == 1  # The highlight stays.
     with pytest.raises(IndexError):
         del page.links[5]
     reopened = pylopdf.open(doc.to_bytes()).pages[0]

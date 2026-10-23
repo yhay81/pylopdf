@@ -41,7 +41,8 @@ python -m pylopdf.migrate src/
 | `doc.language`, `set_language(tag)` | `doc.language`, `doc.language = tag` | 完全なタグを扱います。pymupdfは3文字までしか保持しないため、`zh-TW`と`zh-HK`はどちらも`zh-Hant`になります。`del doc.language`で削除します |
 | `doc.pagemode`, `pagelayout`, `markinfo`とその`set_*`メソッド | `doc.page_mode`, `page_layout`, `mark_info`への代入 | `PageMode`・`PageLayout`列挙型と`MarkInfo`レコードです。pymupdfは大文字と小文字を区別しませんでしたが、名前は正確に一致させます |
 | `doc.has_links()` | `any(page.links for page in doc.pages)` | |
-| `doc.has_annots()`, `is_closed` | 同じ | |
+| `doc.has_annots()` | `any(page.annotations for page in doc.pages)` | |
+| `doc.is_closed` | 同じ | |
 | `doc.name` | `doc.path` | `pathlib.Path`。bytesから開いた文書や新しく作った空の文書では`None`。すべての文書がPDFなので、`is_pdf`はなくなりました |
 | `doc.needs_pass`, `doc.is_encrypted` | `doc.needs_password` | 文書を復号するまでTrue |
 | `doc.authenticate(password)` | `doc.unlock(password)` | `Access.USER`か`Access.OWNER`を返します。パスワードが違えば、0を返す代わりに`PasswordError`を送出します |
@@ -104,8 +105,8 @@ python -m pylopdf.migrate src/
 | `page.show_pdf_page(rect, docsrc, pno)` | 同じ | 取り込み元は同じ文書でもかまいません |
 | `page.new_shape()`, `shape.draw_*`, `finish()`, `insert_text()`, `commit()` | 同じ | `with page.new_shape() as shape:`は自動で確定します。`morph=`と`oc=`にはまだ対応していません |
 | `page.draw_line()`, `draw_rect()`, ほかの`draw_*` | 同じ | スタイルの指定はキーワード専用 |
-| `page.annots()`, `annot.type`, `rect`, `info`, `colors`, `flags` | 同じ | 現在は読み取り専用 |
-| `page.add_highlight_annot()` | 同じ | |
+| `page.annots()`, `page.first_annot`, `annot.type`, `rect`, `info`, `colors`, `flags`, `parent` | `page.annotations`、`annotation.type`、`rect`、`contents`などのテキスト、`color`、`interior_color`、`flags`、`page` | 型付きのプロパティを持つ`Annotation`ハンドルです。`type`は`AnnotationType`のメンバで、`info`と`colors`の辞書はプロパティになります。リンクとウィジェットは含まれず、ポップアップはその注釈に属します。プロパティは現在は読み取り専用です |
+| `page.add_highlight_annot(quads)`, `page.delete_annot(annot)` | `page.annotations.add(Highlight(quads))`、`del page.annotations[i]` | `color`は`Color`で、`content`は`contents`になります。注釈を削除するとそのポップアップも削除されます |
 | `page.get_links()`, `page.links()`, `page.first_link`, `page.load_links()` | `page.links` | 辞書や`Link`オブジェクトの連鎖ではなく、`rect`と`target`を持つ`Link`ハンドルのシーケンス |
 | `page.insert_link(link)`, `page.update_link(link)`, `page.delete_link(link)` | `page.links.add(rect, target)`、`link.rect`と`link.target`への代入、`del page.links[i]` | リンク先はしおりと同じで、URI文字列、`Destination(page, point, zoom)`、`RemoteDestination(file, page)`、`Launch(file)`、`NamedAction(name)`のいずれかです。`LINK_*`の種類の代わりにリンク先に`isinstance`を使います |
 | `page.widgets()` | `doc.get_form_fields()`, `doc.set_form_field(name, value)` | フォームは文書単位で扱います |
@@ -159,7 +160,7 @@ doc.save("out.pdf", garbage=4, deflate=True)
 import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc.pages[0]
-page.add_highlight_annot(page.search("total"))       # リスト全体を受け取る
+page.annotations.add(pylopdf.Highlight(page.search("total")))  # リスト全体を受け取る
 page.pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
 doc.save("out.pdf", dedupe=True, renumber=True)
 ```

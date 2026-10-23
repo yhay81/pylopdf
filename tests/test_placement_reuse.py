@@ -240,7 +240,7 @@ def test_edits_that_keep_placed_objects_keep_sharing_them() -> None:
     doc.outline = outline_entries([(1, "Start", 0)])
     doc.metadata.update({"title": "Shared"})
     doc.pages[2].rotation = 90
-    doc.pages[2].add_highlight_annot((40, 30, 160, 90))
+    doc.pages[2].annotations.add(pylopdf.Highlight((40, 30, 160, 90)))
     doc.to_bytes(object_streams=True)
     for page in doc.pages:
         page.insert_image(LOGO_RECT, stream=logo)

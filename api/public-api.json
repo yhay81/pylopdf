@@ -2,9 +2,10 @@
   "api_line": "0.15",
   "exports": [
     "Access",
-    "Annot",
-    "AnnotFlags",
-    "AnnotType",
+    "Annotation",
+    "AnnotationFlags",
+    "AnnotationType",
+    "Annotations",
     "Array",
     "Attachment",
     "Attachments",
@@ -47,6 +48,7 @@
     "FormFieldType",
     "Glyph",
     "GraphicsContext",
+    "Highlight",
     "INFINITE_IRECT",
     "INFINITE_QUAD",
     "INFINITE_RECT",
@@ -194,22 +196,58 @@
         "USER": 1
       }
     },
-    "Annot": {
+    "Annotation": {
       "kind": "class",
       "members": {
-        "colors": {
+        "author": {
           "kind": "property",
-          "returns": "dict[str, tuple[float, ...]]"
+          "returns": "str | None"
+        },
+        "color": {
+          "kind": "property",
+          "returns": "Color | None"
+        },
+        "contents": {
+          "kind": "property",
+          "returns": "str | None"
+        },
+        "created": {
+          "kind": "property",
+          "returns": "str | None"
         },
         "flags": {
           "kind": "property",
-          "returns": "AnnotFlags"
+          "returns": "AnnotationFlags"
         },
-        "info": {
+        "icon": {
           "kind": "property",
-          "returns": "dict[str, str]"
+          "returns": "str | None"
         },
-        "parent": {
+        "intent": {
+          "kind": "property",
+          "returns": "str | None"
+        },
+        "interior_color": {
+          "kind": "property",
+          "returns": "Color | None"
+        },
+        "modified": {
+          "kind": "property",
+          "returns": "str | None"
+        },
+        "name": {
+          "kind": "property",
+          "returns": "str | None"
+        },
+        "obj": {
+          "kind": "property",
+          "returns": "Dictionary"
+        },
+        "opacity": {
+          "kind": "property",
+          "returns": "float"
+        },
+        "page": {
           "kind": "property",
           "returns": "Page"
         },
@@ -217,9 +255,13 @@
           "kind": "property",
           "returns": "Rect"
         },
+        "subject": {
+          "kind": "property",
+          "returns": "str | None"
+        },
         "type": {
           "kind": "property",
-          "returns": "tuple[AnnotType, str] | tuple[AnnotType, str, str]"
+          "returns": "AnnotationType"
         },
         "xref": {
           "kind": "property",
@@ -247,7 +289,7 @@
         "returns": "None"
       }
     },
-    "AnnotFlags": {
+    "AnnotationFlags": {
       "kind": "enum",
       "members": {
         "HIDDEN": 2,
@@ -262,7 +304,7 @@
         "TOGGLE_NO_VIEW": 256
       }
     },
-    "AnnotType": {
+    "AnnotationType": {
       "kind": "enum",
       "members": {
         "CARET": 14,
@@ -294,6 +336,96 @@
         "UNKNOWN": -1,
         "WATERMARK": 25,
         "WIDGET": 21
+      }
+    },
+    "Annotations": {
+      "kind": "class",
+      "members": {
+        "__delitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | slice",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | slice",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              }
+            ],
+            "returns": "Annotation | list[Annotation]"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[Annotation]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        },
+        "add": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Highlight",
+                "kind": "positional_or_keyword",
+                "name": "specification"
+              }
+            ],
+            "returns": "Annotation"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Page",
+            "kind": "positional_or_keyword",
+            "name": "page"
+          }
+        ],
+        "returns": "None"
       }
     },
     "Array": {
@@ -1976,18 +2108,6 @@
             "returns": "list[FormFieldInfo]"
           }
         },
-        "has_annots": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "bool"
-          }
-        },
         "images": {
           "kind": "property",
           "returns": "Images"
@@ -3254,6 +3374,65 @@
             "annotation": "tuple[MarkedContent, ...]",
             "kind": "keyword_only",
             "name": "marked_content"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "Highlight": {
+      "annotations": {
+        "color": "Color",
+        "contents": "str | None",
+        "opacity": "float",
+        "rects": "tuple[Rect, ...]"
+      },
+      "dataclass_fields": [
+        "rects",
+        "color",
+        "opacity",
+        "contents"
+      ],
+      "kind": "class",
+      "members": {
+        "color": {
+          "kind": "property"
+        },
+        "contents": {
+          "kind": "property"
+        },
+        "opacity": {
+          "kind": "property"
+        },
+        "rects": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Sequence[float] | Quad | Iterable[Sequence[float] | Quad]",
+            "kind": "positional_or_keyword",
+            "name": "rects"
+          },
+          {
+            "annotation": "Color",
+            "default": {
+              "repr": "Color(red=1.0, green=1.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "color"
+          },
+          {
+            "annotation": "float",
+            "default": 0.4,
+            "kind": "keyword_only",
+            "name": "opacity"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "contents"
           }
         ],
         "returns": "None"
@@ -5622,63 +5801,9 @@
     "Page": {
       "kind": "class",
       "members": {
-        "add_highlight_annot": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Sequence[float] | Quad | Sequence[Sequence[float] | Quad] | None",
-                "default": null,
-                "kind": "positional_or_keyword",
-                "name": "quads"
-              },
-              {
-                "annotation": "tuple[float, float, float]",
-                "default": [
-                  1.0,
-                  1.0,
-                  0.0
-                ],
-                "kind": "keyword_only",
-                "name": "color"
-              },
-              {
-                "annotation": "float",
-                "default": 0.4,
-                "kind": "keyword_only",
-                "name": "opacity"
-              },
-              {
-                "annotation": "str | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "content"
-              }
-            ],
-            "returns": "Annot"
-          }
-        },
-        "annots": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Iterable[int] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "types"
-              }
-            ],
-            "returns": "list[Annot]"
-          }
+        "annotations": {
+          "kind": "property",
+          "returns": "Annotations"
         },
         "apply_ocr": {
           "kind": "method",

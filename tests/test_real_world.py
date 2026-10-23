@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf, build_raw_pdf, drawn_images, with_xref_entry_offset
+from conftest import annotation_subtypes, build_pdf, build_raw_pdf, drawn_images, with_xref_entry_offset
 
 import pylopdf
 
@@ -777,18 +777,11 @@ def test_pdfium_existing_annotations_and_external_link_are_read() -> None:
     """Read and render independent annotations without editing their source."""
     document = pylopdf.open(ASSETS / "pdfium-links-highlights-annots.pdf")
     page = document.pages[0]
-    annotations = page.annots()
-
-    assert [annotation.type[1] for annotation in annotations] == [
-        "Widget",
-        "Widget",
-        "Widget",
-        "Widget",
-        "Link",
-        "Highlight",
-    ]
+    assert annotation_subtypes(page) == ["Widget", "Widget", "Widget", "Widget", "Link", "Highlight"]
+    (highlight,) = page.annotations
+    assert highlight.type is pylopdf.AnnotationType.HIGHLIGHT
     (link,) = page.links
-    assert annotations[4].xref == link.xref == 12
+    assert link.xref == 12
     assert (link.rect, link.target) == (pylopdf.Rect(69.0, 139.0, 542.0, 159.0), "https://www.google.com/")
     pixmap = page.pixmap(background=(255, 255, 255), alpha=True)
     samples = bytes(pixmap)

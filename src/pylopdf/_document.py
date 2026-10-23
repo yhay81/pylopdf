@@ -713,11 +713,6 @@ class Document:
         if "MarkInfo" in catalog:
             del catalog["MarkInfo"]
 
-    def has_annots(self) -> bool:
-        """Return whether any page lists an annotation other than a link or widget."""
-        self._ensure_open()
-        return self._doc.has_annotation_kind(links=False)
-
     def markdown(
         self,
         pages: Iterable[int] | None = None,

@@ -128,7 +128,7 @@ with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterh
 
     hits = page.search("important")
     if hits:
-        page.add_highlight_annot(hits)
+        page.annotations.add(pylopdf.Highlight(hits))
     for rect in page.search("Example")[:1]:
         page.links.add(rect, "https://example.com/")
     doc.save("annotated.pdf")
