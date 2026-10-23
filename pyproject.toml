@@ -67,12 +67,14 @@ dev = [
     # the version that CI and the pre-commit hook run.
     "ty>=0.0.89",
 ]
-# Integration tests for the ecosystem recipes in the ecosystem guide; skipped when absent.
+# Integration tests for the ecosystem recipes in the ecosystem guide, image processing included; skipped when absent.
 interop = [
     "typst>=0.15",
     "pyhanko>=0.36.1",
     # qpdf through pikepdf checks that every saved PDF reads as written.
     "pikepdf>=10.0",
+    "numpy>=2.3",
+    "pillow>=12",
 ]
 # Comparison libraries for reproducible benchmarks; manual only, not installed in CI.
 bench = [
