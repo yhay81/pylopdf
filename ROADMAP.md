@@ -3,19 +3,39 @@
 This is the canonical medium-term plan. It was rewritten on 2026-10-22 around
 one direction: **the best PDF library for Python, built as the Python face of
 the Rust PDF engines**, with lopdf for objects and persistence, hayro for
-interpretation and rendering, and krilla for writing.
+interpretation and rendering, and krilla for writing. On 2026-10-23 its goal
+was raised from pymupdf's capabilities to the PDF specification itself, after
+an [assessment](#assessment-2026-10-23) found that completing the plan would
+not have shown that pylopdf controls PDF
+([D8](#decisions)).
 [api/DESIGN.md](api/DESIGN.md) holds the API design that every milestone
 implements, and [AGENTS.md](AGENTS.md) the day-to-day development context.
 
 ## Goal
 
-pylopdf is complete, essential, engine-faithful, trustworthy, and available
-everywhere Python runs.
+pylopdf gives a program complete control of PDF, and keeps every document it
+changes consistent. It is also essential, engine-faithful, trustworthy, and
+available everywhere Python runs.
 
-- **Complete.** pylopdf does everything a program needs to do with PDF files,
-  and at least everything pymupdf can do with them. A PDF capability that
-  pymupdf has and pylopdf lacks is a gap on this roadmap, never a scope
-  decision. The [capability map](#capability-map) measures it.
+- **Complete control.** Every feature of PDF as ISO 32000-2:2020 defines it,
+  with its errata and extensions and the earlier versions that it supersedes,
+  is under a program's control in five dimensions: it is read without loss,
+  interpreted for what it means, created, edited, and preserved when other
+  parts of the document change. The [specification map](#specification-map)
+  records each feature in each dimension, with the tests that prove it, and
+  pylopdf calls itself complete only when that map says so. pymupdf's
+  capabilities are the floor: one that pymupdf has and pylopdf lacks is a
+  gap, never a scope decision, and the [capability map](#capability-map)
+  measures it. Covering pymupdf is not completeness.
+- **Consistent.** Rewriting objects is not control. An edit keeps every
+  structure that depends on what it changes valid (appearances, font widths
+  and encodings, the structure tree, name and number trees, outline counts,
+  cross-references, and metadata), or refuses. What it cannot keep valid,
+  such as a signature over changed bytes or a PDF/A or PDF/UA claim, it
+  reports before the document is saved. Control covers the document, not a
+  viewer's behavior: pylopdf reads, creates, edits, preserves, and removes
+  scripts, media, and 3D artwork, but does not run, play, or display them
+  ([D9](#decisions)).
 - **Essential.** A small set of concepts follows the PDF model and the
   engines: a document of pages and objects, one content model that reading
   and writing share, rendering, and the interactive and navigational
@@ -27,11 +47,12 @@ everywhere Python runs.
   well-made changes quickly, so pylopdf contributes to them instead of working
   around them. pylopdf itself builds what only a Python library that combines
   the three can: the binding, the one-way data flow between the engines,
-  resource policy, and document understanding (layout, tables, Markdown, and
-  OCR).
+  resource policy, the consistency of edits and the checks that prove it, and
+  document understanding (layout, tables, Markdown, and OCR).
 - **Trustworthy.** Hostile input meets typed, bounded refusal. Results can be
-  verified: redaction proves removal, extraction carries its provenance, and
-  benchmarks publish losses with wins.
+  verified: redaction proves removal, extraction carries its provenance,
+  independent validators (veraPDF, the Arlington PDF Model, qpdf, and
+  pyHanko) check what pylopdf writes, and benchmarks publish losses with wins.
 - **Everywhere.** GIL-enabled and free-threaded CPython, Pyodide and
   Cloudflare Python Workers, small wheels, and the MIT license for every
   feature, layout analysis and OCR included.
@@ -74,10 +95,50 @@ in MuPDF's style. `Document` has 64 public members and `Page` 45, among them
 pymupdf's conveniences and pairs of methods that the design replaces with
 properties and collections.
 
+## Assessment: 2026-10-23
+
+Measured against complete control of PDF rather than against pymupdf, main
+(`9c73d92`) falls short in ways that the plan of 2026-10-22 did not measure:
+
+- **Round trip.** `Canvas.draw(item)` paints `Path` items only. Text runs,
+  images, pattern paints, and soft masks that `Page.content()` reads cannot
+  be painted again ([Canvas](#canvas), [Writing](#writing)).
+- **Editing existing text.** `Page.replace_text` follows lopdf's simple-font
+  model: it does not handle CID-keyed (and so most CJK) or Type 3 fonts, and
+  it does not recompute widths, so a replacement of another length moves the
+  text after it ([Rewriting](#rewriting)).
+- **What the content model exposes.** A paint's color space and components,
+  marked-content properties such as optional-content membership, the font
+  dictionary behind a `FontRef`, and the object of an image mask are not
+  reported, and no item names the operators or resources that painted it
+  ([Content model](#content-model), [Reading](#reading)).
+- **Saving.** There is no incremental save, so a signed document cannot be
+  edited without invalidating its signatures ([Persistence](#persistence)).
+- **Preservation.** lopdf stores real numbers as `f32`, so opening and saving
+  a document rewrites `35.6812345` as `35.681236` and `123456.789` as
+  `123456.79`, and no test checks that the objects an edit does not touch
+  survive it ([Engine work](#engine-work), [Verification](#verification)).
+- **Raw access without meaning.** The object model edits any dictionary,
+  array, or stream, but nothing interprets what such an edit means or checks
+  that the structures depending on it stay consistent
+  ([Conformance](#conformance)).
+- **Conformance.** `pylopdf.create()` writes PDF/A and PDF/UA that krilla
+  validates, but editing an existing PDF/A or PDF/UA document neither keeps
+  nor reports its claim ([Conformance](#conformance)).
+- **Measurement.** The capability map lists 962 names of pymupdf 2.0: 455
+  available, 29 covered by ecosystem tools, 315 planned, and 163 outside
+  scope, so 60.6% of the names in scope are covered. Those are pymupdf's
+  names, not the specification's features, and nothing related pylopdf to
+  ISO 32000-2, so finishing every milestone would not have shown that
+  pylopdf covers PDF ([Specification map](#specification-map)).
+
 ## Principles
 
-1. **Capabilities, not names.** Completeness is measured per capability in
-   the capability map. pylopdf's names follow [api/DESIGN.md](api/DESIGN.md).
+1. **Features and capabilities, not names.** Completeness is measured per
+   feature of the specification, in each of its five dimensions, in the
+   specification map, and per pymupdf capability in the capability map. A
+   feature that a program can reach only by editing raw objects is read, not
+   controlled. pylopdf's names follow [api/DESIGN.md](api/DESIGN.md).
    A pymupdf name stays only where it is also the clearest name in pylopdf's
    vocabulary, and then carries no obligation to pymupdf's semantics or to
    MuPDF's numerical behavior.
@@ -109,17 +170,32 @@ properties and collections.
    first change and leaves the document unchanged on refusal. Handles are
    views that read the document on every access, apply setters immediately,
    and raise when stale, so there is no hidden dirty state.
-8. **Provenance.** Every derived result (a word, a table cell, a Markdown
-   chunk, an OCR word) carries its page and its display-space geometry, and,
-   where the PDF has one, the object or structure element it came from.
-9. **Evidence over claims.** Features land with real-document and adversarial
-   regressions, save-and-reopen and rendering checks, and published
-   benchmarks for performance-relevant paths, wins and losses together.
-10. **Small core, optional data.** The core abi3 wheel stays at or below
+8. **Consistent edits.** Each editing operation documents the structures it
+   maintains, and the consistency harness of [Verification](#verification)
+   checks them after every editing test. An operation that cannot keep a
+   dependent structure valid refuses, and one that invalidates what it cannot
+   repair, such as a signature or a conformance claim, reports it.
+9. **Lossless by default.** What no edit touched, a save writes back exactly:
+   every number, string, and name with its value, every stream with its
+   decoded data, and, in an incremental save, the original bytes. The
+   defaults only recompress streams without changing their data and drop
+   objects that nothing reaches ([D6](#decisions)); renumbering,
+   deduplication, and any other change of values or numbers happen only when
+   a save option asks for them.
+10. **Provenance.** Every derived result (a word, a table cell, a Markdown
+    chunk, an OCR word, a content item) carries its page and its
+    display-space geometry, and, where the PDF has one, the object, operators,
+    or structure element it came from.
+11. **Evidence over claims.** Features land with real-document and
+    adversarial regressions, save-and-reopen and rendering checks, independent
+    validators where one exists, and published benchmarks for
+    performance-relevant paths, wins and losses together. A status in the
+    specification map is `done` only when a named test proves it.
+12. **Small core, optional data.** The core abi3 wheel stays at or below
     9.0 MiB on every platform. Fonts, OCR models, and layout models ship as
     separately versioned data packages. A pull request that grows the wheel by
     more than 0.25 MiB justifies it in writing.
-11. **Break before 1.0, once per design change.** Redesigns land without
+13. **Break before 1.0, once per design change.** Redesigns land without
     deprecation windows, and each removed or renamed API gets a codemod rule
     and a migration hint. From 1.0 on, the
     [stability policy](docs/en/stability.md) applies.
@@ -136,10 +212,56 @@ properties and collections.
 | Interaction | lopdf; appearances through krilla | annotations, links, form fields, widgets, flattening | appearance planning, AcroForm semantics |
 | Rewriting | pylopdf's content engine over lopdf; hayro verifies | redaction, sanitization, content cleaning, recoloring, image rewriting | content rewriting and its verification |
 
+## Specification map
+
+`api/spec-map.json`, which [Verification](#verification) builds, records
+every feature of ISO 32000-2:2020 (PDF 2.0) with its resolved errata, of the
+PDF 2.0 extensions ISO/TS 32001 to 32005 (hash algorithms, signature
+algorithms, AES-GCM, integrity protection, and structure namespaces), and of
+the profiles that pylopdf writes or must keep: PDF/A (ISO 19005) and PDF/UA
+(ISO 14289), and, read and preserved, PDF/X (ISO 15930) and PDF/VT
+(ISO 16612). A feature is a unit that a program controls on its own, such as
+a filter, a family of color spaces, a shading type, an annotation type, an
+action type, a field type, an encryption handler, or the structure tree. Each
+entry names its clause, the PDF version that introduced it and whether PDF 2.0
+deprecates it, the objects of the
+[Arlington PDF Model](https://github.com/pdf-association/arlington-pdf-model)
+that express it, its workstream and engines, and a status in each of five
+dimensions:
+
+| Dimension | Done when |
+| --- | --- |
+| Read | the objects that express the feature are reachable through the object model without loss: every value as stored, streams raw and decoded |
+| Interpret | pylopdf exposes what the feature means as typed values, and rendering and extraction honor it as the specification says |
+| Create | a program adds the feature to new documents and to existing ones |
+| Edit | a program changes or removes the feature, and every structure that depends on it stays consistent |
+| Preserve | edits elsewhere and full and incremental saves keep the feature exactly |
+
+A status is `done` with the tests that prove it, `partial` with what is
+missing, `planned` with its milestone, `engine` with the upstream change it
+waits for, `n/a` when the dimension means nothing for the feature (creating
+what PDF 2.0 deprecates, for example), or `non-goal` with the decision that
+excludes it. Running, playing, or displaying what a viewer acts on (scripts,
+media, and 3D artwork) and device-dependent controls such as halftones are
+`non-goal` for interpretation only; their structures are read, created,
+edited, and preserved like any other.
+
+Evidence comes from pylopdf's tests, from the preservation and consistency
+harnesses of [Verification](#verification), and from independent tools in
+the interop group: veraPDF for PDF/A and PDF/UA, the Arlington model's
+checks for objects, qpdf for syntax, and pyHanko for signatures, with
+pymupdf, pdf.js, and pypdfium2 as development-only oracles where a comparison
+means something. `tools/check_spec_map.py` checks the map in CI and reports
+coverage per clause and dimension. The map holds clause numbers, pylopdf's
+own short descriptions, and the names of Arlington objects, which the
+Apache-2.0 model allows; never copy text from ISO 32000-2, whose copyright ISO
+holds although the PDF Association distributes it at no cost.
+
 ## Capability map
 
-`api/pymupdf-parity.json` records, for every public name of pymupdf 2.0, how
-pylopdf covers the capability behind it:
+`api/pymupdf-parity.json` measures pylopdf against pymupdf: the floor of
+completeness and the source of the migration tools. It records, for every
+public name of pymupdf 2.0, how pylopdf covers the capability behind it:
 
 - `available`: pylopdf provides it, under the same name (`same`) or through a
   different API (`replaced`) that the entry names, with a one-sentence hint
@@ -170,6 +292,11 @@ Every feature pull request satisfies all of the following before merge.
   refreshed after reviewing runtime, typing, documentation, and SemVer impact.
   The capability-map entries it covers are updated, with a hint for every
   pymupdf name that pylopdf covers under another name.
+- **Specification.** Once the [specification map](#specification-map)
+  exists, the entries of the features it touches are updated in each
+  dimension with the tests that prove them. An editing operation documents
+  the structures it maintains and what it reports, and the preservation and
+  consistency harnesses cover it.
 - **Safety.** Caller input is capped before PyO3 copies it and again in Rust;
   new `LimitError` codes are documented in the security guide; input-derived
   collections grow fallibly; no partial results; prepare-then-commit; and the
@@ -198,8 +325,8 @@ Every feature pull request satisfies all of the following before merge.
 
 | Workstream | Scope | Engine area |
 | --- | --- | --- |
-| Objects | loading, recovery, the object model, saving, incremental save, encryption, garbage collection | lopdf |
-| Structure | the page tree, outline, destinations, page labels, attachments, metadata and XMP, optional content, structure-tree maintenance | lopdf |
+| Objects | loading, recovery, the object model, saving, incremental save, encryption, garbage collection, the specification map's tooling and harnesses | lopdf |
+| Structure | the page tree, outline, destinations, page labels, attachments, metadata and XMP, optional content, structure-tree maintenance, conformance | lopdf |
 | Content | the content model, interpretation guards, image and drawing inventories | hayro-interpret, hayro-syntax |
 | Understanding | text and layout, search, tables, Markdown, tagged structure, OCR, layout models | RTen |
 | Rendering | rasterization, SVG, `Pixmap`, render caches, parallel batches | hayro, vello_cpu, hayro-svg |
@@ -207,13 +334,13 @@ Every feature pull request satisfies all of the following before merge.
 | Interaction | annotations, links, form fields and widgets, flattening | lopdf, krilla |
 | Rewriting | the content engine, redaction, sanitization, text replacement, image rewriting | lopdf, hayro for verification |
 
-Each workstream also owns the upstream work in its engine area, and AGENTS.md
-records its modules. Concurrent pull requests stay inside one workstream; a
-change to another workstream's module is its own small pull request. Shared
-files (`src/pylopdf/__init__.py`, `rust/src/lib.rs`,
-`rust/src/document/mod.rs`, `api/public-api.json`, and the capability map)
-take append-only registrations and are regenerated after each rebase. Each
-pull request names its milestone.
+Each workstream also owns the upstream work in its engine area and the
+specification-map entries of its features, and AGENTS.md records its modules.
+Concurrent pull requests stay inside one workstream; a change to another
+workstream's module is its own small pull request. Shared files
+(`src/pylopdf/__init__.py`, `rust/src/lib.rs`, `rust/src/document/mod.rs`,
+`api/public-api.json`, and the capability map) take append-only registrations
+and are regenerated after each rebase. Each pull request names its milestone.
 
 ## Phases
 
@@ -223,8 +350,13 @@ their acceptance criteria.
 | Phase | Work that runs in parallel | Gate |
 | --- | --- | --- |
 | 1 — foundations (current) | [Content model](#content-model), [Canvas](#canvas), [API reset](#api-reset), and the first [engine work](#engine-work) | The three milestones are accepted; the next release ships them together |
-| 2 — capabilities | [Reading](#reading), [Rendering](#rendering), [Writing](#writing), [Interaction](#interaction), [Rewriting](#rewriting), [Structure](#structure), [Persistence](#persistence), and [Understanding](#understanding) | Each milestone's acceptance |
-| 3 — 1.0 | [v1.0 criteria](#v10) | Every criterion |
+| 2 — capabilities | [Verification](#verification), [Reading](#reading), [Rendering](#rendering), [Writing](#writing), [Interaction](#interaction), [Rewriting](#rewriting), [Structure](#structure), [Persistence](#persistence), [Conformance](#conformance), and [Understanding](#understanding) | Each milestone's acceptance |
+| 3 — specification | [Specification completion](#specification-completion) | The specification map has no `planned` or `engine` entry |
+| 4 — 1.0 | [v1.0 criteria](#v10) | Every criterion |
+
+Verification starts at once, alongside phase 1, because every other
+milestone records its features in the specification map that it builds and
+is checked by its harnesses.
 
 The pymupdf-aligned renames on main since 0.15.0 are not released on their
 own. The next release carries the API reset, so users of pylopdf 0.15 and of
@@ -242,7 +374,8 @@ sub-issues, and the roadmap is complete when all of them are closed:
   capability-map entries of the milestone as a generated list.
   `tools/roadmap_issues.py sync` rewrites that list from
   `api/pymupdf-parity.json`, so a tracker can close only when its milestone
-  has no planned capability left.
+  has no planned capability left. Once the specification map exists, the
+  same tool adds a second list of the milestone's features from it.
 - [Engine work](https://github.com/yhay81/pylopdf/issues/324), with one
   sub-issue per engine: the releases pylopdf adopts, the pull requests it
   sends upstream, scope questions for the maintainer, what pylopdf gives
@@ -250,7 +383,7 @@ sub-issues, and the roadmap is complete when all of them are closed:
 - The 1.0 release gates and the continuous tracks with the watchlist.
 
 Work on an item starts as a sub-issue of its tracker. GitHub milestones
-`Phase 1`, `Phase 2`, and `1.0` group the trackers; labels name the
+`Phase 1`, `Phase 2`, `Phase 3`, and `1.0` group the trackers; labels name the
 workstream (`workstream:*`), the engine (`engine:*`), and the kind of engine
 work (`upstream`, `adoption`, `scope-question`). A change to a milestone here
 changes its tracker too.
@@ -501,6 +634,7 @@ engine's maintainer.
 | hayro | Interpretation over an object source that is not file bytes, such as lopdf's graph | `object_recovery.rs`, the serialized snapshots, and the cost of reserializing after edits |
 | hayro | Thread-safe render caches, a thread count (LaurenzV/hayro#1317), and faster stencil masks (LaurenzV/hayro#1315) | the per-thread cache slots in `render_cache.rs`; shared caches across `Document.render` workers |
 | hayro, vello_cpu | Gray and CMYK output and anti-aliasing levels | gray converted from the RGB raster in `raster_samples`; no CMYK |
+| hayro | Knockout transparency groups and overprint simulation, which hayro 0.8 does not implement, and the other rendering features of ISO 32000-2 clauses 8, 10, and 11 that the specification map finds missing | the Interpret gaps of graphics and transparency in rendering |
 | hayro-svg | Text kept as text, and a transform | `svg()` takes neither `text_as_path` nor `matrix` |
 | lopdf | A public object parser and serializer | pylopdf's own value conversion |
 | lopdf | A requested rebuild of the cross-reference table; rebuilding when the catalog or page tree is unreadable, or when a corrected offset misses later objects, and for truncated files | the forced rebuild in `recovery.rs`, and inputs rejected today |
@@ -511,11 +645,50 @@ engine's maintainer.
 | lopdf | A bounded, iterative page-tree walk with inherited attributes | pylopdf's own walker |
 | lopdf | Release of the rebuilt-trailer cleanup merged as J-F-Liu/lopdf#609 | the `/Prev` and `/XRefStm` removal after reconstruction |
 | lopdf | Linearization facts and the number of revisions | pymupdf's `is_fast_webaccess` and `version_count` |
+| lopdf | Real numbers kept exactly, as `f64` or as the token that was read, and written back as read, reversing the `f32` choice of J-F-Liu/lopdf#190 | the precision that every save loses today (`35.6812345` becomes `35.681236`), a Preserve gap of every feature with real-valued entries |
+| lopdf | The revision and byte range of each object in an incrementally updated file | incremental saves that write only changed objects, earlier revisions as documents, and signed byte ranges checked before an edit |
+| lopdf | Writing linearized and hybrid-reference files, the public-key security handler, AES-GCM (ISO/TS 32003), and integrity protection (ISO/TS 32004) | the Create entries of file structure and encryption in the specification map |
 | krilla | The items listed under [Canvas](#canvas) | the Standard 14 writer, the font renaming, and the import parse |
 
 Acceptance, per item: the engine change is released, pylopdf adopts it, the
 workaround and its tests' special cases are removed, and the corpus results
 and benchmarks stay unchanged or improve.
+
+### Verification
+
+All workstreams; the tooling belongs to Objects. It starts alongside phase 1,
+because every other milestone records its features in the map it builds.
+
+- The specification map: `api/spec-map.json` with the entries and statuses
+  that [Specification map](#specification-map) describes, one entry for each
+  feature-defining clause of ISO 32000-2:2020 and the extensions and
+  profiles it names, every object of the Arlington PDF Model assigned to a
+  feature, `tools/check_spec_map.py` in CI, and coverage per clause and
+  dimension published in the documentation.
+- First statuses from evidence: each dimension of each feature is set from
+  the tests that exist today, and a dimension without a test is `planned`
+  with a milestone, never `done`. Features that no milestone covers go to
+  [Specification completion](#specification-completion).
+- The preservation harness: every editing operation of the public API is
+  applied to every corpus document and saved in full and, once
+  [Persistence](#persistence) adds it, incrementally. Every object that the
+  operation did not touch must read back equal, values exactly, and the
+  rendering and extracted text of untouched pages must not change.
+- The consistency harness: after every editing test, the document passes the
+  Arlington model's checks, qpdf reports no error, and, once
+  [Conformance](#conformance) adds it, pylopdf's structural check finds
+  nothing.
+- Independent validators in the interop group, which holds pyHanko today:
+  veraPDF, an Arlington checker, qpdf, and pikepdf, pinned and run in CI,
+  with independent readers (pymupdf, pdf.js, and pypdfium2) as
+  development-only oracles.
+- The tracker lists: `tools/roadmap_issues.py` adds each milestone's
+  specification-map features to its tracker, as it lists capability-map
+  names today.
+
+Acceptance: every feature-defining clause and every Arlington object maps to
+an entry; no status is `done` without a named test; both harnesses run in
+CI over the bundled corpus; and the documentation publishes the coverage.
 
 ### Reading
 
@@ -530,9 +703,18 @@ Workstreams Understanding and Content. Depends on the content model.
 - Serializations of the layout as JSON, HTML, and XML.
 - Inventories by page and document: fonts, Form XObjects, and images;
   extraction of font programs; glyph widths.
+- Provenance of content: every item of `Page.content()` names the content
+  stream or Form XObject that painted it, the operators that painted it, and
+  the resources it used (font, XObject, graphics state, color space, pattern,
+  shading, and marked-content properties), so a program goes from what it
+  reads to the objects it edits. hayro's source callbacks and pylopdf's
+  content engine, which follows lopdf's parse, supply them together.
+- The paint as stored: a color's color space and components, and a
+  pattern's or shading's object, next to the sRGB approximation.
 
 Acceptance: span colors equal pymupdf's on the corpus; ascender-based boxes
-meet a published IoU threshold; quads cover rotated text.
+meet a published IoU threshold; quads cover rotated text; and the operators
+that every item of the corpus names repaint that item when executed alone.
 
 ### Rendering
 
@@ -549,9 +731,13 @@ Workstream Rendering.
   methods, recorded in the capability map as `integration`.
 - Closing MuPDF's 2–3× lead in warm rasterization through upstream glyph and
   image caches and thread-safe caches.
+- Rendering of every feature that changes what a page shows, as the
+  specification map lists them: knockout groups and overprint simulation
+  first, upstream in hayro.
 
 Acceptance: a diagonal transform renders pixel-identically to the equivalent
-resolution; every recipe has a test; benchmarks are published.
+resolution; every recipe has a test; benchmarks are published; and the
+specification map's Interpret entries for rendering have no `planned` entry.
 
 ### Writing
 
@@ -571,11 +757,18 @@ Workstream Writing. Depends on the canvas.
 - Conversion of images (JPEG, PNG, and JPEG 2000 directly, other formats
   through Pillow) and CBZ archives to PDF, and of scans to searchable PDF with
   OCR.
+- The complete round trip: `draw(item)` paints every item kind that
+  `Page.content()` reads, so the documented list of what does not round-trip
+  under [Canvas](#canvas) becomes empty. Beyond the text runs and images of
+  Canvas, that means shading and tiling patterns, soft masks, inline images,
+  and image masks, each drawn from the objects of the source document where
+  the canvas cannot rebuild them.
 
 Acceptance: text effects are verified by rendering and extraction; a diagonal
 translucent watermark and mixed CJK and right-to-left runs are covered by
 tests; validated PDF/A-2b and PDF/UA-1 output passes veraPDF in the interop
-group.
+group; and redrawing every item of every corpus page onto a blank page
+renders within the published tolerance with no exception listed.
 
 ### Interaction
 
@@ -586,7 +779,9 @@ Workstream Interaction. Depends on the canvas and the API reset.
   free text with callouts, lines, squares, circles, polygons, polylines, ink,
   stamps, file attachments, carets, text markup, and redactions), edited and
   deleted, with appearances drawn through the canvas. Rendering synthesizes
-  missing appearances without changing the document.
+  missing appearances without changing the document. The annotation and
+  action types that pymupdf does not create belong to
+  [Specification completion](#specification-completion).
 - Links of every kind (to a page, to another file, to a URI, to launch a
   file, and named actions), created, edited, and deleted, and destination
   resolution.
@@ -618,11 +813,28 @@ annotations from Interaction.
   incremental history, with a report.
 - Content cleaning, recoloring to gray or another color space, and the rest of
   image rewriting: lossless, grayscale, and bitonal targets.
+- Text editing in every font, replacing `Page.replace_text`, which handles
+  simple fonts only and keeps the old widths: text in simple, Type 3, and
+  composite fonts with any CMap, in both writing modes, is re-encoded through
+  the font's encoding or CMap; missing glyphs are added to an embedded subset
+  or drawn in a declared fallback font; advances are recomputed, with
+  compensating `TJ` adjustments that keep the following text in place; and
+  `/ToUnicode`, `/ActualText`, and the structure tree stay consistent. An edit
+  that the font cannot draw is refused.
+- Item-level editing: removing, recoloring, transforming, or replacing a
+  content item rewrites only the operators that painted it (the provenance of
+  [Reading](#reading)), copying a shared Form XObject first. Redaction is the
+  first user of this path.
+- Operator-level content: a page's or a Form's content as an editable
+  sequence of operators, operands, and inline images, written back without
+  loss, for programs that need control below the content model.
 
 Acceptance: an adversarial redaction corpus (kerned `TJ` arrays, shared
 Forms, rotated pages, CJK CID fonts, Type 3 fonts, overlapping layers, inline
 images, and masks) shows no leak, cross-checked by pymupdf's extraction of the
-redacted areas.
+redacted areas; text edits in CID, Type 3, and vertical fonts extract as the
+new text and render with the following text in place; and reading and
+writing back the operators of every corpus content stream changes nothing.
 
 ### Structure
 
@@ -638,10 +850,15 @@ Workstream Structure.
 - Viewer preferences, linearization facts, and revision counts.
 - Attachment dates and in-place updates, shared with file attachment
   annotations.
+- Structure-tree maintenance on existing documents: marked-content IDs,
+  `/StructParents`, the parent tree, role maps, and attributes stay consistent
+  when content is added, moved, or removed, so that the canvas can tag what it
+  draws on an open document and page operations keep the tree valid.
 
 Acceptance: changing layer visibility changes rendering and extraction; the
 outline round-trips; imported pages keep working forms and links in pymupdf
-and pylopdf.
+and pylopdf; and every page operation on a tagged corpus leaves a structure
+tree that the consistency harness accepts.
 
 ### Persistence
 
@@ -660,11 +877,54 @@ Workstream Objects.
 - Transactions and undo: `with doc.transaction():` makes a group of edits
   atomic and records one undo step, under a memory budget.
 - Save options for compression effort, ASCII output, pretty printing, and
-  keeping the document ID.
+  keeping the document ID; the form of the cross-reference data (table,
+  stream, or hybrid); the filters of each stream, kept as read or chosen; and
+  linearized output.
+- Lossless saving: every value that no edit touched is written back as it
+  was read. lopdf's `f32` real numbers are the first gap
+  ([Engine work](#engine-work)).
+- Revisions: the revisions of an incrementally updated file as documents of
+  their own, with the objects that each revision changed, so that a program
+  can see what was signed and what changed after it.
+- Encryption beyond the standard handler: the public-key handler, AES-GCM
+  (ISO/TS 32003), and integrity protection (ISO/TS 32004), for reading and
+  writing.
 
 Acceptance: pyHanko signatures stay valid after incremental edits; pikepdf in
 the interop group accepts every output; subsetting reduces size without
-changing extracted text or rendering.
+changing extracted text or rendering; and opening and saving every corpus
+document without edits keeps every value of every object it reaches exactly,
+which the preservation harness checks.
+
+### Conformance
+
+Workstream Structure, with Writing and Interaction. Depends on the
+structure-tree maintenance of [Structure](#structure).
+
+- A structural check of any document that reports, with the object and the
+  clause, where it departs from the object model of ISO 32000-2 (types,
+  required entries, and value constraints from the Arlington PDF Model), from
+  the invariants that pylopdf relies on (the page tree, name and number
+  trees, cross-references, the structure tree and its parent tree, and
+  appearances), and from the rules of a claimed profile that can be decided
+  without rendering. Deciding PDF/A and PDF/UA conformance stays with
+  veraPDF.
+- Profiles as typed values: the PDF/A, PDF/UA, PDF/X, and PDF/VT claims of a
+  document, with its output intents; `doc.pdfa_claim` joins them.
+- Conformance-preserving edits: on a document that claims PDF/A-1 to
+  PDF/A-4, PDF/UA-1, or PDF/UA-2, every editing operation keeps the claim
+  true, by embedding fonts, adding an output intent, tagging what it draws,
+  and updating XMP and the structure tree, or refuses or reports the claim it
+  would break, as the caller chooses.
+- Accessibility edits on existing documents: alternate text, tags, reading
+  order, languages, and role maps added and changed through the structure
+  tree.
+
+Acceptance: on a corpus of PDF/A-1b, PDF/A-2b, PDF/A-2u, PDF/A-3b, PDF/A-4,
+and PDF/UA-1 documents that veraPDF accepts, every editing operation of the
+public API leaves a document that veraPDF still accepts or reports the claim
+it breaks; and the structural check finds every defect of a corpus of
+documents broken on purpose.
 
 ### Understanding
 
@@ -687,8 +947,50 @@ Acceptance: human-verified ground truth on representative business
 documents, and published comparisons with pymupdf4llm with and without
 pymupdf-layout.
 
+### Specification completion
+
+Phase 3, by feature, in the workstream that owns each one. It covers the
+features of ISO 32000-2 that neither the capability map nor the canonical
+workflows reach, until the specification map has no `planned` entry. Each
+gets typed reading, creation, and editing, and keeps its structures through
+every edit and save.
+
+- Interactive features: the remaining annotation types (screen, printer's
+  mark, watermark, 3D, RichMedia, and projection), every action type
+  (rendition, transition, optional-content state, hide, import, submit and
+  reset form, thread, embedded go-to, and 3D view, among others), additional
+  actions on documents, pages, annotations, and fields, and form data
+  exchange in FDF and XFDF.
+- Navigation and presentation: article threads, page transitions and display
+  durations, sub-page navigation, thumbnails, portable collections and their
+  navigators, and named pages.
+- Multimedia and 3D as data: renditions, media clips, and 3D streams (U3D and
+  PRC) with their views; playback and display stay with viewers.
+- Measurement and geospatial features: viewports, measure dictionaries, and
+  geospatial coordinates at full precision.
+- Document interchange: associated files (also for PDF/A-3), document parts
+  (PDF/VT), web capture, page-piece dictionaries, separations, trapping,
+  printer marks, and the extensions dictionary.
+- Signature structures beyond signing itself: DocMDP and FieldMDP
+  permissions, the document security store with its validation data, and
+  document timestamps, read, kept valid, and written for pyHanko to sign; and
+  the unencrypted wrapper documents of PDF 2.0.
+- Deprecated features (XFA forms, movie and sound annotations and actions,
+  and RC4 encryption among them): read, preserved, and removable; creating
+  them is `n/a`.
+
+Acceptance: the specification map has no `planned` or `engine` entry, and
+every feature of this milestone has a save-and-reopen test and, where a
+renderer shows it, a rendering test.
+
 ## v1.0
 
+- The specification map has no `planned` or `engine` entry: every feature of
+  ISO 32000-2 is `done` in each dimension that applies to it, or `partial` or
+  `non-goal` under a recorded decision.
+- The preservation and consistency harnesses pass for every editing
+  operation; the round trip of [Canvas](#canvas) lists no exception; and the
+  [Conformance](#conformance) acceptance holds.
 - The capability map has no planned entries.
 - Every engine workaround is removed, or recorded in AGENTS.md as pylopdf's
   own responsibility with the reason.
@@ -715,14 +1017,19 @@ pymupdf-layout.
   surface.
 - **Distribution.** New CPython releases on the day they ship, PyEmscripten
   parity, and the wheel budget.
+- **Specification.** Errata and amendments of ISO 32000-2, new extensions in
+  the ISO/TS 32000 series, new parts of the profiles, and releases of the
+  Arlington PDF Model update the specification map within a month.
 
 ## Non-goals
 
 - **Input formats other than PDF and images**: XPS and OpenXPS, EPUB, MOBI,
   FB2, HTML, and text documents, with pymupdf's reflow APIs (`layout`,
   chapters, and locations). Convert them to PDF with their own tools.
-- **Running JavaScript or XFA.** pylopdf authors and removes scripts but
-  never runs them. XFA is deprecated in PDF 2.0.
+- **Viewer behaviors.** pylopdf does not run JavaScript or XFA, play media,
+  or display 3D artwork, and it does not reproduce device-dependent controls
+  such as halftones. It reads, creates, edits, preserves, and removes the
+  structures behind them. XFA is deprecated in PDF 2.0.
 - **RC4 output.** It is insecure; reading RC4-encrypted files stays
   supported.
 - **MuPDF's runtime internals**: its store, message stream, memory pools,
@@ -733,13 +1040,15 @@ pymupdf-layout.
 Three capabilities stay with ecosystem tools, through tested recipes:
 
 - **Cryptographic signing**: pyHanko, with incremental save keeping
-  signatures valid. Watch underskrift, a BSD-2-Clause PAdES implementation
-  over lopdf.
+  signatures valid and pylopdf reading and writing the signature structures
+  around it. Watch underskrift, a BSD-2-Clause PAdES implementation over
+  lopdf.
 - **HTML and CSS pagination** (pymupdf's `Story`, `DocumentWriter`, and
   `Archive`): typst. Reassess fulgur, which pairs Blitz with krilla, around
   2027-01 as an engine path; the HTML subset for text boxes is in
   [Writing](#writing).
-- **PDF/A validation of existing files**: veraPDF.
+- **PDF/A and PDF/UA validation**: veraPDF. pylopdf's structural check
+  reports what it can decide without rendering ([Conformance](#conformance)).
 
 ## Watchlist
 
@@ -752,6 +1061,9 @@ Three capabilities stay with ecosystem tools, through tested recipes:
 - **pymupdf, pymupdf4llm, and pymupdf-layout releases**: their new public
   names join the capability map.
 - **Competitors**: pdf_oxide, oxidize-pdf, pypdfium2, kreuzberg, and docling.
+- **PDF Association**: the Arlington PDF Model, the amendment of ISO 32000-2
+  in progress, PDF/UA-2 and Well-Tagged PDF, and the dated revision of
+  ISO/TS 32004.
 - **abi3t (PEP 803)**: one `cp315-abi3.abi3t` wheel per platform could serve
   free-threaded 3.15 and every later free-threaded release, but GIL-enabled
   3.15 and later would prefer it to `cp311-abi3` (AGENTS.md has the
@@ -779,6 +1091,23 @@ Three capabilities stay with ecosystem tools, through tested recipes:
   malformed dates often enough that a `datetime` would need a fallback to the
   raw string anyway, and reading and writing the same string round-trips
   exactly; a parsing helper can follow without changing the mapping.
+- **D8** (2026-10-23): the specification defines completeness. ISO
+  32000-2:2020 with its errata and extensions, and the PDF/A and PDF/UA
+  profiles, measure what complete means, in five dimensions per feature
+  recorded in the specification map. The capability map stays as the floor
+  and the source of the migration tools. The
+  [assessment](#assessment-2026-10-23) showed that pymupdf's names left whole
+  areas unmeasured: round trips, text editing in composite fonts, the paint
+  as stored, preservation, and conformance after edits.
+- **D9** (2026-10-23): control covers documents, not viewers. Running
+  scripts, playing media, displaying 3D artwork, and device-dependent
+  controls such as halftones are non-goals for interpretation; the
+  structures behind them are in scope in every dimension.
+- **D10** (2026-10-23): 1.0 waits for the specification map. The stability
+  policy freezes the API, and an API frozen before the features it must
+  cover are designed would have to break after 1.0; so 1.0 requires a map
+  without `planned` or `engine` entries, and phase 3 completes the features
+  that pymupdf does not reach.
 
 ## Evidence log
 
@@ -827,3 +1156,15 @@ Dated facts that still drive decisions.
   files that open without a password now probe with their page count, and
   `issue17147.pdf` would have lost 17 of its 26 objects to a corrected
   offset without pylopdf's rebuild; nothing else changed.
+- **2026-10-23, assessment**: an external review asked whether pylopdf reads
+  and writes every feature of PDF under complete control, and found that it
+  does not (the [assessment](#assessment-2026-10-23)). The capability map then
+  had 962 names: 455 available, 29 integration, 315 planned, and 163
+  non-goals. lopdf 0.46 stores reals as `f32` (`Object::Real(f32)`, chosen for
+  performance in J-F-Liu/lopdf#190 in 2022) and writes them with `f32`'s
+  shortest representation, so assigning or loading `35.6812345` and saving
+  writes `35.681236`, and `123456.789` becomes `123456.79`. hayro-interpret
+  0.8.0 implements optional-content visibility (`ocg.rs`) but neither knockout
+  groups nor overprint. ISO 32000-2:2020 is distributed at no cost by the PDF
+  Association since 2023-04-05 under ISO's copyright, and the Arlington PDF
+  Model describes its objects under the Apache-2.0 license.

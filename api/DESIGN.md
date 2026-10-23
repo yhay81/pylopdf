@@ -122,6 +122,12 @@ time. Exceeding one raises `LimitError` and returns no partial result.
   as the canvas, is a context manager that commits once on a clean exit,
   writes nothing after an exception, and emits a `ResourceWarning` when it is
   collected uncommitted.
+- **Consistency.** An editing method keeps every structure that depends on
+  what it changes valid, such as appearances, widths and encodings, the
+  structure tree, and name and number trees, and its docstring names them.
+  When it cannot, it refuses. What it invalidates and cannot repair, such as
+  a signature over changed bytes or a PDF/A or PDF/UA claim, it reports
+  ([Goal](../ROADMAP.md#goal)).
 - **Transactions.** `with doc.transaction():` makes a group of edits atomic
   and records one undo step ([Persistence](../ROADMAP.md#persistence)).
 - **Staleness.** A structural change bumps the page generation. `Page`
@@ -484,5 +490,12 @@ section 11, `attachments`, `limits`, `complexity`, `DocumentLimits`,
 
 ## 15. Open questions
 
+- How an edit reports what it invalidated, a signature or a conformance
+  claim: a warning, a value that the method returns, or a record on the
+  document that `save` checks ([Conformance](../ROADMAP.md#conformance)).
+- How the specification map's typed APIs for features that pymupdf lacks,
+  such as multimedia, 3D, measurement, and article threads, fit the
+  collections and handles of section 1 without one family of methods per
+  dictionary type.
 - Which parts of the HTML and CSS subset for text boxes parley covers, and
   which need pylopdf's own code.
