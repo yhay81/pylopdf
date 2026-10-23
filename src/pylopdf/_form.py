@@ -18,17 +18,19 @@ from pylopdf._limits import (
     _validate_rect,
     _validate_utf8_text_input,
 )
+from pylopdf._objects import Dictionary
 from pylopdf._widgets import Widget
 from pylopdf.pylopdf_core import PdfError, StaleObjectError, _Font
 
 if TYPE_CHECKING:
     from pylopdf._document import Document
-    from pylopdf._objects import Dictionary
 
 #: Caller field names and values stop here before the core copies them.
 _MAX_FORM_FIELD_INPUT_SIZE = 1024 * 1024
 #: The most options that a choice field takes.
 _MAX_FIELD_CHOICES = 4096
+#: The deepest field tree that the core's field walk reads.
+_MAX_FIELD_DEPTH = 64
 
 #: The core's facts of one field: full name, object number, kind, value, and
 #: inherited ``/Ff``.
@@ -47,6 +49,15 @@ class FieldType(enum.StrEnum):
     SIGNATURE = "signature"
     UNKNOWN = "unknown"
     """A field whose ``/FT`` is missing or not one that ISO 32000-2 defines."""
+
+
+class SignatureFlags(enum.IntFlag):
+    """The signature flags of the AcroForm's ``/SigFlags`` (ISO 32000-2 Table 225), which signing tools set."""
+
+    SIGNATURES_EXIST = 1
+    """The document holds at least one signature field."""
+    APPEND_ONLY = 2
+    """The document holds signatures that a full rewrite would invalidate; save edits incrementally."""
 
 
 class FieldFlags(enum.IntFlag):
@@ -326,6 +337,27 @@ class Field:
         self._edit(choices=pairs)
 
     @property
+    def is_signed(self) -> bool:
+        """Return whether this is a signature field whose value is a signature dictionary.
+
+        pylopdf does not verify signatures; a signing tool such as pyHanko
+        signs and validates them.
+        """
+        if self.type is not FieldType.SIGNATURE:
+            return False
+        node: Any = self.obj
+        # /V is inheritable (ISO 32000-2 Table 226); the walk ends at the
+        # depth that the field-tree reader accepts.
+        for _ in range(_MAX_FIELD_DEPTH):
+            if not isinstance(node, Dictionary):
+                return False
+            value = node.get("V")
+            if value is not None:
+                return isinstance(value, Dictionary)
+            node = node.get("Parent")
+        return False
+
+    @property
     def label(self) -> str | None:
         """Return or set the field's description for users, ``/TU``; ``del`` removes it."""
         return self._details()[0]
@@ -583,6 +615,16 @@ class Form(Mapping[str, Field]):
                 raise PdfError(msg)
         self._document._ensure_open()
         self._document._form_font = font
+
+    @property
+    def signature_flags(self) -> SignatureFlags:
+        """Return the AcroForm's ``/SigFlags``, without undefined bits; a document without a form reads none."""
+        self._document._ensure_open()
+        form = self._document.catalog.get("AcroForm")
+        flags = form.get("SigFlags") if isinstance(form, Dictionary) else None
+        if not isinstance(flags, int) or isinstance(flags, bool):
+            return SignatureFlags(0)
+        return SignatureFlags(flags & (SignatureFlags.SIGNATURES_EXIST | SignatureFlags.APPEND_ONLY))
 
     @property
     def need_appearances(self) -> bool:
@@ -1124,6 +1166,7 @@ def _button_state(state: object) -> None:
 for _public in (
     Scripts,
     ScriptTrigger,
+    SignatureFlags,
     CheckBox,
     ComboBox,
     ListBox,

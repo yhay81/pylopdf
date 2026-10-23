@@ -129,6 +129,7 @@
     "ShadingPattern",
     "ShadingType",
     "SignatureField",
+    "SignatureFlags",
     "SoftMask",
     "SoftMaskType",
     "Span",
@@ -3674,6 +3675,10 @@
           "kind": "property",
           "returns": "FieldFlags"
         },
+        "is_signed": {
+          "kind": "property",
+          "returns": "bool"
+        },
         "label": {
           "kind": "property",
           "returns": "str | None"
@@ -4327,6 +4332,10 @@
         "need_appearances": {
           "kind": "property",
           "returns": "bool"
+        },
+        "signature_flags": {
+          "kind": "property",
+          "returns": "SignatureFlags"
         }
       },
       "signature": {
@@ -10687,6 +10696,13 @@
           }
         ],
         "returns": "None"
+      }
+    },
+    "SignatureFlags": {
+      "kind": "enum",
+      "members": {
+        "APPEND_ONLY": 2,
+        "SIGNATURES_EXIST": 1
       }
     },
     "SoftMask": {

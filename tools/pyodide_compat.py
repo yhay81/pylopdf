@@ -971,6 +971,7 @@ def _widget_results() -> dict[str, Any]:
         document.form["plan"].value = "Pro"
         field.scripts[pylopdf.ScriptTrigger.CALCULATE] = "event.value = 'Ada';"
         name.scripts[pylopdf.ScriptTrigger.FOCUS] = "focus();"
+        page.widgets.add(pylopdf.SignatureField("approval", (10, 35, 190, 55)))
         saved = document.to_bytes()
     with pylopdf.open(saved) as reopened:
         name, check, *created = reopened.pages[0].widgets
@@ -989,6 +990,7 @@ def _widget_results() -> dict[str, Any]:
                 {str(key): value for key, value in name.scripts.items()},
                 len(reopened.catalog["AcroForm"]["CO"]),
             ],
+            "signatures": [reopened.form["approval"].is_signed, int(reopened.form.signature_flags)],
         }
     _require(result["text"].split()[0] == "Ada", "the restyled widget lost its value")
     return result

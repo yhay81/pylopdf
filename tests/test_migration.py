@@ -464,6 +464,7 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "ending = pylopdf.LineEnding.REVERSED_CLOSED_ARROW",
         ),
         ("import fitz\nmode = fitz.PDF_BM_ColorDodge\n", "mode = pylopdf.BlendMode.COLOR_DODGE"),
+        ("import fitz\nflag = fitz.SigFlag_AppendOnly\n", "flag = pylopdf.SignatureFlags.APPEND_ONLY"),
         ("import fitz\nicon = fitz.STAMP_NotForPublicRelease\n", "icon = pylopdf.StampIcon.NOT_FOR_PUBLIC_RELEASE"),
         ("import fitz\nannot = page.add_rect_annot(r)\n", "annot = page.annotations.add(pylopdf.Square(r))"),
         ("import fitz\nannot = page.add_circle_annot(rect=r)\n", "annot = page.annotations.add(pylopdf.Circle(r))"),

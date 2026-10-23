@@ -79,8 +79,22 @@ out = signers.sign_pdf(
 signed_pdf: bytes = out.getvalue()
 ```
 
+To sign into a field placed with pylopdf, add a `SignatureField` and pass its
+name as `field_name`; pylopdf then reads the signed state:
+
+```python
+from pylopdf import SignatureField, SignatureFlags
+
+doc.pages[0].widgets.add(SignatureField("Approval", (40, 40, 240, 100)))
+# ... sign doc.to_bytes() with field_name="Approval" as above ...
+with pylopdf.open(signed_pdf) as signed:
+    assert signed.form["Approval"].is_signed
+    assert SignatureFlags.APPEND_ONLY in signed.form.signature_flags
+```
+
 Sign as the last step: saving with pylopdf afterwards rewrites the file and
-invalidates the signature. Assigning the value of a signature field in `doc.form` raises.
+invalidates the signature, which `SignatureFlags.APPEND_ONLY` warns of.
+Assigning the value of a signature field in `doc.form` raises.
 
 ## OCR with another engine { #ocr }
 

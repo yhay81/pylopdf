@@ -946,8 +946,10 @@ fit in Helvetica, and other scripts use an installed font extra, unless
 `Font.installed(language="zh-CN")` for Chinese text. That setting belongs to
 the `Document` object and is not saved. Comb fields, alignment, and maximum
 lengths are respected; a value that is too long raises and leaves the document
-unchanged. Rich text, push button actions, and signatures are not supported;
-see [ecosystem recipes](ecosystem.md#signatures) for signing.
+unchanged. Rich text is not supported. pylopdf creates signature fields and
+reads their state, `field.is_signed` and `doc.form.signature_flags` (a
+`SignatureFlags` value), but does not sign or verify; see
+[ecosystem recipes](ecosystem.md#signatures) for signing.
 
 `page.widgets.add(specification)` creates a field with its widget on the
 page and returns the `Widget`; a specification whose name is already a field
