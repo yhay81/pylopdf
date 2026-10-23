@@ -26,10 +26,10 @@ self_cell = "1.3.0"
 # and PNG through krilla; PDF import stays disabled because lopdf owns it.
 krilla = { version = "=0.8.2", default-features = false, features = ["raster-images"] }
 # Shape Unicode text without krilla's deprecated rustybuzz/ttf-parser path.
-harfrust = "0.14.0"
+harfrust = "0.15.0"
 # Read vertical metrics from the same font model used by HarfRust.
-# Keep the 0.45 type generation aligned with HarfRust 0.14.
-read-fonts = "0.45.1"
+# Keep the 0.46 type generation aligned with HarfRust 0.15.
+read-fonts = "0.46.0"
 # Measure the PDF Core 14 fonts from Adobe's canonical AFM data.
 pdf-base14-metrics = "0.0.2"
 # Apply UAX #14 wrapping to Latin, CJK, and mixed-script text.
