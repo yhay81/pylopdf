@@ -974,7 +974,6 @@ dependencies = [
  "jpeg-encoder",
  "krilla",
  "kurbo",
- "log",
  "lopdf",
  "pdf-base14-metrics",
  "png",

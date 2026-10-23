@@ -1599,13 +1599,11 @@ the concept and API overview.
   `/Root` exists, or, in a file with cross-reference streams only, the
   dictionary of the newest such stream whose `/Root` resolves, merging the
   compressed entries of the streams it finds for numbers the scan did not see
-  (J-F-Liu/lopdf#613); later revisions win. It reports both only as `log` warnings from `lopdf::reader`,
-  emitted on the loading thread before object parsing moves to the rayon pool.
-  `recovery::load_document` and `load_metadata` install one process-wide
-  logger and capture those records in a thread-local scope, so concurrent
-  loads keep their own result. Rust unit tests are not used: the damaged-corpus
-  regressions in `tests/test_real_world.py` and the Pyodide contract must
-  catch any lopdf message change. The two kinds emit distinct
+  (J-F-Liu/lopdf#613); later revisions win. It reports which in
+  `Document::xref_recovery` and `PdfMetadata::xref_recovery`
+  (J-F-Liu/lopdf#612), which `recovery::load_document` and `load_metadata`
+  map to pylopdf's `XrefRecovery`, reading a kind that a later lopdf adds as
+  a reconstruction. The two kinds emit distinct
   `PylopdfWarning` text, set `Document.is_repaired` and
   `Probe.is_repaired`, and saving normalizes the xref data. A rebuilt
   trailer drops `/Prev` and `/XRefStm`, which still point into the damaged
