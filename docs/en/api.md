@@ -515,8 +515,19 @@ space:
 |---|---|
 | `Block` | `text`, `bbox`, `lines` |
 | `Line` | `text`, `bbox`, `direction` (the baseline's unit vector), `is_vertical`, `spans` |
-| `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `chars` |
+| `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `color`, `render_mode`, `is_clipped`, `ascender`, `descender`, `chars` |
 | `Char` | `text`, `bbox`, `origin` |
+
+A span is a run of glyphs in one font and size that are painted alike:
+`color` is the paint as an sRGB `Color` whose `alpha` is the opacity (the
+fill of filled text, the stroke of text that is only stroked, and `None` for
+a pattern paint and for invisible text), `render_mode` is the
+`TextRenderMode` that `page.content()` reports as well, and `is_clipped` is
+true when the clip paths leave no part of the glyphs visible. `ascender` and
+`descender` are the font's, in em, as MuPDF reads them from an OpenType or
+TrueType program; hayro hands out no program for Type 1 fonts, the standard
+14 fonts among them, which therefore report MuPDF's defaults of 0.8 and
+-0.2.
 
 `layout(chars=True)` fills each span's `chars` with its glyphs. A `Char`
 keeps the complete text of one glyph, so a ligature such as "fi" keeps both
@@ -532,15 +543,18 @@ with pylopdf.open("report.pdf") as doc:
                     print(char.text, char.bbox, char.origin)
 ```
 
-Bounds are estimated from the baseline and font size, not from the glyph
-outlines. Spaces that pylopdf infers from gaps are not added as characters, so
+Bounds span the glyph's advance and, across the baseline, the font's
+ascender and descender, scaled to one em together when they span less, as
+pymupdf's boxes do; they are not the glyph outlines. Spaces that pylopdf infers from gaps are not added as characters, so
 joining the characters does not always reproduce `text()`. Glyphs that have no
 Unicode mapping in the PDF are skipped with a `PylopdfWarning`.
 
 `layout.to_dict()` returns plain dictionaries for JSON, in the shape of
 [pymupdf's dict, or its rawdict for a layout with characters](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs),
-with text blocks only, without image or vector blocks and without color,
-opacity, or extra font metrics. The
+with text blocks only, without image or vector blocks. Spans have pymupdf's
+`color` (an sRGB integer), `alpha` (0 to 255), `ascender`, `descender`, and
+`char_flags` (16 for filled text, 32 for stroked text, and 64 for clipped
+text), but not `bidi`. The
 [overlay example](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)
 draws glyph bounds and origins as an HTML preview.
 

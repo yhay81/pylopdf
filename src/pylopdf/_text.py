@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict
 
+from pylopdf._content import Color, TextRenderMode
 from pylopdf._geometry import Point, Rect
 
 if TYPE_CHECKING:
@@ -13,16 +14,19 @@ if TYPE_CHECKING:
 
     #: The core's layout tuples: a block is ``(bbox, lines)``; a line is
     #: ``(bbox, spans, words, direction, writing mode)``; a span is
-    #: ``(bbox, text, size, origin, font, flags)``; and a word is ``(bbox, text)``.
+    #: ``(bbox, text, size, origin, font, flags, style)``, whose style is
+    #: ``(color, render mode, clipped, ascender, descender)``; and a word is
+    #: ``(bbox, text)``.
     _Box = tuple[float, float, float, float]
-    _CoreSpan = tuple[_Box, str, float, tuple[float, float], str, int]
+    _CoreStyle = tuple[tuple[float, float, float, float] | None, int, bool, float, float]
+    _CoreSpan = tuple[_Box, str, float, tuple[float, float], str, int, _CoreStyle]
     _CoreLine = tuple[_Box, list[_CoreSpan], list[tuple[_Box, str]], tuple[float, float], int]
     _CoreBlock = tuple[_Box, list[_CoreLine]]
     #: The core's layout with glyphs: as above, except that a span holds
     #: ``(text, chars)`` in place of its text, and a char is
     #: ``(text, bbox, origin)``.
     _CoreChar = tuple[str, _Box, tuple[float, float]]
-    _CoreRawSpan = tuple[_Box, tuple[str, list[_CoreChar]], float, tuple[float, float], str, int]
+    _CoreRawSpan = tuple[_Box, tuple[str, list[_CoreChar]], float, tuple[float, float], str, int, _CoreStyle]
     _CoreRawLine = tuple[_Box, list[_CoreRawSpan], list[tuple[_Box, str]], tuple[float, float], int]
     _CoreRawBlock = tuple[_Box, list[_CoreRawLine]]
 
@@ -31,6 +35,10 @@ _ITALIC = 2
 _SERIF = 4
 _MONOSPACED = 8
 _BOLD = 16
+# The character flags of pymupdf's spans that the core computes.
+_FILLED = 16
+_STROKED = 32
+_CLIPPED = 64
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -66,7 +74,7 @@ class Char:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Span:
-    """A run of text in one font and size within a :class:`Line`.
+    """A run of text in one font, size, paint, and render mode within a :class:`Line`.
 
     ``origin`` is the baseline point of the first glyph. ``chars`` holds the
     glyphs when :meth:`Page.layout` was called with ``chars=True`` and is empty
@@ -82,6 +90,22 @@ class Span:
     is_italic: bool
     is_serif: bool
     is_monospaced: bool
+    color: Color | None
+    """The paint of the glyphs as hayro's sRGB approximation, whose ``alpha``
+    is the opacity: the fill of filled text and the stroke of text that is
+    only stroked; ``None`` for a pattern paint and for invisible text."""
+    render_mode: TextRenderMode
+    """How the glyphs are painted. hayro paints the clipping modes 4 to 6 as
+    their painting part, and text in mode 7 is not extracted."""
+    is_clipped: bool
+    """Whether the clip paths leave no part of the glyphs' boxes visible, so
+    that a viewer shows none of them."""
+    ascender: float
+    """The font's ascender in em, as MuPDF reads it from the font program,
+    or 0.8 when hayro hands out no program, as for Type 1 fonts."""
+    descender: float
+    """The font's descender in em, negative below the baseline, or -0.2
+    without a font program."""
     chars: tuple[Char, ...]
 
 
@@ -165,12 +189,23 @@ def _span_dict(span: Span) -> dict[str, Any]:
         | (_MONOSPACED if span.is_monospaced else 0)
         | (_BOLD if span.is_bold else 0)
     )
+    char_flags = (
+        (_FILLED if span.render_mode in _FILLED_MODES else 0)
+        | (_STROKED if span.render_mode in _STROKED_MODES else 0)
+        | (_CLIPPED if span.is_clipped else 0)
+    )
+    color = span.color
     result: dict[str, Any] = {
         "bbox": tuple(span.bbox),
         "origin": tuple(span.origin),
         "size": span.size,
         "font": span.font,
         "flags": flags,
+        "char_flags": char_flags,
+        "color": 0 if color is None else _srgb(color.red) << 16 | _srgb(color.green) << 8 | _srgb(color.blue),
+        "alpha": 255 if color is None else _srgb(color.alpha),
+        "ascender": span.ascender,
+        "descender": span.descender,
     }
     if not span.chars:
         result["text"] = span.text
@@ -179,6 +214,16 @@ def _span_dict(span: Span) -> dict[str, Any]:
             {"c": char.text, "bbox": tuple(char.bbox), "origin": tuple(char.origin)} for char in span.chars
         ]
     return result
+
+
+_FILLED_MODES = frozenset({TextRenderMode.FILL, TextRenderMode.FILL_STROKE})
+_STROKED_MODES = frozenset({TextRenderMode.STROKE, TextRenderMode.FILL_STROKE})
+_RENDER_MODES = tuple(TextRenderMode)
+
+
+def _srgb(component: float) -> int:
+    """Return a color component from 0 to 1 as a byte."""
+    return round(min(max(component, 0.0), 1.0) * 255)
 
 
 def _rect(box: Sequence[float]) -> Rect:
@@ -229,11 +274,15 @@ def build_words(blocks: Sequence[_CoreBlock]) -> list[Word]:
 
 
 def build_layout(width: float, height: float, blocks: Sequence[_CoreBlock] | Sequence[_CoreRawBlock]) -> Layout:
-    """Build :meth:`Page.layout` from the core's layout, with or without glyphs."""
+    """Build :meth:`Page.layout` from the core's layout, with or without glyphs.
+
+    Spans of one color share one :class:`Color`, which is immutable.
+    """
+    colors: dict[tuple[float, float, float, float], Color] = {}
     return Layout(
         width=width,
         height=height,
-        blocks=tuple(_build_block(bbox, [_build_line(line) for line in lines]) for bbox, lines in blocks),
+        blocks=tuple(_build_block(bbox, [_build_line(line, colors) for line in lines]) for bbox, lines in blocks),
     )
 
 
@@ -242,7 +291,7 @@ def _build_block(bbox: Sequence[float], lines: list[Line]) -> Block:
     return Block(text="\n".join(line.text for line in lines), bbox=_rect(bbox), lines=tuple(lines))
 
 
-def _build_line(line: _CoreLine | _CoreRawLine) -> Line:
+def _build_line(line: _CoreLine | _CoreRawLine, colors: dict[tuple[float, float, float, float], Color]) -> Line:
     """Build one :class:`Line`, with each span's glyphs when the core gave them."""
     bbox, spans, words, direction, writing_mode = line
     return Line(
@@ -250,7 +299,7 @@ def _build_line(line: _CoreLine | _CoreRawLine) -> Line:
         bbox=_rect(bbox),
         direction=_point(direction),
         is_vertical=writing_mode == 1,
-        spans=tuple(_build_span(*span) for span in spans),
+        spans=tuple(_build_span(*span, colors) for span in spans),
     )
 
 
@@ -261,6 +310,8 @@ def _build_span(  # noqa: PLR0913, PLR0917 - unpacks one core span tuple.
     origin: Sequence[float],
     font: str,
     flags: int,
+    style: _CoreStyle,
+    colors: dict[tuple[float, float, float, float], Color],
 ) -> Span:
     """Build one :class:`Span`; ``content`` is its text, or its text and glyphs."""
     if isinstance(content, str):
@@ -268,6 +319,11 @@ def _build_span(  # noqa: PLR0913, PLR0917 - unpacks one core span tuple.
     else:
         text, glyphs = content
         chars = tuple(_char(char, _rect(char_bbox), _point(char_origin)) for char, char_bbox, char_origin in glyphs)
+    components, render_mode, is_clipped, ascender, descender = style
+    if components is None:
+        color = None
+    elif (color := colors.get(components)) is None:
+        color = colors[components] = Color(*components)
     return Span(
         text=text,
         bbox=_rect(bbox),
@@ -278,6 +334,11 @@ def _build_span(  # noqa: PLR0913, PLR0917 - unpacks one core span tuple.
         is_italic=bool(flags & _ITALIC),
         is_serif=bool(flags & _SERIF),
         is_monospaced=bool(flags & _MONOSPACED),
+        color=color,
+        render_mode=_RENDER_MODES[render_mode],
+        is_clipped=is_clipped,
+        ascender=ascender,
+        descender=descender,
         chars=chars,
     )
 
@@ -366,7 +427,7 @@ def text_page_dict(width: float, height: float, blocks: Sequence[_CoreBlock]) ->
                                 "flags": flags,
                                 "text": text,
                             }
-                            for span_bbox, text, size, origin, font, flags in spans
+                            for span_bbox, text, size, origin, font, flags, _ in spans
                         ],
                     }
                     for line_bbox, spans, _, direction, writing_mode in lines

@@ -10,11 +10,30 @@ from pylopdf._pixmap import Colorspace
 if sys.platform == "win32":
     def _copy_windows_dacl(source: str | os.PathLike[str], destination: str | os.PathLike[str]) -> None: ...
 
+# Page.layout(): a span is (bbox, text, size, origin, font, flags, style), and
+# its style (sRGB color and alpha, render mode, clipped, ascender, descender).
+_SpanStyleTuple: TypeAlias = tuple[tuple[float, float, float, float] | None, int, bool, float, float]
+_SpanTuple: TypeAlias = tuple[
+    tuple[float, float, float, float], str, float, tuple[float, float], str, int, _SpanStyleTuple
+]
+_WordTuple: TypeAlias = tuple[tuple[float, float, float, float], str]
+_LineTuple: TypeAlias = tuple[
+    tuple[float, float, float, float], list[_SpanTuple], list[_WordTuple], tuple[float, float], int
+]
+_BlockTuple: TypeAlias = tuple[tuple[float, float, float, float], list[_LineTuple]]
 _RawCharTuple: TypeAlias = tuple[str, tuple[float, float, float, float], tuple[float, float]]
 _RawSpanTuple: TypeAlias = tuple[
-    tuple[float, float, float, float], list[_RawCharTuple], float, tuple[float, float], str, int
+    tuple[float, float, float, float],
+    tuple[str, list[_RawCharTuple]],
+    float,
+    tuple[float, float],
+    str,
+    int,
+    _SpanStyleTuple,
 ]
-_RawLineTuple: TypeAlias = tuple[tuple[float, float, float, float], list[_RawSpanTuple], tuple[float, float], int]
+_RawLineTuple: TypeAlias = tuple[
+    tuple[float, float, float, float], list[_RawSpanTuple], list[_WordTuple], tuple[float, float], int
+]
 _RawBlockTuple: TypeAlias = tuple[tuple[float, float, float, float], list[_RawLineTuple]]
 
 # Page.content(): items as (kind, nested tuple) pairs, then the fonts, clips,
@@ -500,26 +519,7 @@ class _Document:
     def set_mediabox(self, page_number: int, x0: float, y0: float, x1: float, y1: float) -> None: ...
     def select(self, page_numbers: list[int]) -> None: ...
     def extract_text(self, page_numbers: list[int]) -> str: ...
-    def extract_layout(
-        self, page_number: int
-    ) -> tuple[
-        float,
-        float,
-        list[
-            tuple[
-                tuple[float, float, float, float],
-                list[
-                    tuple[
-                        tuple[float, float, float, float],
-                        list[tuple[tuple[float, float, float, float], str, float, tuple[float, float], str, int]],
-                        list[tuple[tuple[float, float, float, float], str]],
-                        tuple[float, float],
-                        int,
-                    ]
-                ],
-            ]
-        ],
-    ]: ...
+    def extract_layout(self, page_number: int) -> tuple[float, float, list[_BlockTuple]]: ...
     def extract_raw_layout(self, page_number: int) -> tuple[float, float, list[_RawBlockTuple]]: ...
     def find_tables(
         self,

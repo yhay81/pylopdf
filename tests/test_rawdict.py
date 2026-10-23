@@ -93,7 +93,19 @@ def test_rawdict_schema_and_horizontal_japanese_geometry() -> None:
     assert line["dir"] == (1.0, 0.0)
     assert line["wmode"] == 0
     span = line["spans"][0]
-    assert set(span) == {"bbox", "origin", "size", "font", "flags", "chars"}
+    assert set(span) == {
+        "bbox",
+        "origin",
+        "size",
+        "font",
+        "flags",
+        "char_flags",
+        "color",
+        "alpha",
+        "ascender",
+        "descender",
+        "chars",
+    }
     assert span["size"] == pytest.approx(24)
     assert [char["c"] for char in span["chars"]] == list("日本語")
     # The fixture's PDF origin is (72, 720), with /DW 1000 at 24 pt.
@@ -388,6 +400,11 @@ def test_layout_records_describe_glyph_values() -> None:
             "is_italic",
             "is_serif",
             "is_monospaced",
+            "color",
+            "render_mode",
+            "is_clipped",
+            "ascender",
+            "descender",
             "chars",
         ),
         pylopdf.Line: ("text", "bbox", "direction", "is_vertical", "spans"),
