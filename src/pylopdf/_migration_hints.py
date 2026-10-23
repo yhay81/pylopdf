@@ -105,7 +105,7 @@ HINTS: dict[str, str] = {
     "Document.add_ocg": "pylopdf plans the capability of pymupdf's Document.add_ocg in the Structure milestone of ROADMAP.md.",
     "Document.apply_css": "pylopdf does not provide pymupdf's Document.apply_css. Use typst for HTML and CSS pagination and open its PDF output with pylopdf.open().",
     "Document.authenticate": "Document.authenticate is Document.unlock in pylopdf. Use doc.unlock(password), which returns Access.USER or Access.OWNER and raises PasswordError for a wrong password.",
-    "Document.bake": "pylopdf plans the capability of pymupdf's Document.bake in the Interaction milestone of ROADMAP.md.",
+    "Document.bake": "Document.bake is Document.flatten in pylopdf. doc.flatten(annotations=True, widgets=True) draws appearances into page content and removes the annotations, keeping links; the codemod rewrites bake() calls.",
     "Document.can_save_incrementally": "pylopdf plans the capability of pymupdf's Document.can_save_incrementally in the Persistence milestone of ROADMAP.md.",
     "Document.chapter_count": "pylopdf does not provide pymupdf's Document.chapter_count. pylopdf opens PDF files only, so reflowable-document APIs do not apply.",
     "Document.chapter_page_count": "pylopdf does not provide pymupdf's Document.chapter_page_count. pylopdf opens PDF files only, so reflowable-document APIs do not apply.",

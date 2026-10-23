@@ -225,7 +225,7 @@
     "Document.add_ocg": {"kind": "method", "status": "planned", "relation": null, "pylopdf": null, "milestone": "structure"},
     "Document.apply_css": {"kind": "method", "status": "non-goal", "relation": null, "pylopdf": null, "milestone": null, "hint": "Use typst for HTML and CSS pagination and open its PDF output with pylopdf.open()."},
     "Document.authenticate": {"kind": "method", "status": "available", "relation": "replaced", "pylopdf": "Document.unlock", "milestone": "reset", "hint": "Use doc.unlock(password), which returns Access.USER or Access.OWNER and raises PasswordError for a wrong password."},
-    "Document.bake": {"kind": "method", "status": "planned", "relation": null, "pylopdf": null, "milestone": "interaction"},
+    "Document.bake": {"kind": "method", "status": "available", "relation": "replaced", "pylopdf": "Document.flatten", "milestone": "interaction", "hint": "doc.flatten(annotations=True, widgets=True) draws appearances into page content and removes the annotations, keeping links; the codemod rewrites bake() calls."},
     "Document.can_save_incrementally": {"kind": "method", "status": "planned", "relation": null, "pylopdf": null, "milestone": "persistence"},
     "Document.chapter_count": {"kind": "property", "status": "non-goal", "relation": null, "pylopdf": null, "milestone": null, "hint": "pylopdf opens PDF files only, so reflowable-document APIs do not apply."},
     "Document.chapter_page_count": {"kind": "method", "status": "non-goal", "relation": null, "pylopdf": null, "milestone": null, "hint": "pylopdf opens PDF files only, so reflowable-document APIs do not apply."},

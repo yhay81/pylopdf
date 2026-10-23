@@ -341,7 +341,7 @@ its text needs an OpenType `Font` until krilla draws the Standard 14 fonts.
 | `page.widgets` | `Widget` handles for a field's appearances on the page: `rect`, `field`, `flags`, styling (`border`, `border_color`, `background_color`, `caption`, `text_color`, `font`, `font_size`, all assignable), `button_states`, `on_state`, and `scripts`; `field.widgets` lists a field's widgets. A widget's value is its field's value, the one overlap that the PDF model makes. `page.widgets.add(TextField("name", rect, ...))` and the other field specifications (`CheckBox`, `RadioButton`, `ComboBox`, `ListBox`, `PushButton`, `SignatureField`, frozen dataclasses with the name and rectangle positional and the style keyword-only) create a field with its first widget, or add a widget to the existing field of that name, such as another button of a radio group, and return the `Widget`; `del page.widgets[i]` removes a widget, and its field with the last one. |
 | Scripts | JavaScript actions are authored and removed, never run. `field.scripts` maps the field triggers of `/AA` (keystroke, format, validate, calculate) and `widget.scripts` the widget triggers (focus, blur, enter, exit, down, up, and a pushbutton's activation action) from a `ScriptTrigger` member to the source text; both are assignable and support `del`. |
 | `doc.destinations` | A read-only mapping from the names of named destinations to `Destination` values. |
-| `doc.flatten(*, annotations=True, widgets=True)` | Draws appearances into page content and removes the objects. |
+| `doc.flatten(*, annotations=True, widgets=True)` | Draws appearances into page content and removes the objects: every annotation but links, with their popups, and every widget, with the form. |
 
 ## 10. Rewriting
 

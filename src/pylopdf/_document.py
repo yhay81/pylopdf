@@ -888,6 +888,25 @@ class Document:
         self._emit_warnings(stacklevel=4)
         return layout
 
+    def flatten(self, *, annotations: bool = True, widgets: bool = True) -> None:
+        """Draw annotation and widget appearances into page content and remove them, as pymupdf's ``bake`` does.
+
+        ``annotations`` covers every annotation but links, which stay, and
+        removes popups; ``widgets`` covers form widgets and removes the form.
+        Each one is drawn as rendering shows it: its normal appearance mapped
+        onto its rectangle, or the appearance that rendering synthesizes for
+        one without, and hidden ones are removed undrawn. A widget without an
+        appearance draws nothing; fill fields first, which draws them. The
+        operation is atomic.
+        """
+        for name, value in (("annotations", annotations), ("widgets", widgets)):
+            if not isinstance(value, bool):
+                msg = f"{name} is a bool: {value!r}"
+                raise TypeError(msg)
+        self._ensure_open()
+        self._doc.flatten(annotations, widgets)
+        self._emit_warnings()
+
     @property
     def destinations(self) -> Destinations:
         """Return the named destinations, a read-only :class:`Destinations` mapping from name to destination."""

@@ -1026,6 +1026,24 @@ UTF-8 (`LimitError` code `script_size`). A refused write leaves the mapping
 unchanged. Replacing a calculation keeps its existing position in `/CO`.
 Script streams use the same PDF text encodings as strings.
 
+### Flattening { #flattening }
+
+`doc.flatten()` draws every annotation and form widget into its page's
+content and removes it, so the page shows the same and nothing on it stays
+editable. Links stay. `annotations=False` keeps the annotations and
+`widgets=False` keeps the form; flattening widgets removes the form with
+them, and flattening annotations removes their popups. Each one is drawn
+from its normal appearance, mapped onto its rectangle as ISO 32000-2
+§12.5.5 describes, or, for an annotation without one, from the appearance
+that rendering draws; hidden ones are removed undrawn, and a widget without
+an appearance draws nothing, so fill fields before flattening them.
+
+```python
+doc.form["name"].value = "Ada Lovelace"
+doc.flatten()
+assert len(doc.form) == 0 and "Ada Lovelace" in doc.pages[0].text()
+```
+
 ## Attachments { #attachments }
 
 `doc.attachments` is a mapping from names to `Attachment` objects:

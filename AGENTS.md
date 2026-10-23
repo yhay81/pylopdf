@@ -121,7 +121,7 @@ the concept and API overview.
     `src/pylopdf/_canvas.py`, `_create.py`, `_fonts.py`, and
     `_geometry.py`.
   - Interaction: `form.rs`, `acroform_import.rs`, `annotation_appearance.rs`;
-    `document/{forms,annotations}.rs`; `src/pylopdf/_annotations.py`,
+    `document/{forms,annotations,flattening}.rs`; `src/pylopdf/_annotations.py`,
     `_form.py`, and `_links.py`.
   - Rewriting: `content/`, `text_replace.rs`, `image_compression.rs`;
     `document/replacement.rs`.
@@ -2288,6 +2288,21 @@ the concept and API overview.
   only `SignatureFlags` bits. pylopdf neither signs nor verifies;
   `tests/test_interop.py` has pyHanko sign a pylopdf `SignatureField` and
   validate the result.
+- `doc.flatten` (`rust/src/document/flattening.rs`) plans every page's
+  `/Annots` first: links and entries that are no dictionaries stay,
+  popups go with annotations, and a selected entry is drawn unless it is
+  hidden or follows an entry that is no dictionary, where hayro stops
+  drawing. Inside a document clone that a failure restores, it gives the
+  annotations without an appearance the ones that rendering synthesizes
+  (`missing_appearance_plans`, under the same budgets), draws each page's
+  appearances through one wrapper Form XObject appended to the page content
+  (the state that `/AS` names, else `/Off`, as hayro selects it; a stream
+  without `/Subtype` gains `/Form`), rewrites `/Annots` as a direct array of
+  what stays, and removes the catalog's `/AcroForm` when it flattens
+  widgets. The placement follows ISO 32000-2 §12.5.5; hayro 0.8 leaves the
+  scale out of the translation of matrix A, so an appearance whose
+  transformed BBox is off the origin and scaled renders elsewhere before
+  flattening than after it, where MuPDF and pdf.js draw it.
 - AcroForm filling writes `/V`, synchronizes button `/AS`, and regenerates
   widget `/AP /N`. Text and choice appearances auto-fit in widget-local
   coordinates, respect inherited `/Q` and multiline `/Ff`, and reuse the Core

@@ -103,6 +103,11 @@ impl MissingAppearances {
     pub(super) fn is_empty(&self) -> bool {
         self.drawn.is_empty()
     }
+
+    /// Keep only the appearances of annotations that `keep` accepts.
+    pub(super) fn retain(&mut self, keep: impl Fn(ObjectId) -> bool) {
+        self.drawn.retain(|plan| keep(plan.annotation_id));
+    }
 }
 
 /// The most annotations whose appearances one rendering snapshot draws.

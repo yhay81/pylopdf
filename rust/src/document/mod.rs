@@ -66,6 +66,7 @@ mod attachments;
 mod drawing;
 mod errors;
 mod extraction;
+mod flattening;
 mod fonts;
 mod forms;
 mod geometry;
@@ -1376,6 +1377,18 @@ impl _Document {
     /// Remove a field with all its widgets.
     fn remove_field(&mut self, py: Python<'_>, xref: u32) -> PyResult<()> {
         forms::remove_field(self, py, xref)
+    }
+
+    /// Draw annotation and widget appearances into page content and remove
+    /// them; returns how many annotations and widgets were removed.
+    #[pyo3(signature = (annotations, widgets))]
+    fn flatten(
+        &mut self,
+        py: Python<'_>,
+        annotations: bool,
+        widgets: bool,
+    ) -> PyResult<(u32, u32)> {
+        flattening::flatten(self, py, annotations, widgets)
     }
 
     /// Return a field's JavaScript scripts by `/AA` trigger.
