@@ -149,10 +149,14 @@ def test_hebrew_generation_embeds_the_regular_instance() -> None:
     pytest.importorskip("pylopdf_fonts_he")
     doc, page = _new_page(500, 300)
 
-    page.insert_text((20, 60), HEBREW, fontsize=24)
-    page.insert_text((20, 100), HEBREW, fontsize=24, font_language="he")
-    page.insert_textbox((20, 120, 480, 160), HEBREW, fontsize=24, font_language="he")
-    page.insert_text((20, 260), SHALOM, fontsize=100, font_language="he")
+    with page.draw() as canvas:
+        canvas.text(HEBREW, (20, 60), size=24)
+    with page.draw() as canvas:
+        canvas.text(HEBREW, (20, 100), font=pylopdf.Font.installed(language="he"), size=24)
+    with page.draw() as canvas:
+        canvas.textbox((20, 120, 480, 160), HEBREW, font=pylopdf.Font.installed(language="he"), size=24)
+    with page.draw() as canvas:
+        canvas.text(SHALOM, (20, 260), font=pylopdf.Font.installed(language="he"), size=100)
 
     spans = _spans(page)
     assert [span["font"] for span in spans] == ["NotoSansHebrew-Regular"] * 4
@@ -178,8 +182,10 @@ def test_font_language_selects_the_regular_hebrew_instance() -> None:
         assert [face.text_width(char, 1000) for char in SHALOM] == pytest.approx(advances)
     # Drawing with the font extra draws what the Font draws.
     expected, actual = (_new_page() for _ in range(2))
-    expected[1].insert_text((20, 60), HEBREW, fontsize=18, font=regular)
-    actual[1].insert_text((20, 60), HEBREW, fontsize=18, font_language="he")
+    with expected[1].draw() as canvas:
+        canvas.text(HEBREW, (20, 60), font=regular, size=18)
+    with actual[1].draw() as canvas:
+        canvas.text(HEBREW, (20, 60), font=pylopdf.Font.installed(language="he"), size=18)
     assert actual[0].to_bytes() == expected[0].to_bytes()
 
 
@@ -187,7 +193,8 @@ def test_explicit_variable_font_input_keeps_its_default_instance() -> None:
     data = HEBREW_SANS.read_bytes()
     doc, page = _new_page(500, 300)
 
-    page.insert_text((20, 150), SHALOM, fontsize=100, fontbuffer=data)
+    with page.draw() as canvas:
+        canvas.text(SHALOM, (20, 150), font=pylopdf.Font.from_bytes(data), size=100)
     face = pylopdf.Font.from_bytes(data)
 
     assert {span["font"] for span in _spans(page)} == {"NotoSansHebrew-Thin"}
@@ -209,7 +216,8 @@ def test_an_explicit_weight_selects_an_instance_of_the_input(source: str) -> Non
         face = _variable_font(source, "he", False, weight=weight)
         assert [face.text_width(char, 1000) for char in SHALOM] == pytest.approx(advances)
     _doc, page = _new_page(500, 300)
-    page.insert_text((20, 150), SHALOM, fontsize=100, font=regular)
+    with page.draw() as canvas:
+        canvas.text(SHALOM, (20, 150), font=regular, size=100)
     assert {span["font"] for span in _spans(page)} == {"NotoSansHebrew-Regular"}
     widths = [char["bbox"][2] - char["bbox"][0] for char in _chars(page)]
     assert widths == pytest.approx([advance / 10 for advance in SHALOM_ADVANCES[400]])
@@ -231,14 +239,20 @@ def test_explicit_input_without_a_weight_draws_as_before(
     for font in (as_given, default_weight, None):
         doc, page = _new_page()
         if font is not None:
-            page.insert_text((20, 60), text, fontsize=18, font=font)
-            page.insert_textbox((20, 80, 380, 180), text, fontsize=14, font=font)
+            with page.draw() as canvas:
+                canvas.text(text, (20, 60), font=font, size=18)
+            with page.draw() as canvas:
+                canvas.textbox((20, 80, 380, 180), text, font=font, size=14)
         elif source == "fontfile":
-            page.insert_text((20, 60), text, fontsize=18, fontfile=path)
-            page.insert_textbox((20, 80, 380, 180), text, fontsize=14, fontfile=path)
+            with page.draw() as canvas:
+                canvas.text(text, (20, 60), font=pylopdf.Font.from_file(path), size=18)
+            with page.draw() as canvas:
+                canvas.textbox((20, 80, 380, 180), text, font=pylopdf.Font.from_file(path), size=14)
         else:
-            page.insert_text((20, 60), text, fontsize=18, fontbuffer=path.read_bytes())
-            page.insert_textbox((20, 80, 380, 180), text, fontsize=14, fontbuffer=path.read_bytes())
+            with page.draw() as canvas:
+                canvas.text(text, (20, 60), font=pylopdf.Font.from_bytes(path.read_bytes()), size=18)
+            with page.draw() as canvas:
+                canvas.textbox((20, 80, 380, 180), text, font=pylopdf.Font.from_bytes(path.read_bytes()), size=14)
         drawn.append(doc.to_bytes())
 
     assert drawn[0] == drawn[1] == drawn[2]
@@ -308,7 +322,8 @@ def test_a_bold_instance_measures_and_draws_the_same_width(
     doc, page = _new_page()
     x, size = 30.25, 24.0
 
-    page.insert_text((x, 80), text, font=bold, fontsize=size)
+    with page.draw() as canvas:
+        canvas.text(text, (x, 80), font=bold, size=size)
 
     chars = _chars(page)
     assert min(char["origin"][0] for char in chars) == pytest.approx(x, abs=1e-3)
@@ -318,7 +333,8 @@ def test_a_bold_instance_measures_and_draws_the_same_width(
     assert {span["font"] for span in spans} == {f"{(bold.family or '').replace(' ', '')}-Bold"}
     assert all(span["flags"] & BOLD_FLAG for span in spans)
     _regular_doc, regular_page = _new_page()
-    regular_page.insert_text((x, 80), text, font=regular, fontsize=size)
+    with regular_page.draw() as canvas:
+        canvas.text(text, (x, 80), font=regular, size=size)
     assert _ink(page) > 1.2 * _ink(regular_page)
     reopened = pylopdf.open(doc.to_bytes())
     assert reopened.pages[0].text().strip() == text
@@ -330,7 +346,8 @@ def test_a_prefix_of_a_bold_line_ends_where_the_next_glyph_begins(source: str) -
     _doc, page = _new_page()
     x, size, text, prefix = 20.5, 30.0, "ภาษาไทย", "ภาษา"
 
-    page.insert_text((x, 80), text, font=bold, fontsize=size)
+    with page.draw() as canvas:
+        canvas.text(text, (x, 80), font=bold, size=size)
 
     following = next(char for char in _chars(page) if char["c"] == text[len(prefix)])
     assert following["origin"][0] == pytest.approx(x + bold.text_width(prefix, size), abs=1e-3)
@@ -342,12 +359,14 @@ def test_textbox_lays_out_a_bold_instance_with_its_advances(source: str) -> None
     _doc, page = _new_page()
     rect = (20, 20, 380, 120)
 
-    spare = page.insert_textbox(rect, HEBREW, font=bold, fontsize=16, align=pylopdf.TEXT_ALIGN_RIGHT)
+    with page.draw() as canvas:
+        spare = canvas.textbox(rect, HEBREW, align="right", font=bold, size=16).spare_height
 
-    # As in pymupdf, one line counts its default line height, the ascender
-    # minus the descender, plus one more descender.
-    line_height = bold.ascender - bold.descender
-    assert spare == pytest.approx(rect[3] - rect[1] - (line_height - bold.descender) * 16, abs=1e-6)
+    # One line takes the instance's ascender minus its descender, which is
+    # what Font.text_height measures.
+    height = (bold.ascender - bold.descender) * 16
+    assert bold.text_height(HEBREW, 16, width=rect[2] - rect[0]) == pytest.approx(height, abs=1e-6)
+    assert spare == pytest.approx(rect[3] - rect[1] - height, abs=1e-6)
     line = page.layout().to_dict()["blocks"][0]["lines"][0]
     assert line["bbox"][0] == pytest.approx(rect[2] - bold.text_width(HEBREW, 16), abs=1e-2)
     assert line["bbox"][2] == pytest.approx(rect[2], abs=1e-2)
@@ -359,7 +378,8 @@ def test_each_weight_on_a_page_keeps_its_own_subset_name() -> None:
     faces = [pylopdf.Font.installed(language="he", weight=weight) for weight in (100, 400, 650, 700, 900)]
 
     for index, face in enumerate(faces):
-        page.insert_text((20, 40 + 50 * index), HEBREW, font=face, fontsize=20)
+        with page.draw() as canvas:
+            canvas.text(HEBREW, (20, 40 + 50 * index), font=face, size=20)
 
     styles = ["Thin", "Regular", "650wght", "Bold", "Black"]
     assert [face.name for face in faces] == [f"Noto Sans Hebrew {style}" for style in styles]
@@ -374,7 +394,8 @@ def test_each_weight_on_a_page_keeps_its_own_subset_name() -> None:
     ink = []
     for face in faces:
         _single, single_page = _new_page(400, 100)
-        single_page.insert_text((20, 60), HEBREW, font=face, fontsize=30)
+        with single_page.draw() as canvas:
+            canvas.text(HEBREW, (20, 60), font=face, size=30)
         ink.append(_ink(single_page))
     assert ink == sorted(ink)
     assert ink[1] > 2 * ink[0]
@@ -417,10 +438,14 @@ def test_static_and_default_weight_faces_draw_as_before() -> None:
     ]
     for language, text, path, unchanged in cases:
         installed, explicit = (_new_page() for _ in range(2))
-        installed[1].insert_text((20, 60), text, fontsize=18, font_language=language)
-        installed[1].insert_textbox((20, 80, 380, 180), text, fontsize=14, font_language=language)
-        explicit[1].insert_text((20, 60), text, fontsize=18, fontbuffer=path.read_bytes())
-        explicit[1].insert_textbox((20, 80, 380, 180), text, fontsize=14, fontbuffer=path.read_bytes())
+        with installed[1].draw() as canvas:
+            canvas.text(text, (20, 60), font=pylopdf.Font.installed(language=language), size=18)
+        with installed[1].draw() as canvas:
+            canvas.textbox((20, 80, 380, 180), text, font=pylopdf.Font.installed(language=language), size=14)
+        with explicit[1].draw() as canvas:
+            canvas.text(text, (20, 60), font=pylopdf.Font.from_bytes(path.read_bytes()), size=18)
+        with explicit[1].draw() as canvas:
+            canvas.textbox((20, 80, 380, 180), text, font=pylopdf.Font.from_bytes(path.read_bytes()), size=14)
         assert (installed[0].to_bytes() == explicit[0].to_bytes()) is unchanged, language
 
 
@@ -546,7 +571,8 @@ def test_weights_share_the_installed_font_file() -> None:
 
     faces = [pylopdf.Font.installed(language="he", weight=weight) for weight in (100, 300, 700, 900)]
     _doc, page = _new_page()
-    page.insert_text((20, 60), HEBREW, fontsize=12, font_language="he")
+    with page.draw() as canvas:
+        canvas.text(HEBREW, (20, 60), font=pylopdf.Font.installed(language="he"), size=12)
 
     assert _Document.package_font_reads() == reads
     assert len({face.name for face in faces}) == len(faces)

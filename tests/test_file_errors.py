@@ -46,8 +46,8 @@ def test_missing_file_raises_builtin_file_not_found(tmp_path: Path, opener: Call
 def test_missing_font_and_image_files_raise_file_not_found(tmp_path: Path) -> None:
     page = pylopdf.open(build_pdf([""])).pages[0]
 
-    with pytest.raises(FileNotFoundError):
-        page.insert_text((20, 40), "x", fontfile=tmp_path / "missing.otf")
+    with pytest.raises(FileNotFoundError), page.draw() as canvas:
+        canvas.text("x", (20, 40), font=pylopdf.Font.from_file(tmp_path / "missing.otf"))
     with pytest.raises(FileNotFoundError):
         page.insert_image((0, 0, 50, 50), filename=tmp_path / "missing.png")
     with pytest.raises(FileNotFoundError):

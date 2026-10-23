@@ -195,7 +195,8 @@ def test_search_for_bounds_hits_without_returning_partial_results() -> None:
     doc = pylopdf.Document()
     doc.pages.new((1_000_000, 100))
     page = doc.pages[0]
-    page.insert_text((10, 50), "a" * 4097, max_text_size=4097)
+    with page.draw() as canvas:
+        canvas.text("a" * 4097, (10, 50), max_text_size=4097)
 
     with pytest.raises(pylopdf.LimitError) as caught:
         page.search("a")
@@ -236,7 +237,8 @@ def test_cached_text_page_reflects_drawing_edit() -> None:
     assert "Before" in page.text()
     assert page.search("After") == []
 
-    page.insert_text((72, 120), "After")
+    with page.draw() as canvas:
+        canvas.text("After", (72, 120))
 
     assert "After" in page.text()
     assert len(page.search("After")) == 1

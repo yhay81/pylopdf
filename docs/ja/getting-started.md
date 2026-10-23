@@ -136,22 +136,24 @@ with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterh
     doc.save("annotated.pdf")
 ```
 
-テキストとフォント。フォントを指定しない場合、pylopdfはラテン文字をHelveticaで書き、それ以外の文字は`pylopdf[jp]`のようなインストール済みextraのフォントで書きます。
+テキストとフォント。テキストはキャンバスで描きます。フォントを指定しない場合、pylopdfはラテン文字をHelveticaで書き、それ以外の文字は`pylopdf[jp]`のようなインストール済みextraのフォントで書きます。
 
 ```python
+from pylopdf import Color, Font
+
 with pylopdf.open("input.pdf") as doc:
     page = doc.pages[0]
-    page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
-    page.insert_text((40, 70), "社外秘", fontsize=18)                          # pylopdf[jp]が必要
-    page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")  # pylopdf[zh-cn]が必要
-
-    bold = pylopdf.Font.from_file("NotoSansJP-Bold.otf")      # 任意のOpenTypeファイル
-    width = bold.text_width("見出し", 16)                       # 描いたときの幅
-    page.insert_text((page.rect.width - 40 - width, 140), "見出し", font=bold, fontsize=16)
+    bold = Font.from_file("NotoSansJP-Bold.otf")    # 任意のOpenTypeファイル
+    width = bold.text_width("見出し", 16)             # 描いたときの幅
+    with page.draw() as canvas:
+        canvas.text("CONFIDENTIAL", (40, 40), size=18, fill=Color(1, 0, 0))
+        canvas.text("社外秘", (40, 70), size=18)                                             # pylopdf[jp]が必要
+        canvas.text("简体中文", (40, 100), font=Font.installed(language="zh-CN"), size=18)  # pylopdf[zh-cn]が必要
+        canvas.text("見出し", (page.rect.width - 40 - width, 140), font=bold, size=16)
     doc.save("text.pdf")
 ```
 
-図形、テキスト、画像を順番どおりにまとめて描くには、キャンバスを使います。各フォントと画像は1回だけ格納されます。
+キャンバスは図形、テキスト、画像を呼び出した順にまとめて描き、各フォントと画像を1回だけ格納します。
 
 ```python
 from pylopdf import Color

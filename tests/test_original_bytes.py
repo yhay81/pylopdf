@@ -219,7 +219,8 @@ def test_form_with_a_bare_keyword_survives_edits_and_saves() -> None:
     assert _consistent_page_texts(data) == [["FORM TEXT", "PAGE TEXT"]]
     doc = pylopdf.open(data)
     for index in range(3):
-        doc.pages[0].insert_text((20, 30 + 20 * index), f"STAMP {index}")
+        with doc.pages[0].draw() as canvas:
+            canvas.text(f"STAMP {index}", (20, 30 + 20 * index))
     saved = doc.to_bytes()
     assert re.search(rb"/Type null\s*/Subtype\s*/Form", saved)
     assert sorted(pylopdf.open(saved).pages[0].text().splitlines()) == [
@@ -448,7 +449,8 @@ def test_unreachable_object_stream_debris_is_dropped_with_its_numbers() -> None:
 
     assert _keeps_original_bytes(data)
     doc = pylopdf.open(data)
-    doc.pages[0].insert_text((20, 40), "STAMP")
+    with doc.pages[0].draw() as canvas:
+        canvas.text("STAMP", (20, 40))
     saved = doc.to_bytes()
     assert b"Debris" not in saved
     assert max(int(number) for number in re.findall(rb"(\d+) 0 obj", saved)) < 20

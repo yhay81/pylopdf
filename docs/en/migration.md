@@ -122,7 +122,7 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 
 | pymupdf | pylopdf | Notes |
 |---|---|---|
-| `page.insert_text()`, `insert_textbox()` | Same | Also accept `font=`, `fontbuffer=`, and `font_language=`; see [Text and fonts](api.md#fonts) |
+| `page.insert_text(point, text)`, `insert_textbox(rect, text)` | `canvas.text(text, at)`, `canvas.textbox(rect, text)` | Inside `with page.draw() as canvas:`. `fontsize=` becomes `size=`, `color=` `fill=Color(...)`, `lineheight=` `line_height=`, and `fontname=`, `fontfile=`, or `fontbuffer=` a `Font` passed as `font=`; `align=` takes `"left"`, `"center"`, `"right"`, or `"justify"`. `textbox` returns a `TextFit` whose `spare_height` is negative when nothing was drawn; see [Writing text](api.md#writing-text) |
 | `pymupdf.Font(...)` | `Font.standard(name)`, `Font.from_file(path)`, `Font.from_bytes(data)`, `Font.installed(language=...)` | Standard 14 fonts by PostScript name, such as `"Helvetica"` for `"helv"`, OpenType files, and installed font extras; pymupdf's other built-in fonts and `script=`, `ordering=`, and `embed=` are not available |
 | `font.text_length(text, fontsize)`, `pymupdf.get_text_length(text, fontname, fontsize)` | `font.text_width(text, size)` | `size` has no default; `font.text_height(text, size, width=...)` also measures wrapped text as `canvas.textbox` draws it |
 | `font.has_glyph(ord(c))` | `font.has_glyph(c)` | Takes the character and returns a bool, not the glyph number |
@@ -164,9 +164,13 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
   `except FileNotFoundError`.
 - **Rotated pages.** Extraction, search, drawing, and rendering all use the
   coordinates of the page as displayed, including on rotated pages.
-- **`insert_text` near the page bottom.** pylopdf decides which lines fit using
-  the visible page area (`page.rect`), while pymupdf measures down to the
-  unrotated page's bottom edge. Both agree on ordinary unrotated pages.
+- **Text layout.** `canvas.textbox` spaces lines as `canvas.text` does,
+  `line_height × size` apart, and needs exactly the height that
+  `Font.text_height` measures, from the first line's ascender to the last
+  line's descender. pymupdf's `insert_textbox` spaces later lines by its line
+  height times the ascender and counts one more descender, so lines sit
+  differently and some text fits that pymupdf refuses. `canvas.text` draws
+  every line, where pymupdf's `insert_text` leaves out lines below the page.
 - **Fonts are strict.** pylopdf raises instead of silently using another
   font: for example, when a font lacks a character, or when `is_bold=True`
   asks for a bold face that is not installed.

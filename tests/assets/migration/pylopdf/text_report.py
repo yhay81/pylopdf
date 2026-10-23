@@ -5,8 +5,9 @@ import pylopdf
 doc = pylopdf.Document()
 for number in range(3):
     page = doc.pages.new((300, 200))
-    page.insert_text((40, 60), f"Chapter {number + 1}", fontsize=14)
-    page.insert_text((40, 90), "The quick brown fox", fontsize=11)
+    with page.draw() as canvas:
+        canvas.text(f"Chapter {number + 1}", (40, 60), size=14)
+        canvas.text("The quick brown fox", (40, 90), size=11)
 
 toc = [[1, "Chapter 1", 1], [2, "Details", 2], [1, "Chapter 3", 3]]
 doc.outline = [pylopdf.OutlineEntry(item[0], item[1], pylopdf.Destination(item[2] - 1) if item[2] > 0 else None) for item in toc]

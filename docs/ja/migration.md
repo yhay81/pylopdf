@@ -99,7 +99,7 @@ python -m pylopdf.migrate src/
 
 | pymupdf | pylopdf | 備考 |
 |---|---|---|
-| `page.insert_text()`, `insert_textbox()` | 同じ | `font=`、`fontbuffer=`、`font_language=`も受け付けます。[テキストとフォント](api.md#fonts)を参照 |
+| `page.insert_text(point, text)`, `insert_textbox(rect, text)` | `canvas.text(text, at)`, `canvas.textbox(rect, text)` | `with page.draw() as canvas:`の中で呼びます。`fontsize=`は`size=`、`color=`は`fill=Color(...)`、`lineheight=`は`line_height=`になり、`fontname=`、`fontfile=`、`fontbuffer=`は`font=`に渡す`Font`になります。`align=`には`"left"`、`"center"`、`"right"`、`"justify"`を指定します。`textbox`は`TextFit`を返し、何も描かなかったときは`spare_height`が負になります。[テキストを書く](api.md#writing-text)を参照 |
 | `pymupdf.Font(...)` | `Font.standard(name)`, `Font.from_file(path)`, `Font.from_bytes(data)`, `Font.installed(language=...)` | PostScript名で指定するStandard 14フォント（`"helv"`は`"Helvetica"`）、OpenTypeファイル、インストール済みのフォントextra。pymupdfのほかの内蔵フォントと、`script=`、`ordering=`、`embed=`は使えません |
 | `font.text_length(text, fontsize)`, `pymupdf.get_text_length(text, fontname, fontsize)` | `font.text_width(text, size)` | `size`に既定値はありません。`font.text_height(text, size, width=...)`は、折り返したテキストを`canvas.textbox`が描くとおりに測ります |
 | `font.has_glyph(ord(c))` | `font.has_glyph(c)` | 文字そのものを受け取り、グリフ番号ではなく真偽値を返します |
@@ -130,7 +130,7 @@ python -m pylopdf.migrate src/
 - **古いページは例外を送出します。** ページを追加・削除・並べ替えた後、それ以前に取得した`Page`は、黙って別のページを指す代わりに`StalePageError`を送出します。`doc.pages[i]`で取得し直してください。
 - **例外。** 基底クラスは`ValueError`のサブクラスである`PdfError`なので、`except ValueError`はそのまま動きます。読めるPDFではない入力は、空の入力も含め、pymupdfが`FileDataError`や`EmptyFileError`を送出するところで`MalformedPdfError`を送出します。存在しないファイルはPython組み込みの`FileNotFoundError`を送出するので、`except pymupdf.FileNotFoundError`は`except FileNotFoundError`に書き換えてください。
 - **回転したページ。** 抽出・検索・描き込み・レンダリングはすべて、回転したページも含め、表示されたページの座標を使います。
-- **ページ下端付近の`insert_text`。** pylopdfはどの行が収まるかをページの見える領域（`page.rect`）で判断しますが、pymupdfは回転前のページの下端までで測ります。通常の回転していないページでは両者は一致します。
+- **テキストの配置。** `canvas.textbox`は`canvas.text`と同じく行を`line_height × size`の間隔で並べ、`Font.text_height`が測る高さ、つまり最初の行のアセンダーから最後の行のディセンダーまでをちょうど必要とします。pymupdfの`insert_textbox`は2行目以降を行の高さ×アセンダーの間隔で並べ、ディセンダーをもう1つ数えるため、行の位置が異なり、pymupdfでは収まらないテキストが収まることがあります。`canvas.text`はすべての行を描きますが、pymupdfの`insert_text`はページより下に出る行を描きません。
 - **フォントの扱いは厳格です。** pylopdfは黙って別のフォントを使わず、例外を送出します。たとえば、フォントに文字がない場合や、`is_bold=True`でインストールされていない太字を求めた場合です。
 - **フォームの結合。** `doc.pages.insert()`と`extend()`は、pymupdfの既定の`widgets=True`と同じく、常にフォームフィールドをコピーします。受け取る側の文書に同じ名前のフィールドがあれば`name+1`、`name+2`のように改名するので、同じフォームのコピーはそれぞれ別の値を持ちます。
 - **表とMarkdown。** `tables()`は既定で罫線で描かれた表を検出します。罫線のない表には`strategy="text"`を渡してください。`markdown()`は検出した表を読み順の位置に置き、周囲の段落からその表のテキストを取り除きます。

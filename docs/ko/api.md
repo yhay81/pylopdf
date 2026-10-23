@@ -238,11 +238,9 @@ page.rotation = 90
 
 | 멤버 | 용도 |
 |---|---|
-| `insert_text(point, text, ...)` | 한 점에서 시작해 텍스트를 씀. [텍스트와 글꼴](#fonts) 참고 |
-| `insert_textbox(rect, text, ...)` | 사각형 안에 줄바꿈한 텍스트를 씀 |
 | `insert_image(rect, *, filename=, stream=, pixmap=, rotate=0, keep_proportion=True, overlay=True)` | JPEG, PNG, `Pixmap`을 그리고 객체 번호를 반환 |
 | `show_pdf_page(rect, docsrc, pno=0, *, keep_proportion=True, overlay=True)` | 다른 PDF(또는 이 PDF)의 페이지를 벡터로 그림 |
-| `draw(*, underlay=False)` | 선이나 사각형 같은 경로, 텍스트, 이미지, 페이지를 순서대로 그리는 [캔버스](#canvas) |
+| `draw(*, underlay=False)` | 텍스트, 선이나 사각형 같은 경로, 이미지, 페이지를 순서대로 그리는 [캔버스](#canvas). [텍스트 쓰기](#writing-text) 참고 |
 | `replace_text(search, replacement, *, default_char=None)` | 단순(단일 바이트) 글꼴로 그려진 텍스트를 교체 |
 
 같은 이미지나 페이지를 다시 그리면 파일에는 한 번만 저장됩니다.
@@ -482,25 +480,25 @@ for table in page.tables():
 
 ### 텍스트 쓰기 { #writing-text }
 
+텍스트는 [캔버스](#canvas)로 그립니다. `canvas.text(text, at, ...)`는 한 점에서 시작해 줄을 쓰고, `canvas.textbox(rect, text, ...)`는 사각형 안에 텍스트를 줄바꿈해 씁니다.
+
 ```python
-page.insert_text(point, text, *, fontsize=11, lineheight=None, font=None,
-                 fontname="helv", fontfile=None, fontbuffer=None, fontindex=0,
-                 font_language=None, color=(0, 0, 0), overlay=True)
-page.insert_textbox(rect, text, *, align=pylopdf.TEXT_ALIGN_LEFT,
-                    expandtabs=1, ...)   # 글꼴 옵션은 동일
+from pylopdf import Color, Font
+
+with page.draw() as canvas:
+    canvas.text("CONFIDENTIAL", (40, 40), size=18, fill=Color(1, 0, 0))
+    canvas.text("社外秘", (40, 70), size=18)                                    # pylopdf[jp] 필요
+    canvas.text("简体中文", (40, 100), font=Font.installed(language="zh-CN"))  # pylopdf[zh-cn] 필요
 ```
 
-글꼴은 다음 인수 중 하나로 선택합니다.
+글꼴은 `font=`로 선택합니다.
 
-- 지정하지 않거나 `fontname`: 텍스트에 필요하면 설치된 extra의 글꼴, 그렇지 않으면 Standard 14 글꼴(기본값 `"helv"`, 또는 `"Times-Bold"` 등). Standard 14 글꼴은 포함되지 않으며 서유럽(WinAnsi) 문자만 지원합니다.
-- `fontfile` 또는 `fontbuffer`: OpenType 글꼴. 사용한 글리프만 포함됩니다.
-- `font`: 이미 불러온 [`Font`](#font).
+- 지정하지 않음: 서유럽(WinAnsi) 텍스트는 Helvetica, 그 밖의 텍스트는 해당 문자 체계에 맞는 설치된 extra의 글꼴.
+- `Font.standard(name)`: `"Times-Bold"` 같은 Standard 14 글꼴. Standard 14 글꼴은 포함되지 않으며 서유럽 문자만 지원합니다.
+- `Font.from_file(path)` 또는 `Font.from_bytes(data)`: OpenType 글꼴. 사용한 글리프만 포함됩니다.
+- `Font.installed(language=...)` 또는 `Font.installed(family=...)`: 설치된 extra의 글꼴.
 
-한 글꼴이 텍스트의 모든 문자를 포함해야 합니다. pylopdf는 문자마다 글꼴을 바꾸지 않습니다. 가나, 한글, 주음부호, 아랍 문자, 히브리 문자, 데바나가리, 태국 문자로 된 텍스트는 일치하는 설치된 extra를 자동으로 선택합니다. 한자만 있는 텍스트는 언어를 판단할 수 없으므로 기본적으로 일본어 글꼴을 사용합니다. 선택하려면 `font_language="zh-CN"`, `"zh-TW"`, `"ko"`, `"ja"`를 전달하세요.
-
-`insert_text`는 문자열을 `str.splitlines()`로 줄 단위로 나누거나, 항목 하나가 한 줄인 리스트를 받습니다. 줄 간격은 `lineheight × fontsize`이며, `lineheight`의 기본값은 pymupdf와 마찬가지로 글꼴의 ascender와 descender에서 구합니다. 페이지 아래쪽을 벗어나는 줄은 건너뛰며, 메서드는 그린 줄 수를 반환합니다.
-
-`insert_textbox`는 Unicode가 줄바꿈을 허용하는 위치(UAX #14)에서 텍스트를 줄바꿈하고, 명시적 줄바꿈을 유지하며, 탭을 확장하고, 한 줄에 들어가지 않는 긴 단어를 나눕니다. `align`은 `TEXT_ALIGN_LEFT`, `TEXT_ALIGN_CENTER`, `TEXT_ALIGN_RIGHT`, `TEXT_ALIGN_JUSTIFY`를 받습니다. 남은 높이를 반환하며, 음수이면 텍스트가 들어가지 않았다는 뜻이고 이때는 아무것도 그리지 않습니다.
+한 글꼴이 텍스트의 모든 문자를 포함해야 합니다. pylopdf는 문자마다 글꼴을 바꾸지 않습니다. 가나, 한글, 주음부호, 아랍 문자, 히브리 문자, 데바나가리, 태국 문자로 된 텍스트는 일치하는 설치된 extra를 자동으로 선택합니다. 한자만 있는 텍스트는 언어를 판단할 수 없으므로 기본적으로 일본어 글꼴을 사용합니다. 다른 언어를 쓰려면 `font=Font.installed(language="zh-CN")`(또는 `"zh-TW"`, `"ko"`)를 전달하세요.
 
 오른쪽에서 왼쪽으로 쓰는 텍스트는 올바르게 셰이핑됩니다. PDF를 다시 읽으면 완전히 오른쪽에서 왼쪽으로 쓰는 줄, 또는 오른쪽에서 왼쪽으로 쓰는 텍스트 안에 라틴 단어나 숫자 하나가 들어 있는 줄은 논리 순서로 나오고, 그 밖의 방향이 섞인 줄은 시각 순서로 나옵니다. 일부 복잡한 문자 체계의 클러스터, 특히 긴 데바나가리 텍스트는 원래 텍스트와 약간 다르게 추출될 수 있습니다.
 
@@ -524,7 +522,7 @@ pylopdf.Font.installed(*, language=None, family=None, serif=False, weight=None, 
 
 글꼴은 [캔버스](#canvas)가 그리는 대로 텍스트를 잽니다. `text_width(text, size)`는 커닝과 합자를 포함한 한 줄의 폭입니다. `text_height(text, size, *, width, line_height=None)`는 텍스트를 `width`포인트 폭으로 줄바꿈했을 때 `canvas.textbox`에 필요한 높이이므로, 이 높이의 textbox에 텍스트가 정확히 들어갑니다. 속성은 `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, `units_per_em`, `ascender`, `descender`이고, `has_glyph(char)`는 글꼴에 그 문자의 글리프가 있는지 알려 줍니다. `typing.get_args(pylopdf.StandardFontName)`는 `Font.standard()`가 받는 14개의 이름을 나열합니다. Standard 14 글꼴은 포함되지 않으며 서유럽(WinAnsi) 문자만 쓸 수 있습니다.
 
-`weight` 없이 불러온 가변 글꼴은 기본 인스턴스를 사용하며, 기본 인스턴스가 항상 Regular 굵기인 것은 아닙니다. 가변 글꼴인 Noto Sans CJK JP의 기본값은 Thin입니다. Regular를 쓰려면 `weight=400`을 전달하세요. 그리기 메서드의 `fontfile`과 `fontbuffer` 인수도 기본 인스턴스를 사용합니다. 다른 굵기로 그리려면 `Font`를 `font=`로 전달하세요.
+`weight` 없이 불러온 가변 글꼴은 기본 인스턴스를 사용하며, 기본 인스턴스가 항상 Regular 굵기인 것은 아닙니다. 가변 글꼴인 Noto Sans CJK JP의 기본값은 Thin입니다. Regular를 쓰려면 `weight=400`을 전달하세요. `set_form_field`의 `fontfile`과 `fontbuffer` 인수도 기본 인스턴스를 사용합니다. 다른 굵기로 채우려면 `Font`를 `font=`로 전달하세요.
 
 아랍어, 히브리어, 힌디어, 태국어 extra는 가변 글꼴을 제공하므로 축 위의 어떤 굵기든 쓸 수 있습니다(100–900, Noto Naskh Arabic은 400–700). CJK extra는 스타일마다 Regular 글꼴 하나만 제공합니다. `Font.installed(language="ja", weight=700)`는 `PdfError`를 발생시키므로, Noto Sans JP Bold 같은 볼드 글꼴을 `Font.from_file()`로 불러오세요. pylopdf는 글리프를 변형해 볼드나 이탤릭을 흉내 내지 않습니다.
 
@@ -671,7 +669,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 | `PageBoxes` | [페이지 기하](#page-geometry) |
 | `FallbackFont`, `FallbackFonts` | [렌더링과 이미지](#document-rendering) |
 
-상수는 pymupdf의 이름을 유지하며 열거형으로도 묶여 있습니다. `Permissions`(`PDF_PERM_*`), `TextAlign`(`TEXT_ALIGN_*`), `AnnotationType`(`PDF_ANNOT_*`), `AnnotationFlags`(`PDF_ANNOT_IS_*`)입니다. `Access`의 멤버는 `USER`와 `OWNER`이고, `Encryption`은 저장하는 파일을 암호화하는 방법을 나타냅니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
+상수는 pymupdf의 이름을 유지하며 열거형으로도 묶여 있습니다. `Permissions`(`PDF_PERM_*`), `AnnotationType`(`PDF_ANNOT_*`), `AnnotationFlags`(`PDF_ANNOT_IS_*`)입니다. `Access`의 멤버는 `USER`와 `OWNER`이고, `Encryption`은 저장하는 파일을 암호화하는 방법을 나타냅니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
 
 텍스트, 표, OCR, 페이지 내용의 결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord`, `Path`, `Image`, `MarkInfo`, `PdfaClaim`, `OutlineEntry`, `PageLabelRange`, 목차 대상 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 반환하는 그 밖의 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `FormFieldInfo` 같은 `TypedDict` 클래스로 기술됩니다.
 

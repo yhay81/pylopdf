@@ -160,25 +160,27 @@ with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterh
     doc.save("annotated.pdf")
 ```
 
-Text and fonts. Without a font argument, pylopdf writes Latin text in
-Helvetica and other scripts with the font of an installed extra, such as
-`pylopdf[jp]`:
+Text and fonts. Text is drawn with a canvas. Without a font argument,
+pylopdf writes Latin text in Helvetica and other scripts with the font of an
+installed extra, such as `pylopdf[jp]`:
 
 ```python
+from pylopdf import Color, Font
+
 with pylopdf.open("input.pdf") as doc:
     page = doc.pages[0]
-    page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
-    page.insert_text((40, 70), "社外秘", fontsize=18)                          # needs pylopdf[jp]
-    page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")  # needs pylopdf[zh-cn]
-
-    bold = pylopdf.Font.from_file("NotoSansJP-Bold.otf")      # any OpenType file
-    width = bold.text_width("見出し", 16)                       # the width as drawn
-    page.insert_text((page.rect.width - 40 - width, 140), "見出し", font=bold, fontsize=16)
+    bold = Font.from_file("NotoSansJP-Bold.otf")    # any OpenType file
+    width = bold.text_width("見出し", 16)             # the width as drawn
+    with page.draw() as canvas:
+        canvas.text("CONFIDENTIAL", (40, 40), size=18, fill=Color(1, 0, 0))
+        canvas.text("社外秘", (40, 70), size=18)                                             # needs pylopdf[jp]
+        canvas.text("简体中文", (40, 100), font=Font.installed(language="zh-CN"), size=18)  # needs pylopdf[zh-cn]
+        canvas.text("見出し", (page.rect.width - 40 - width, 140), font=bold, size=16)
     doc.save("text.pdf")
 ```
 
-To draw shapes, text, and images together, in order, use a canvas. Each font
-and image is then stored once:
+A canvas draws shapes, text, and images together, in the order of the calls,
+and stores each font and image once:
 
 ```python
 from pylopdf import Color

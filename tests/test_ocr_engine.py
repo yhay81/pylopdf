@@ -48,7 +48,8 @@ def test_ocr_model_package_exposes_complete_paths() -> None:
 def test_ocr_engine_recognizes_rendered_text(ocr_engine: pylopdf.OcrEngine) -> None:
     doc = pylopdf.Document()
     doc.pages.new((360, 120))
-    doc.pages[0].insert_text((20, 75), "Invoice 123", fontsize=36)
+    with doc.pages[0].draw() as canvas:
+        canvas.text("Invoice 123", (20, 75), size=36)
 
     words = doc.pages[0].ocr(engine=ocr_engine, dpi=150, tile_size=512, overlap=64)
 
@@ -66,7 +67,8 @@ def test_ocr_engine_recognizes_any_pixmap_in_pixel_coordinates(
 ) -> None:
     doc = pylopdf.Document()
     doc.pages.new((360, 120))
-    doc.pages[0].insert_text((20, 75), "Invoice 123", fontsize=36)
+    with doc.pages[0].draw() as canvas:
+        canvas.text("Invoice 123", (20, 75), size=36)
     pixmap = doc.pages[0].pixmap(dpi=150, alpha=alpha, background=(255, 255, 255))
 
     words = ocr_engine.recognize(pixmap, tile_size=512, overlap=64)
@@ -82,12 +84,8 @@ def test_ocr_engine_recognizes_any_pixmap_in_pixel_coordinates(
 def test_ocr_engine_recognizes_japanese(ocr_engine: pylopdf.OcrEngine) -> None:
     doc = pylopdf.Document()
     doc.pages.new((400, 120))
-    doc.pages[0].insert_text(
-        (20, 75),
-        "請求書 123",
-        fontsize=36,
-        fontfile=FONT_ROOT / "NotoSansJP-Regular.otf",
-    )
+    with doc.pages[0].draw() as canvas:
+        canvas.text("請求書 123", (20, 75), font=pylopdf.Font.from_file(FONT_ROOT / "NotoSansJP-Regular.otf"), size=36)
 
     words = doc.pages[0].ocr(engine=ocr_engine, dpi=150, tile_size=512, overlap=64)
 
@@ -99,10 +97,14 @@ def test_ocr_engine_orders_sustained_columns(ocr_engine: pylopdf.OcrEngine) -> N
     doc = pylopdf.Document()
     doc.pages.new((500, 180))
     page = doc.pages[0]
-    page.insert_text((20, 60), "Left one", fontsize=24)
-    page.insert_text((20, 120), "Left two", fontsize=24)
-    page.insert_text((290, 60), "Right one", fontsize=24)
-    page.insert_text((290, 120), "Right two", fontsize=24)
+    with page.draw() as canvas:
+        canvas.text("Left one", (20, 60), size=24)
+    with page.draw() as canvas:
+        canvas.text("Left two", (20, 120), size=24)
+    with page.draw() as canvas:
+        canvas.text("Right one", (290, 60), size=24)
+    with page.draw() as canvas:
+        canvas.text("Right two", (290, 120), size=24)
 
     words = page.ocr(engine=ocr_engine, dpi=150, tile_size=512, overlap=64)
 
@@ -114,7 +116,8 @@ def test_ocr_engine_is_reusable_across_concurrent_documents(ocr_engine: pylopdf.
     for text in ("Alpha 123", "Beta 456"):
         document = pylopdf.Document()
         document.pages.new((280, 100))
-        document.pages[0].insert_text((20, 65), text, fontsize=30)
+        with document.pages[0].draw() as canvas:
+            canvas.text(text, (20, 65), size=30)
         documents.append(document)
 
     def recognize(document: pylopdf.Document) -> list[str]:
@@ -241,7 +244,8 @@ def test_ocr_engine_can_raise_measured_concurrency(monkeypatch: pytest.MonkeyPat
 def test_apply_ocr_adds_searchable_invisible_text(ocr_engine: pylopdf.OcrEngine) -> None:
     source = pylopdf.Document()
     source.pages.new((360, 120))
-    source.pages[0].insert_text((20, 75), "Search 456", fontsize=36)
+    with source.pages[0].draw() as canvas:
+        canvas.text("Search 456", (20, 75), size=36)
     raster = source.pages[0].pixmap(dpi=150, background=(255, 255, 255), alpha=True)
 
     target = pylopdf.Document()
@@ -262,12 +266,14 @@ def test_apply_ocr_adds_searchable_invisible_text(ocr_engine: pylopdf.OcrEngine)
 def test_apply_ocr_clip_handles_mixed_content(ocr_engine: pylopdf.OcrEngine) -> None:
     source = pylopdf.Document()
     source.pages.new((360, 120))
-    source.pages[0].insert_text((20, 75), "Region 789", fontsize=36)
+    with source.pages[0].draw() as canvas:
+        canvas.text("Region 789", (20, 75), size=36)
     raster = source.pages[0].pixmap(dpi=150, background=(255, 255, 255), alpha=True)
 
     target = pylopdf.Document()
     target.pages.new((360, 220))
-    target.pages[0].insert_text((20, 30), "Digital header", fontsize=14)
+    with target.pages[0].draw() as canvas:
+        canvas.text("Digital header", (20, 30), size=14)
     target.pages[0].insert_image((0, 80, 360, 200), stream=raster.to_bytes())
     before = bytes(target.pages[0].pixmap(background=(255, 255, 255), alpha=True))
 
@@ -296,8 +302,10 @@ def test_apply_ocr_corrects_rotated_scan_without_rotating_page(
 ) -> None:
     source = pylopdf.Document()
     source.pages.new((360, 200))
-    source.pages[0].insert_text((20, 65), "First line 111", fontsize=28)
-    source.pages[0].insert_text((20, 145), "Second line 222", fontsize=28)
+    with source.pages[0].draw() as canvas:
+        canvas.text("First line 111", (20, 65), size=28)
+    with source.pages[0].draw() as canvas:
+        canvas.text("Second line 222", (20, 145), size=28)
     raster = source.pages[0].pixmap(dpi=150, background=(255, 255, 255), alpha=True)
 
     target = pylopdf.Document()
@@ -337,7 +345,8 @@ def test_apply_ocr_corrects_rotated_scan_without_rotating_page(
 def test_apply_ocr_skips_existing_text_by_default() -> None:
     doc = pylopdf.Document()
     doc.pages.new((200, 100))
-    doc.pages[0].insert_text((20, 50), "Already searchable")
+    with doc.pages[0].draw() as canvas:
+        canvas.text("Already searchable", (20, 50))
 
     assert doc.pages[0].apply_ocr() == []
     with pytest.raises(TypeError, match="skip_existing"):
@@ -413,7 +422,8 @@ def test_ocr_engine_rejects_mismatched_dictionary(tmp_path: Path) -> None:
     )
     doc = pylopdf.Document()
     doc.pages.new((200, 100))
-    doc.pages[0].insert_text((20, 60), "Text", fontsize=30)
+    with doc.pages[0].draw() as canvas:
+        canvas.text("Text", (20, 60), size=30)
 
     with pytest.raises(pylopdf.OcrError, match="dictionary requires"):
         doc.pages[0].ocr(engine=engine, dpi=150, tile_size=512, overlap=64)

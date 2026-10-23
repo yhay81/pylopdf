@@ -1882,39 +1882,43 @@ the concept and API overview.
 - Embedded-font text generation lives in `rust/src/generate.rs`. krilla is
   pinned to 0.8.2 with all default features disabled; HarfRust 0.14 supplies
   shaping without krilla's unmaintained rustybuzz/ttf-parser path. Raster and
-  PDF-import features remain disabled. Generation creates a transparent page
-  in target display coordinates, subset-embeds the selected OpenType face, and
-  returns bytes that the existing lopdf Form-XObject path imports. It releases
-  the GIL and rejects missing glyphs. Without an explicit font source,
-  optional providers `pylopdf[ar]`, `[he]`, `[hi]`, `[jp]`, `[ko]`, `[th]`,
-  `[zh-cn]`, and `[zh-tw]` supply Noto Sans/Serif fonts. Unambiguous script
-  markers select a provider; pure Han remains JP-first for compatibility and
-  `font_language` resolves the intended locale. This selects one font for the
-  complete run; it is not per-glyph fallback. Mixed provider scripts require
-  an explicit font. Python passes a face selected from an installed package to
-  the `_file` core variants as `package_font=(language, kind)`, and the face
-  shares its package/style slot in `rust/src/bundled_font_cache.rs` with CJK
-  fallback configuration. Every call still stats the path and applies the
+  PDF-import features remain disabled. The canvas and widget appearances
+  generate transparent pages in target display coordinates that subset-embed
+  the selected OpenType face, and import them through the lopdf Form-XObject
+  path. Generation releases the GIL and rejects missing glyphs. Canvas text
+  without `font=` is drawn in Helvetica when it is WinAnsi text and otherwise
+  in the sans face of an optional provider, `pylopdf[ar]`, `[he]`, `[hi]`,
+  `[jp]`, `[ko]`, `[th]`, `[zh-cn]`, or `[zh-tw]`, which supply Noto
+  Sans/Serif fonts (`_resolve_generation_font`). Unambiguous script markers
+  select a provider; pure Han remains JP-first, and
+  `Font.installed(language=...)` selects another locale. This selects one
+  font for the complete run; it is not per-glyph fallback. Mixed provider
+  scripts require an explicit font. A face of an installed package loads
+  through `_Font.from_file(..., package_font=(language, kind))` and shares
+  its package/style slot in `rust/src/bundled_font_cache.rs` with CJK
+  fallback configuration. Every load still stats the path and applies the
   font boundary below before reusing the slot's bytes, and rereads a replaced
-  file; explicit `fontfile=` paths and `fontbuffer=` input never use the
-  slots. Generation and widget appearances take shared `Arc<Vec<u8>>` font
-  bytes, so a multi-widget fill does not copy the font once per widget, and
+  file; `Font.from_file` and `Font.from_bytes` never use the slots.
+  Generation and widget appearances take shared `Arc<Vec<u8>>` font bytes,
+  so a multi-widget fill does not copy the font once per widget, and
   `_Document.package_font_reads()` counts slot reads for tests. Interleaved
   A/B on the five GitHub-hosted release targets measured a short Japanese
-  `insert_text` on a fresh document 46–59% faster, Simplified Chinese serif
+  text insertion on a fresh document 46–59% faster, Simplified Chinese serif
   66–83%, and a Japanese `set_form_field` 55–79%, with byte-identical output;
   each used face then stays resident after the last document closes
-  (11.0 MiB for the Simplified Chinese serif face on Windows). `insert_text`,
-  `insert_textbox`, `set_form_field`, and `Font` share a 64 MiB
-  default OpenType boundary. Python rejects buffer input before PyO3 copying;
-  file input uses a one-byte-overrun bounded Rust read with the GIL released and
-  fallible 64 KiB retained-buffer growth. Direct byte/path core variants repeat
-  the check, `max_font_size=None` explicitly opts trusted input out, and
-  failures use `font_input_size` without mutation.
-  `insert_text` and `insert_textbox` also share a 1 MiB default aggregate UTF-8
-  boundary. Python rejects text before normalization, tab expansion, or PyO3
-  copying; textbox tab expansion is size-preflighted without materializing the
-  expanded string, and direct core variants repeat the check. A configured
+  (11.0 MiB for the Simplified Chinese serif face on Windows). `Font`,
+  `set_form_field`, and fallback fonts share a 64 MiB default OpenType
+  boundary. Python rejects buffer input before PyO3 copying; file input uses
+  a one-byte-overrun bounded Rust read with the GIL released and fallible
+  64 KiB retained-buffer growth. The core `_Font` constructors and the form
+  and fallback calls repeat the check, `max_size=None` (`max_font_size=None`
+  for forms) explicitly opts trusted input out, and failures use
+  `font_input_size` without mutation.
+  `Canvas.text`, `Canvas.textbox`, `Font.text_width`, and `Font.text_height`
+  share a 1 MiB default aggregate UTF-8 boundary. Python cuts the text one
+  character past the budget before splitting lines or turning tabs into
+  spaces, and `_Canvas.add_text`, `add_textbox`, and the `_Font`
+  measurements repeat the check. A configured
   budget also caps physical and final wrapped layout at 4,096 lines; AcroForm
   text and choice appearances use the same fixed layout cap. Collect UAX #14
   and grapheme boundaries once per wrapped paragraph, and use local galloping
@@ -1925,10 +1929,10 @@ the concept and API overview.
   normalization, grapheme references, shaped-line/glyph collections, WinAnsi
   output, and input-derived text-operator growth are also fallible. Standard 14
   width checks and WinAnsi support probes do not allocate an encoded text copy.
-  Allocation refusal returns `PdfError`; insertion keeps its no-draw boundary
-  and form filling uses its document rollback. `max_text_size=None` explicitly
-  opts trusted insertion input out, failures use `text_input_size` or
-  `text_line_count`. Paragraph layout remains outside `insert_text`. Pure RTL
+  Allocation refusal returns `PdfError`; the canvas records nothing and form
+  filling uses its document rollback. `max_text_size=None` explicitly opts
+  trusted input out, failures use `text_input_size` or `text_line_count`.
+  Paragraph layout remains outside `Canvas.text`. Pure RTL
   lines and lines with one Latin or numeric token bracketed by RTL text
   round-trip through extraction in logical Unicode order; the broader
   mixed-direction boundary remains in producer visual order. krilla emits
@@ -1960,19 +1964,17 @@ the concept and API overview.
   or `draw::standard_textbox_layout` with `LinePlacement::lines`, on text
   normalized as `Canvas.textbox` normalizes it (`_textbox_text`) and returns
   `TextBoxLayout::height`, so a textbox of that height fits with zero spare
-  height. `has_glyph(char)` takes one character and returns a bool. Drawing
-  with an OpenType `font=` (`insert_text`, `insert_textbox`, and
-  `set_form_field`) passes the same bytes and index as `fontbuffer`, and a
-  face loaded without `weight` produces byte-identical output. A Standard 14
-  `font=` follows the `fontname` path of `insert_text` and `insert_textbox`;
-  `set_form_field` refuses it, because its Standard 14 path draws Helvetica
-  only. There is no font registry or other process-global font state, and
+  height. `has_glyph(char)` takes one character and returns a bool. Filling a
+  form with an OpenType `font=` passes the same bytes and index as
+  `fontbuffer`, and a face loaded without `weight` produces byte-identical
+  output; `set_form_field` refuses a Standard 14 `font=`, because its
+  Standard 14 path draws Helvetica only. There is no font registry or other process-global font state, and
   pylopdf never scans system font directories, so output depends only on the
   fonts passed in. A request that a face does not provide, a weight or an
   italic style of an installed extra, raises; never synthesize a weight by
   stroking, overprinting, or render-mode changes. The `fontfile` and
-  `fontbuffer` drawing arguments, and `Font.from_file` or `Font.from_bytes`
-  without `weight`, load a variable font at its default instance, which need
+  `fontbuffer` arguments of `set_form_field`, and `Font.from_file` or
+  `Font.from_bytes` without `weight`, load a variable font at its default instance, which need
   not be regular (Noto Sans CJK JP's is Thin). `weight` extends a loaded
   face: `_face_at_weight` selects that instance with `_Font.with_weight`, so
   `weight=400` differs from an omitted weight, and refuses a weight outside
@@ -2047,8 +2049,9 @@ the concept and API overview.
   unless the canvas drew on that page. `draw(item)` takes `Path` items only
   and repeats their clips, group opacities, and blend modes, not soft
   masks. Limits: 1,048,576 path points of paths and clips together
-  (`path_point_count`) and 16 open scopes (`canvas_scope_depth`); text and
-  images keep the per-call limits of `insert_text` and `insert_image`.
+  (`path_point_count`) and 16 open scopes (`canvas_scope_depth`); text keeps
+  the 1 MiB and 4,096-line text budget, and images the per-call limits of
+  `insert_image`.
   `tests/test_canvas.py` reads every behavior back through `Page.content()`.
 - `pylopdf.create()` (`src/pylopdf/_create.py`, `_Builder` in
   `rust/src/builder.rs`) collects the recordings of canvases made with
@@ -2084,7 +2087,7 @@ the concept and API overview.
   thread outside the pool injected a job, woke a sleeping worker, and blocked,
   with the GIL held, until the pool finished. For a generated document of
   about a dozen objects that hand-off cost more than the parse: about 31% of a
-  fresh Japanese `insert_text` on an Apple M2 Pro. The module reads the subset
+  fresh Japanese text insertion on an Apple M2 Pro. The module reads the subset
   pdf-writer emits on the calling thread (one classic cross-reference section
   with lopdf's lenient entry terminators, compact direct objects, and direct
   stream lengths) and builds exactly the document lopdf 0.45 returns, including
@@ -2100,12 +2103,11 @@ the concept and API overview.
   the whole suite and fails any test whose import differs from lopdf's parse of
   the same bytes; after a lopdf, krilla, or pdf-writer upgrade the suite must
   still report no fallbacks or mismatches. Interleaved A/B on the five
-  GitHub-hosted release targets measured a fresh Japanese `insert_text` 6–38%
-  faster and a twelve-widget `set_form_field` 17–31% faster, with loads
+  GitHub-hosted release targets measured a fresh Japanese text insertion
+  6–38% faster and a twelve-widget `set_form_field` 17–31% faster, with loads
   unchanged and byte-identical output.
-- `Page.insert_text` and `Page.insert_textbox` place lines as
-  pymupdf 1.28.2 does, with the ascender and descender that pymupdf's `Font`
-  reports (`layout::LineMetrics`), which `Font.ascender` and
+- Canvas text places lines with the ascender and descender that pymupdf's
+  `Font` reports (`layout::LineMetrics`), which `Font.ascender` and
   `Font.descender` return. `generate::font_line_metrics` reproduces what
   FreeType reads for MuPDF, the OS/2 typographic metrics when the face sets
   `USE_TYPO_METRICS` and the `hhea` metrics otherwise, then the typographic
@@ -2115,56 +2117,38 @@ the concept and API overview.
   negation. It matched pymupdf on 582 macOS system faces and every bundled
   face. `draw::standard_line_metrics` holds pymupdf's Standard 14 values, the
   bounding boxes of the URW fonts that MuPDF draws them with, not Adobe's AFM
-  metrics. `insert_text` lines lie `lineheight` times `fontsize` apart, by
-  default the ascender minus the descender, or 1.2 when that is at most 1.
-  `insert_textbox` (`LinePlacement::Ascender`) takes the same default, puts
-  the first baseline one ascender below the top and later ones `lineheight`
-  times the ascender apart, and fits `lineheight` times `fontsize` per line
-  plus one descender, so its fit check does not follow the drawn lines when
-  the ascender differs from 1 em, as in pymupdf. The canvas's `textbox`,
-  which replaces this method in the API reset, places lines with
-  `LinePlacement::lines` instead: the first baseline one ascender below the
-  top, later ones the `text` leading apart, and room down to the last line's
-  descender, which `Font.text_height` reports.
-  Form appearances keep the OS/2 or AFM-bounding-box metrics
-  (`font_vertical_metrics`, `standard_vertical_metrics`) and
-  `LinePlacement::Stacked`, so their output did not change. `LineMetrics`
-  holds the decimal font-unit ratios that `Font.ascender` reports, while
-  MuPDF hands pymupdf single-precision values; pymupdf compares those with 1
-  for the 1.2 fallback, so `line_height` does too, and a face with 0.8 and
-  -0.2, also MuPDF's replacements for untrusted metrics, keeps its 1 em lines.
-  `insert_text` splits a string with `str.splitlines()`
-  and uses a list or tuple as given (`_insert_text_lines`, whose 4,096-line
-  limit counts lines the same way before splitting); text with nothing to
-  draw, `""`, `[]`, or one empty line, returns 0 before the point, size,
-  colour, and font arguments are checked, as pymupdf returns early.
-  `LineMetrics::lines_on_page` then
-  reproduces pymupdf's cutoff: the first line always, and each later one
-  while the room left, the first baseline's distance above the page bottom
-  less one line distance per drawn line, is at least one line distance,
-  computed from the single-precision metrics so that a baseline on the bottom
-  edge is drawn or left out exactly as pymupdf decides. The bottom is that of
-  `Page.rect` in display coordinates (`draw::display_size`), where pymupdf measures in
-  unrotated space down to user-space y = 0. Every input
-  line is still encoded or shaped, so the font refuses a character on a line
-  below the page, and the call returns the number of lines drawn.
-  `tests/test_insert_text_lines.py` pins pymupdf 1.28.2's counts. pymupdf's
-  `rotate=` turns the direction in which lines advance and measures the room
-  along that direction, so rotated text that keeps this cutoff must pass
-  `lines_on_page` the room along its own direction.
-- `Page.insert_textbox` completes layout before mutating the PDF and returns
-  negative spare height without drawing on overflow. Standard 14 measurement
-  uses canonical Adobe AFM widths; embedded OpenType measurement uses HarfRust
-  advances. Lines are placed as the previous bullet describes. Both share
-  greedy UAX #14 wrapping in
-  `rust/src/layout.rs`, with grapheme-safe emergency breaks and soft-line-only
-  justification. Measure the complete visible paragraph first and return it
-  directly when it fits so wide one-line boxes remain linear; otherwise reuse
-  one break/grapheme index and bounded local probes. Preserve
-  trailing-whitespace trimming and empty-paragraph semantics. Keep page
-  rotation resolved through display coordinates and preserve the no-mutation
-  overflow boundary. The resulting Windows abi3 wheel is 5.58 MB, up 0.16 MB
-  from the arbitrary-font baseline.
+  metrics. `Canvas.text` splits a string with `str.splitlines()` and draws
+  every line, `line_height` times `size` apart, by default the ascender
+  minus the descender, or 1.2 when that is at most 1, as pymupdf's
+  `insert_text` spaces lines; text with nothing to draw returns before the
+  point, size, colour, and font arguments are checked. `LineMetrics` holds
+  the decimal font-unit ratios that `Font.ascender` reports, while MuPDF
+  hands pymupdf single-precision values; pymupdf compares those with 1 for
+  the 1.2 fallback, so `line_height` does too, and a face with 0.8 and -0.2,
+  also MuPDF's replacements for untrusted metrics, keeps its 1 em lines.
+  `Canvas.textbox` places lines with `LinePlacement::lines`: the first
+  baseline one ascender below the top, later ones the `text` leading apart,
+  and room down to the last line's descender, which `TextBoxLayout::height`
+  and `Font.text_height` report. pymupdf's `insert_textbox` spaces later
+  lines `lineheight` times the ascender apart and fits one more descender, so
+  its fit check does not follow its drawn lines; the canvas does not keep
+  that mismatch. Form appearances keep the OS/2 or AFM-bounding-box metrics
+  (`font_vertical_metrics`, `standard_vertical_metrics`) in a
+  `LinePlacement` of their own, so their output did not change.
+- `Canvas.textbox` completes layout before recording anything and returns
+  negative spare height without drawing on overflow. Standard 14
+  measurement uses canonical Adobe AFM widths; embedded OpenType measurement
+  uses HarfRust advances. Lines are placed as the previous bullet describes.
+  Text is normalized first (`_textbox_text`, which `Font.text_height` shares):
+  `\r\n` and `\r` become `\n` and every tab one space. Both fonts share greedy
+  UAX #14 wrapping in `rust/src/layout.rs`, with grapheme-safe emergency
+  breaks and soft-line-only justification. Measure the complete visible
+  paragraph first and return it directly when it fits so wide one-line boxes
+  remain linear; otherwise reuse one break/grapheme index and bounded local
+  probes. Preserve trailing-whitespace trimming and empty-paragraph
+  semantics. Keep page rotation resolved through display coordinates and
+  preserve the no-drawing overflow boundary. The textbox layout added
+  0.16 MB to the Windows abi3 wheel, which measured 5.58 MB.
 - AcroForm filling writes `/V`, synchronizes button `/AS`, and regenerates
   widget `/AP /N`. Text and choice appearances auto-fit in widget-local
   coordinates, respect inherited `/Q` and multiline `/Ff`, and reuse the Core

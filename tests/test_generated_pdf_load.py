@@ -188,15 +188,26 @@ def test_generated_imports_parse_on_the_calling_thread() -> None:
         doc.pages.new((842, 595))
         doc.pages[1].rotation = 90
         page = doc.pages[0]
-        page.insert_text((50, 100), "日本語テキスト (かっこ) \\ 100%", fontsize=14, fontfile=NOTO_SANS_JP)
-        page.insert_textbox(
-            (50, 150, 300, 400),
-            "折り返して配置する日本語の段落です。" * 3,
-            fontsize=12,
-            fontbuffer=NOTO_SANS_JP.read_bytes(),
-            align=pylopdf.TEXT_ALIGN_JUSTIFY,
-        )
-        doc.pages[1].insert_text((40, 60), "回転したページ", fontsize=20, fontfile=NOTO_SANS_JP, color=(0.2, 0.4, 0.6))
+        with page.draw() as canvas:
+            canvas.text(
+                "日本語テキスト (かっこ) \\ 100%", (50, 100), font=pylopdf.Font.from_file(NOTO_SANS_JP), size=14
+            )
+        with page.draw() as canvas:
+            canvas.textbox(
+                (50, 150, 300, 400),
+                "折り返して配置する日本語の段落です。" * 3,
+                align="justify",
+                font=pylopdf.Font.from_bytes(NOTO_SANS_JP.read_bytes()),
+                size=12,
+            )
+        with doc.pages[1].draw() as canvas:
+            canvas.text(
+                "回転したページ",
+                (40, 60),
+                font=pylopdf.Font.from_file(NOTO_SANS_JP),
+                size=20,
+                fill=pylopdf.Color(0.2, 0.4, 0.6),
+            )
         output = doc.to_bytes()
     with pylopdf.open(_form_pdf()) as doc:
         doc.set_form_field("name", "山田 太郎", fontfile=NOTO_SANS_JP)
@@ -216,6 +227,6 @@ def test_generated_imports_parse_on_the_calling_thread() -> None:
 
 def test_standard_fonts_import_no_generated_pdf() -> None:
     loads = _Document.generated_pdf_loads()
-    with pylopdf.Document() as doc:
-        doc.pages.new().insert_text((50, 100), "Latin text")
+    with pylopdf.Document() as doc, doc.pages.new().draw() as canvas:
+        canvas.text("Latin text", (50, 100))
     assert _Document.generated_pdf_loads() == loads

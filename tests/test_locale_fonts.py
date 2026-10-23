@@ -13,10 +13,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import build_nonembedded_cjk_pdf, build_nonembedded_locale_cjk_pdf, build_raw_pdf
+from conftest import build_nonembedded_cjk_pdf, build_nonembedded_locale_cjk_pdf, build_raw_pdf, draw_text, draw_textbox
 
 import pylopdf
-from pylopdf.pylopdf_core import LimitError, PdfError, _Document
+from pylopdf.pylopdf_core import LimitError, PdfError, _Document, _Font
 
 FONTS_DIR = Path(__file__).parents[1] / "fonts" / "pylopdf-fonts-jp" / "src" / "pylopdf_fonts_jp"
 SANS = FONTS_DIR / "NotoSansJP-Regular.otf"
@@ -295,18 +295,19 @@ def test_package_generation_fonts_are_read_once(tmp_path: Path, monkeypatch: pyt
     provider = package_font_provider(tmp_path)
     monkeypatch.setattr("pylopdf._fonts._bundled_font_providers", lambda: (provider,))
 
-    def generate(sans: dict[str, object], serif: dict[str, object]) -> bytes:
+    def generate(sans: pylopdf.Font | None, serif: pylopdf.Font) -> bytes:
         doc = pylopdf.open(text_field_pdf())
-        doc.pages[0].insert_text((20, 30), "日本語", **sans)  # ty: ignore[invalid-argument-type]
-        assert doc.pages[0].insert_textbox((20, 40, 280, 70), "明朝体の段落", **serif) >= 0  # ty: ignore[invalid-argument-type]
-        doc.set_form_field("name", "山田 太郎", **sans)  # ty: ignore[invalid-argument-type]
+        with doc.pages[0].draw() as canvas:
+            canvas.text("日本語", (20, 30), font=sans)
+            assert canvas.textbox((20, 40, 280, 70), "明朝体の段落", font=serif).fits
+        doc.set_form_field("name", "山田 太郎", font=sans)
         return doc.to_bytes()
 
     reads = _Document.package_font_reads()
-    automatic = [generate({}, {"fontname": "tiro"}) for _ in range(3)]
+    automatic = [generate(None, pylopdf.Font.installed(language="ja", serif=True)) for _ in range(3)]
     assert _Document.package_font_reads() - reads == 2
     # Explicit font paths are read on every call without touching the slots.
-    explicit = generate({"fontfile": provider.sans}, {"fontfile": provider.serif})
+    explicit = generate(pylopdf.Font.from_file(provider.sans), pylopdf.Font.from_file(provider.serif))
     assert _Document.package_font_reads() - reads == 2
     assert automatic == [explicit] * 3
 
@@ -317,25 +318,21 @@ def test_package_generation_fonts_are_checked_on_every_call(tmp_path: Path, monk
     monkeypatch.setattr("pylopdf._fonts._bundled_font_providers", lambda: (provider,))
     doc = pylopdf.open(text_field_pdf())
     page = doc.pages[0]
-    page.insert_text((20, 30), "日本語")
+    with page.draw() as canvas:
+        canvas.text("日本語", (20, 30))
     doc.set_form_field("name", "山田 太郎")
     baseline = doc.to_bytes()
 
     size = provider.sans.stat().st_size
-    for call in (
-        lambda: page.insert_text((20, 60), "日本語", max_font_size=size - 1),
-        lambda: page.insert_textbox((20, 60, 280, 90), "日本語", max_font_size=size - 1),
-        lambda: doc.set_form_field("name", "佐藤 花子", max_font_size=size - 1),
-    ):
-        with pytest.raises(LimitError) as caught:
-            call()
-        assert caught.value.args[0] == "font_input_size"
+    with pytest.raises(LimitError) as caught:
+        doc.set_form_field("name", "佐藤 花子", max_font_size=size - 1)
+    assert caught.value.args[0] == "font_input_size"
 
     data = provider.sans.read_bytes()
     provider.sans.unlink()
     for call in (
-        lambda: page.insert_text((20, 60), "日本語"),
-        lambda: page.insert_textbox((20, 60, 280, 90), "日本語"),
+        lambda: draw_text(page, (20, 60), "日本語"),
+        lambda: draw_textbox(page, (20, 60, 280, 90), "日本語"),
         lambda: doc.set_form_field("name", "佐藤 花子"),
     ):
         with pytest.raises(FileNotFoundError) as not_found:
@@ -349,11 +346,13 @@ def test_package_generation_fonts_are_checked_on_every_call(tmp_path: Path, monk
     reads = _Document.package_font_reads()
     replaced = pylopdf.Document()
     replaced.pages.new((200, 100))
-    replaced.pages[0].insert_text((20, 40), "日本語")
+    with replaced.pages[0].draw() as canvas:
+        canvas.text("日本語", (20, 40))
     assert _Document.package_font_reads() - reads == 1
     assert [font.split("-")[0] for font in page_fonts(replaced.pages[0])] == ["NotoSerifJP"]
     provider.sans.write_bytes(data)
-    page.insert_text((20, 60), "日本語")
+    with page.draw() as canvas:
+        canvas.text("日本語", (20, 60))
     assert _Document.package_font_reads() - reads == 2
 
 
@@ -367,8 +366,10 @@ def test_rendering_and_generation_share_package_font_slots(
     reads = _Document.package_font_reads()
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
     doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes()
-    doc.pages[0].insert_text((20, 120), "日本語")
-    doc.pages[0].insert_text((20, 160), "明朝体", fontname="tiro")
+    with doc.pages[0].draw() as canvas:
+        canvas.text("日本語", (20, 120))
+    with doc.pages[0].draw() as canvas:
+        canvas.text("明朝体", (20, 160), font=pylopdf.Font.installed(language="ja", serif=True))
     assert _Document.package_font_reads() - reads == 2
 
 
@@ -377,26 +378,23 @@ def test_concurrent_generation_shares_package_fonts(tmp_path: Path, monkeypatch:
     provider = package_font_provider(tmp_path)
     monkeypatch.setattr("pylopdf._fonts._bundled_font_providers", lambda: (provider,))
 
-    def generate(**options: object) -> bytes:
+    def generate(font: pylopdf.Font | None = None) -> bytes:
         doc = pylopdf.Document()
         doc.pages.new((200, 100))
-        doc.pages[0].insert_text((20, 40), "日本語", **options)  # ty: ignore[invalid-argument-type]
+        draw_text(doc.pages[0], (20, 40), "日本語", font=font)
         return doc.to_bytes()
 
     reads = _Document.package_font_reads()
     with ThreadPoolExecutor(max_workers=8) as executor:
         generated = list(executor.map(lambda _: generate(), range(32)))
     assert 1 <= _Document.package_font_reads() - reads <= 8
-    assert generated == [generate(fontfile=provider.sans)] * 32
+    assert generated == [generate(pylopdf.Font.from_file(provider.sans))] * 32
 
 
 @pytest.mark.parametrize("package_font", [("fr", "sans"), ("ja", "bold")])
-def test_package_font_face_must_name_a_known_package_style(package_font: tuple[str, str], one_page_pdf: bytes) -> None:
-    doc = _Document.load_bytes(one_page_pdf)
+def test_package_font_face_must_name_a_known_package_style(package_font: tuple[str, str]) -> None:
     with pytest.raises(PdfError, match=r"font package language|kind must be"):
-        doc.insert_embedded_text_file(
-            1, (20.0, 40.0), ["日本語"], str(SANS), 0, 12.0, None, (0.0, 0.0, 0.0), True, package_font=package_font
-        )
+        _Font.from_file(str(SANS), 0, None, package_font)
 
 
 @pytest.mark.parametrize(

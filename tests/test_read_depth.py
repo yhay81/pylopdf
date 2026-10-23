@@ -100,7 +100,8 @@ def test_a_deep_page_stays_refused_across_refusals_and_edits() -> None:
 
     assert _refusal(doc.pages[1].text).code == CODE
     assert _refusal(doc.pages[1].text).code == CODE
-    doc.pages[0].insert_text((20, 250), "ADDED")
+    with doc.pages[0].draw() as canvas:
+        canvas.text("ADDED", (20, 250))
     assert "ADDED" in doc.pages[0].text()
     assert _refusal(doc.pages[1].text).code == CODE
 

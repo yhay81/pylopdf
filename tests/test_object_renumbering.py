@@ -96,7 +96,8 @@ def test_imported_pages_take_ascending_object_numbers_in_page_order() -> None:
 
     doc.pages.extend(source.pages)
     doc.pages.new()
-    doc.pages[1].insert_text((20, 150), "Added after import")
+    with doc.pages[1].draw() as canvas:
+        canvas.text("Added after import", (20, 150))
 
     texts = [doc.pages[index].text() for index in range(len(doc.pages))]
     for index, expected in enumerate(["Target", "First", "Second", "Third"]):

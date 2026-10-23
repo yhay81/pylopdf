@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from pylopdf.pylopdf_core import LimitError, PdfError, _Document
+from pylopdf.pylopdf_core import LimitError, PdfError, _Canvas, _Document, _Font
 
 
 def _oversized_png_header() -> bytes:
@@ -372,169 +372,70 @@ def test_image_insertion_limits_are_repeated_in_core(one_page_pdf: bytes, tmp_pa
 def test_font_input_limits_are_repeated_in_core(one_page_pdf: bytes, tmp_path: Path) -> None:
     doc = _Document.load_bytes(one_page_pdf)
     before = doc.save_bytes()
-    color = (0.0, 0.0, 0.0)
+    font_path = tmp_path / "font.otf"
+    font_path.write_bytes(b"too large")
 
     calls = [
         lambda: doc.set_fallback_font("sans", b"too large", 0, 1),
+        lambda: doc.set_fallback_font_file("sans", str(font_path), 0, 1),
         lambda: doc.set_form_field("missing", "x", b"too large", 0, 1),
-        lambda: doc.insert_embedded_text(1, (10.0, 20.0), ["x"], b"too large", 0, 11.0, None, color, True, 1),
-        lambda: doc.insert_embedded_textbox(
-            1,
-            (10.0, 10.0, 100.0, 80.0),
-            "x",
-            b"too large",
-            0,
-            11.0,
-            1.2,
-            0,
-            color,
-            True,
-            1,
-        ),
+        lambda: _Font.from_bytes(b"too large", 0, 1),
+        lambda: _Font.from_file(str(font_path), 0, 1),
     ]
     for call in calls:
         with pytest.raises(LimitError) as caught:
             call()
         assert caught.value.args[0] == "font_input_size"
-
-    font_path = tmp_path / "font.otf"
-    font_path.write_bytes(b"too large")
-    with pytest.raises(LimitError) as file_limit:
-        doc.set_fallback_font_file("sans", str(font_path), 0, 1)
-    assert file_limit.value.args[0] == "font_input_size"
     assert doc.save_bytes() == before
 
 
-def test_generated_text_input_limits_are_repeated_in_core(one_page_pdf: bytes) -> None:
-    doc = _Document.load_bytes(one_page_pdf)
-    before = doc.save_bytes()
-    color = (0.0, 0.0, 0.0)
+def test_generated_text_input_limits_are_repeated_in_core() -> None:
+    canvas = _Canvas(200.0, 100.0)
+    font = _Font.standard("Helvetica")
+    black = (0.0, 0.0, 0.0, 1.0)
     point = (10.0, 20.0)
     rect = (10.0, 10.0, 100.0, 80.0)
 
     calls = [
-        lambda: doc.insert_page_text(1, point, [b"1234"], "Helvetica", True, 11.0, None, color, True, 3),
-        lambda: doc.insert_page_textbox(1, rect, "1234", "Helvetica", True, 11.0, 1.2, 0, color, True, 3),
-        lambda: doc.insert_embedded_text(1, point, ["1234"], b"bad font", 0, 11.0, None, color, True, None, 3),
-        lambda: doc.insert_embedded_text_file(
-            1,
-            point,
-            ["1234"],
-            "missing-font.otf",
-            0,
-            11.0,
-            None,
-            color,
-            True,
-            None,
-            3,
-        ),
-        lambda: doc.insert_embedded_textbox(
-            1,
-            rect,
-            "1234",
-            b"bad font",
-            0,
-            11.0,
-            1.2,
-            0,
-            color,
-            True,
-            None,
-            3,
-        ),
-        lambda: doc.insert_embedded_textbox_file(
-            1,
-            rect,
-            "1234",
-            "missing-font.otf",
-            0,
-            11.0,
-            1.2,
-            0,
-            color,
-            True,
-            None,
-            3,
-        ),
+        lambda: canvas.add_text(point, ["12", "34"], font, 11.0, None, black, None, 3),
+        lambda: canvas.add_textbox(rect, "1234", font, 11.0, None, 0, black, None, 3),
+        lambda: font.text_width("1234", 11.0, 3),
+        lambda: font.text_height("1234", 11.0, 90.0, None, 3),
     ]
     for call in calls:
         with pytest.raises(LimitError) as caught:
             call()
         assert caught.value.args[0] == "text_input_size"
-        assert doc.save_bytes() == before
+        assert canvas.is_empty()
 
     with pytest.raises(ValueError, match="max_text_size"):
-        doc.insert_page_text(1, point, [b"x"], "Helvetica", True, 11.0, None, color, True, 0)
+        canvas.add_text(point, ["x"], font, 11.0, None, black, None, 0)
 
-    doc.insert_page_text(1, point, [b"1234"], "Helvetica", True, 11.0, None, color, True, 4)
-    assert doc.save_bytes() != before
+    canvas.add_text(point, ["1234"], font, 11.0, None, black, None, 4)
+    assert not canvas.is_empty()
 
 
-def test_generated_text_line_limits_are_repeated_in_core(one_page_pdf: bytes) -> None:
-    doc = _Document.load_bytes(one_page_pdf)
-    before = doc.save_bytes()
-    color = (0.0, 0.0, 0.0)
-    point = (10.0, 20.0)
+def test_generated_text_line_limits_are_repeated_in_core() -> None:
+    canvas = _Canvas(200.0, 100.0)
+    font = _Font.standard("Helvetica")
+    black = (0.0, 0.0, 0.0, 1.0)
     rect = (10.0, 10.0, 100.0, 20.0)
-    byte_lines = [b""] * 4097
-    text_lines = [""] * 4097
     text = "\n" * 4096
 
     calls = [
-        lambda: doc.insert_page_text(1, point, byte_lines, "Helvetica", True, 11.0, None, color, True, 1),
-        lambda: doc.insert_page_textbox(1, rect, text, "Helvetica", True, 11.0, 1.2, 0, color, True, len(text)),
-        lambda: doc.insert_embedded_text(1, point, text_lines, b"bad font", 0, 11.0, None, color, True, None, 1),
-        lambda: doc.insert_embedded_text_file(
-            1,
-            point,
-            text_lines,
-            "missing-font.otf",
-            0,
-            11.0,
-            None,
-            color,
-            True,
-            None,
-            1,
-        ),
-        lambda: doc.insert_embedded_textbox(
-            1,
-            rect,
-            text,
-            b"bad font",
-            0,
-            11.0,
-            1.2,
-            0,
-            color,
-            True,
-            None,
-            len(text),
-        ),
-        lambda: doc.insert_embedded_textbox_file(
-            1,
-            rect,
-            text,
-            "missing-font.otf",
-            0,
-            11.0,
-            1.2,
-            0,
-            color,
-            True,
-            None,
-            len(text),
-        ),
+        lambda: canvas.add_text((10.0, 20.0), [""] * 4097, font, 11.0, None, black, None, 1),
+        lambda: canvas.add_textbox(rect, text, font, 11.0, None, 0, black, None, len(text)),
+        lambda: font.text_height(text, 11.0, 90.0, None, len(text)),
     ]
     for call in calls:
         with pytest.raises(LimitError) as caught:
             call()
         assert caught.value.args[0] == "text_line_count"
-        assert doc.save_bytes() == before
+        assert canvas.is_empty()
 
-    assert doc.insert_page_textbox(1, rect, text, "Helvetica", True, 11.0, 1.2, 0, color, True, None) < 0
-    assert doc.save_bytes() == before
+    # Without a budget the lines are laid out, overflow the box, and draw nothing.
+    assert canvas.add_textbox(rect, text, font, 11.0, None, 0, black, None, None) < 0
+    assert canvas.is_empty()
 
 
 def test_search_limits_are_repeated_in_core(one_page_pdf: bytes) -> None:

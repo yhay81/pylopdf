@@ -10,10 +10,11 @@ for y in (40, 80, 120):
 for x in (40, 150, 260):
     with page.draw() as canvas:
         canvas.line((x, 40), (x, 120))
-page.insert_text((50, 65), "Name", fontsize=12)
-page.insert_text((160, 65), "Value", fontsize=12)
-page.insert_text((50, 105), "Alpha", fontsize=12)
-page.insert_text((160, 105), "42", fontsize=12)
+with page.draw() as canvas:
+    canvas.text("Name", (50, 65), size=12)
+    canvas.text("Value", (160, 65), size=12)
+    canvas.text("Alpha", (50, 105), size=12)
+    canvas.text("42", (160, 105), size=12)
 
 tabs = page.tables()
 assert len(tabs) == 1, tabs

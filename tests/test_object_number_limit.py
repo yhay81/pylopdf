@@ -16,7 +16,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf, drawn_images, ocr_words, outline_entries
+from conftest import build_pdf, draw_text, drawn_images, ocr_words, outline_entries
 
 import pylopdf
 
@@ -121,8 +121,10 @@ def _probe_document() -> pylopdf.Document:
 
 
 _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
-    "insert_text": lambda doc: doc.pages[0].insert_text((20, 250), "Stamp"),
-    "insert_text_embedded_font": lambda doc: doc.pages[0].insert_text((20, 250), "Stamp", fontfile=NOTO_SANS_JP),
+    "text": lambda doc: draw_text(doc.pages[0], (20, 250), "Stamp"),
+    "text_embedded_font": lambda doc: draw_text(
+        doc.pages[0], (20, 250), "Stamp", font=pylopdf.Font.from_file(NOTO_SANS_JP)
+    ),
     "insert_image": lambda doc: doc.pages[0].insert_image(
         (10, 10, 50, 50), pixmap=doc.pages[0].pixmap(matrix=pylopdf.Matrix(0.05, 0.05), alpha=True)
     ),
@@ -210,7 +212,8 @@ def test_cross_reference_entry_above_the_limit_without_its_object_lowers_max_id(
     stamps = ["STAMP ONE", "STAMP TWO"]
 
     for index, stamp in enumerate(stamps):
-        doc.pages[0].insert_text((20, 220 + 40 * index), stamp)
+        with doc.pages[0].draw() as canvas:
+            canvas.text(stamp, (20, 220 + 40 * index))
 
     saved = doc.to_bytes()
     assert re.search(rb"/PylopdfProbe null", saved)
@@ -347,7 +350,8 @@ def test_encrypted_document_above_the_limit_opens_and_edits(unlock: str) -> None
         assert doc.needs_password
         assert doc.unlock("user") is pylopdf.Access.USER
 
-    doc.pages[0].insert_text((20, 250), "STAMP")
+    with doc.pages[0].draw() as canvas:
+        canvas.text("STAMP", (20, 250))
 
     for current in _with_reloaded(doc):
         assert Counter(current.pages[0].text().splitlines()) == Counter(["SECRET", "STAMP", "TARGET PAGE"])

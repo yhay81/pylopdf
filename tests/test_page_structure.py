@@ -179,7 +179,8 @@ def test_a_copy_is_independent_of_the_original() -> None:
     xref = doc.pages[0].xref
     doc.pages.extend(doc.pages[0])
 
-    doc.pages[1].insert_text((20, 40), "Only on the copy")
+    with doc.pages[1].draw() as canvas:
+        canvas.text("Only on the copy", (20, 40))
     doc.pages[1].rotation = 90
 
     assert doc.pages[0].xref == xref

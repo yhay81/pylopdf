@@ -125,7 +125,8 @@ def test_a_contained_panic_leaves_edits_in_place() -> None:
     """Containment drops derived state only: the edited document is still the one that saves."""
     resources, content = _shading("/Pattern")
     doc = pylopdf.open(_pages((resources, content), ("", "")))
-    doc.pages[1].insert_text((20, 250), "ADDED")
+    with doc.pages[1].draw() as canvas:
+        canvas.text("ADDED", (20, 250))
 
     with pytest.raises(pylopdf.PdfError, match=MESSAGE):
         doc.pages[0].pixmap(alpha=True)

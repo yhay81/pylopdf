@@ -14,7 +14,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf, build_raw_pdf, ocr_words, outline_entries
+from conftest import build_pdf, build_raw_pdf, draw_text, ocr_words, outline_entries
 
 import pylopdf
 
@@ -83,7 +83,8 @@ def test_reference_above_max_id_cannot_repeat_a_stamp() -> None:
     stamps = ["STAMP ONE", "STAMP TWO", "STAMP THREE"]
 
     for index, stamp in enumerate(stamps):
-        doc.pages[0].insert_text((20, 300 + 100 * index), stamp)
+        with doc.pages[0].draw() as canvas:
+            canvas.text(stamp, (20, 300 + 100 * index))
 
     for current in _with_reloaded(doc):
         lines = Counter(current.pages[0].text().splitlines())
@@ -93,8 +94,10 @@ def test_reference_above_max_id_cannot_repeat_a_stamp() -> None:
 _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
     "insert_pdf": lambda doc: doc.pages.extend(pylopdf.open(build_pdf(["Source"])).pages),
     "show_pdf_page": lambda doc: doc.pages[0].show_pdf_page((0, 0, 100, 100), pylopdf.open(build_pdf(["Source"])), 0),
-    "insert_text": lambda doc: doc.pages[0].insert_text((20, 40), "Stamp"),
-    "insert_text_embedded_font": lambda doc: doc.pages[0].insert_text((20, 40), "Stamp", fontfile=NOTO_SANS_JP),
+    "text": lambda doc: draw_text(doc.pages[0], (20, 40), "Stamp"),
+    "text_embedded_font": lambda doc: draw_text(
+        doc.pages[0], (20, 40), "Stamp", font=pylopdf.Font.from_file(NOTO_SANS_JP)
+    ),
     "insert_image": lambda doc: doc.pages[0].insert_image(
         (10, 10, 50, 50), pixmap=doc.pages[0].pixmap(matrix=pylopdf.Matrix(0.05, 0.05), alpha=True)
     ),
@@ -166,7 +169,8 @@ def test_object_above_every_cross_reference_entry_survives_new_objects() -> None
     stamps = [f"STAMP {index}" for index in range(4)]
 
     for index, stamp in enumerate(stamps):
-        doc.pages[0].insert_text((20, 300 + 60 * index), stamp)
+        with doc.pages[0].draw() as canvas:
+            canvas.text(stamp, (20, 300 + 60 * index))
 
     for current in _with_reloaded(doc):
         lines = Counter(current.pages[0].text().splitlines())
@@ -198,7 +202,8 @@ def test_encrypted_document_nulls_references_above_max_id_once_decrypted(unlock:
 
     assert re.search(rb"/PylopdfProbe\s*null", doc.to_bytes())
     doc.pages.extend(pylopdf.open(build_pdf(["SOURCE CONTENT"])).pages)
-    doc.pages[0].insert_text((20, 300), "STAMP")
+    with doc.pages[0].draw() as canvas:
+        canvas.text("STAMP", (20, 300))
 
     for current in _with_reloaded(doc):
         assert Counter(current.pages[0].text().splitlines()) == Counter(["STAMP", "TARGET PAGE"])
@@ -213,7 +218,8 @@ def test_drawing_on_content_that_names_an_unallocated_object_stays_visible(conte
     """
     doc = _target(contents)
 
-    doc.pages[0].insert_text((20, 300), "STAMP")
+    with doc.pages[0].draw() as canvas:
+        canvas.text("STAMP", (20, 300))
 
     for current in _with_reloaded(doc):
         assert "STAMP" in current.pages[0].text().splitlines()
@@ -226,7 +232,8 @@ def test_page_with_an_unallocated_parent_reads_and_edits_as_a_tree_root() -> Non
     doc = pylopdf.open(build_raw_pdf(objects))
 
     assert doc.pages[0].boxes.media == pylopdf.Rect(0, 0, 300, 400)
-    doc.pages[0].insert_text((20, 40), "STAMP")
+    with doc.pages[0].draw() as canvas:
+        canvas.text("STAMP", (20, 40))
 
     for current in _with_reloaded(doc):
         assert current.pages[0].rect == pylopdf.Rect(0, 0, 300, 400)

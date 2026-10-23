@@ -32,9 +32,10 @@ impl TextBoxLayout {
     }
 }
 
-/// The ascender and descender that pymupdf's `Font` reports, as fractions of
-/// the em: the ascender is positive and the descender below the baseline
-/// negative. `insert_text` and `insert_textbox` place lines with them.
+/// The ascender and descender that `Font.ascender` and `Font.descender`
+/// report, as fractions of the em: the ascender is positive and the
+/// descender below the baseline negative. Canvas text and textboxes place
+/// lines with them.
 #[derive(Clone, Copy, Debug)]
 pub struct LineMetrics {
     pub ascender: f64,
@@ -42,11 +43,12 @@ pub struct LineMetrics {
 }
 
 impl LineMetrics {
-    /// Return the distance between baselines that pymupdf's `insert_text`
-    /// uses, in em: `lineheight` when given, else the ascender minus the
-    /// descender, or 1.2 when that is at most 1. pymupdf compares the
-    /// single-precision metrics that MuPDF reports, in which 0.8 and -0.2
-    /// span 1.000000015 em, so such a face keeps its extent of 1 em.
+    /// Return the distance between baselines of canvas text, in em:
+    /// `lineheight` when given, else the ascender minus the descender, or 1.2
+    /// when that is at most 1, as pymupdf's `insert_text` spaces lines.
+    /// pymupdf compares the single-precision metrics that MuPDF reports, in
+    /// which 0.8 and -0.2 span 1.000000015 em, so such a face keeps its
+    /// extent of 1 em.
     pub fn line_height(self, lineheight: Option<f64>) -> f64 {
         lineheight.unwrap_or_else(|| {
             let single = self.single_precision();
@@ -58,30 +60,6 @@ impl LineMetrics {
         })
     }
 
-    /// Return how many of `count` lines `insert_text` draws when its first
-    /// baseline lies `space` points above the bottom of the page. As in
-    /// pymupdf, the first line is always drawn, and each later line only
-    /// while the space left is at least one line distance, which the line
-    /// then takes up. pymupdf measures that distance with MuPDF's
-    /// single-precision metrics, and so does this, so that a baseline on the
-    /// bottom edge is drawn or left out as pymupdf decides.
-    pub fn lines_on_page(
-        self,
-        count: usize,
-        space: f64,
-        font_size: f64,
-        lineheight: Option<f64>,
-    ) -> usize {
-        let distance = font_size * self.single_precision().line_height(lineheight);
-        let mut space = space;
-        let mut lines = count.min(1);
-        while lines < count && space >= distance {
-            space -= distance;
-            lines += 1;
-        }
-        lines
-    }
-
     /// The metrics rounded to single precision, as MuPDF reports them.
     fn single_precision(self) -> Self {
         Self {
@@ -90,8 +68,8 @@ impl LineMetrics {
         }
     }
 
-    /// Return the distance between `insert_text` baselines in points, which
-    /// content operators and krilla can only place when it is finite.
+    /// Return the distance between baselines of canvas text in points,
+    /// which content operators and krilla can only place when it is finite.
     pub fn leading(self, font_size: f64, lineheight: Option<f64>) -> Result<f64, String> {
         let leading = font_size * self.line_height(lineheight);
         if leading.is_finite() {
@@ -102,79 +80,39 @@ impl LineMetrics {
     }
 }
 
-/// How a textbox places its lines vertically and decides whether they fit.
+/// How a textbox places its lines vertically and decides whether they fit:
+/// the first baseline `ascent` em below the box top, later ones
+/// `line_height` em apart, and room from the first line's ascent to the last
+/// line's descent. The canvas and form appearances place lines this way.
 #[derive(Clone, Copy)]
-pub enum LinePlacement {
-    /// The canvas and form appearances: the first baseline `ascent` em below
-    /// the box top, later ones `line_height` em apart, and room from the
-    /// first line's ascent to the last line's descent.
-    Stacked {
-        ascent: f64,
-        descent: f64,
-        line_height: f64,
-    },
-    /// pymupdf's `insert_textbox`: the first baseline one ascender below the
-    /// box top and later ones the line height times the ascender apart. The
-    /// fit check counts one line height per line plus one descender, so it
-    /// does not follow the drawn lines when the ascender differs from 1 em.
-    Ascender {
-        metrics: LineMetrics,
-        line_height: f64,
-    },
+pub struct LinePlacement {
+    pub ascent: f64,
+    pub descent: f64,
+    pub line_height: f64,
 }
 
 impl LinePlacement {
-    /// Place lines as `insert_textbox` does, at `lineheight` or the default
-    /// line height of `metrics`; see [`LineMetrics::line_height`].
-    pub fn textbox(metrics: LineMetrics, lineheight: Option<f64>) -> Self {
-        Self::Ascender {
-            metrics,
-            line_height: metrics.line_height(lineheight),
-        }
-    }
-
     /// Place lines as the canvas's `text` spaces them: the first baseline
     /// one ascender below the box top, later ones `lineheight` em apart, by
     /// default the font's line height (see [`LineMetrics::line_height`]),
     /// and room down to the last line's descender.
     pub fn lines(metrics: LineMetrics, lineheight: Option<f64>) -> Self {
-        Self::Stacked {
+        Self {
             ascent: metrics.ascender,
             descent: -metrics.descender,
             line_height: metrics.line_height(lineheight),
         }
     }
 
-    fn ascent(self) -> f64 {
-        match self {
-            Self::Stacked { ascent, .. } => ascent,
-            Self::Ascender { metrics, .. } => metrics.ascender,
-        }
-    }
-
     fn leading(self, font_size: f64) -> f64 {
-        match self {
-            Self::Stacked { line_height, .. } => line_height * font_size,
-            Self::Ascender {
-                metrics,
-                line_height,
-            } => metrics.ascender * line_height * font_size,
-        }
+        self.line_height * font_size
     }
 
     fn required_height(self, lines: usize, font_size: f64) -> f64 {
         if lines == 0 {
             return 0.0;
         }
-        match self {
-            Self::Stacked {
-                ascent, descent, ..
-            } => (ascent + descent) * font_size + (lines - 1) as f64 * self.leading(font_size),
-            Self::Ascender {
-                metrics,
-                line_height,
-            } => font_size * line_height * lines as f64 - metrics.descender * font_size,
-        }
+        (self.ascent + self.descent) * font_size + (lines - 1) as f64 * self.leading(font_size)
     }
 }
 
@@ -215,7 +153,7 @@ where
         lines,
         height: required,
         spare_height,
-        ascent: placement.ascent(),
+        ascent: placement.ascent,
         leading: placement.leading(font_size),
     })
 }

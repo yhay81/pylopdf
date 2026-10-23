@@ -298,8 +298,8 @@ Workstream Writing.
   display space (done). Paths, clips, transforms, and blend modes are
   operators; an opacity scope is a transparency group Form; text in an
   OpenType face is a krilla page, one per run of text items, imported as a
-  Form; and Standard 14 text, images, and placed pages are drawn as
-  `insert_text`, `insert_image`, and `show_pdf_page` draw them. Scopes must
+  Form; Standard 14 text is pylopdf's own text operators; and images and
+  placed pages are drawn as `insert_image` and `show_pdf_page` draw them. Scopes must
   enclose images and pages that already live in the target document, which a
   krilla page cannot reference, so the scopes are pylopdf's operators.
 - `draw(item)` for text runs and images needs the font and image identity
@@ -321,8 +321,8 @@ Workstream Writing.
   import; and emitting a page as a Form XObject that pylopdf adds to lopdf's
   graph directly, so `generated_pdf.rs` and the import parse go away.
 - In the [API reset](#api-reset), the canvas replaces `Shape` and
-  `Page.draw_*` (done), and `insert_text`, `insert_textbox`,
-  `insert_image`, and `show_pdf_page`.
+  `Page.draw_*` (done), `insert_text` and `insert_textbox` (done), and
+  `insert_image` and `show_pdf_page`.
 
 Acceptance: drawing every item of `page.content()` onto a blank page of the
 same size renders, for every page of the bundled corpus, within a published
@@ -422,9 +422,14 @@ the canvas.
   `draw_line`, `draw_rect`, `draw_circle`, `draw_oval`, `draw_polyline`,
   `draw_bezier`, `draw_squiggle`, and `draw_zigzag` statements into canvas
   blocks with `Stroke` and `Color` styles, and marks the rest.
+- Done: text insertion. `Canvas.text` and `Canvas.textbox` replace
+  `Page.insert_text`, `Page.insert_textbox`, `TextAlign`, and the
+  `TEXT_ALIGN_*` constants; the codemod rewrites both calls, and assignments
+  of a textbox's spare height, into canvas blocks, joins consecutive blocks
+  on one page into one, and marks the options a canvas does not take.
 - Still to come, each with its codemod rules: forms and widgets, the
-  canvas in place of `insert_text`, `insert_textbox`, `insert_image`, and
-  `show_pdf_page`, and the remaining constants and records.
+  canvas in place of `insert_image` and `show_pdf_page`, and the remaining
+  constants and records.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs

@@ -38,7 +38,7 @@ check that an existing PDF really conforms, use
 
 ## Watermarks and headers designed in typst { #cjk-watermarks }
 
-For simple text, `insert_text()` is enough; with `pylopdf[jp]` (or `[ko]`,
+For simple text, `canvas.text()` is enough; with `pylopdf[jp]` (or `[ko]`,
 `[zh-cn]`, `[zh-tw]`) installed it writes CJK text too. When a stamp needs
 real layout, design it as a page in typst and draw that page onto every page
 of the document with `show_pdf_page()`:

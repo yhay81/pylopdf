@@ -6,21 +6,6 @@ import enum
 from typing import Literal, TypeAlias, TypedDict
 
 
-class TextAlign(enum.IntEnum):
-    """Text alignment; the members are pymupdf's ``TEXT_ALIGN_*`` values."""
-
-    LEFT = 0
-    CENTER = 1
-    RIGHT = 2
-    JUSTIFY = 3
-
-
-TEXT_ALIGN_LEFT = TextAlign.LEFT
-TEXT_ALIGN_CENTER = TextAlign.CENTER
-TEXT_ALIGN_RIGHT = TextAlign.RIGHT
-TEXT_ALIGN_JUSTIFY = TextAlign.JUSTIFY
-
-
 class Permissions(enum.IntFlag):
     """What an encrypted document permits the user password, combined with ``|``.
 
@@ -125,7 +110,6 @@ class DocumentComplexity(TypedDict):
 
 # The package re-exports these names; reprs, pickles, and documentation name it.
 for _public in (
-    TextAlign,
     Permissions,
     Access,
     ImageCompressionResult,

@@ -67,9 +67,11 @@ def test_exact_overprint_preserves_each_complete_paint_run(
     doc, page = _new_page()
     for _ in range(2):
         if fontfile is None:
-            page.insert_text((30, 80), text, fontsize=20)
+            with page.draw() as canvas:
+                canvas.text(text, (30, 80), size=20)
         else:
-            page.insert_text((30, 80), text, fontsize=20, fontfile=fontfile)
+            with page.draw() as canvas:
+                canvas.text(text, (30, 80), font=pylopdf.Font.from_file(fontfile), size=20)
 
     _assert_text_views(doc, [text, text])
     hits = page.search(text)
@@ -85,7 +87,8 @@ def test_same_origin_distinct_strings_are_not_interleaved_or_deleted() -> None:
     doc, page = _new_page()
     expected = ["Alpha overlay", "Bravo layer"]
     for text in expected:
-        page.insert_text((30, 80), text, fontsize=20)
+        with page.draw() as canvas:
+            canvas.text(text, (30, 80), size=20)
 
     _assert_text_views(doc, expected)
     assert len(page.search(expected[0])) == 1
@@ -95,8 +98,10 @@ def test_same_origin_distinct_strings_are_not_interleaved_or_deleted() -> None:
 def test_partial_overlap_keeps_source_order_layers() -> None:
     """Split partially overlapping paint runs instead of interleaving glyphs."""
     doc, page = _new_page()
-    page.insert_text((30, 80), "Left overlap", fontsize=20)
-    page.insert_text((80, 80), "Right overlap", fontsize=20)
+    with page.draw() as canvas:
+        canvas.text("Left overlap", (30, 80), size=20)
+    with page.draw() as canvas:
+        canvas.text("Right overlap", (80, 80), size=20)
 
     _assert_text_views(doc, ["Left overlap", "Right overlap"])
     assert len(page.search("Left overlap")) == 1
@@ -108,7 +113,8 @@ def test_chained_partial_overlaps_do_not_rejoin_an_earlier_layer() -> None:
     doc, page = _new_page()
     expected = ["AAAAAA", "BBBBBB", "CCCCCC"]
     for x, text in zip((30, 70, 110), expected, strict=True):
-        page.insert_text((x, 80), text, fontsize=20)
+        with page.draw() as canvas:
+            canvas.text(text, (x, 80), size=20)
 
     _assert_text_views(doc, expected)
 
@@ -116,8 +122,10 @@ def test_chained_partial_overlaps_do_not_rejoin_an_earlier_layer() -> None:
 def test_separate_reverse_paint_runs_still_follow_geometry_order() -> None:
     """Merge non-overlapping runs on one baseline even if painted right first."""
     doc, page = _new_page()
-    page.insert_text((180, 80), "Right", fontsize=20)
-    page.insert_text((30, 80), "Left", fontsize=20)
+    with page.draw() as canvas:
+        canvas.text("Right", (180, 80), size=20)
+    with page.draw() as canvas:
+        canvas.text("Left", (30, 80), size=20)
 
     _assert_text_views(doc, ["Left Right"])
 
@@ -126,8 +134,10 @@ def test_slightly_offset_overprint_preserves_bboxes_and_search() -> None:
     """Treat near-identical baselines as distinct runs without merging bboxes."""
     doc, page = _new_page()
     text = "Offset overlay"
-    page.insert_text((30, 80), text, fontsize=20)
-    page.insert_text((30.5, 80.5), text, fontsize=20)
+    with page.draw() as canvas:
+        canvas.text(text, (30, 80), size=20)
+    with page.draw() as canvas:
+        canvas.text(text, (30.5, 80.5), size=20)
 
     _assert_text_views(doc, [text, text])
     hits = page.search(text)

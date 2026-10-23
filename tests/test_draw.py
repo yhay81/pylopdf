@@ -6,12 +6,14 @@ failure in coordinate transforms, rotation, or XObject registration.
 
 from __future__ import annotations
 
+import itertools
 import struct
 import zlib
 from pathlib import Path
+from typing import Any
 
 import pytest
-from conftest import build_pdf, build_raw_pdf, drawn_images, ocr_words
+from conftest import build_pdf, build_raw_pdf, draw_text, draw_textbox, drawn_images, ocr_words
 
 import pylopdf
 
@@ -227,23 +229,28 @@ def _split_pixmap() -> pylopdf.Pixmap:
 def test_drawing_wraps_existing_contents_only_once() -> None:
     doc = _new_page_doc()
     page = doc.pages[0]
-    page.insert_text((10, 20), "First")
-    page.insert_text((10, 40), "Second")
-    after_second = doc.complexity["object_count"]
+    counts = [doc.complexity["object_count"]]
+    for y, text in ((20, "First"), (40, "Second"), (60, "Third")):
+        with page.draw() as canvas:
+            canvas.text(text, (10, y))
+        counts.append(doc.complexity["object_count"])
 
-    page.insert_text((10, 60), "Third")
-
-    assert doc.complexity["object_count"] - after_second == 2
+    first, second, third = (after - before for before, after in itertools.pairwise(counts))
+    # The empty page had nothing to wrap; the second drawing wraps the first
+    # in one q and one Q stream, and the third needs no wrapper.
+    assert second == first + 2
+    assert third == first
 
 
 def test_drawing_allows_exact_final_contents_boundary() -> None:
     doc = _many_contents_doc(4093)
     page = doc.pages[0]
-    page.insert_text((10, 20), "Exact boundary")
+    with page.draw() as canvas:
+        canvas.text("Exact boundary", (10, 20))
     after_first = doc.to_bytes()
 
-    with pytest.raises(pylopdf.PdfError, match="4096-stream page Contents"):
-        page.insert_text((10, 40), "One too many")
+    with pytest.raises(pylopdf.PdfError, match="4096-stream page Contents"), page.draw() as canvas:
+        canvas.text("One too many", (10, 40))
     assert doc.to_bytes() == after_first
 
 
@@ -301,7 +308,7 @@ def test_drawing_rejects_raw_contents_array_before_input_decode() -> None:
         ),
         pytest.param(
             _resource_shape_doc("<< /Font 4 0 R >>", "4 0 R"),
-            "text",
+            "ocr",
             "Resources/Font contains a reference cycle",
             id="font-cycle",
         ),
@@ -318,7 +325,9 @@ def test_drawing_preflights_resource_shape_before_mutation(
         if operation == "image":
             doc.pages[0].insert_image((0, 0, 10, 10), stream=b"not an image")
         else:
-            doc.pages[0].insert_text((10, 20), "Text")
+            # The OCR text layer is the one drawing that registers a font in
+            # the page's resources; the canvas keeps its fonts in its Form.
+            doc.pages[0].apply_ocr(words=ocr_words([(10, 10, 50, 20, "Text")]), skip_existing=False)
 
     with pytest.raises(pylopdf.PdfError, match=message):
         run_operation()
@@ -353,7 +362,8 @@ def test_drawing_detaches_shared_resources_from_other_pages() -> None:
 
 def test_drawing_accepts_exact_page_inheritance_depth_boundary() -> None:
     doc = _page_parent_chain_doc(62)
-    doc.pages[0].insert_text((10, 20), "Text")
+    with doc.pages[0].draw() as canvas:
+        canvas.text("Text", (10, 20))
     assert "Text" in doc.pages[0].text()
 
 
@@ -378,8 +388,8 @@ def test_drawing_rejects_page_inheritance_amplification(
 ) -> None:
     before = doc.to_bytes()
 
-    with pytest.raises(pylopdf.PdfError, match=message):
-        doc.pages[0].insert_text((10, 20), "Text")
+    with pytest.raises(pylopdf.PdfError, match=message), doc.pages[0].draw() as canvas:
+        canvas.text("Text", (10, 20))
     assert doc.to_bytes() == before
 
 
@@ -476,8 +486,8 @@ def test_drawing_rejects_contents_reference_amplification(
 ) -> None:
     before = doc.to_bytes()
 
-    with pytest.raises(pylopdf.PdfError, match=message):
-        doc.pages[0].insert_text((10, 20), "Text")
+    with pytest.raises(pylopdf.PdfError, match=message), doc.pages[0].draw() as canvas:
+        canvas.text("Text", (10, 20))
     assert doc.to_bytes() == before
 
 
@@ -495,9 +505,11 @@ def test_drawing_preflights_contents_before_mutation(operation: str) -> None:
         elif operation == "pdf":
             page.show_pdf_page((0, 0, 10, 10), _new_page_doc())
         elif operation == "text":
-            page.insert_text((10, 20), "Text")
+            with page.draw() as canvas:
+                canvas.text("Text", (10, 20))
         else:
-            page.insert_textbox((10, 10, 100, 50), "Text")
+            with page.draw() as canvas:
+                canvas.textbox((10, 10, 100, 50), "Text")
 
     with pytest.raises(pylopdf.PdfError, match="4096-stream page Contents"):
         run_operation()
@@ -889,11 +901,12 @@ def test_show_pdf_page_underlay_draws_below() -> None:
     assert _pixel(page, 50, 50) == GREEN
 
 
-def test_insert_text_is_extractable_at_position() -> None:
+def test_text_is_extractable_at_position() -> None:
     doc = pylopdf.Document()
     doc.pages.new()  # A4-like page also verifies drawing without Resources.
     page = doc.pages[0]
-    page.insert_text((50, 100), "Confidential", fontsize=12)
+    with page.draw() as canvas:
+        canvas.text("Confidential", (50, 100), size=12)
     words = page.words()
     assert [w.text for w in words] == ["Confidential"]
     x0, y0, _, y1 = words[0].bbox
@@ -901,21 +914,23 @@ def test_insert_text_is_extractable_at_position() -> None:
     assert y0 < 100 < y1  # Requested baseline y lies inside the bbox.
 
 
-def test_insert_text_multiline_stacks_downward() -> None:
+def test_text_lines_stack_downward() -> None:
     doc = pylopdf.Document()
     doc.pages.new()
     page = doc.pages[0]
-    page.insert_text((50, 100), "First\nSecond", fontsize=10)
+    with page.draw() as canvas:
+        canvas.text("First\nSecond", (50, 100), size=10)
     words = {w.text: w for w in page.words()}
     assert words["Second"].bbox.y0 > words["First"].bbox.y0  # Second line is lower.
 
 
-def test_insert_text_on_rotated_page_reads_upright() -> None:
+def test_text_on_rotated_page_reads_upright() -> None:
     doc = pylopdf.Document()
     doc.pages.new((100, 200))
     page = doc.pages[0]
     page.rotation = 90
-    page.insert_text((20, 50), "Rotated")
+    with page.draw() as canvas:
+        canvas.text("Rotated", (20, 50))
     pix = page.pixmap(background=WHITE, alpha=True)
     assert (pix.width, pix.height) == (200, 100)  # Rendering uses display space.
     # Extraction/search share rendering's rotation-resolved display space.
@@ -926,16 +941,11 @@ def test_insert_text_on_rotated_page_reads_upright() -> None:
     assert page.search("Rotated")
 
 
-def test_insert_text_subset_embeds_unicode_font() -> None:
+def test_text_subset_embeds_unicode_font() -> None:
     doc = _new_page_doc(300, 150)
     page = doc.pages[0]
-    page.insert_text(
-        (20, 60),
-        "日本語テキスト",
-        fontsize=24,
-        fontfile=NOTO_SANS_JP,
-        fontname="private-resource-name-is-ignored",
-    )
+    with page.draw() as canvas:
+        canvas.text("日本語テキスト", (20, 60), font=pylopdf.Font.from_file(NOTO_SANS_JP), size=24)
 
     assert page.text().strip() == "日本語テキスト"
     assert page.search("日本語")
@@ -947,18 +957,19 @@ def test_insert_text_subset_embeds_unicode_font() -> None:
     assert reopened.pages[0].search("テキスト")
 
 
-def test_insert_text_auto_embeds_optional_jp_font() -> None:
+def test_text_auto_embeds_optional_jp_font() -> None:
     pytest.importorskip("pylopdf_fonts_jp")
     doc = _new_page_doc(300, 150)
     page = doc.pages[0]
 
-    page.insert_text((20, 60), "日本語", fontsize=24)
-    page.insert_text((20, 100), "明朝体", fontsize=24, fontname="tiro")
+    with page.draw() as canvas:
+        canvas.text("日本語", (20, 60), size=24)
+        canvas.text("明朝体", (20, 100), font=pylopdf.Font.installed(language="ja", serif=True), size=24)
 
     assert page.text().splitlines() == ["日本語", "明朝体"]
-    spans = [span for block in page.layout().to_dict()["blocks"] for line in block["lines"] for span in line["spans"]]
-    assert spans[0]["font"].startswith("NotoSansJP")
-    assert spans[1]["font"].startswith("NotoSerifJP")
+    spans = [span for block in page.layout().blocks for line in block.lines for span in line.spans]
+    assert spans[0].font.startswith("NotoSansJP")
+    assert spans[1].font.startswith("NotoSerifJP")
     assert len(doc.to_bytes()) < 100_000
 
 
@@ -975,22 +986,23 @@ def test_insert_text_auto_embeds_optional_jp_font() -> None:
         ("zh-TW", "繁體中文", "NotoSansTC"),
     ],
 )
-def test_insert_text_optional_font_conformance(
+def test_text_optional_font_conformance(
     font_language: pylopdf.FontLanguage,
     text: str,
     font_prefix: str,
 ) -> None:
     """Generate, subset, save, reopen, extract, and search each bundled script."""
     doc = _new_page_doc(300, 150)
-    doc.pages[0].insert_text((20, 60), text, fontsize=24, font_language=font_language)
+    with doc.pages[0].draw() as canvas:
+        canvas.text(text, (20, 60), font=pylopdf.Font.installed(language=font_language), size=24)
 
     saved = doc.to_bytes()
     assert len(saved) < 100_000
     reopened = pylopdf.open(saved)
     assert reopened.pages[0].text().strip() == text
     assert reopened.pages[0].search(text)
-    span = reopened.pages[0].layout().to_dict()["blocks"][0]["lines"][0]["spans"][0]
-    assert span["font"].startswith(font_prefix)
+    span = reopened.pages[0].layout().blocks[0].lines[0].spans[0]
+    assert span.font.startswith(font_prefix)
 
 
 @pytest.mark.parametrize(
@@ -1004,51 +1016,46 @@ def test_insert_text_optional_font_conformance(
         ("ภาษาไทย", "NotoSansThai"),
     ],
 )
-def test_insert_text_detects_unambiguous_script_provider(text: str, font_prefix: str) -> None:
+def test_text_detects_unambiguous_script_provider(text: str, font_prefix: str) -> None:
     doc = _new_page_doc(300, 150)
-    doc.pages[0].insert_text((20, 60), text, fontsize=24)
+    with doc.pages[0].draw() as canvas:
+        canvas.text(text, (20, 60), size=24)
 
-    span = doc.pages[0].layout().to_dict()["blocks"][0]["lines"][0]["spans"][0]
-    assert span["font"].startswith(font_prefix)
+    span = doc.pages[0].layout().blocks[0].lines[0].spans[0]
+    assert span.font.startswith(font_prefix)
 
 
-def test_insert_text_disambiguates_han_provider() -> None:
+def test_text_disambiguates_han_with_an_installed_font() -> None:
     pytest.importorskip("pylopdf_fonts_ko")
     pytest.importorskip("pylopdf_fonts_zh_cn")
     doc = _new_page_doc(300, 180)
 
-    doc.pages[0].insert_text((20, 50), "한국어", fontsize=20)
-    doc.pages[0].insert_text((20, 100), "简体中文", fontsize=20, font_language="zh-CN")
+    with doc.pages[0].draw() as canvas:
+        canvas.text("한국어", (20, 50), size=20)
+        canvas.text("简体中文", (20, 100), font=pylopdf.Font.installed(language="zh-CN"), size=20)
 
-    spans = [
-        span for block in doc.pages[0].layout().to_dict()["blocks"] for line in block["lines"] for span in line["spans"]
-    ]
-    assert spans[0]["font"].startswith("NotoSansKR")
-    assert spans[1]["font"].startswith("NotoSansSC")
+    spans = [span for block in doc.pages[0].layout().blocks for line in block.lines for span in line.spans]
+    assert spans[0].font.startswith("NotoSansKR")
+    assert spans[1].font.startswith("NotoSansSC")
 
 
-def test_insert_text_validates_font_language_contract() -> None:
+def test_text_refuses_mixed_scripts_without_a_font() -> None:
     page = _new_page_doc().pages[0]
     with pytest.raises(ValueError, match="font_language"):
-        page.insert_text((20, 40), "text", font_language="fr")  # ty: ignore[invalid-argument-type]
-    with pytest.raises(ValueError, match="cannot be combined"):
-        page.insert_text((20, 40), "日本語", fontfile=NOTO_SANS_JP, font_language="ja")
-    with pytest.raises(ValueError, match="multiple bundled font locales"):
-        page.insert_text((20, 40), "かな한국어")
+        pylopdf.Font.installed(language="fr")  # ty: ignore[invalid-argument-type]
+    with pytest.raises(ValueError, match="multiple bundled font locales"), page.draw() as canvas:
+        canvas.text("かな한국어", (20, 40))
+    assert page.text() == ""
 
 
-def test_insert_text_embedded_fontbuffer_multiline_and_rotation() -> None:
+def test_text_embedded_font_multiline_and_rotation() -> None:
     doc = pylopdf.Document()
     doc.pages.new((150, 300))
     page = doc.pages[0]
     page.rotation = 90
-    page.insert_text(
-        (30, 55),
-        "一行目\n二行目",
-        fontsize=18,
-        fontbuffer=NOTO_SANS_JP.read_bytes(),
-        color=(0.8, 0.1, 0.2),
-    )
+    font = pylopdf.Font.from_bytes(NOTO_SANS_JP.read_bytes())
+    with page.draw() as canvas:
+        canvas.text("一行目\n二行目", (30, 55), font=font, size=18, fill=pylopdf.Color(0.8, 0.1, 0.2))
 
     words = {word.text: word for word in page.words()}
     assert set(words) == {"一行目", "二行目"}
@@ -1058,101 +1065,69 @@ def test_insert_text_embedded_fontbuffer_multiline_and_rotation() -> None:
     assert page.pixmap(alpha=True).width == 300
 
 
-def test_insert_text_embedded_overlay_order() -> None:
-    font_data = NOTO_SANS_JP.read_bytes()
+@pytest.mark.parametrize("embedded", [False, True])
+@pytest.mark.parametrize("underlay", [False, True])
+def test_text_overlay_order(embedded: bool, underlay: bool) -> None:  # noqa: FBT001 - parametrized.
+    font = pylopdf.Font.from_bytes(NOTO_SANS_JP.read_bytes()) if embedded else None
+    doc = _new_page_doc(160, 80)
+    doc.pages[0].insert_image((0, 0, 160, 80), stream=_solid_png(2, 2, GREEN), keep_proportion=False)
+    with doc.pages[0].draw(underlay=underlay) as canvas:
+        canvas.text("TEXT", (10, 55), font=font, size=48, fill=pylopdf.Color(1.0, 0.0, 0.0))
 
-    underlay = _new_page_doc(160, 80)
-    underlay.pages[0].insert_image((0, 0, 160, 80), stream=_solid_png(2, 2, GREEN), keep_proportion=False)
-    underlay.pages[0].insert_text(
-        (10, 55),
-        "TEXT",
-        fontsize=48,
-        fontbuffer=font_data,
-        color=(1.0, 0.0, 0.0),
-        overlay=False,
-    )
-    underlay_rgb = bytes(
-        channel for offset, channel in enumerate(bytes(underlay.pages[0].pixmap(alpha=True))) if offset % 4 != 3
-    )
-    assert set(underlay_rgb) == {0, 128}
-
-    overlay = _new_page_doc(160, 80)
-    overlay.pages[0].insert_image((0, 0, 160, 80), stream=_solid_png(2, 2, GREEN), keep_proportion=False)
-    overlay.pages[0].insert_text(
-        (10, 55),
-        "TEXT",
-        fontsize=48,
-        fontbuffer=font_data,
-        color=(1.0, 0.0, 0.0),
-    )
-    overlay_rgb = bytes(
-        channel for offset, channel in enumerate(bytes(overlay.pages[0].pixmap(alpha=True))) if offset % 4 != 3
-    )
-    assert set(overlay_rgb) != {0, 128}
-
-    standard_underlay = _new_page_doc(160, 80)
-    standard_underlay.pages[0].insert_image((0, 0, 160, 80), stream=_solid_png(2, 2, GREEN), keep_proportion=False)
-    standard_underlay.pages[0].insert_text(
-        (10, 55),
-        "TEXT",
-        fontsize=48,
-        color=(1.0, 0.0, 0.0),
-        overlay=False,
-    )
-    standard_rgb = bytes(
-        channel
-        for offset, channel in enumerate(bytes(standard_underlay.pages[0].pixmap(alpha=True)))
-        if offset % 4 != 3
-    )
-    assert set(standard_rgb) == {0, 128}
+    rgb = bytes(channel for offset, channel in enumerate(bytes(doc.pages[0].pixmap(alpha=True))) if offset % 4 != 3)
+    # Text drawn below the green image is hidden by it.
+    assert (set(rgb) == {0, 128}) is underlay
 
 
-def test_insert_textbox_wraps_aligns_and_reports_spare_height() -> None:
+def test_textbox_wraps_aligns_and_reports_spare_height() -> None:
     doc = _new_page_doc(200, 120)
     page = doc.pages[0]
     rect = (10, 10, 110, 90)
 
-    spare = page.insert_textbox(rect, "one two three four five six", fontsize=10, align=pylopdf.TEXT_ALIGN_RIGHT)
+    with page.draw() as canvas:
+        spare = canvas.textbox(rect, "one two three four five six", align="right", size=10).spare_height
 
     assert spare > 0
-    lines = page.layout().to_dict()["blocks"][0]["lines"]
+    lines = page.layout().blocks[0].lines
     assert len(lines) == 2
-    assert " ".join(span["text"] for span in lines[0]["spans"]) == "one two three four five"
-    assert lines[0]["bbox"][2] == pytest.approx(rect[2], abs=0.1)
-    assert lines[1]["bbox"][2] == pytest.approx(rect[2], abs=0.1)
-    assert all(rect[0] <= line["bbox"][0] < line["bbox"][2] <= rect[2] + 0.1 for line in lines)
-    assert all(rect[1] <= line["bbox"][1] < line["bbox"][3] <= rect[3] for line in lines)
+    assert " ".join(span.text for span in lines[0].spans) == "one two three four five"
+    assert lines[0].bbox.x1 == pytest.approx(rect[2], abs=0.1)
+    assert lines[1].bbox.x1 == pytest.approx(rect[2], abs=0.1)
+    assert all(rect[0] <= line.bbox.x0 < line.bbox.x1 <= rect[2] + 0.1 for line in lines)
+    assert all(rect[1] <= line.bbox.y0 < line.bbox.y1 <= rect[3] for line in lines)
 
 
-def test_insert_textbox_justifies_only_soft_wrapped_lines() -> None:
+def test_textbox_justifies_only_soft_wrapped_lines() -> None:
     doc = _new_page_doc(200, 120)
     page = doc.pages[0]
     rect = (10, 10, 110, 90)
 
-    page.insert_textbox(rect, "one two three four five six", fontsize=10, align=pylopdf.TEXT_ALIGN_JUSTIFY)
+    with page.draw() as canvas:
+        canvas.textbox(rect, "one two three four five six", align="justify", size=10)
 
-    lines = page.layout().to_dict()["blocks"][0]["lines"]
-    assert lines[0]["bbox"][0] == pytest.approx(rect[0], abs=0.1)
-    assert lines[0]["bbox"][2] == pytest.approx(rect[2], abs=0.1)
-    assert lines[1]["bbox"][0] == pytest.approx(rect[0], abs=0.1)
-    assert lines[1]["bbox"][2] < rect[2] - 20
+    lines = page.layout().blocks[0].lines
+    assert lines[0].bbox.x0 == pytest.approx(rect[0], abs=0.1)
+    assert lines[0].bbox.x1 == pytest.approx(rect[2], abs=0.1)
+    assert lines[1].bbox.x0 == pytest.approx(rect[0], abs=0.1)
+    assert lines[1].bbox.x1 < rect[2] - 20
 
 
-def test_insert_textbox_overflow_is_non_drawing_and_empty_text_is_free() -> None:
+def test_textbox_overflow_is_non_drawing_and_empty_text_is_free() -> None:
     doc = _new_page_doc(200, 100)
     page = doc.pages[0]
     before = bytes(page.pixmap(background=WHITE, alpha=True))
 
-    spare = page.insert_textbox((10, 10, 110, 15), "one two three four", fontsize=10)
+    with page.draw() as canvas:
+        overflow = canvas.textbox((10, 10, 110, 15), "one two three four", size=10)
+        empty = canvas.textbox((10, 10, 110, 25), "", size=10)
 
-    assert spare < 0
+    assert overflow.spare_height < 0
+    assert empty == pylopdf.TextFit(spare_height=15)
     assert page.text() == ""
     assert bytes(page.pixmap(background=WHITE, alpha=True)) == before
-    assert page.insert_textbox((10, 10, 110, 25), "", fontsize=10) == 15
-    assert page.text() == ""
 
 
-def test_insert_textbox_auto_embeds_optional_jp_font_and_survives_rotation() -> None:
+def test_textbox_auto_embeds_optional_jp_font_and_survives_rotation() -> None:
     pytest.importorskip("pylopdf_fonts_jp")
     doc = pylopdf.Document()
     doc.pages.new((120, 200))
@@ -1160,59 +1135,49 @@ def test_insert_textbox_auto_embeds_optional_jp_font_and_survives_rotation() -> 
     page.rotation = 90
     rect = (10, 10, 100, 80)
 
-    spare = page.insert_textbox(
-        rect,
-        "日本語の文章を空白なしで折り返します。",
-        fontsize=12,
-        align=pylopdf.TEXT_ALIGN_CENTER,
-    )
+    with page.draw() as canvas:
+        spare = canvas.textbox(rect, "日本語の文章を空白なしで折り返します。", align="center", size=12).spare_height
 
     assert spare > 0
-    # pymupdf's default line height for Noto Sans JP sets each line in its own block.
-    lines = [line for block in page.layout().to_dict()["blocks"] for line in block["lines"]]
+    lines = [line for block in page.layout().blocks for line in block.lines]
     assert len(lines) >= 3
-    assert "".join(span["text"] for line in lines for span in line["spans"]) == "日本語の文章を空白なしで折り返します。"
-    assert all(rect[0] <= line["bbox"][0] < line["bbox"][2] <= rect[2] + 0.1 for line in lines)
-    assert all(rect[1] <= line["bbox"][1] < line["bbox"][3] <= rect[3] for line in lines)
+    assert "".join(line.text for line in lines) == "日本語の文章を空白なしで折り返します。"
+    assert all(rect[0] <= line.bbox.x0 < line.bbox.x1 <= rect[2] + 0.1 for line in lines)
+    assert all(rect[1] <= line.bbox.y0 < line.bbox.y1 <= rect[3] for line in lines)
     reopened = pylopdf.open(doc.to_bytes())
     assert reopened.pages[0].text().replace("\n", "") == "日本語の文章を空白なしで折り返します。"
 
 
-def test_insert_textbox_tabs_custom_leading_and_bad_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_textbox_tabs_custom_leading_and_bad_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = _new_page_doc()
     page = doc.pages[0]
-    first = page.insert_textbox((10, 10, 150, 80), "a\tb\nc", fontsize=10, expandtabs=4, lineheight=1.0)
+    with page.draw() as canvas:
+        first = canvas.textbox((10, 10, 150, 80), "a\tb\nc", size=10, line_height=1.0).spare_height
     assert first > 0
-    assert page.text().splitlines() == ["a   b", "c"]
+    # Each tab becomes one space.
+    assert page.text().splitlines() == ["a b", "c"]
 
-    with pytest.raises(ValueError, match="align"):
-        page.insert_textbox((10, 10, 100, 80), "x", align=4)
-    with pytest.raises(ValueError, match="expandtabs"):
-        page.insert_textbox((10, 10, 100, 80), "x", expandtabs=True)
-    with pytest.raises(ValueError, match="lineheight"):
-        page.insert_textbox((10, 10, 100, 80), "x", lineheight=0)
+    with pytest.raises(ValueError, match="align"), page.draw() as canvas:
+        canvas.textbox((10, 10, 100, 80), "x", align="middle")  # ty: ignore[invalid-argument-type]
+    with pytest.raises(ValueError, match="line_height"), page.draw() as canvas:
+        canvas.textbox((10, 10, 100, 80), "x", line_height=0)
     with monkeypatch.context() as context:
         context.setattr("pylopdf._fonts._bundled_font_providers", lambda: ())
-        with pytest.raises(ValueError, match=r"optional font extra.*fontfile or fontbuffer"):
-            page.insert_textbox((10, 10, 100, 80), "日本語")
-    with pytest.raises(pylopdf.PdfError, match="does not contain all glyphs"):
-        page.insert_textbox((10, 10, 100, 80), "🦀", fontfile=NOTO_SANS_JP)
+        with pytest.raises(ValueError, match="optional font extra or pass a Font"), page.draw() as canvas:
+            canvas.textbox((10, 10, 100, 80), "日本語")
+    with pytest.raises(pylopdf.PdfError, match="does not contain all glyphs"), page.draw() as canvas:
+        canvas.textbox((10, 10, 100, 80), "🦀", font=pylopdf.Font.from_file(NOTO_SANS_JP))
 
 
 @pytest.mark.parametrize("fontfile", [None, NOTO_SANS_JP])
-def test_insert_textbox_underlay_stays_below_existing_content(fontfile: Path | None) -> None:
+def test_textbox_underlay_stays_below_existing_content(fontfile: Path | None) -> None:
     doc = _new_page_doc(160, 80)
     page = doc.pages[0]
     page.insert_image((0, 0, 160, 80), stream=_solid_png(2, 2, GREEN), keep_proportion=False)
+    font = None if fontfile is None else pylopdf.Font.from_file(fontfile)
 
-    page.insert_textbox(
-        (5, 5, 155, 75),
-        "TEXT",
-        fontsize=48,
-        fontfile=fontfile,
-        color=(1.0, 0.0, 0.0),
-        overlay=False,
-    )
+    with page.draw(underlay=True) as canvas:
+        canvas.textbox((5, 5, 155, 75), "TEXT", font=font, size=48, fill=pylopdf.Color(1.0, 0.0, 0.0))
 
     rgb = bytes(channel for offset, channel in enumerate(bytes(page.pixmap(alpha=True))) if offset % 4 != 3)
     assert set(rgb) == {0, 128}
@@ -1231,172 +1196,142 @@ def test_drawn_image_bbox_on_rotated_page_is_display_space() -> None:
     assert abs(bbox.y1 - 75) < 1
 
 
-def test_insert_text_survives_save_roundtrip() -> None:
+def test_text_survives_save_roundtrip() -> None:
     doc = pylopdf.Document()
     doc.pages.new()
-    doc.pages[0].insert_text((72, 72), "Persistent")
+    with doc.pages[0].draw() as canvas:
+        canvas.text("Persistent", (72, 72))
     reopened = pylopdf.open(doc.to_bytes())
     assert "Persistent" in reopened.pages[0].text()
 
 
-def test_insert_text_standard14_escapes_binary_and_delimiters() -> None:
+def test_standard_14_text_escapes_binary_and_delimiters() -> None:
     doc = pylopdf.Document()
     doc.pages.new()
 
-    doc.pages[0].insert_text((10, 20), "\x01(A)\\€")
+    with doc.pages[0].draw() as canvas:
+        canvas.text("\x01(A)\\€", (10, 20))
 
-    assert b"(\\001\\(A\\)\\\\\\200) Tj" in doc.to_bytes()
+    assert b"(\\001\\(A\\)\\\\\\200) Tj" in doc.to_bytes(compress=False)
 
 
-def test_insert_text_page_numbering_recipe() -> None:
+def test_text_page_numbering_recipe() -> None:
     # Page-number footer recipe.
     doc = pylopdf.Document()
     for _ in range(3):
         doc.pages.new()
     for i, page in enumerate(doc.pages):
-        page.insert_text((page.rect.width - 90, page.rect.height - 30), f"Page {i + 1} / 3", fontsize=9)
+        with page.draw() as canvas:
+            canvas.text(f"Page {i + 1} / 3", (page.rect.width - 90, page.rect.height - 30), size=9)
     for i in range(3):
         assert f"Page {i + 1} / 3" in doc.pages[i].text()
 
 
-def test_insert_text_rejects_unicode_without_optional_or_explicit_font(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_text_refuses_unicode_without_an_installed_extra_or_a_font(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = pylopdf.Document()
     doc.pages.new()
     with monkeypatch.context() as context:
         context.setattr("pylopdf._fonts._bundled_font_providers", lambda: ())
-        with pytest.raises(ValueError, match=r"optional font extra.*fontfile or fontbuffer"):
-            doc.pages[0].insert_text((50, 50), "社外秘")
-        with pytest.raises(ValueError, match=r"font_language='ko'.*fontfile/fontbuffer"):
-            doc.pages[0].insert_text((50, 50), "기밀")
-
-
-def test_insert_text_rejects_unknown_font_and_bad_args() -> None:
-    doc = pylopdf.Document()
-    doc.pages.new()
-    page = doc.pages[0]
-    with pytest.raises(ValueError, match="fontname"):
-        page.insert_text((50, 50), "x", fontname="nosuch")
-    with pytest.raises(ValueError, match="fontsize"):
-        page.insert_text((50, 50), "x", fontsize=0)
-    with pytest.raises(ValueError, match="color"):
-        page.insert_text((50, 50), "x", color=(2.0, 0.0, 0.0))
-    with pytest.raises(ValueError, match="cannot both"):
-        page.insert_text((50, 50), "x", fontfile=NOTO_SANS_JP, fontbuffer=b"font")
-    with pytest.raises(ValueError, match="fontindex"):
-        page.insert_text((50, 50), "x", fontindex=1)
-    with pytest.raises(ValueError, match="fontindex"):
-        page.insert_text((50, 50), "x", fontbuffer=NOTO_SANS_JP.read_bytes(), fontindex=True)
-    with pytest.raises(pylopdf.PdfError, match="font data"):
-        page.insert_text((50, 50), "x", fontbuffer=b"not a font")
-    with pytest.raises(pylopdf.PdfError, match="does not contain all glyphs"):
-        page.insert_text((50, 50), "🦀", fontfile=NOTO_SANS_JP)
-
-
-@pytest.mark.parametrize("value", [0, -1, True, 1.5])
-def test_insert_text_validates_font_budget(value: object) -> None:
-    page = _new_page_doc().pages[0]
-
-    with pytest.raises((TypeError, ValueError), match="max_font_size"):
-        page.insert_text((10, 20), "x", fontbuffer=b"font", max_font_size=value)  # ty: ignore[invalid-argument-type]
-
-
-def test_insert_text_bounds_fontbuffer_before_core_copy() -> None:
-    doc = _new_page_doc()
-    before = doc.complexity
-
-    with pytest.raises(pylopdf.LimitError) as caught:
-        doc.pages[0].insert_text((10, 20), "x", fontbuffer=b"too large", max_font_size=1)
-
-    assert caught.value.code == "font_input_size"
-    assert doc.complexity == before
+        with pytest.raises(ValueError, match="optional font extra or pass a Font"), doc.pages[0].draw() as canvas:
+            canvas.text("社外秘", (50, 50))
+        with pytest.raises(ValueError, match=r"font_language='ko'.*explicit font"), doc.pages[0].draw() as canvas:
+            canvas.text("기밀", (50, 50))
     assert doc.pages[0].text() == ""
 
 
-def test_insert_text_reads_fontfile_through_bounded_core_path() -> None:
-    font_size = NOTO_SANS_JP.stat().st_size
+def test_text_refuses_bad_arguments() -> None:
+    doc = pylopdf.Document()
+    doc.pages.new()
+    page = doc.pages[0]
+    with pytest.raises(ValueError, match="PostScript name"):
+        pylopdf.Font.standard("nosuch")  # ty: ignore[invalid-argument-type]
+    with pytest.raises(ValueError, match="size"), page.draw() as canvas:
+        canvas.text("x", (50, 50), size=0)
+    with pytest.raises(ValueError, match="from 0 to 1"), page.draw() as canvas:
+        canvas.text("x", (50, 50), fill=pylopdf.Color(2.0, 0.0, 0.0))
+    with pytest.raises(ValueError, match="index"):
+        pylopdf.Font.from_bytes(NOTO_SANS_JP.read_bytes(), index=True)
+    with pytest.raises(pylopdf.PdfError, match="font"):
+        pylopdf.Font.from_bytes(b"not a font")
+    with pytest.raises(pylopdf.PdfError, match="does not contain all glyphs"), page.draw() as canvas:
+        canvas.text("🦀", (50, 50), font=pylopdf.Font.from_file(NOTO_SANS_JP))
+    assert page.text() == ""
+
+
+@pytest.mark.parametrize("value", [0, -1, True, 1.5])
+def test_font_budget_is_validated(value: object) -> None:
+    with pytest.raises((TypeError, ValueError), match="max_size"):
+        pylopdf.Font.from_bytes(b"font", max_size=value)  # ty: ignore[invalid-argument-type]
+
+
+def test_font_bytes_are_bounded_before_the_core_copy() -> None:
     doc = _new_page_doc()
     before = doc.complexity
 
     with pytest.raises(pylopdf.LimitError) as caught:
-        doc.pages[0].insert_text((10, 20), "A", fontfile=NOTO_SANS_JP, max_font_size=font_size - 1)
+        pylopdf.Font.from_bytes(b"too large", max_size=1)
 
     assert caught.value.code == "font_input_size"
     assert doc.complexity == before
 
-    doc.pages[0].insert_text((10, 20), "A", fontfile=NOTO_SANS_JP, max_font_size=font_size)
+
+def test_font_files_are_read_through_a_bounded_core_path() -> None:
+    font_size = NOTO_SANS_JP.stat().st_size
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        pylopdf.Font.from_file(NOTO_SANS_JP, max_size=font_size - 1)
+
+    assert caught.value.code == "font_input_size"
+    doc = _new_page_doc()
+    with doc.pages[0].draw() as canvas:
+        canvas.text("A", (10, 20), font=pylopdf.Font.from_file(NOTO_SANS_JP, max_size=font_size))
     assert "A" in doc.pages[0].text()
 
 
-def test_insert_text_bounds_auto_selected_cjk_font() -> None:
-    pytest.importorskip("pylopdf_fonts_jp")
-    doc = _new_page_doc()
-    before = doc.complexity
-
-    with pytest.raises(pylopdf.LimitError) as caught:
-        doc.pages[0].insert_text((10, 20), "日本語", max_font_size=1)
-
-    assert caught.value.code == "font_input_size"
-    assert doc.complexity == before
+def _draw_generated_text(method: str, page: pylopdf.Page, text: str, **options: Any) -> None:  # noqa: ANN401
+    """Draw text with ``Canvas.text`` or ``Canvas.textbox``, as ``method`` names."""
+    if method == "text":
+        draw_text(page, (10, 20), text, **options)
+    else:
+        draw_textbox(page, (10, 10, 100, 80), text, **options)
 
 
-def test_insert_textbox_repeats_fontbuffer_boundary() -> None:
-    doc = _new_page_doc()
-    before = doc.complexity
-
-    with pytest.raises(pylopdf.LimitError) as caught:
-        doc.pages[0].insert_textbox((10, 10, 100, 80), "x", fontbuffer=b"too large", max_font_size=1)
-
-    assert caught.value.code == "font_input_size"
-    assert doc.complexity == before
-
-
-@pytest.mark.parametrize("method", ["insert_text", "insert_textbox"])
+@pytest.mark.parametrize("method", ["text", "textbox"])
 @pytest.mark.parametrize("value", [0, -1, True, 1.5])
 def test_generated_text_validates_text_budget(method: str, value: object) -> None:
     page = _new_page_doc().pages[0]
 
-    def call() -> None:
-        if method == "insert_text":
-            page.insert_text((10, 20), "x", max_text_size=value)  # ty: ignore[invalid-argument-type]
-        else:
-            page.insert_textbox((10, 10, 100, 80), "x", max_text_size=value)  # ty: ignore[invalid-argument-type]
-
     with pytest.raises((TypeError, ValueError), match="max_text_size"):
-        call()
+        _draw_generated_text(method, page, "x", max_text_size=value)
 
 
-def test_insert_text_bounds_utf8_input_atomically() -> None:
+def test_text_bounds_utf8_input_atomically() -> None:
     doc = _new_page_doc()
     before = doc.complexity
 
-    with pytest.raises(pylopdf.LimitError) as caught:
-        doc.pages[0].insert_text((10, 20), "é", max_text_size=1)
+    with pytest.raises(pylopdf.LimitError) as caught, doc.pages[0].draw() as canvas:
+        canvas.text("é", (10, 20), max_text_size=1)
 
     assert caught.value.code == "text_input_size"
     assert doc.complexity == before
     assert doc.pages[0].text() == ""
 
-    doc.pages[0].insert_text((10, 20), "é", max_text_size=2)
-    doc.pages[0].insert_text((10, 40), "unbounded", max_text_size=None)
+    with doc.pages[0].draw() as canvas:
+        canvas.text("é", (10, 20), max_text_size=2)
+        canvas.text("unbounded", (10, 40), max_text_size=None)
     assert doc.pages[0].text().splitlines() == ["é", "unbounded"]
 
 
-@pytest.mark.parametrize("method", ["insert_text", "insert_textbox"])
+@pytest.mark.parametrize("method", ["text", "textbox"])
 def test_generated_text_bounds_physical_lines_atomically(method: str) -> None:
     doc = _new_page_doc()
     before = doc.complexity
-    # 4,097 lines, both for insert_text, which splits text with
-    # str.splitlines(), and for insert_textbox, which splits it at "\n".
+    # 4,097 lines, both for text, which splits text with str.splitlines(), and
+    # for textboxes, which split it at line breaks.
     text = "\n" * 4096 + "x"
 
-    def call() -> None:
-        if method == "insert_text":
-            doc.pages[0].insert_text((10, 20), text, max_text_size=len(text))
-        else:
-            doc.pages[0].insert_textbox((10, 10, 100, 80), text, max_text_size=len(text))
-
     with pytest.raises(pylopdf.LimitError) as caught:
-        call()
+        _draw_generated_text(method, doc.pages[0], text, max_text_size=len(text))
 
     assert caught.value.code == "text_line_count"
     assert doc.complexity == before
@@ -1406,76 +1341,60 @@ def test_generated_text_bounds_physical_lines_atomically(method: str) -> None:
 def test_generated_text_line_limit_boundary_and_opt_out_do_not_draw_on_overflow() -> None:
     bounded = _new_page_doc()
     before = bounded.complexity
-    assert bounded.pages[0].insert_textbox((10, 10, 100, 20), "\n" * 4095, max_text_size=4095) < 0
+    assert draw_textbox(bounded.pages[0], (10, 10, 100, 20), "\n" * 4095, max_text_size=4095).spare_height < 0
     assert bounded.complexity == before
 
     unbounded = _new_page_doc()
     before = unbounded.complexity
-    assert unbounded.pages[0].insert_textbox((10, 10, 100, 20), "\n" * 4096, max_text_size=None) < 0
+    assert draw_textbox(unbounded.pages[0], (10, 10, 100, 20), "\n" * 4096, max_text_size=None).spare_height < 0
     assert unbounded.complexity == before
 
 
-def test_insert_textbox_bounds_soft_wrapped_lines_atomically() -> None:
+def test_textbox_bounds_soft_wrapped_lines_atomically() -> None:
     doc = _new_page_doc()
     before = doc.complexity
     text = "a" * 4097
 
-    with pytest.raises(pylopdf.LimitError) as caught:
-        doc.pages[0].insert_textbox((10, 10, 16, 80), text, fontsize=10, max_text_size=len(text))
+    with pytest.raises(pylopdf.LimitError) as caught, doc.pages[0].draw() as canvas:
+        canvas.textbox((10, 10, 16, 80), text, size=10, max_text_size=len(text))
 
     assert caught.value.code == "text_line_count"
     assert doc.complexity == before
     assert doc.pages[0].text() == ""
 
 
-def test_insert_textbox_bounds_expanded_tabs_before_allocation() -> None:
+def test_textbox_bounds_text_before_expanding_tabs() -> None:
     rejected = _new_page_doc()
     before = rejected.complexity
 
-    with pytest.raises(pylopdf.LimitError) as caught:
-        rejected.pages[0].insert_textbox((10, 10, 150, 80), "a\tb", expandtabs=4, max_text_size=4)
+    with pytest.raises(pylopdf.LimitError) as caught, rejected.pages[0].draw() as canvas:
+        canvas.textbox((10, 10, 150, 80), "ab\tcd", max_text_size=4)
 
     assert caught.value.code == "text_input_size"
     assert rejected.complexity == before
 
-    with pytest.raises(pylopdf.LimitError) as huge_tab:
-        rejected.pages[0].insert_textbox(
-            (10, 10, 150, 80),
-            "\t",
-            expandtabs=2_000_000_000,
-            max_text_size=1024,
-        )
-    assert huge_tab.value.code == "text_input_size"
-    assert rejected.complexity == before
-
     accepted = _new_page_doc()
-    assert (
-        accepted.pages[0].insert_textbox(
-            (10, 10, 150, 80),
-            "a\tb",
-            expandtabs=4,
-            max_text_size=5,
-        )
-        > 0
-    )
-    assert accepted.pages[0].text().strip() == "a   b"
+    assert draw_textbox(accepted.pages[0], (10, 10, 150, 80), "a\tb", max_text_size=3).fits
+    assert accepted.pages[0].text().strip() == "a b"
 
 
-def test_insert_textbox_wide_single_line_preserves_content() -> None:
+def test_textbox_wide_single_line_preserves_content() -> None:
     doc = _new_page_doc(1_000_000_000, 100)
     text = "word " * 10_000
 
-    spare = doc.pages[0].insert_textbox((10, 10, 999_999_990, 90), text, max_text_size=len(text))
+    with doc.pages[0].draw() as canvas:
+        spare = canvas.textbox((10, 10, 999_999_990, 90), text, max_text_size=len(text)).spare_height
 
     assert spare > 0
     assert doc.complexity["object_count"] > 4
 
 
-def test_insert_textbox_dense_break_indexes_preserve_content() -> None:
+def test_textbox_dense_break_indexes_preserve_content() -> None:
     doc = _new_page_doc(220, 2_500)
     text = " ".join(["a"] * 2_048)
 
-    spare = doc.pages[0].insert_textbox((10, 10, 210, 2_490), text, fontsize=10, max_text_size=len(text))
+    with doc.pages[0].draw() as canvas:
+        spare = canvas.textbox((10, 10, 210, 2_490), text, size=10, max_text_size=len(text)).spare_height
 
     assert spare > 0
     assert doc.pages[0].text().split() == ["a"] * 2_048

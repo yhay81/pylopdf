@@ -364,7 +364,8 @@ def test_page_edits_inherit_past_attributes_that_name_missing_objects(operation:
         doc.pages.extend(doc.pages[0])
         index = 2
     else:
-        doc.pages[0].insert_text((20, 30), "Drawn")
+        with doc.pages[0].draw() as canvas:
+            canvas.text("Drawn", (20, 30))
 
     for current in (doc, pylopdf.open(doc.to_bytes())):
         page = current.pages[index]
@@ -392,7 +393,8 @@ def test_add_page_refuses_existing_parent_cycle_before_mutation(operation: str) 
     before = target.to_bytes()
     source = pylopdf.Document()
     source.pages.new()
-    source.pages[0].insert_text((10, 30), "IMPORTED-DATA-MUST-NOT-REMAIN")
+    with source.pages[0].draw() as canvas:
+        canvas.text("IMPORTED-DATA-MUST-NOT-REMAIN", (10, 30))
     actions: dict[str, Callable[[], object]] = {
         "new": target.pages.new,
         "import": lambda: target.pages.extend(source.pages),

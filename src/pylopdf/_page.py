@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal
 
 from pylopdf import _text
 from pylopdf._annotations import Annotations
@@ -12,32 +11,18 @@ from pylopdf._boxes import PageBoxes
 from pylopdf._canvas import Canvas
 from pylopdf._content import Content, _content_from_core
 from pylopdf._errors import StalePageError
-from pylopdf._fonts import (
-    _SYMBOLIC_BASE14_NAMES,
-    _package_face_weight,
-    _require_winansi,
-    _resolve_font_source,
-    _resolve_generation_font,
-    _validate_font_choice,
-)
 from pylopdf._geometry import Matrix, Rect
 from pylopdf._hints import hinted_getattr
 from pylopdf._images import Resources
 from pylopdf._limits import (
-    _DEFAULT_MAX_FONT_INPUT_SIZE,
-    _DEFAULT_MAX_GENERATED_TEXT_SIZE,
     _DEFAULT_MAX_IMAGE_INPUT_SIZE,
     _DEFAULT_MAX_IMAGE_PIXELS,
     _DEFAULT_MAX_MARKDOWN_SIZE,
     _DEFAULT_MAX_SVG_SIZE,
     _bounded_utf8_size,
-    _insert_text_lines,
     _validate_cumulative_utf8_input,
-    _validate_generated_text_lines,
-    _validate_lineheight,
     _validate_optional_positive_int,
     _validate_rect,
-    _validate_textbox_options,
     _validate_utf8_text_input,
 )
 from pylopdf._links import Links
@@ -46,7 +31,6 @@ from pylopdf._ocr import OcrEngine, OcrWord, _default_ocr_engine, _validate_ocr_
 from pylopdf._page_labels import _label, _read_page_labels
 from pylopdf._pixmap import Colorspace, _render_background, _render_gray, _render_scale, _validate_bool
 from pylopdf._tables import Table, build_tables
-from pylopdf._types import TEXT_ALIGN_LEFT
 from pylopdf.pylopdf_core import LimitError, Pixmap
 
 if TYPE_CHECKING:
@@ -54,9 +38,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
     from pylopdf._document import Document
-    from pylopdf._fonts import Font
     from pylopdf._text import Layout, Word
-    from pylopdf._types import FontLanguage, OcrRotation
+    from pylopdf._types import OcrRotation
 
 
 _DEFAULT_MAX_TEXT_REPLACEMENT_SIZE = 64 * 1024 * 1024
@@ -71,19 +54,6 @@ _MAX_OCR_LAYER_TEXT_BYTES = 1024 * 1024
 #: The defaults of the recognition options of :meth:`Page.apply_ocr`, which ``words`` excludes.
 _DEFAULT_OCR_RECOGNITION = (300, 1408, 192, 0.5)
 _MAX_TEXT_REPLACEMENT_INPUT_BYTES = 4096
-
-
-def _validate_unit_rgb(color: Sequence[float]) -> tuple[float, float, float]:
-    """Validate an ``(r, g, b)`` color in the range 0–1."""
-    try:
-        red, green, blue = (float(c) for c in color)
-    except (TypeError, ValueError) as exc:
-        msg = f"color must be (r, g, b) in the range 0-1: {color!r}"
-        raise ValueError(msg) from exc
-    if not all(0.0 <= c <= 1.0 for c in (red, green, blue)):
-        msg = f"color must be (r, g, b) in the range 0-1: {color!r}"
-        raise ValueError(msg)
-    return red, green, blue
 
 
 def _image_input_limit_error(size: int, max_size: int) -> LimitError:
@@ -684,374 +654,6 @@ class Page:
             src_number,
             keep_proportion,
             overlay,
-        )
-
-    def insert_text(  # noqa: PLR0913 - mirrors pymupdf's keyword-oriented drawing API
-        self,
-        point: Sequence[float],
-        text: str | Sequence[str],
-        *,
-        fontsize: float = 11.0,
-        lineheight: float | None = None,
-        font: Font | None = None,
-        fontname: str = "helv",
-        fontfile: str | os.PathLike[str] | None = None,
-        fontbuffer: bytes | None = None,
-        fontindex: int = 0,
-        font_language: FontLanguage | None = None,
-        color: tuple[float, float, float] = (0.0, 0.0, 0.0),
-        overlay: bool = True,
-        max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
-        max_text_size: int | None = _DEFAULT_MAX_GENERATED_TEXT_SIZE,
-    ) -> int:
-        r"""Draw text at ``point``, the first line's baseline-left display point, and return its line count.
-
-        ``fontname`` is a pymupdf-style Standard 14 alias: the ``"helv"``,
-        ``"tiro"``, and ``"cour"`` families with ``bo``/``it`` variants, plus
-        ``"symb"`` and ``"zadb"``. These fonts are not embedded and text is
-        limited to WinAnsi, roughly Latin-1.
-
-        Pass a :class:`Font` as ``font`` to draw with a face loaded once, such as
-        a bold face; :meth:`Font.text_width` measures what this call draws.
-        ``font`` cannot be combined with ``fontfile``, ``fontbuffer``,
-        ``fontindex``, or ``font_language``, and ``fontname`` is then ignored.
-
-        Pass exactly one of ``fontfile`` or ``fontbuffer`` to subset-embed an
-        arbitrary OpenType font through krilla. This enables Unicode text,
-        including shaped CJK and RTL scripts. A variable font is drawn at its
-        default instance; ``font=Font.from_file(path, weight=...)`` draws another
-        instance on its weight axis. Script extras ``pylopdf[ar]``,
-        ``[he]``, ``[hi]``, and ``[th]`` plus locale extras ``[jp]``, ``[ko]``,
-        ``[zh-cn]``, and ``[zh-tw]`` provide matching fonts.
-        Kana, Hangul, and Bopomofo select an installed locale automatically;
-        pure Han uses the JP-first automatic default.
-        ``font_language`` selects a specific installed locale for ambiguous
-        Han text.
-        ``fontindex`` selects a face in a TrueType/OpenType collection and
-        ``fontname`` is otherwise ignored for embedded fonts. A single line
-        should use one script and the selected font must contain all needed
-        glyphs; no per-glyph fallback or paragraph layout is performed. RTL
-        glyph shaping renders correctly. Pure RTL lines and lines with one
-        Latin or numeric token bracketed by RTL text extract in logical Unicode
-        order. Edge tokens, multiple tokens, and general mixed-direction
-        paragraph layout remain in producer visual order. Complex scripts can
-        require PDF ``/ActualText`` when logical text does not map one-to-one to
-        glyphs. Generated PDFs preserve it for compatible viewers, but the
-        current pylopdf extractor does not consume it, so some reordered or
-        context-dependent clusters can extract approximately after reopening.
-
-        ``text`` is a string, which is split into lines as pymupdf splits it,
-        with :meth:`str.splitlines`, or a list or tuple of lines used as given.
-        A trailing line break therefore adds no line, and ``\v``, ``\f``,
-        ``\x1c`` to ``\x1e``, ``\x85``, ``\u2028``, and ``\u2029`` break
-        lines as ``\n``, ``\r``, and ``\r\n`` do. Each line starts
-        ``lineheight`` times ``fontsize`` below the previous one. Without
-        ``lineheight``, lines are pymupdf's default distance apart: the font's
-        :attr:`Font.ascender` minus its :attr:`Font.descender`, times
-        ``fontsize``, or 1.2 times ``fontsize`` when that difference is at
-        most 1. As in pymupdf, the first line is always drawn, every later
-        line only while its baseline does not fall below the bottom of the
-        page, and the return value counts the lines drawn. The bottom is that
-        of :attr:`rect`, the page in display coordinates. Text with nothing to
-        draw, an empty string or list or one empty line such as ``"\n"``,
-        inserts nothing and returns 0, as in pymupdf.
-
-        Text remains visually upright on rotated pages. ``overlay=False`` draws
-        below existing content. Loop over pages for headers, footers, page
-        numbers, or Bates numbers. Explicit and automatically selected font
-        input defaults to a 64 MiB boundary; ``max_font_size=None`` opts
-        trusted workloads out. Refusal raises :class:`LimitError` with code
-        ``font_input_size``. Text input defaults to a 1 MiB UTF-8 and 4,096
-        line boundary, and the font checks every line, also those below the
-        page. ``max_text_size=None`` is the explicit trusted-input opt-out for
-        both limits. Refusals use ``text_input_size`` or ``text_line_count``.
-        """
-        _validate_optional_positive_int("max_font_size", max_font_size)
-        lines = _insert_text_lines(text, max_text_size)
-        if not lines or lines == [""]:
-            return 0
-        try:
-            x, y = (float(v) for v in point)
-        except (TypeError, ValueError) as exc:
-            msg = f"point must be 2 numbers (x, y): {point!r}"
-            raise ValueError(msg) from exc
-        if not (math.isfinite(x) and math.isfinite(y)):
-            msg = f"point must have finite coordinates: {point!r}"
-            raise ValueError(msg)
-        if not (math.isfinite(fontsize) and fontsize > 0):
-            msg = f"fontsize must be a positive number: {fontsize!r}"
-            raise ValueError(msg)
-        resolved_lineheight = _validate_lineheight(lineheight)
-        red, green, blue = _validate_unit_rgb(color)
-        joined = "\n".join(lines)
-        if font is not None:
-            core_font = _validate_font_choice(font, fontfile, fontbuffer, fontindex, font_language)
-            standard_name = core_font.standard_name
-            if standard_name is None:
-                return self._document._doc.insert_font_text(
-                    self._page_number(),
-                    (x, y),
-                    lines,
-                    core_font,
-                    float(fontsize),
-                    resolved_lineheight,
-                    (red, green, blue),
-                    overlay,
-                    max_text_size,
-                )
-            _require_winansi(joined)
-            return self._insert_standard_text(
-                (x, y),
-                lines,
-                base_font=standard_name,
-                fontsize=float(fontsize),
-                lineheight=resolved_lineheight,
-                color=(red, green, blue),
-                overlay=overlay,
-                max_text_size=max_text_size,
-            )
-        font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
-        base_font, font_data, package_font = _resolve_generation_font(
-            joined,
-            fontname,
-            font_data,
-            fontindex,
-            font_language,
-        )
-        if isinstance(font_data, Path):
-            return self._document._doc.insert_embedded_text_file(
-                self._page_number(),
-                (x, y),
-                lines,
-                str(font_data),
-                fontindex,
-                float(fontsize),
-                resolved_lineheight,
-                (red, green, blue),
-                overlay,
-                max_font_size,
-                max_text_size,
-                package_font,
-                _package_face_weight(package_font),
-            )
-        if isinstance(font_data, bytes):
-            return self._document._doc.insert_embedded_text(
-                self._page_number(),
-                (x, y),
-                lines,
-                font_data,
-                fontindex,
-                float(fontsize),
-                resolved_lineheight,
-                (red, green, blue),
-                overlay,
-                max_font_size,
-                max_text_size,
-                _package_face_weight(package_font),
-            )
-
-        return self._insert_standard_text(
-            (x, y),
-            lines,
-            base_font=cast("str", base_font),
-            fontsize=float(fontsize),
-            lineheight=resolved_lineheight,
-            color=(red, green, blue),
-            overlay=overlay,
-            max_text_size=max_text_size,
-        )
-
-    def _insert_standard_text(  # noqa: PLR0913 - the validated insert_text arguments.
-        self,
-        point: tuple[float, float],
-        lines: list[str],
-        *,
-        base_font: str,
-        fontsize: float,
-        lineheight: float | None,
-        color: tuple[float, float, float],
-        overlay: bool,
-        max_text_size: int | None,
-    ) -> int:
-        """Draw validated WinAnsi lines in a Standard 14 font and return how many were drawn."""
-        return self._document._doc.insert_page_text(
-            self._page_number(),
-            point,
-            [line.encode("cp1252") for line in lines],
-            base_font,
-            base_font not in _SYMBOLIC_BASE14_NAMES,
-            fontsize,
-            lineheight,
-            color,
-            overlay,
-            max_text_size,
-        )
-
-    def insert_textbox(  # noqa: PLR0913 - mirrors pymupdf's keyword-oriented drawing API
-        self,
-        rect: Sequence[float],
-        text: str,
-        /,
-        *,
-        fontsize: float = 11.0,
-        font: Font | None = None,
-        fontname: str = "helv",
-        fontfile: str | os.PathLike[str] | None = None,
-        fontbuffer: bytes | None = None,
-        fontindex: int = 0,
-        font_language: FontLanguage | None = None,
-        color: tuple[float, float, float] = (0.0, 0.0, 0.0),
-        align: int = TEXT_ALIGN_LEFT,
-        expandtabs: int = 1,
-        lineheight: float | None = None,
-        overlay: bool = True,
-        max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
-        max_text_size: int | None = _DEFAULT_MAX_GENERATED_TEXT_SIZE,
-    ) -> float:
-        r"""Wrap and draw text inside a display-coordinate rectangle.
-
-        The return value is the unused vertical space. A negative value means
-        the laid-out text does not fit; in that case the document is not
-        modified. Empty text returns the rectangle height without modifying the
-        document.
-
-        ``align`` accepts :data:`TEXT_ALIGN_LEFT`,
-        :data:`TEXT_ALIGN_CENTER`, :data:`TEXT_ALIGN_RIGHT`, or
-        :data:`TEXT_ALIGN_JUSTIFY`. Justification expands spaces on soft-wrapped
-        lines, never the final line of a paragraph. Tabs are expanded to
-        ``expandtabs`` columns, 1 by default as in pymupdf, before Unicode line
-        breaking; explicit newlines always start a new line.
-
-        Lines are placed as pymupdf places them. ``lineheight`` is a font-size
-        multiplier that defaults to the font's :attr:`Font.ascender` minus its
-        :attr:`Font.descender`, or to 1.2 when that difference is at most 1.
-        The first baseline lies one ascender below the top of ``rect``, and
-        later baselines follow ``lineheight`` times the ascender apart. The
-        text fits when ``lineheight`` times ``fontsize`` per line plus one
-        descender fits the height of ``rect``, which is the measure the
-        returned spare height uses.
-
-        Without a font source, Adobe Core 14 metrics provide exact WinAnsi
-        wrapping. Pass a :class:`Font` as ``font``, or exactly one of
-        ``fontfile`` or ``fontbuffer``, for HarfRust-shaped Unicode and a krilla
-        subset-embedded OpenType font. Lines are measured with the advances
-        that :meth:`Font.text_width` returns. ``font`` cannot be combined with
-        the other font sources or ``fontindex``. ``fontfile`` and
-        ``fontbuffer`` draw a variable font at its default instance, and a
-        :class:`Font` loaded with ``weight`` draws another instance.
-        Installed script or CJK locale font extras provide matching fonts.
-        ``font_language`` selects a specific provider, including for ambiguous
-        Han text.
-        Unicode line-break opportunities support CJK without requiring spaces,
-        and an overlong word falls back to grapheme-safe wrapping. Explicit and
-        automatically selected font input defaults to a 64 MiB boundary;
-        ``max_font_size=None`` opts trusted workloads out. Refusal raises
-        :class:`LimitError` with code ``font_input_size``. Text after tab
-        expansion defaults to a 1 MiB UTF-8 boundary. Physical input and final
-        wrapped layout each stop at 4,096 lines. ``max_text_size=None``
-        explicitly opts trusted input out of both limits; refusals use
-        ``text_input_size`` or ``text_line_count``.
-        """
-        _validate_optional_positive_int("max_font_size", max_font_size)
-        x0, y0, x1, y1 = _validate_rect(rect)
-        page_number = self._page_number()
-        resolved_fontsize, resolved_lineheight = _validate_textbox_options(fontsize, lineheight, align, expandtabs)
-        red, green, blue = _validate_unit_rgb(color)
-        _validate_utf8_text_input(text, max_text_size)
-        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-        _validate_generated_text_lines(normalized, max_text_size)
-        _validate_utf8_text_input(normalized, max_text_size, expandtabs=expandtabs)
-        normalized = normalized.expandtabs(expandtabs)
-        core_font = (
-            None if font is None else _validate_font_choice(font, fontfile, fontbuffer, fontindex, font_language)
-        )
-        if not normalized:
-            return y1 - y0
-        standard_name = None if core_font is None else core_font.standard_name
-        if core_font is not None and standard_name is None:
-            return self._document._doc.insert_font_textbox(
-                page_number,
-                (x0, y0, x1, y1),
-                normalized,
-                core_font,
-                resolved_fontsize,
-                resolved_lineheight,
-                align,
-                (red, green, blue),
-                overlay,
-                max_text_size,
-            )
-        if standard_name is not None:
-            _require_winansi(normalized)
-            return self._document._doc.insert_page_textbox(
-                page_number,
-                (x0, y0, x1, y1),
-                normalized,
-                standard_name,
-                standard_name not in _SYMBOLIC_BASE14_NAMES,
-                resolved_fontsize,
-                resolved_lineheight,
-                align,
-                (red, green, blue),
-                overlay,
-                max_text_size,
-            )
-
-        font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
-        base_font, font_data, package_font = _resolve_generation_font(
-            normalized,
-            fontname,
-            font_data,
-            fontindex,
-            font_language,
-        )
-        if isinstance(font_data, Path):
-            return self._document._doc.insert_embedded_textbox_file(
-                page_number,
-                (x0, y0, x1, y1),
-                normalized,
-                str(font_data),
-                fontindex,
-                resolved_fontsize,
-                resolved_lineheight,
-                align,
-                (red, green, blue),
-                overlay,
-                max_font_size,
-                max_text_size,
-                package_font,
-                _package_face_weight(package_font),
-            )
-        if isinstance(font_data, bytes):
-            return self._document._doc.insert_embedded_textbox(
-                page_number,
-                (x0, y0, x1, y1),
-                normalized,
-                font_data,
-                fontindex,
-                resolved_fontsize,
-                resolved_lineheight,
-                align,
-                (red, green, blue),
-                overlay,
-                max_font_size,
-                max_text_size,
-                _package_face_weight(package_font),
-            )
-
-        base_font = cast("str", base_font)
-        return self._document._doc.insert_page_textbox(
-            page_number,
-            (x0, y0, x1, y1),
-            normalized,
-            base_font,
-            base_font not in _SYMBOLIC_BASE14_NAMES,
-            resolved_fontsize,
-            resolved_lineheight,
-            align,
-            (red, green, blue),
-            overlay,
-            max_text_size,
         )
 
     def draw(self, *, underlay: bool = False) -> Canvas:

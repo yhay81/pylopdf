@@ -2,8 +2,8 @@
 
 A data-only package containing Japanese fallback and generation fonts for
 [pylopdf](https://github.com/yhay81/pylopdf). It renders PDFs that reference
-Japanese fonts without embedding the font programs and lets `insert_text` /
-`insert_textbox` auto-select a subset-embedded JP font for Japanese or Han text.
+Japanese fonts without embedding the font programs and lets canvas text
+auto-select a subset-embedded JP font for Japanese or Han text.
 
 Install it through the main package extra:
 

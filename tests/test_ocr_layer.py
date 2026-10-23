@@ -95,7 +95,8 @@ def test_ocr_layer_survives_save_roundtrip() -> None:
 def test_ocr_layer_round_trips_extracted_words() -> None:
     src = pylopdf.Document()
     src.pages.new()
-    src.pages[0].insert_text((72, 100), "Roundtrip works")
+    with src.pages[0].draw() as canvas:
+        canvas.text("Roundtrip works", (72, 100))
     words = src.pages[0].words()
     assert words
 

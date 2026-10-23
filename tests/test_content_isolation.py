@@ -109,7 +109,8 @@ def test_insert_text_starts_from_the_initial_graphics_state(contents: tuple[byte
     page = _page(*contents, rotation=rotation).pages[0]
     square = _square(page)
 
-    page.insert_text((20, 40), "Probe", fontsize=10)
+    with page.draw() as page_canvas:
+        page_canvas.text("Probe", (20, 40), size=10)
 
     _assert_text_at(page, "Probe", (20, 40))
     assert _square(page) == pytest.approx(square)
@@ -117,10 +118,11 @@ def test_insert_text_starts_from_the_initial_graphics_state(contents: tuple[byte
 
 @pytest.mark.parametrize("rotation", ROTATIONS)
 @pytest.mark.parametrize("contents", CONTENTS)
-def test_insert_textbox_starts_from_the_initial_graphics_state(contents: tuple[bytes, ...], rotation: int) -> None:
+def test_textbox_starts_from_the_initial_graphics_state(contents: tuple[bytes, ...], rotation: int) -> None:
     page = _page(*contents, rotation=rotation).pages[0]
 
-    assert page.insert_textbox((20, 30, 90, 60), "Boxed", fontsize=10) >= 0
+    with page.draw() as canvas:
+        assert canvas.textbox((20, 30, 90, 60), "Boxed", size=10).fits
 
     x0, y0, _, _ = _word(page, "Boxed")
     assert x0 == pytest.approx(20, abs=0.5)
@@ -194,7 +196,8 @@ def test_drawing_counts_graphics_states_as_hayro_parses_them(contents: tuple[byt
     doc = _page(*contents)
     page = doc.pages[0]
 
-    page.insert_text((20, 40), "Probe", fontsize=10)
+    with page.draw() as page_canvas:
+        page_canvas.text("Probe", (20, 40), size=10)
     page.insert_image((120, 30, 160, 70), stream=_png(2, 2, (255, 0, 0)), keep_proportion=False)
 
     _assert_text_at(page, "Probe", (20, 40))
@@ -209,20 +212,24 @@ def test_a_self_contained_outer_wrapper_needs_no_second_wrapper() -> None:
     added = []
     for doc in (wrapped, plain):
         before = doc.complexity["object_count"]
-        doc.pages[0].insert_text((20, 40), "Probe", fontsize=10)
+        with doc.pages[0].draw() as page_canvas:
+            page_canvas.text("Probe", (20, 40), size=10)
         _assert_text_at(doc.pages[0], "Probe", (20, 40))
         added.append(doc.complexity["object_count"] - before)
 
-    # A font and the new stream, plus an opening and a closing stream.
-    assert added == [2, 4]
+    # The canvas's Form with its resources and font, and the stream that draws
+    # it; only the plain page also gets an opening and a closing stream.
+    assert added == [4, 6]
 
 
 def test_drawing_again_after_saving_keeps_the_initial_graphics_state() -> None:
     doc = _page(OPEN_SCALE)
-    doc.pages[0].insert_text((20, 40), "First", fontsize=10)
+    with doc.pages[0].draw() as page_canvas:
+        page_canvas.text("First", (20, 40), size=10)
 
     reopened = pylopdf.open(doc.to_bytes())
-    reopened.pages[0].insert_text((20, 70), "Second", fontsize=10)
+    with reopened.pages[0].draw() as page_canvas:
+        page_canvas.text("Second", (20, 70), size=10)
 
     _assert_text_at(reopened.pages[0], "First", (20, 40))
     _assert_text_at(reopened.pages[0], "Second", (20, 70))
@@ -243,6 +250,7 @@ def test_drawing_on_content_that_does_not_decode_still_succeeds() -> None:
         )
     )
 
-    doc.pages[0].insert_text((20, 40), "Probe", fontsize=10)
+    with doc.pages[0].draw() as page_canvas:
+        page_canvas.text("Probe", (20, 40), size=10)
 
     _assert_text_at(doc.pages[0], "Probe", (20, 40))

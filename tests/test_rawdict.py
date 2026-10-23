@@ -346,7 +346,8 @@ def test_rawdict_cache_reflects_a_page_edit() -> None:
     doc = pylopdf.open(build_pdf(["ABC"]))
     page = doc.pages[0]
     assert _raw_line_texts(page.layout(chars=True).to_dict()) == ["ABC"]
-    page.insert_text((72, 120), "D")
+    with page.draw() as canvas:
+        canvas.text("D", (72, 120))
     layout = page.layout(chars=True).to_dict()
     assert _raw_line_texts(layout) == ["ABC", "D"]
     assert _chars(layout)[-1]["origin"] == (72, 120)

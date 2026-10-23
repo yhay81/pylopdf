@@ -144,22 +144,24 @@ with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterh
     doc.save("annotated.pdf")
 ```
 
-텍스트와 글꼴. 글꼴 인수를 지정하지 않으면 pylopdf는 라틴 문자 텍스트를 Helvetica로 쓰고, 다른 문자 체계는 `pylopdf[jp]` 같은 설치된 extra의 글꼴로 씁니다.
+텍스트와 글꼴. 텍스트는 캔버스로 그립니다. 글꼴 인수를 지정하지 않으면 pylopdf는 라틴 문자 텍스트를 Helvetica로 쓰고, 다른 문자 체계는 `pylopdf[jp]` 같은 설치된 extra의 글꼴로 씁니다.
 
 ```python
+from pylopdf import Color, Font
+
 with pylopdf.open("input.pdf") as doc:
     page = doc.pages[0]
-    page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
-    page.insert_text((40, 70), "社外秘", fontsize=18)                          # pylopdf[jp] 필요
-    page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")  # pylopdf[zh-cn] 필요
-
-    bold = pylopdf.Font.from_file("NotoSansJP-Bold.otf")      # 어떤 OpenType 파일이든 가능
-    width = bold.text_width("見出し", 16)                       # 그렸을 때의 폭
-    page.insert_text((page.rect.width - 40 - width, 140), "見出し", font=bold, fontsize=16)
+    bold = Font.from_file("NotoSansJP-Bold.otf")    # 어떤 OpenType 파일이든 가능
+    width = bold.text_width("見出し", 16)             # 그렸을 때의 폭
+    with page.draw() as canvas:
+        canvas.text("CONFIDENTIAL", (40, 40), size=18, fill=Color(1, 0, 0))
+        canvas.text("社外秘", (40, 70), size=18)                                             # pylopdf[jp] 필요
+        canvas.text("简体中文", (40, 100), font=Font.installed(language="zh-CN"), size=18)  # pylopdf[zh-cn] 필요
+        canvas.text("見出し", (page.rect.width - 40 - width, 140), font=bold, size=16)
     doc.save("text.pdf")
 ```
 
-도형, 텍스트, 이미지를 순서대로 함께 그리려면 캔버스를 사용합니다. 그러면 각 글꼴과 이미지가 한 번만 저장됩니다.
+캔버스는 도형, 텍스트, 이미지를 호출한 순서대로 함께 그리고, 각 글꼴과 이미지를 한 번만 저장합니다.
 
 ```python
 from pylopdf import Color

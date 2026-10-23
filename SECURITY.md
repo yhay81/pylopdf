@@ -83,12 +83,13 @@ risky. When processing untrusted files:
   first entry beyond the larger of the page count and 4,096 with
   `page_entry_count`, so repetition never costs more than one complete document
   pass; direct core calls repeat the check before mutation.
-- `Page.insert_text()` and `Page.insert_textbox()` default to 1 MiB of UTF-8
-  and 4,096 physical or final wrapped lines. Python rejects physical-line
-  amplification before splitting or font resolution, and Rust stops wrapped
-  layout before mutation. `max_text_size=None` opts trusted insertion input out;
-  refusals use `text_input_size` or `text_line_count`. AcroForm text and choice
-  appearances retain the 4,096-line layout cap.
+- `Canvas.text()`, `Canvas.textbox()`, `Font.text_width()`, and
+  `Font.text_height()` default to 1 MiB of UTF-8, and the three that lay out
+  lines to 4,096 physical or final wrapped lines. Python cuts the text one
+  character past the budget before splitting it into lines, and Rust refuses
+  the excess before shaping or recording anything. `max_text_size=None` opts
+  trusted input out; refusals use `text_input_size` or `text_line_count`.
+  AcroForm text and choice appearances retain the 4,096-line layout cap.
 - `Page.replace_text()` caps aggregate search/replacement/fallback input at
   4,096 UTF-8 bytes and counts it incrementally before PyO3 copying rather than
   allocating complete encoded copies. Its decoded content, encoding data,

@@ -341,7 +341,8 @@ def test_text_budget_is_cumulative_across_interpreted_pages() -> None:
 def test_text_budget_remains_active_on_generated_documents() -> None:
     doc = pylopdf.Document(limits=pylopdf.DocumentLimits(max_text_size=2))
     page = doc.pages.new()
-    page.insert_text((20, 20), "ABC")
+    with page.draw() as canvas:
+        canvas.text("ABC", (20, 20))
     with pytest.raises(pylopdf.LimitError) as text:
         page.text()
     assert _error_code(text.value) == "text_size"

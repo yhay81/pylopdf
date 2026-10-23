@@ -217,7 +217,8 @@ def test_user_to_display_places_drawn_text_where_extraction_reads_it() -> None:
     page = _page("/MediaBox [0 0 600 800] /CropBox [100 200 400 600] /Rotate 90")
     target = Point(150, 300) * page.user_to_display
 
-    page.insert_text(target, "Probe", fontsize=12)
+    with page.draw() as canvas:
+        canvas.text("Probe", target, size=12)
 
     (word,) = page.words()
     assert word.bbox.x0 == pytest.approx(target.x, abs=0.5)
