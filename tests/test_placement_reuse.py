@@ -409,7 +409,7 @@ def test_image_compression_between_placements_keeps_the_next_placement_full_size
     doc = _pages(2, 200, 200)
     with doc.pages[0].draw() as canvas:
         canvas.image((0, 0, 72, 72), photo)
-    assert doc.rewrite_images(dpi_threshold=96, dpi_target=72, quality=50)["rewritten"] == 1
+    assert doc.rewrite_images(dpi_threshold=96, dpi_target=72, quality=50).rewritten == 1
 
     with doc.pages[1].draw() as canvas:
         canvas.image((0, 0, 72, 72), photo)

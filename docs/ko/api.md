@@ -682,7 +682,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 
 코드와 플래그는 열거형 멤버로만 제공되며 모듈 상수는 없습니다. pymupdf의 `PDF_PERM_PRINT`는 `Permissions.PRINT`, `PDF_ANNOT_TEXT`는 `AnnotationType.TEXT`, `PDF_ANNOT_IS_HIDDEN`은 `AnnotationFlags.HIDDEN`이며 값은 같습니다. `Access`의 멤버는 `USER`와 `OWNER`이고, `Encryption`은 저장하는 파일을 암호화하는 방법을 나타냅니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
 
-텍스트, 표, OCR, 페이지 내용의 결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord`, `Path`, `Image`, `MarkInfo`, `PdfaClaim`, `OutlineEntry`, `PageLabelRange`, 목차 대상 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 반환하는 그 밖의 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `DocumentComplexity` 같은 `TypedDict` 클래스로 기술됩니다.
+결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord`, `Path`, `Image`, `MarkInfo`, `PdfaClaim`, `OutlineEntry`, `PageLabelRange`, 목차 대상, `DocumentComplexity`, `ImageCompressionResult` 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 일반 딕셔너리를 반환하는 곳은 JSON용으로 pymupdf의 형태를 돌려주는 `Layout.to_dict()`뿐입니다.
 
 ## 예외와 경고 { #exceptions }
 

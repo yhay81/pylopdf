@@ -141,7 +141,7 @@ def test_imports_the_page_the_source_reports_when_a_missing_kid_shares_a_new_num
     assert len(source.pages) == 1
     inserted = pylopdf.open(build_pdf(["Target one", "Target two"]))
     stamped = pylopdf.open(build_pdf(["Target one", "Target two"]))
-    assert inserted.complexity["object_count"] == stamped.complexity["object_count"] == 7
+    assert inserted.complexity.object_count == stamped.complexity.object_count == 7
 
     inserted.pages.extend(source.pages)
     with stamped.pages[0].draw() as canvas:

@@ -963,8 +963,8 @@ def test_manuscript_compression_preserves_mismatched_masks() -> None:
 
     result = doc.rewrite_images(dpi_threshold=150, dpi_target=100, quality=50)
 
-    assert result["considered"] >= 2
-    assert result["rewritten"] == 0
+    assert result.considered >= 2
+    assert result.rewritten == 0
     assert bytes(doc.pages[0].pixmap(alpha=True)) == before
 
 

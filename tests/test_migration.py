@@ -647,6 +647,20 @@ def test_codemod_joins_consecutive_canvas_blocks_of_one_page(migrate_source: Mig
         ("import pylopdf\ndoc = pylopdf.open(path)\ndoc.set_fallback_font(None)\n", "doc.fallback_fonts = {}"),
         ("import pylopdf\ndoc.set_form_field('name', value=True)\n", "doc.form['name'].value = True"),
         (
+            (
+                "import pylopdf\ndoc = pylopdf.open(path)\nfacts = doc.complexity\nn = facts['page_count']\n"
+                "big = doc.complexity['object_count'] > 1000\n"
+            ),
+            "n = facts.page_count\nbig = doc.complexity.object_count > 1000",
+        ),
+        (
+            (
+                "import pylopdf\nresult = doc.rewrite_images(quality=60)\nsaved = result['bytes_saved']\n"
+                "count = doc.rewrite_images(quality=50)['rewritten']\n"
+            ),
+            "saved = result.bytes_saved\ncount = doc.rewrite_images(quality=50).rewritten",
+        ),
+        (
             "from pylopdf import INFINITE_RECT, planish_line\nr = INFINITE_RECT()\nm = planish_line(a, b)\n",
             "from pylopdf import Rect, Matrix\nr = Rect.INFINITE\nm = Matrix.planish(a, b)",
         ),
@@ -851,6 +865,10 @@ def test_codemod_marks_probe_results_for_review(migrate_source: Migrate) -> None
             "import pylopdf\nfont = pylopdf.Font.from_file(path, weight=700)\n"
             "base = pylopdf.Font.standard('Helvetica')\n"
             "width = font.text_width('x', 11) + font.text_height('x', 11, width=100)\nfound = font.has_glyph('x')\n"
+        ),
+        (
+            "import pylopdf\ndoc = pylopdf.open(path)\nfacts = doc.complexity\n"
+            "n = doc.complexity.page_count + facts.page_count + doc.rewrite_images(quality=50).rewritten\n"
         ),
     ],
 )

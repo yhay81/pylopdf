@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any, get_type_hints, is_typeddict
 
+import pytest
 from conftest import build_pdf
 
 import pylopdf
@@ -60,12 +62,16 @@ def test_public_names_report_the_package_rather_than_a_private_module() -> None:
     assert private == {}
 
 
-def test_typed_dict_required_and_optional_keys() -> None:
-    typed_dicts = (
-        pylopdf.DocumentComplexity,
-        pylopdf.ImageCompressionResult,
-    )
-    assert all(is_typeddict(contract) for contract in typed_dicts)
+def test_records_are_frozen_dataclasses() -> None:
+    for record in (pylopdf.DocumentComplexity, pylopdf.ImageCompressionResult):
+        assert dataclasses.is_dataclass(record)
+        assert not is_typeddict(record)
+        assert record.__dataclass_params__.frozen
+    doc = pylopdf.open(build_pdf(["Typed layout"]))
+    with pytest.raises(TypeError, match=r"read doc\.complexity\.page_count"):
+        _ = doc.complexity["page_count"]  # ty: ignore[not-subscriptable]
+    with pytest.raises(TypeError, match=r"read result\.rewritten"):
+        _ = doc.rewrite_images(quality=75)["rewritten"]  # ty: ignore[not-subscriptable]
     assert get_type_hints(pylopdf.Image)["bbox"] is pylopdf.Rect
     assert get_type_hints(pylopdf.OcrWord)["bbox"] is pylopdf.Rect
     assert get_type_hints(pylopdf.Table)["diagnostics"] is pylopdf.TableDiagnostics
@@ -83,8 +89,8 @@ def test_public_return_annotations_describe_real_values() -> None:
 
     assert layout["blocks"][0]["lines"][0]["spans"][0]["text"] == "Typed layout"
     assert isinstance(metadata, pylopdf.Metadata)
-    assert complexity["page_count"] == 1
+    assert complexity.page_count == 1
     assert labels == []
     assert dict(fields) == {}
     assert content.paths == ()
-    assert compression["rewritten"] == 0
+    assert compression.rewritten == 0

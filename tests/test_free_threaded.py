@@ -84,6 +84,6 @@ def test_distinct_documents_rewrite_images_concurrently() -> None:
         outputs = list(executor.map(_compress_jpeg, (source, source)))
 
     assert outputs == [expected, expected]
-    assert expected[0]["rewritten"] == 1
+    assert expected[0].rewritten == 1
     assert expected[1][0] < 675
     assert expected[1][1] < 882

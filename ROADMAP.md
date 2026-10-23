@@ -466,8 +466,14 @@ the canvas.
   `doc.form.font` chooses the face that fills draw with; `get_form_fields()`,
   `set_form_field()`, `FormFieldInfo`, and `FormFieldType` are gone. Widget
   handles, field creation, and `reset()` come with the Interaction milestone.
-- Still to come, each with its codemod rules: the remaining constants and
-  records.
+- Done: the remaining constants and records. Codes and flags are enum
+  members only (`AnnotationType`, `AnnotationFlags`, and `Permissions` in
+  place of `PDF_ANNOT_*`, `PDF_ANNOT_IS_*`, and `PDF_PERM_*`), geometry
+  constants are class attributes (`Matrix.IDENTITY`, `Rect.EMPTY`,
+  `Rect.INFINITE`, the same on `IRect` and `Quad`, and `Matrix.planish()`),
+  and `DocumentComplexity` and `ImageCompressionResult` are frozen
+  dataclasses; language codes stay `Literal` options. The codemod rewrites
+  each of them.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs

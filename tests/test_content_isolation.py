@@ -214,11 +214,11 @@ def test_a_self_contained_outer_wrapper_needs_no_second_wrapper() -> None:
     plain = _page(b"2 0 0 2 0 0 cm " + SQUARE)
     added = []
     for doc in (wrapped, plain):
-        before = doc.complexity["object_count"]
+        before = doc.complexity.object_count
         with doc.pages[0].draw() as page_canvas:
             page_canvas.text("Probe", (20, 40), size=10)
         _assert_text_at(doc.pages[0], "Probe", (20, 40))
-        added.append(doc.complexity["object_count"] - before)
+        added.append(doc.complexity.object_count - before)
 
     # The canvas's Form with its resources and font, and the stream that draws
     # it; only the plain page also gets an opening and a closing stream.

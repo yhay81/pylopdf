@@ -681,7 +681,7 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 
 代码和标志只作为枚举成员提供，没有模块级常量：pymupdf的`PDF_PERM_PRINT`是`Permissions.PRINT`，`PDF_ANNOT_TEXT`是`AnnotationType.TEXT`，`PDF_ANNOT_IS_HIDDEN`是`AnnotationFlags.HIDDEN`，取值相同。`Access`的成员是`USER`和`OWNER`，`Encryption`描述如何加密保存的文件。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
 
-文本、表格、OCR和页面内容的结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`和书签目标等不可变的数据类（frozen dataclass）。API返回的其他字典都是普通的`dict`对象，并通过`DocumentComplexity`等`TypedDict`类向类型检查器描述。
+结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`、书签目标、`DocumentComplexity`和`ImageCompressionResult`等不可变的数据类（frozen dataclass）。API只有`Layout.to_dict()`返回普通字典，它以pymupdf的形式供JSON使用。
 
 ## 异常与警告 { #exceptions }
 

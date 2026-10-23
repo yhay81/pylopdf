@@ -302,7 +302,7 @@ def test_image_above_the_limit_is_compressed() -> None:
 
     result = doc.rewrite_images(dpi_threshold=96, dpi_target=64, quality=65)
 
-    assert (result["considered"], result["rewritten"]) == (1, 1)
+    assert (result.considered, result.rewritten) == (1, 1)
     for current in _with_reloaded(doc):
         compressed = drawn_images(current.pages[0])[0]
         assert (compressed["ext"], compressed["width"], compressed["height"]) == ("jpeg", 64, 64)
