@@ -12,10 +12,12 @@ use std::sync::Arc;
 
 use krilla::Document as KrillaDocument;
 use krilla::SerializeSettings;
+use krilla::action::{Action, LinkAction};
+use krilla::annotation::{Annotation, LinkAnnotation, Target};
 use krilla::configure::{Accessibility, Archival, Configuration, ConfigurationBuilder, Validator};
 use krilla::destination::XyzDestination;
 use krilla::error::KrillaError;
-use krilla::geom::Point;
+use krilla::geom::{Point, Rect};
 use krilla::metadata::{DateTime, Metadata};
 use krilla::outline::{Outline, OutlineNode};
 use krilla::page::PageSettings;
@@ -23,7 +25,7 @@ use krilla::tagging::TagTree;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
-use crate::canvas::{_Canvas, CanvasRecording};
+use crate::canvas::{_Canvas, CanvasLink, CanvasRecording, LinkTarget};
 use crate::document::{PdfError, limit_err};
 use crate::generate::{self, GenerationFace};
 
@@ -190,6 +192,31 @@ impl _Builder {
 }
 
 impl _Builder {
+    /// The krilla annotation of a page's link; a page that it leads to must
+    /// be one of the document's.
+    fn link_annotation(&self, link: &CanvasLink) -> PyResult<Annotation> {
+        let [x0, y0, x1, y1] = link.rect.map(|value| value as f32);
+        let rect = Rect::from_ltrb(x0, y0, x1, y1)
+            .ok_or_else(|| PdfError::new_err("a link's rectangle is outside krilla's range"))?;
+        let target = match &link.target {
+            LinkTarget::Uri(uri) => Target::Action(Action::Link(LinkAction::new(uri.clone()))),
+            LinkTarget::Page { index, at } => {
+                if *index >= self.pages.len() {
+                    return Err(PdfError::new_err(format!(
+                        "a link leads to page {index}, but the document has {} pages",
+                        self.pages.len()
+                    )));
+                }
+                let point = Point::from_xy(at.0 as f32, at.1 as f32);
+                Target::Destination(XyzDestination::new(*index, point).into())
+            }
+        };
+        Ok(Annotation::new_link(
+            LinkAnnotation::new(rect, target),
+            link.alt.clone(),
+        ))
+    }
+
     /// Build the outline from every page's bookmarks, nesting each entry
     /// under the closest earlier entry one level up.
     fn outline(&self) -> PyResult<Option<Outline>> {
@@ -309,10 +336,22 @@ impl _Builder {
             )
             .ok_or_else(|| PdfError::new_err("the page size is outside krilla's range"))?;
             let mut page = document.start_page_with(settings);
+            let mut links = Vec::new();
+            links
+                .try_reserve_exact(recording.links.len())
+                .map_err(|error| PdfError::new_err(format!("failed to allocate links: {error}")))?;
+            for link in &recording.links {
+                let annotation = self.link_annotation(link)?;
+                if self.tagged {
+                    links.push(page.add_tagged_annotation(annotation));
+                } else {
+                    page.add_annotation(annotation);
+                }
+            }
             let mut surface = page.surface();
             let tags = self.tagged.then_some(&mut nodes);
             recording
-                .draw_on(&mut surface, &fonts, tags)
+                .draw_on(&mut surface, &fonts, tags, &links)
                 .map_err(PdfError::new_err)?;
             surface.finish();
             page.finish();

@@ -1469,6 +1469,9 @@ def _create_results(root: Path) -> dict[str, Any]:
                 canvas.text("1.", (100, 180), font=font)
             with canvas.tag(TagRole.LIST_BODY):
                 canvas.text("Item", (120, 180), font=font)
+        with canvas.tag(TagRole.PARAGRAPH), canvas.tag(TagRole.LINK):
+            canvas.text("Website", (200, 40), font=font)
+            canvas.link((200, 28, 260, 44), "https://example.com/", alt="The example website")
     first = builder.to_bytes()
     _require(first == builder.to_bytes(), "a fixed creation date did not make the output reproducible")
     document = builder.finish()
@@ -1481,6 +1484,7 @@ def _create_results(root: Path) -> dict[str, Any]:
         "text": _digest(document.pages[0].text()),
         "struct_tree": str(document.catalog["StructTreeRoot"]["Type"]),
         "list_numbering": _list_numberings(document.catalog["StructTreeRoot"]),
+        "links": [[link.target, [round(value, 2) for value in link.rect]] for link in document.pages[0].links],
         "ua_claim": "pdfuaid" in (document.xmp or ""),
     }
 

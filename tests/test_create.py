@@ -361,6 +361,84 @@ def test_pdf_ua_documents(font: pylopdf.Font) -> None:
     assert "pdfuaid" in (doc.xmp or "")
 
 
+def test_links_of_a_new_document(font: pylopdf.Font) -> None:
+    builder = pylopdf.create()
+    with builder.page((300, 200)) as canvas:
+        canvas.text("Website", (20, 40), font=font)
+        canvas.link((20, 28, 80, 44), "https://example.com/", alt="The example website")
+        canvas.link((20, 60, 80, 76), pylopdf.Destination(1, (10, 20)))
+        canvas.link((20, 90, 80, 106), pylopdf.Destination(0))
+    with builder.page((200, 300)) as canvas:
+        canvas.text("Second", (10, 40), font=font)
+    doc = builder.finish()
+    website, second, top = doc.pages[0].links
+    assert website.target == "https://example.com/"
+    assert tuple(website.rect) == pytest.approx((20, 28, 80, 44), abs=0.01)
+    assert isinstance(second.target, pylopdf.Destination)
+    assert second.target.page == 1
+    assert second.target.point is not None
+    assert tuple(second.target.point) == pytest.approx((10, 20), abs=0.01)
+    assert isinstance(top.target, pylopdf.Destination)
+    assert top.target.page == 0
+    assert list(doc.pages[1].links) == []
+    # The links survive lopdf's save of the finished document.
+    reopened = pylopdf.open(doc.to_bytes())
+    assert reopened.pages[0].links[0].target == "https://example.com/"
+
+
+def test_tagged_links_join_their_tag_scope(font: pylopdf.Font) -> None:
+    builder = pylopdf.create(standard="pdf/ua-1", language="en", title="Links")
+    with builder.page((200, 100)) as canvas:
+        canvas.bookmark("Start")
+        with canvas.tag(TagRole.PARAGRAPH), canvas.tag(TagRole.LINK):
+            canvas.text("pylopdf", (10, 50), font=font)
+            canvas.link((10, 38, 60, 54), "https://example.com/", alt="The pylopdf website")
+    doc = builder.finish()
+    root = doc.catalog["StructTreeRoot"]
+    (link,) = [element for element in _elements(root) if element["S"] == "Link"]
+    kids = link["K"]
+    kids = list(kids) if isinstance(kids, pylopdf.Array) else [kids]
+    references = [kid for kid in kids if isinstance(kid, pylopdf.Dictionary) and kid.get("Type") == "OBJR"]
+    assert len(references) == 1
+    assert references[0]["Obj"]["Subtype"] == "Link"
+    assert doc.pages[0].links[0].target == "https://example.com/"
+    # A tagged document's link needs a tag scope to belong to.
+    outside = pylopdf.create(tagged=True)
+    with outside.page() as canvas:
+        canvas.link((0, 0, 10, 10), "https://example.com/")
+    with pytest.raises(pylopdf.PdfError, match="inside a tag scope"):
+        outside.to_bytes()
+
+
+def test_link_refusals(font: pylopdf.Font) -> None:
+    builder = pylopdf.create()
+    with builder.page() as canvas:
+        canvas.text("x", (10, 10), font=font)
+        with pytest.raises(ValueError, match="viewer's zoom"):
+            canvas.link((0, 0, 10, 10), pylopdf.Destination(0, (0, 0), 2))
+        with pytest.raises(TypeError, match="URI string or a Destination"):
+            canvas.link((0, 0, 10, 10), pylopdf.NamedAction("NextPage"))  # ty: ignore[invalid-argument-type]
+        with pytest.raises(ValueError, match="rect must have"):
+            canvas.link((10, 10, 0, 0), "https://example.com/")
+        with pytest.raises(pylopdf.LimitError) as excinfo:
+            canvas.link((0, 0, 10, 10), "https://example.com/", alt="x" * (64 * 1024 + 1))
+        assert excinfo.value.code == "tag_text_size"
+        with canvas.mask() as mask, pytest.raises(ValueError, match="mask canvas"):
+            mask.link((0, 0, 10, 10), "https://example.com/")
+        canvas.link((0, 0, 10, 10), pylopdf.Destination(5))
+    with pytest.raises(pylopdf.PdfError, match="leads to page 5"):
+        builder.to_bytes()
+    many = pylopdf.create()
+    with many.page() as canvas:
+        for _ in range(4096):
+            canvas.link((0, 0, 10, 10), "https://example.com/")
+        with pytest.raises(pylopdf.PdfError, match="4096-entry"):
+            canvas.link((0, 0, 10, 10), "https://example.com/")
+    doc = pylopdf.Document()
+    with doc.pages.new().draw() as canvas, pytest.raises(ValueError, match=r"page\.links\.add"):
+        canvas.link((0, 0, 10, 10), "https://example.com/")
+
+
 def test_invalid_settings() -> None:
     with pytest.raises(ValueError, match="standard must be one of"):
         pylopdf.create(standard="pdf/x-4")  # ty: ignore[invalid-argument-type]

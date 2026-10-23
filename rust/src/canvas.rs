@@ -37,16 +37,16 @@ use krilla::page::PageSettings;
 use krilla::paint::{Fill, FillRule, LineCap, LineJoin, Stroke, StrokeDash};
 use krilla::surface::Surface;
 use krilla::tagging::{
-    Artifact, ArtifactType, ContentTag, ListNumbering, Node, SpanTag, TableHeaderScope, Tag,
-    TagGroup, TagKind,
+    Artifact, ArtifactType, ContentTag, Identifier, ListNumbering, Node, SpanTag, TableHeaderScope,
+    Tag, TagGroup, TagKind,
 };
 use lopdf::Document;
 use pyo3::prelude::*;
 
 use crate::document::{
-    _Document, DEFAULT_MAX_GENERATED_TEXT_SIZE, ImageInput, PdfError, generated_text_err,
-    limit_err, read_image_input, validate_generated_text_input, validate_generated_text_line_count,
-    validate_image_input,
+    _Document, DEFAULT_MAX_GENERATED_TEXT_SIZE, ImageInput, MAX_PAGE_ANNOTATIONS, PdfError,
+    generated_text_err, limit_err, read_image_input, validate_generated_text_input,
+    validate_generated_text_line_count, validate_image_input,
 };
 use crate::draw::{self, DeviceColor, ImageParts};
 use crate::font::{_Font, DrawFace};
@@ -86,7 +86,7 @@ const BLEND_MODES: [&str; 16] = [
 ];
 
 /// The structure types that tag scopes accept, by their PDF names.
-const TAG_ROLES: [&str; 37] = [
+const TAG_ROLES: [&str; 38] = [
     "Part",
     "Art",
     "Sect",
@@ -124,6 +124,7 @@ const TAG_ROLES: [&str; 37] = [
     "Figure",
     "Formula",
     "Artifact",
+    "Link",
 ];
 
 /// An sRGB colour and its alpha, each from 0 to 1.
@@ -510,6 +511,7 @@ impl TagSpec {
             "Code" => with_attributes!(Tag::Code),
             "Figure" => with_attributes!(Tag::Figure(self.alt.clone())),
             "Formula" => with_attributes!(Tag::Formula(self.alt.clone())),
+            "Link" => with_attributes!(Tag::Link),
             _ => with_attributes!(Tag::Div),
         }
     }
@@ -624,8 +626,29 @@ enum Op {
         clip: Option<[f64; 4]>,
         rotation: i64,
     },
+    /// A link annotation of a new document's page, by index into
+    /// `CanvasRecording::links`; its place among the operations is its
+    /// place in the structure tree.
+    Link(usize),
     Push(Scope),
     Pop,
+}
+
+/// Where a link of a new document leads.
+pub(crate) enum LinkTarget {
+    Uri(String),
+    /// A zero-based page of the document and a display point on it.
+    Page {
+        index: usize,
+        at: (f64, f64),
+    },
+}
+
+/// A link annotation of a new document's page.
+pub(crate) struct CanvasLink {
+    pub(crate) rect: [f64; 4],
+    pub(crate) target: LinkTarget,
+    pub(crate) alt: Option<String>,
 }
 
 /// An outline entry of a new document that points into a page.
@@ -655,6 +678,8 @@ pub(crate) struct CanvasRecording {
     pub(crate) snapshots: Vec<(u64, Arc<Document>)>,
     /// Outline entries of a new document's page, in the order of the calls.
     pub(crate) bookmarks: Vec<Bookmark>,
+    /// Link annotations of a new document's page, in the order of the calls.
+    pub(crate) links: Vec<CanvasLink>,
 }
 
 /// Where a text item of a composed canvas comes from: the first item of a
@@ -1318,6 +1343,11 @@ impl CanvasRecording {
                         matrix.map(matrix_number).join(" ")
                     ));
                 }
+                Op::Link(_) => {
+                    return Err(PdfError::new_err(
+                        "links belong to a new document's canvas; add them with page.links.add",
+                    ));
+                }
                 Op::Push(scope) => {
                     grow(&mut scopes, "scopes")?;
                     let before = sinks[target].matrix;
@@ -1470,13 +1500,18 @@ impl CanvasRecording {
     /// `tags`, drawing inside a tag scope is tagged content of the scope's
     /// structure element and drawing outside any is a layout artifact; the
     /// page's top-level elements are appended to `tags`.
+    ///
+    /// `links` holds the identifier that krilla gave each tagged link
+    /// annotation of the page, which joins the innermost tag scope that the
+    /// link was recorded in.
     pub(crate) fn draw_on(
         &self,
         surface: &mut Surface<'_>,
         fonts: &[krilla::text::Font],
         tags: Option<&mut Vec<Node>>,
+        links: &[Identifier],
     ) -> Result<(), String> {
-        self.replay(surface, fonts, tags, 0)
+        self.replay(surface, fonts, tags, 0, links)
     }
 
     /// Replay the operations that draw into `target`: the page for 0, else
@@ -1487,6 +1522,7 @@ impl CanvasRecording {
         fonts: &[krilla::text::Font],
         mut tags: Option<&mut Vec<Node>>,
         target: u32,
+        links: &[Identifier],
     ) -> Result<(), String> {
         let (_, height) = self.size;
         let mut state = TagState::default();
@@ -1564,6 +1600,15 @@ impl CanvasRecording {
                 Op::Page { .. } => {
                     return Err("a new document cannot place other pages yet".into());
                 }
+                Op::Link(index) => {
+                    if tagged {
+                        let id = links
+                            .get(*index)
+                            .cloned()
+                            .ok_or("a link of a new document has no annotation")?;
+                        state.annotate(id)?;
+                    }
+                }
                 Op::Push(scope) => {
                     let kind = match scope {
                         Scope::Transform(transform) => {
@@ -1604,7 +1649,7 @@ impl CanvasRecording {
                             let mut builder = surface.stream_builder();
                             let mut mask_surface = builder.surface();
                             let sink = u32::try_from(*sink).map_err(|_| "too many canvas masks")?;
-                            self.replay(&mut mask_surface, fonts, None, sink)?;
+                            self.replay(&mut mask_surface, fonts, None, sink, &[])?;
                             mask_surface.finish();
                             let stream = builder.finish();
                             let mask_type = match kind {
@@ -1676,6 +1721,22 @@ impl TagState {
                 None
             }
             None => Some(group.into()),
+        }
+    }
+
+    /// Add a tagged annotation to the innermost element; an annotation
+    /// cannot be an artifact.
+    fn annotate(&mut self, id: Identifier) -> Result<(), String> {
+        match self.groups.last_mut() {
+            Some(Some(group)) => {
+                group.push(id);
+                Ok(())
+            }
+            _ => Err(
+                "a link of a tagged document belongs inside a tag scope other than an \
+                      artifact, usually TagRole.LINK around the text it covers"
+                    .into(),
+            ),
         }
     }
 
@@ -2011,6 +2072,52 @@ impl _Canvas {
         grow(&mut self.recording.bookmarks, "bookmarks")?;
         self.recording.bookmarks.push(Bookmark { title, level, at });
         Ok(())
+    }
+
+    /// Record a link annotation over a display rectangle of a new document's
+    /// page, to `uri` or to the zero-based `page` at the display point `at`,
+    /// with `alt` as its description.
+    #[pyo3(signature = (rect, uri=None, page=None, at=(0.0, 0.0), alt=None))]
+    fn add_link(
+        &mut self,
+        rect: (f64, f64, f64, f64),
+        uri: Option<String>,
+        page: Option<usize>,
+        at: (f64, f64),
+        alt: Option<String>,
+    ) -> PyResult<()> {
+        if !self.new_document {
+            return Err(PdfError::new_err(
+                "links belong to a new document's canvas; add them with page.links.add",
+            ));
+        }
+        if self.target != 0 {
+            return Err(PdfError::new_err("a mask canvas cannot add links"));
+        }
+        let rect = rect_array(rect)?;
+        coordinate(at.0)?;
+        coordinate(at.1)?;
+        let size = uri.as_ref().map_or(0, String::len) + alt.as_ref().map_or(0, String::len);
+        if size > MAX_TAG_TEXT_SIZE {
+            return Err(limit_err(
+                "tag_text_size",
+                format!("a link's texts exceed the {MAX_TAG_TEXT_SIZE}-byte limit"),
+            ));
+        }
+        if self.recording.links.len() >= MAX_PAGE_ANNOTATIONS {
+            return Err(PdfError::new_err(format!(
+                "page annotations exceed the {MAX_PAGE_ANNOTATIONS}-entry safety limit"
+            )));
+        }
+        let target = match (uri, page) {
+            (Some(uri), None) => LinkTarget::Uri(uri),
+            (None, Some(index)) => LinkTarget::Page { index, at },
+            _ => return Err(PdfError::new_err("a link leads to a URI or to a page")),
+        };
+        grow(&mut self.recording.links, "links")?;
+        self.recording.links.push(CanvasLink { rect, target, alt });
+        let index = self.recording.links.len() - 1;
+        self.push_op(Op::Link(index))
     }
 
     /// Discard everything recorded.

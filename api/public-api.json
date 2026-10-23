@@ -1128,6 +1128,34 @@
             "returns": "None"
           }
         },
+        "link": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "rect"
+              },
+              {
+                "annotation": "Destination | str",
+                "kind": "positional_or_keyword",
+                "name": "target"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "alt"
+              }
+            ],
+            "returns": "None"
+          }
+        },
         "mask": {
           "kind": "method",
           "signature": {
@@ -8908,6 +8936,7 @@
         "HEADING_6": "H6",
         "INDEX": "Index",
         "LABEL": "Lbl",
+        "LINK": "Link",
         "LIST": "L",
         "LIST_BODY": "LBody",
         "LIST_ITEM": "LI",

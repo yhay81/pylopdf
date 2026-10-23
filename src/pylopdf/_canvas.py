@@ -38,6 +38,7 @@ from pylopdf._limits import (
     _FLOAT32_MAX,
     _validate_optional_positive_int,
 )
+from pylopdf._targets import Destination
 from pylopdf.pylopdf_core import LimitError, Pixmap, _Canvas, _Font
 
 if TYPE_CHECKING:
@@ -317,6 +318,7 @@ class TagRole(enum.StrEnum):
     FIGURE = "Figure"
     FORMULA = "Formula"
     ARTIFACT = "Artifact"
+    LINK = "Link"
 
 
 class TableHeaderScope(enum.StrEnum):
@@ -1110,6 +1112,39 @@ class Canvas:
         point = _point(at, "at")
         self._record.add_bookmark(title, level, tuple(point))
 
+    def link(self, rect: Sequence[float], target: Destination | str, *, alt: str | None = None) -> None:
+        """Add a link over ``rect`` of a new document's page that leads to ``target``.
+
+        ``target`` is a URI string or a :class:`Destination` of the new
+        document, whose page must exist when the document is written and
+        whose point defaults to the page's top-left corner; a zoom, and the
+        other targets, which krilla does not write, are refused. ``alt``
+        describes the link, which PDF/UA requires. In a tagged document the
+        link belongs inside a tag scope, usually :attr:`TagRole.LINK` around
+        the text that it covers. An open document's page adds links with
+        :attr:`Page.links`. A page holds at most 4,096 links, and a link's
+        texts at most 64 KiB (``tag_text_size``).
+        """
+        self._check_open()
+        if self._builder is None:
+            msg = "links of an open document's page are added with page.links.add(rect, target)"
+            raise ValueError(msg)
+        box = tuple(_rect(rect, "rect"))
+        if alt is not None and not isinstance(alt, str):
+            msg = f"alt must be a string or None: {alt!r}"
+            raise TypeError(msg)
+        if isinstance(target, str):
+            self._record.add_link(box, uri=target, alt=alt)
+        elif isinstance(target, Destination):
+            if target.zoom is not None:
+                msg = "a new document's links keep the viewer's zoom; pass Destination(page, point)"
+                raise ValueError(msg)
+            at = (0.0, 0.0) if target.point is None else tuple(target.point)
+            self._record.add_link(box, page=target.page, at=at, alt=alt)
+        else:
+            msg = f"a new document's link leads to a URI string or a Destination, not {type(target).__name__}"
+            raise TypeError(msg)
+
     def tag(  # noqa: PLR0913 - the attributes of a structure element.
         self,
         role: TagRole | str,
@@ -1289,6 +1324,11 @@ class _MaskCanvas(Canvas):
     def bookmark(self, title: str, *, level: int = 1, at: Sequence[float] = (0, 0)) -> None:  # noqa: ARG002 - the signature of Canvas.bookmark.
         """Refuse a bookmark, which belongs to the page's canvas."""
         msg = "bookmarks belong to the page's canvas, not to a mask canvas"
+        raise ValueError(msg)
+
+    def link(self, rect: Sequence[float], target: Destination | str, *, alt: str | None = None) -> None:  # noqa: ARG002 - the signature of Canvas.link.
+        """Refuse a link, which belongs to the page's canvas."""
+        msg = "links belong to the page's canvas, not to a mask canvas"
         raise ValueError(msg)
 
 

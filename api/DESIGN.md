@@ -313,8 +313,9 @@ for new documents that krilla writes as a whole: `builder.page(size)`
 returns a canvas for a new page, the canvas's `tag(role, *, alt=None,
 lang=None, title=None, actual_text=None, scope=None, numbering=None)` scopes,
 where a table header takes a `TableHeaderScope` and a list a
-`ListNumbering`, give the structure tree and `bookmark(title, level=1)` the
-outline,
+`ListNumbering`, give the structure tree, `bookmark(title, level=1)` the
+outline, and `link(rect, target, *, alt=None)` link annotations to a URI or a
+`Destination` of the document, which join the tag scope they are drawn in;
 `builder.to_bytes()` returns the file as krilla wrote it, and
 `builder.finish()` opens it as a `Document`. `standard` takes one name or
 several, such as `("pdf/a-2a", "pdf/ua-1")`; writing validates with krilla's
