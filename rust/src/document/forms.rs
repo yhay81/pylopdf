@@ -2571,8 +2571,8 @@ fn existing_kind(field_type: &str, flags: i64) -> &'static str {
 
 /// The field entries that a merged field and widget dictionary moves to a
 /// new parent when the field gains a second widget.
-const FIELD_KEYS: [&[u8]; 12] = [
-    b"FT", b"T", b"TU", b"TM", b"Ff", b"V", b"DV", b"AA", b"Opt", b"MaxLen", b"TI", b"I",
+const FIELD_KEYS: [&[u8]; 11] = [
+    b"FT", b"T", b"TU", b"TM", b"Ff", b"V", b"DV", b"Opt", b"MaxLen", b"TI", b"I",
 ];
 
 impl _Document {
@@ -3058,6 +3058,24 @@ pub(super) fn add_widget(
                                 parent.set(key, value.clone());
                             }
                         }
+                        // A merged dictionary owns both field and widget
+                        // actions. Only field triggers move to the parent.
+                        let mut widget_actions = old
+                            .get(b"AA")
+                            .ok()
+                            .and_then(|aa| deref_dict_ref(&this.doc, aa))
+                            .cloned();
+                        if let Some(actions) = &mut widget_actions {
+                            let mut field_actions = Dictionary::new();
+                            for trigger in FIELD_TRIGGERS {
+                                if let Some(action) = actions.remove(trigger.as_bytes()) {
+                                    field_actions.set(trigger, action);
+                                }
+                            }
+                            if !field_actions.is_empty() {
+                                parent.set("AA", field_actions);
+                            }
+                        }
                         let grand = old.get(b"Parent").and_then(Object::as_reference).ok();
                         if let Some(grand) = grand {
                             parent.set("Parent", grand);
@@ -3070,6 +3088,13 @@ pub(super) fn add_widget(
                             .map_err(to_py_err)?;
                         for key in FIELD_KEYS {
                             kid.remove(key);
+                        }
+                        if let Some(actions) = widget_actions {
+                            if actions.is_empty() {
+                                kid.remove(b"AA");
+                            } else {
+                                kid.set("AA", actions);
+                            }
                         }
                         kid.set("Parent", parent_id);
                         this.replace_form_node(grand, field_id, parent_id)?;
@@ -3376,6 +3401,8 @@ const WIDGET_TRIGGERS: [&str; 7] = ["Fo", "Bl", "E", "X", "D", "U", "A"];
 
 /// The most bytes of JavaScript that one script holds.
 const MAX_SCRIPT_BYTES: usize = 1024 * 1024;
+/// UTF-16BE may use two bytes per UTF-8 input byte, plus its BOM.
+const MAX_ENCODED_SCRIPT_BYTES: usize = 2 * MAX_SCRIPT_BYTES + 3;
 
 /// The JavaScript source of an action dictionary, or `None` for another
 /// action; a stream is decoded under the script bound.
@@ -3392,23 +3419,37 @@ fn javascript_source(doc: &Document, action: &Object) -> PyResult<Option<String>
     ) {
         return Ok(None);
     }
-    match action.get(b"JS").map(|source| deref_object(doc, source)) {
+    let stream_source;
+    let source = match action.get(b"JS").map(|source| deref_object(doc, source)) {
         Ok(source @ Object::String(bytes, _)) => {
-            if bytes.len() > MAX_SCRIPT_BYTES {
+            if bytes.len() > MAX_ENCODED_SCRIPT_BYTES {
                 return Err(limit_err(
                     "script_size",
                     format!("a script exceeds the {MAX_SCRIPT_BYTES}-byte safety limit"),
                 ));
             }
-            Ok(Some(decode_text_string(source).unwrap_or_default()))
+            source
         }
         Ok(Object::Stream(stream)) => {
-            let data =
-                decoded_stream_content(stream, Some(MAX_SCRIPT_BYTES), "script_size", "a script")?;
-            Ok(Some(String::from_utf8_lossy(&data).into_owned()))
+            let data = decoded_stream_content(
+                stream,
+                Some(MAX_ENCODED_SCRIPT_BYTES),
+                "script_size",
+                "a script",
+            )?;
+            stream_source = Object::String(data, StringFormat::Literal);
+            &stream_source
         }
-        _ => Ok(None),
+        _ => return Ok(None),
+    };
+    let source = decode_text_string(source).map_err(to_py_err)?;
+    if source.len() > MAX_SCRIPT_BYTES {
+        return Err(limit_err(
+            "script_size",
+            format!("a script exceeds the {MAX_SCRIPT_BYTES}-byte UTF-8 safety limit"),
+        ));
     }
+    Ok(Some(source))
 }
 
 /// The JavaScript scripts of `dict` for `triggers`, in that order.
@@ -3476,6 +3517,26 @@ fn write_script(dict: &mut Dictionary, trigger: &str, source: Option<&str>) {
     }
 }
 
+/// Prepare an owned edit and admit its complete result before mutation, so
+/// a write cannot make the mapping unreadable under its aggregate limit.
+fn prepared_script(
+    doc: &Document,
+    dict: &Dictionary,
+    trigger: &str,
+    source: Option<&str>,
+    triggers: &[&str],
+) -> PyResult<Dictionary> {
+    let mut updated = dict.clone();
+    if let Ok(Object::Reference(id)) = dict.get(b"AA")
+        && let Ok(additional) = doc.get_dictionary(*id)
+    {
+        updated.set("AA", additional.clone());
+    }
+    write_script(&mut updated, trigger, source);
+    read_scripts(doc, &updated, triggers)?;
+    Ok(updated)
+}
+
 fn validate_script(trigger: &str, triggers: &[&str], source: Option<&str>) -> PyResult<()> {
     if !triggers.contains(&trigger) {
         return Err(PdfError::new_err(format!(
@@ -3514,48 +3575,71 @@ pub(super) fn set_field_script(
 ) -> PyResult<()> {
     validate_script(trigger, &FIELD_TRIGGERS, source)?;
     let field_id = this.form_field_id(xref)?;
-    // An indirect /AA is copied into the field, which then owns it.
-    let additional = match this
-        .doc
-        .get_dictionary(field_id)
-        .map_err(to_py_err)?
-        .get(b"AA")
-    {
-        Ok(Object::Reference(id)) => this.doc.get_dictionary(*id).ok().cloned(),
-        _ => None,
+    let field = prepared_script(
+        &this.doc,
+        this.doc.get_dictionary(field_id).map_err(to_py_err)?,
+        trigger,
+        source,
+        &FIELD_TRIGGERS,
+    )?;
+    let calculation = if trigger == "C" {
+        let form = this
+            .doc
+            .catalog()
+            .map_err(to_py_err)?
+            .get(b"AcroForm")
+            .map_err(to_py_err)?;
+        let form = deref_dict_ref(&this.doc, form)
+            .ok_or_else(|| PdfError::new_err("AcroForm is not a dictionary"))?;
+        let current = form
+            .get(b"CO")
+            .ok()
+            .map(|order| deref_object(&this.doc, order))
+            .and_then(|order| order.as_array().ok());
+        if current.is_some_and(|order| order.len() > MAX_FORM_FIELD_TREE_EDGES) {
+            return Err(PdfError::new_err(
+                "AcroForm calculation order exceeds the field-tree edge limit",
+            ));
+        }
+        let mut order = Vec::new();
+        order
+            .try_reserve_exact(current.map_or(0, Vec::len))
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate calculation order: {error}"))
+            })?;
+        if let Some(current) = current {
+            order.extend(current.iter().cloned());
+        }
+        let mut listed = false;
+        order.retain(|item| {
+            if matches!(item, Object::Reference(id) if *id == field_id) {
+                let keep = source.is_some() && !listed;
+                listed = true;
+                keep
+            } else {
+                true
+            }
+        });
+        if source.is_some() && !listed {
+            if order.len() == MAX_FORM_FIELD_TREE_EDGES {
+                return Err(PdfError::new_err(
+                    "AcroForm calculation order exceeds the field-tree edge limit",
+                ));
+            }
+            try_push_form(&mut order, Object::Reference(field_id), "calculation order")?;
+        }
+        Some((this.acroform_object()?, order))
+    } else {
+        None
     };
     this.invalidate_hayro_pdf_keeping_placements();
-    let field = this
-        .doc
-        .get_object_mut(field_id)
-        .and_then(Object::as_dict_mut)
-        .map_err(to_py_err)?;
-    if let Some(additional) = additional {
-        field.set("AA", additional);
-    }
-    write_script(field, trigger, source);
-    if trigger == "C" {
-        let form_id = this.acroform_object()?;
-        // An indirect /CO is read through and replaced by a direct array.
-        let mut order = match this
-            .doc
-            .get_dictionary(form_id)
-            .map_err(to_py_err)?
-            .get(b"CO")
-            .map(|order| deref_object(&this.doc, order))
-        {
-            Ok(Object::Array(order)) => order.clone(),
-            _ => Vec::new(),
-        };
+    *this.doc.get_object_mut(field_id).map_err(to_py_err)? = Object::Dictionary(field);
+    if let Some((form_id, order)) = calculation {
         let form = this
             .doc
             .get_object_mut(form_id)
             .and_then(Object::as_dict_mut)
             .map_err(to_py_err)?;
-        order.retain(|item| !matches!(item, Object::Reference(id) if *id == field_id));
-        if source.is_some() {
-            order.push(Object::Reference(field_id));
-        }
         if order.is_empty() {
             form.remove(b"CO");
         } else {
@@ -3601,19 +3685,8 @@ pub(super) fn set_widget_script(
             "annotation {xref} is no longer a widget"
         )));
     }
-    let additional = match widget.get(b"AA") {
-        Ok(Object::Reference(id)) => this.doc.get_dictionary(*id).ok().cloned(),
-        _ => None,
-    };
+    let updated = prepared_script(&this.doc, widget, trigger, source, &WIDGET_TRIGGERS)?;
     let (_, id) = edited_annotation(this, page_id, index, xref)?;
-    let widget = this
-        .doc
-        .get_object_mut(id)
-        .and_then(Object::as_dict_mut)
-        .map_err(to_py_err)?;
-    if let Some(additional) = additional {
-        widget.set("AA", additional);
-    }
-    write_script(widget, trigger, source);
+    *this.doc.get_object_mut(id).map_err(to_py_err)? = Object::Dictionary(updated);
     Ok(id.0)
 }

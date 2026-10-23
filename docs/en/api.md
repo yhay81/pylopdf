@@ -1010,7 +1010,10 @@ total.scripts[ScriptTrigger.CALCULATE] = 'AFSimple_Calculate("SUM", ["a", "b"]);
 del total.scripts[ScriptTrigger.CALCULATE]
 ```
 
-A script is at most 1 MiB of UTF-8 (`LimitError` code `script_size`).
+A script, and the scripts of one mapping together, are at most 1 MiB of
+UTF-8 (`LimitError` code `script_size`). A refused write leaves the mapping
+unchanged. Replacing a calculation keeps its existing position in `/CO`.
+Script streams use the same PDF text encodings as strings.
 
 ## Attachments { #attachments }
 

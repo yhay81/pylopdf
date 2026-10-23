@@ -139,7 +139,8 @@ class Scripts(MutableMapping[ScriptTrigger, str]):
     assigning sets a JavaScript action, and ``del`` removes it. Actions of
     other kinds are not listed. A field takes the keystroke, format,
     validate, and calculate triggers, and a widget the others. pylopdf never
-    runs the scripts. Each script stops at 1 MiB (``script_size``).
+    runs the scripts. Each script and the mapping's scripts together stop
+    at 1 MiB of UTF-8 (``script_size``); a refused write changes nothing.
     """
 
     __slots__ = ("_read", "_triggers", "_write")
@@ -388,7 +389,11 @@ class Field:
             self._facts()
             document._doc.set_field_script(xref, trigger, source)
 
-        return Scripts(lambda: document._doc.field_scripts(xref), write, _FIELD_TRIGGERS)
+        def read() -> list[tuple[str, str]]:
+            self._facts()
+            return document._doc.field_scripts(xref)
+
+        return Scripts(read, write, _FIELD_TRIGGERS)
 
     @property
     def widgets(self) -> list[Widget]:

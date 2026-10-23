@@ -135,3 +135,85 @@ def test_an_indirect_calculation_order_keeps_its_fields() -> None:
     doc.form["b"].scripts[ScriptTrigger.CALCULATE] = "event.value = 2;"
 
     assert list(doc.catalog["AcroForm"]["CO"]) == [doc.form["a"].obj, doc.form["b"].obj]
+
+
+def test_replacing_a_calculation_preserves_its_position() -> None:
+    doc = _form()
+    doc.pages[0].widgets.add(TextField("other", (20, 60, 200, 80)))
+    total = doc.form["total"]
+    other = doc.form["other"]
+    total.scripts[ScriptTrigger.CALCULATE] = "event.value = 1;"
+    other.scripts[ScriptTrigger.CALCULATE] = "event.value = 2;"
+
+    total.scripts[ScriptTrigger.CALCULATE] = "event.value = 3;"
+
+    assert list(doc.catalog["AcroForm"]["CO"]) == [total.obj, other.obj]
+
+
+def test_splitting_a_merged_field_keeps_widget_actions_on_the_widget() -> None:
+    doc = _form()
+    first = doc.pages[0].widgets[0]
+    first.scripts[ScriptTrigger.FOCUS] = "focus();"
+    doc.form["total"].scripts[ScriptTrigger.FORMAT] = "format();"
+    doc.form["total"].scripts[ScriptTrigger.CALCULATE] = "calculate();"
+
+    second = doc.pages[0].widgets.add(TextField("total", (20, 60, 200, 80)))
+
+    assert dict(first.scripts) == {ScriptTrigger.FOCUS: "focus();"}
+    assert dict(second.scripts) == {}
+    assert dict(doc.form["total"].scripts) == {
+        ScriptTrigger.FORMAT: "format();",
+        ScriptTrigger.CALCULATE: "calculate();",
+    }
+    assert list(doc.catalog["AcroForm"]["CO"]) == [doc.form["total"].obj]
+
+
+def test_utf16_script_streams_are_decoded_as_text() -> None:
+    doc = _form()
+    source = "event.value = '\u65e5\u672c\u8a9e';"
+    stream = doc.objects.add_stream(b"\xfe\xff" + source.encode("utf-16-be"))
+    doc.form["total"].obj["AA"] = {"F": {"S": pylopdf.Name("JavaScript"), "JS": doc.objects[stream]}}
+
+    assert doc.form["total"].scripts[ScriptTrigger.FORMAT] == source
+
+
+@pytest.mark.parametrize("invalidate", ["close", "renumber"])
+def test_saved_script_mappings_validate_their_field_handle(invalidate: str) -> None:
+    doc = _form()
+    scripts = doc.form["total"].scripts
+    scripts[ScriptTrigger.FORMAT] = "format();"
+    if invalidate == "close":
+        doc.close()
+        error = pylopdf.DocumentClosedError
+    else:
+        doc.to_bytes(renumber=True)
+        error = pylopdf.StaleObjectError
+
+    with pytest.raises(error):
+        list(scripts)
+
+
+@pytest.mark.parametrize("widget", [False, True])
+def test_script_writes_cannot_make_the_mapping_exceed_its_read_limit(*, widget: bool) -> None:
+    doc = _form()
+    scripts = doc.pages[0].widgets[0].scripts if widget else doc.form["total"].scripts
+    first, second = (
+        (ScriptTrigger.FOCUS, ScriptTrigger.BLUR) if widget else (ScriptTrigger.FORMAT, ScriptTrigger.KEYSTROKE)
+    )
+    scripts[first] = "x" * 600_000
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        scripts[second] = "y" * 600_000
+
+    assert caught.value.code == "script_size"
+    assert dict(scripts) == {first: "x" * 600_000}
+
+
+def test_a_unicode_script_at_the_utf8_limit_round_trips() -> None:
+    doc = _form()
+    source = "x" * (1024 * 1024 - 2) + "\u00e9"
+
+    doc.form["total"].scripts[ScriptTrigger.FORMAT] = source
+
+    assert doc.form["total"].scripts[ScriptTrigger.FORMAT] == source
+    assert pylopdf.open(doc.to_bytes()).form["total"].scripts[ScriptTrigger.FORMAT] == source

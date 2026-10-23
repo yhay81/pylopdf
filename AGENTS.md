@@ -2268,7 +2268,13 @@ the concept and API overview.
   a direct action with a text string, copy an indirect `/AA` into the
   dictionary first, remove an emptied `/AA`, and keep the AcroForm `/CO`
   listing each field with a calculation (read through an indirect `/CO`,
-  rewritten direct). pylopdf never runs scripts.
+  rewritten direct). Replacing a calculation preserves its position, and
+  splitting a merged field moves only the four field triggers to its new
+  parent, keeping widget actions on the widget. Reads decode strings and
+  streams as PDF text, allowing up to twice the UTF-8 limit plus a BOM for
+  encoded data. Writes admit the complete mapping before mutation, and
+  saved mappings revalidate their field's object epoch and closed state.
+  pylopdf never runs scripts.
 - AcroForm filling writes `/V`, synchronizes button `/AS`, and regenerates
   widget `/AP /N`. Text and choice appearances auto-fit in widget-local
   coordinates, respect inherited `/Q` and multiline `/Ff`, and reuse the Core
