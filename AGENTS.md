@@ -2447,6 +2447,14 @@ the concept and API overview.
   `/IC` (the fill that applying it leaves), `/OverlayText`, `/DA`, and `/Q`
   (`default_appearance_entries`, shared with free text). Applying belongs
   to `page.redact` (Rewriting).
+  Property setters call `edit_annotation` with an `AnnotationEdit`
+  (`from_item_all`; `clear` is always given and names the properties to
+  remove): it edits a clone of the annotation dictionary, checks every
+  value, recomputes `/Rect` from the points of lines, polygons, polylines,
+  and ink (`fit_point_rect`), draws the appearance of an engine type again
+  (refusing free text that no longer fits), and only then stores the page's
+  direct annotations as objects and replaces the dictionary. Python passes
+  the installed font extra again for free text whose `/DA` names `/PyloF`.
   `popup_rect`, `is_open`, and `in_reply_to` edit through
   `set_annotation_popup`, `set_annotation_open`, and `set_annotation_reply`,
   which validate first, then find the annotation with `edited_annotation`

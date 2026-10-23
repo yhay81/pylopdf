@@ -451,20 +451,48 @@ class Annotation:
         """Return the annotation rectangle in display coordinates."""
         return Rect(*self._read()[3])
 
+    @rect.setter
+    def rect(self, rect: Sequence[float]) -> None:
+        self._set(rect=_validate_rect(rect))
+
     @property
     def contents(self) -> str | None:
         """Return the text that the annotation shows or describes, ``/Contents``."""
         return self._text(_CONTENTS)
+
+    @contents.setter
+    def contents(self, value: str) -> None:
+        self._set(contents=_text_value(value, "contents"))
+
+    @contents.deleter
+    def contents(self) -> None:
+        self._set(clear=["contents"])
 
     @property
     def author(self) -> str | None:
         """Return the author, ``/T``."""
         return self._text(_AUTHOR)
 
+    @author.setter
+    def author(self, value: str) -> None:
+        self._set(author=_text_value(value, "author"))
+
+    @author.deleter
+    def author(self) -> None:
+        self._set(clear=["author"])
+
     @property
     def subject(self) -> str | None:
         """Return the subject, ``/Subj``."""
         return self._text(_SUBJECT)
+
+    @subject.setter
+    def subject(self, value: str) -> None:
+        self._set(subject=_text_value(value, "subject"))
+
+    @subject.deleter
+    def subject(self) -> None:
+        self._set(clear=["subject"])
 
     @property
     def created(self) -> str | None:
@@ -481,10 +509,26 @@ class Annotation:
         """Return the annotation's unique name on its page, ``/NM``."""
         return self._text(_NAME)
 
+    @name.setter
+    def name(self, value: str) -> None:
+        self._set(name=_text_value(value, "name"))
+
+    @name.deleter
+    def name(self) -> None:
+        self._set(clear=["name"])
+
     @property
     def icon(self) -> str | None:
         """Return the icon name of a note, stamp, or file attachment, ``/Name``."""
         return self._text(_ICON)
+
+    @icon.setter
+    def icon(self, icon: NoteIcon | StampIcon | AttachmentIcon) -> None:
+        names = {**_NOTE_ICON_NAMES, **_STAMP_NAMES, **_ATTACHMENT_ICON_NAMES}
+        if icon not in names:
+            msg = f"icon is a NoteIcon, StampIcon, or AttachmentIcon member: {icon!r}"
+            raise ValueError(msg)
+        self._set(icon=names[icon])
 
     @property
     def intent(self) -> str | None:
@@ -496,10 +540,32 @@ class Annotation:
         """Return the color of the border, title bar, or text markup, ``/C``; CMYK converts to RGB."""
         return _color(self._read()[6])
 
+    @color.setter
+    def color(self, color: Color | None) -> None:
+        if color is None:
+            self._set(clear=["color"])
+        else:
+            self._set(color=_opaque_color(color).rgb)
+
+    @color.deleter
+    def color(self) -> None:
+        self._set(clear=["color"])
+
     @property
     def interior_color(self) -> Color | None:
         """Return the fill color of a shape or line ending, ``/IC``; CMYK converts to RGB."""
         return _color(self._read()[7])
+
+    @interior_color.setter
+    def interior_color(self, color: Color | None) -> None:
+        if color is None:
+            self._set(clear=["interior_color"])
+        else:
+            self._set(interior_color=_opaque_color(color, "interior_color").rgb)
+
+    @interior_color.deleter
+    def interior_color(self) -> None:
+        self._set(clear=["interior_color"])
 
     @property
     def opacity(self) -> float:
@@ -507,10 +573,21 @@ class Annotation:
         opacity = self._read()[8]
         return 1.0 if opacity is None else opacity
 
+    @opacity.setter
+    def opacity(self, opacity: float) -> None:
+        self._set(opacity=_opacity(opacity))
+
     @property
     def flags(self) -> AnnotationFlags:
         """Return the ``/F`` flags."""
         return AnnotationFlags(self._read()[4] & 0x3FF)
+
+    @flags.setter
+    def flags(self, flags: AnnotationFlags) -> None:
+        if isinstance(flags, bool) or not isinstance(flags, int):
+            msg = f"flags is an AnnotationFlags value: {flags!r}"
+            raise TypeError(msg)
+        self._set(flags=int(AnnotationFlags(flags)))
 
     @property
     def border(self) -> Border | None:
@@ -521,11 +598,36 @@ class Annotation:
         width, style, dashes = border
         return Border(width, style=_BORDER_STYLES[style], dashes=dashes)
 
+    @border.setter
+    def border(self, border: Border | None) -> None:
+        if border is None:
+            self._set(clear=["border"])
+            return
+        if not isinstance(border, Border):
+            msg = f"border must be a Border or None: {border!r}"
+            raise TypeError(msg)
+        self._set(border=(border.width, _BORDER_STYLE_NAMES[border.style], list(border.dashes)))
+
+    @border.deleter
+    def border(self) -> None:
+        self._set(clear=["border"])
+
     @property
     def blend_mode(self) -> BlendMode | None:
         """Return the blend mode that the appearance is drawn with, ``/BM``, or ``None`` without one."""
         name = self._read()[10]
         return None if name is None else _BLEND_MODES[name]
+
+    @blend_mode.setter
+    def blend_mode(self, mode: BlendMode | None) -> None:
+        if mode is None:
+            self._set(clear=["blend_mode"])
+        else:
+            self._set(blend_mode=_BLEND_MODE_NAMES[BlendMode(mode)])
+
+    @blend_mode.deleter
+    def blend_mode(self) -> None:
+        self._set(clear=["blend_mode"])
 
     def _geometry(self) -> tuple[list[list[tuple[float, float]]] | None, tuple[str, str] | None]:
         page = self._page
@@ -544,6 +646,15 @@ class Annotation:
         points, _ = self._geometry()
         return None if points is None else tuple(Point(x, y) for x, y in points[0])
 
+    @vertices.setter
+    def vertices(self, vertices: Iterable[Point | Sequence[float]]) -> None:
+        minimum = 2
+        points = _points(vertices, "vertices", minimum, [0])
+        if self.type is AnnotationType.LINE and len(points) != minimum:
+            msg = "a line has two vertices"
+            raise ValueError(msg)
+        self._set(points=[[tuple(point) for point in points]])
+
     @property
     def strokes(self) -> tuple[tuple[Point, ...], ...] | None:
         """Return the display points of each stroke of an ink annotation, ``None`` for another type."""
@@ -551,6 +662,18 @@ class Annotation:
             return None
         points, _ = self._geometry()
         return None if points is None else tuple(tuple(Point(x, y) for x, y in stroke) for stroke in points)
+
+    @strokes.setter
+    def strokes(self, strokes: Iterable[Iterable[Point | Sequence[float]]]) -> None:
+        if isinstance(strokes, (str, bytes)) or not isinstance(strokes, Iterable):
+            msg = f"strokes must be a sequence of point sequences: {strokes!r}"
+            raise TypeError(msg)
+        budget = [0]
+        validated = [[tuple(point) for point in _points(stroke, "a stroke", 1, budget)] for stroke in strokes]
+        if not validated:
+            msg = "strokes must hold at least one stroke"
+            raise ValueError(msg)
+        self._set(points=validated)
 
     @property
     def line_endings(self) -> tuple[LineEnding, LineEnding] | None:
@@ -560,6 +683,11 @@ class Annotation:
             return None
         start, end = endings
         return _LINE_ENDINGS[start], _LINE_ENDINGS[end]
+
+    @line_endings.setter
+    def line_endings(self, endings: tuple[LineEnding, LineEnding]) -> None:
+        start, end = _line_endings(endings)
+        self._set(line_endings=(_LINE_ENDING_NAMES[start], _LINE_ENDING_NAMES[end]))
 
     @property
     def rotation(self) -> int:
@@ -574,6 +702,13 @@ class Annotation:
         turn = stored if isinstance(stored, int) and not isinstance(stored, bool) and stored % 90 == 0 else 0
         return (self._page.rotation - turn) % 360
 
+    @rotation.setter
+    def rotation(self, rotate: int) -> None:
+        if isinstance(rotate, bool) or not isinstance(rotate, int) or rotate % 90:
+            msg = f"rotation must be a multiple of 90: {rotate!r}"
+            raise ValueError(msg)
+        self._set(rotate=rotate % 360)
+
     def _file_info(self) -> tuple[str, str, int, str, str] | None:
         page = self._page
         self._read()
@@ -583,6 +718,35 @@ class Annotation:
     def file(self) -> AnnotationFile | None:
         """Return the file that a file attachment embeds, or ``None`` for another annotation."""
         return None if self._file_info() is None else AnnotationFile(self)
+
+    @property
+    def language(self) -> str | None:
+        """Return or set the BCP 47 language of the annotation's text, ``/Lang``; ``del`` removes it."""
+        self._read()
+        value = self.obj.get("Lang")
+        return value.text if isinstance(value, bytes) and hasattr(value, "text") else None
+
+    @language.setter
+    def language(self, value: str) -> None:
+        self._set(language=_text_value(value, "language"))
+
+    @language.deleter
+    def language(self) -> None:
+        self._set(clear=["language"])
+
+    def _set(self, *, clear: list[str] | None = None, **entries: object) -> None:
+        """Change properties and draw the appearance again, recording the time of the edit."""
+        edit: dict[str, object] = {"clear": clear or [], "modified": _now(), **entries}
+        page = self._page
+        self._read()
+        if self.type is AnnotationType.FREE_TEXT:
+            stored = self.obj.get("DA")
+            if isinstance(stored, bytes) and stored.startswith(b"/PyloF"):
+                text = entries.get("contents", self.contents) or ""
+                face = _canvas_font(cast("str", text), None)
+                if face.standard_name is None:
+                    edit["font"] = face
+        self._xref = page._document._doc.edit_annotation(page._page_number(), self._index, self._xref, edit)
 
     def _edit(self, method: str, *args: object) -> None:
         page = self._page
@@ -683,6 +847,20 @@ class Annotation:
             return "<stale Annotation>"
         kind = AnnotationType.UNKNOWN if entry[2] is None else _SUBTYPE_TYPES.get(entry[2], AnnotationType.UNKNOWN)
         return f"Annotation(type=AnnotationType.{kind.name}, rect={Rect(*entry[3])!r})"
+
+
+def _text_value(value: object, name: str) -> str:
+    """Check a text property's type and its 1 MiB bound before the core copies it."""
+    if not isinstance(value, str):
+        msg = f"{name} must be a str: {type(value).__name__}"
+        raise TypeError(msg)
+    _validate_cumulative_utf8_input(
+        (value,),
+        _MAX_ANNOTATION_INPUT_TEXT_SIZE,
+        limit_code="annotation_input_size",
+        input_label=f"annotation {name}",
+    )
+    return value
 
 
 def _highlight_rects(

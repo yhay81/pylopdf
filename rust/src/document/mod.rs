@@ -1253,6 +1253,19 @@ impl _Document {
         annotations::read_annotation(self, py, page_number, index, xref)
     }
 
+    /// Change the properties of one annotation of a one-based page, drawing
+    /// its appearance again, and return its object number.
+    fn edit_annotation(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+        edit: annotations::AnnotationEdit,
+    ) -> PyResult<u32> {
+        annotations::edit_annotation(self, py, page_number, index, xref, edit)
+    }
+
     /// Move, add, or remove the popup of one annotation of a one-based page
     /// and return the annotation's object number.
     fn set_annotation_popup(

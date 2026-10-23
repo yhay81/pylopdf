@@ -214,6 +214,10 @@
           "kind": "property",
           "returns": "bool"
         },
+        "language": {
+          "kind": "property",
+          "returns": "str | None"
+        },
         "line_endings": {
           "kind": "property",
           "returns": "tuple[LineEnding, LineEnding] | None"

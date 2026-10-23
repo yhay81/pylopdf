@@ -1264,6 +1264,60 @@ def _set_rotation(migrator: _Migrator, receiver: str, args: _Arguments) -> str |
     return f"{receiver}.rotation = {bound['rotation']}"
 
 
+def _pymupdf_only(
+    rule: Callable[[_Migrator, str, _Arguments], str | None],
+) -> Callable[[_Migrator, str, _Arguments], str | None]:
+    """Apply an annotation setter rule only in modules that import pymupdf, whose annotations had the method."""
+
+    def guarded(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+        return rule(migrator, receiver, args) if migrator.pymupdf() else None
+
+    return guarded
+
+
+def _set_colors(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite an annotation's ``set_colors(stroke=...)`` or ``set_colors(fill=...)`` to one assignment."""
+    bound = args.bind(("colors", "stroke", "fill"))
+    if bound is None or len(bound) != 1 or "colors" in bound:
+        return None
+    ((keyword, value),) = bound.items()
+    prop = "color" if keyword == "stroke" else "interior_color"
+    if value in ("None", "[]", "()"):
+        return f"del {receiver}.{prop}"
+    color = _color_record(migrator, value)
+    return None if color is None else f"{receiver}.{prop} = {color}"
+
+
+def _set_line_ends(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite an annotation's ``set_line_ends(start, end)``."""
+    bound = args.bind(("start", "end"))
+    if bound is None or set(bound) != {"start", "end"}:
+        return None
+    return f"{receiver}.line_endings = ({bound['start']}, {bound['end']})"
+
+
+def _set_info(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite an annotation's ``set_info(content=...)``, ``title=``, or ``subject=`` with one keyword."""
+    bound = args.bind(("info", "content", "title", "creationDate", "modDate", "subject"))
+    properties = {"content": "contents", "title": "author", "subject": "subject"}
+    if bound is None or len(bound) != 1 or next(iter(bound)) not in properties:
+        return None
+    ((keyword, value),) = bound.items()
+    return f"{receiver}.{properties[keyword]} = {value}"
+
+
+def _set_border(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite an annotation's ``set_border(width=..., dashes=...)`` to a ``Border``."""
+    bound = args.bind(("border", "width", "dashes", "style", "clouds"))
+    border = migrator.class_name("Border")
+    if bound is None or not bound or set(bound) - {"width", "dashes"} or border is None:
+        return None
+    arguments = [bound["width"]] if "width" in bound else []
+    if "dashes" in bound:
+        arguments.append(f"dashes={bound['dashes']}")
+    return f"{receiver}.border = {border}({', '.join(arguments)})"
+
+
 def _set_form_field(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     """Rewrite pylopdf 0.15's ``set_form_field(name, value)`` without font options."""
     bound = args.bind(("name", "value"))
@@ -2257,6 +2311,14 @@ STATEMENT_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] =
     "set_fallback_font": _set_fallback_font,
     "set_form_field": _set_form_field,
     "set_rotation": _set_rotation,
+    "set_opacity": _pymupdf_only(_assign_property("opacity", "opacity")),
+    "set_flags": _pymupdf_only(_assign_property("flags", "flags")),
+    "set_blendmode": _pymupdf_only(_assign_property("blend_mode", "blend_mode")),
+    "set_rect": _pymupdf_only(_assign_property("rect", "rect")),
+    "set_colors": _pymupdf_only(_set_colors),
+    "set_line_ends": _pymupdf_only(_set_line_ends),
+    "set_info": _pymupdf_only(_set_info),
+    "set_border": _pymupdf_only(_set_border),
     "set_mediabox": _set_page_box("media"),
     "set_cropbox": _set_page_box("crop"),
     "set_artbox": _set_page_box("art"),

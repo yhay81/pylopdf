@@ -421,6 +421,22 @@ is not one of `doc.attachments`, and its data, name, and description are
 bounded as attachments' are (`embedded_file_size`,
 `embedded_file_input_size`).
 
+Annotations are edited by assigning their properties: `rect` (for the
+types that a rectangle places; lines, polygons, polylines, and ink move with
+`vertices` and `strokes`), `contents`, `author`, `subject`, `name`,
+`language`, `icon` (a `NoteIcon`, `StampIcon`, or `AttachmentIcon` member
+that fits the type), `color`, `interior_color`, `opacity`, `flags`,
+`border`, `blend_mode`, `rotation` (free text, stamps, carets, and file
+attachments), `vertices`, `strokes`, and `line_endings`. `del` removes the
+texts, the colours, the border, and the blend mode. Each assignment checks
+its value, updates `modified`, and draws the appearance again for the types
+that pylopdf draws, at once; there is no `update()`. Edited free text keeps
+the installed font extra it was drawn with, and an assignment that leaves
+the text without room raises and changes nothing. Assignments to an
+annotation stored in the page's `/Annots` array itself store the page's
+annotations as objects first, so other handles of such annotations found
+by their index go stale.
+
 A handle's `popup_rect` is the display rectangle of its popup, the window
 that shows the annotation's text, or `None`: assigning a rectangle adds or
 moves the popup, which the page lists after it, and `del` removes it.

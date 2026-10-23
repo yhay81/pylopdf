@@ -1811,6 +1811,405 @@ pub(super) fn annotation_file_write(
     Ok(id.0)
 }
 
+/// An edit of an annotation's properties, as the setters of `Annotation`
+/// pass it: each entry present replaces that property, and `clear` names
+/// the properties to remove. Geometry is in display space.
+#[derive(FromPyObject)]
+#[pyo3(from_item_all)]
+pub(super) struct AnnotationEdit {
+    #[pyo3(default)]
+    rect: Option<(f64, f64, f64, f64)>,
+    #[pyo3(default)]
+    contents: Option<String>,
+    #[pyo3(default)]
+    author: Option<String>,
+    #[pyo3(default)]
+    subject: Option<String>,
+    #[pyo3(default)]
+    name: Option<String>,
+    #[pyo3(default)]
+    language: Option<String>,
+    #[pyo3(default)]
+    icon: Option<String>,
+    #[pyo3(default)]
+    color: Option<(f64, f64, f64)>,
+    #[pyo3(default)]
+    interior_color: Option<(f64, f64, f64)>,
+    #[pyo3(default)]
+    opacity: Option<f64>,
+    #[pyo3(default)]
+    flags: Option<i64>,
+    #[pyo3(default)]
+    border: Option<(f64, String, Vec<f64>)>,
+    #[pyo3(default)]
+    blend_mode: Option<String>,
+    #[pyo3(default)]
+    rotate: Option<i64>,
+    #[pyo3(default)]
+    points: Option<Vec<Vec<(f64, f64)>>>,
+    #[pyo3(default)]
+    line_endings: Option<(String, String)>,
+    #[pyo3(default)]
+    font: Option<Py<_Font>>,
+    #[pyo3(default)]
+    modified: Option<String>,
+    /// Always given, so that the edit is not all defaults.
+    clear: Vec<String>,
+}
+
+/// The types whose `/Rect` an edit may move; the others follow their points.
+const RECT_SUBTYPES: [&[u8]; 7] = [
+    b"Square",
+    b"Circle",
+    b"Text",
+    b"FreeText",
+    b"Stamp",
+    b"Caret",
+    b"FileAttachment",
+];
+
+/// Set `/Rect` of a line, polygon, polyline, or ink annotation to the bounds
+/// of its points, widened for its stroke and its line endings.
+fn fit_point_rect(doc: &Document, dict: &mut Dictionary, subtype: &[u8]) {
+    let Some(lists) = annotation_appearance::point_lists(doc, dict, subtype) else {
+        return;
+    };
+    let mut bounds = [
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    ];
+    for &(x, y) in lists.iter().flatten() {
+        bounds = [
+            bounds[0].min(x),
+            bounds[1].min(y),
+            bounds[2].max(x),
+            bounds[3].max(y),
+        ];
+    }
+    if !bounds.iter().all(|value| value.is_finite()) {
+        return;
+    }
+    let width = annotation_appearance::border(doc, dict).map_or(1.0, |border| border.width);
+    let mut pad = width / 2.0 + 1.0;
+    if annotation_appearance::line_endings(doc, dict) != [0, 0] {
+        pad += 2.0 * annotation_appearance::ending_size(width);
+    }
+    dict.set(
+        "Rect",
+        Object::Array(
+            [
+                bounds[0] - pad,
+                bounds[1] - pad,
+                bounds[2] + pad,
+                bounds[3] + pad,
+            ]
+            .iter()
+            .map(|&value| Object::Real(value as f32))
+            .collect(),
+        ),
+    );
+}
+
+/// Implements [`_Document::edit_annotation`]: change the annotation's
+/// properties and draw its appearance again when the engine draws its type,
+/// after checking every entry; a refusal changes nothing.
+pub(super) fn edit_annotation(
+    this: &mut _Document,
+    py: Python<'_>,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+    edit: AnnotationEdit,
+) -> PyResult<u32> {
+    let (crop, rotation) = this.page_display_geometry(page_number)?;
+    let page_id = this.page_id(page_number)?;
+    let (_, annotation) = this.annotation_at(page_id, index, xref)?;
+    let mut dict = annotation.clone();
+    let subtype = dict
+        .get(b"Subtype")
+        .map(|value| deref_object(&this.doc, value))
+        .and_then(Object::as_name)
+        .map(<[u8]>::to_vec)
+        .unwrap_or_default();
+    let texts = [
+        &edit.contents,
+        &edit.author,
+        &edit.subject,
+        &edit.name,
+        &edit.language,
+    ];
+    validate_annotation_input(
+        texts
+            .iter()
+            .map(|text| text.as_deref().unwrap_or_default().as_bytes()),
+        "texts",
+    )?;
+    for (value, key) in texts
+        .into_iter()
+        .zip([&b"Contents"[..], b"T", b"Subj", b"NM", b"Lang"])
+    {
+        if let Some(text) = value {
+            dict.set(key, text_string(text));
+        }
+    }
+    for property in &edit.clear {
+        let key: &[u8] = match property.as_str() {
+            "contents" => b"Contents",
+            "author" => b"T",
+            "subject" => b"Subj",
+            "name" => b"NM",
+            "language" => b"Lang",
+            "color" => b"C",
+            "interior_color" => b"IC",
+            "blend_mode" => b"BM",
+            "border" => {
+                dict.remove(b"Border");
+                b"BS"
+            }
+            other => {
+                return Err(PdfError::new_err(format!(
+                    "an annotation property that cannot be removed: {other:?}"
+                )));
+            }
+        };
+        dict.remove(key);
+    }
+    if let Some(icon) = &edit.icon {
+        let known = match subtype.as_slice() {
+            b"Text" => NOTE_ICONS.contains(&icon.as_str()),
+            b"Stamp" => annotation_appearance::STAMPS
+                .iter()
+                .any(|(name, _, _)| name == icon),
+            b"FileAttachment" => FILE_ICONS.contains(&icon.as_str()),
+            _ => {
+                return Err(PdfError::new_err(
+                    "only a note, a stamp, or a file attachment has an icon",
+                ));
+            }
+        };
+        if !known {
+            return Err(PdfError::new_err(format!("unknown icon {icon:?}")));
+        }
+        dict.set("Name", Object::Name(icon.as_bytes().to_vec()));
+    }
+    if let Some(color) = edit.color {
+        dict.set("C", rgb_array("colour", color)?);
+    }
+    if let Some(color) = edit.interior_color {
+        dict.set("IC", rgb_array("interior colour", color)?);
+    }
+    if let Some(opacity) = edit.opacity {
+        if !(opacity.is_finite() && opacity > 0.0 && opacity <= 1.0) {
+            return Err(PdfError::new_err(
+                "an annotation opacity is greater than 0 and at most 1",
+            ));
+        }
+        if opacity < 1.0 {
+            dict.set("CA", Object::Real(opacity as f32));
+        } else {
+            dict.remove(b"CA");
+        }
+    }
+    if let Some(flags) = edit.flags {
+        if !(0..=1023).contains(&flags) {
+            return Err(PdfError::new_err("annotation flags are bits 1 to 10"));
+        }
+        dict.set("F", flags);
+    }
+    if let Some((width, style, dashes)) = &edit.border {
+        if !(width.is_finite() && *width >= 0.0)
+            || !matches!(style.as_str(), "S" | "D" | "B" | "I" | "U")
+            || dashes.len() > annotation_appearance::MAX_BORDER_DASHES
+            || (!dashes.is_empty() && !annotation_appearance::valid_dashes(dashes))
+            || (style == "D") == dashes.is_empty()
+        {
+            return Err(PdfError::new_err(
+                "the border is not one that pylopdf writes",
+            ));
+        }
+        let mut border = dictionary! {
+            "W" => Object::Real(*width as f32),
+            "S" => Object::Name(style.as_bytes().to_vec()),
+        };
+        if !dashes.is_empty() {
+            border.set(
+                "D",
+                Object::Array(
+                    dashes
+                        .iter()
+                        .map(|&dash| Object::Real(dash as f32))
+                        .collect(),
+                ),
+            );
+        }
+        dict.remove(b"Border");
+        dict.set("BS", border);
+    }
+    if let Some(mode) = &edit.blend_mode {
+        if !canvas::BLEND_MODES.contains(&mode.as_str()) {
+            return Err(PdfError::new_err(format!("unknown blend mode {mode:?}")));
+        }
+        dict.set("BM", Object::Name(mode.as_bytes().to_vec()));
+    }
+    if let Some(turn) = edit.rotate {
+        if !matches!(
+            subtype.as_slice(),
+            b"FreeText" | b"Stamp" | b"Caret" | b"FileAttachment"
+        ) || turn % 90 != 0
+        {
+            return Err(PdfError::new_err(
+                "free text, stamps, carets, and file attachments turn by multiples of 90 degrees",
+            ));
+        }
+        let user_turn = (rotation - turn).rem_euclid(360);
+        if user_turn == 0 {
+            dict.remove(b"Rotate");
+        } else {
+            dict.set("Rotate", user_turn);
+        }
+    }
+    if let Some((x0, y0, x1, y1)) = edit.rect {
+        if !RECT_SUBTYPES.contains(&subtype.as_slice()) || dict.has(b"CL") {
+            return Err(PdfError::new_err(
+                "this annotation follows its points or callout; edit those instead of its rectangle",
+            ));
+        }
+        if ![x0, y0, x1, y1].iter().all(|value| value.is_finite()) {
+            return Err(PdfError::new_err("an annotation rectangle is finite"));
+        }
+        let quad = draw::display_rect_quad_pdf(crop, rotation, [x0, y0, x1, y1]);
+        let rect = draw::bounding_rect_iter(quad.iter().copied());
+        dict.set(
+            "Rect",
+            Object::Array(
+                rect.iter()
+                    .map(|&value| Object::Real(value as f32))
+                    .collect(),
+            ),
+        );
+    }
+    let point_type = matches!(
+        subtype.as_slice(),
+        b"Line" | b"Polygon" | b"PolyLine" | b"Ink"
+    );
+    if let Some(lists) = &edit.points {
+        let shape_ok = match subtype.as_slice() {
+            b"Line" => lists.len() == 1 && lists[0].len() == 2,
+            b"Polygon" | b"PolyLine" => lists.len() == 1 && lists[0].len() >= 2,
+            b"Ink" => !lists.is_empty() && lists.iter().all(|points| !points.is_empty()),
+            _ => {
+                return Err(PdfError::new_err(
+                    "only lines, polygons, polylines, and ink have points",
+                ));
+            }
+        };
+        if !shape_ok {
+            return Err(PdfError::new_err(
+                "a line has two points, a polygon or polyline two or more, and ink strokes one or more",
+            ));
+        }
+        if lists.iter().map(Vec::len).sum::<usize>() > annotation_appearance::MAX_ANNOTATION_POINTS
+        {
+            return Err(limit_err(
+                "annotation_point_count",
+                format!(
+                    "an annotation holds at most {} points",
+                    annotation_appearance::MAX_ANNOTATION_POINTS
+                ),
+            ));
+        }
+        let mut arrays = Vec::new();
+        for points in lists {
+            let mut array = Vec::new();
+            array.try_reserve_exact(points.len() * 2).map_err(|error| {
+                PdfError::new_err(format!("failed to allocate annotation points: {error}"))
+            })?;
+            for &(x, y) in points {
+                if !(x.is_finite() && y.is_finite()) {
+                    return Err(PdfError::new_err("annotation points are finite"));
+                }
+                let (x, y) = draw::display_to_pdf(crop, rotation, x, y);
+                array.push(Object::Real(x as f32));
+                array.push(Object::Real(y as f32));
+            }
+            arrays.push(Object::Array(array));
+        }
+        match subtype.as_slice() {
+            b"Line" => dict.set("L", arrays.swap_remove(0)),
+            b"Polygon" | b"PolyLine" => dict.set("Vertices", arrays.swap_remove(0)),
+            _ => dict.set("InkList", Object::Array(arrays)),
+        }
+    }
+    if let Some((start, end)) = &edit.line_endings {
+        if !matches!(subtype.as_slice(), b"Line" | b"PolyLine") {
+            return Err(PdfError::new_err(
+                "only lines and polylines have line endings",
+            ));
+        }
+        for style in [start, end] {
+            if !annotation_appearance::LINE_ENDINGS.contains(&style.as_str()) {
+                return Err(PdfError::new_err(format!("unknown line ending {style:?}")));
+            }
+        }
+        dict.set(
+            "LE",
+            Object::Array(vec![
+                Object::Name(start.as_bytes().to_vec()),
+                Object::Name(end.as_bytes().to_vec()),
+            ]),
+        );
+    }
+    if point_type {
+        fit_point_rect(&this.doc, &mut dict, &subtype);
+    }
+    if let Some(modified) = &edit.modified {
+        if !modified.starts_with("D:") || !modified.is_ascii() || modified.len() > 64 {
+            return Err(PdfError::new_err("an annotation date is a PDF date string"));
+        }
+        dict.set("M", Object::string_literal(modified.as_bytes()));
+    }
+    // Draw the appearance again for the types the engine draws.
+    let appearance = if annotation_appearance::draws(&subtype) {
+        match annotation_appearance::appearance_with(&this.doc, &dict, edit.font.as_ref())? {
+            Some(annotation_appearance::Appearance {
+                mut canvas,
+                matrix,
+                fits,
+                ..
+            }) => {
+                if !fits {
+                    return Err(PdfError::new_err(
+                        "the text does not fit in the annotation's rectangle",
+                    ));
+                }
+                Some((
+                    this.prepare_canvas_form(py, canvas.take_recording()?)?,
+                    matrix,
+                ))
+            }
+            None => None,
+        }
+    } else {
+        None
+    };
+
+    let (_, id) = edited_annotation(this, page_id, index, xref)?;
+    if let Some((form, matrix)) = appearance {
+        let committed = commit_canvas_form(&mut this.doc, form, Some(matrix))?;
+        dict.set(
+            "AP",
+            dictionary! { "N" => Object::Reference(committed.form_id) },
+        );
+        this.remember_canvas_placements(committed, Some(page_number));
+    }
+    if let Ok(object) = this.doc.get_object_mut(id) {
+        *object = Object::Dictionary(dict);
+    }
+    Ok(id.0)
+}
+
 /// Find an annotation for an edit and return its object number, after
 /// storing the page's direct annotation dictionaries as objects when it is
 /// one, as `set_link` does. The caller has checked its input, and the caches
