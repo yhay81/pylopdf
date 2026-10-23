@@ -1349,6 +1349,34 @@ def _add_shape_annot(
     return rule
 
 
+#: The NoteIcon member of each icon name that add_text_annot takes.
+_NOTE_ICONS = {
+    '"Comment"': "COMMENT",
+    '"Help"': "HELP",
+    '"Insert"': "INSERT",
+    '"Key"': "KEY",
+    '"NewParagraph"': "NEW_PARAGRAPH",
+    '"Note"': "NOTE",
+    '"Paragraph"': "PARAGRAPH",
+}
+
+
+def _add_text_annot(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``add_text_annot(point, text, icon=...)`` to ``annotations.add(Note(...))``."""
+    bound = args.bind(("point", "text", "icon"))
+    note = migrator.class_name("Note")
+    if bound is None or not {"point", "text"} <= set(bound) or note is None:
+        return None
+    arguments = [bound["point"], f"contents={bound['text']}"]
+    if "icon" in bound:
+        member = _NOTE_ICONS.get(bound["icon"].replace("'", '"'))
+        icons = migrator.class_name("NoteIcon")
+        if member is None or icons is None:
+            return None
+        arguments.append(f"icon={icons}.{member}")
+    return f"{receiver}.annotations.add({note}({', '.join(arguments)}))"
+
+
 def _delete_annot(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     """Rewrite ``delete_annot(annot)`` as a statement to ``del`` of its index."""
     bound = args.bind(("annot",))
@@ -1634,6 +1662,7 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "add_underline_annot": _add_text_markup_annot("Underline"),
     "add_strikeout_annot": _add_text_markup_annot("StrikeOut"),
     "add_squiggly_annot": _add_text_markup_annot("Squiggly"),
+    "add_text_annot": _add_text_annot,
     "add_rect_annot": _add_shape_annot("Square"),
     "add_circle_annot": _add_shape_annot("Circle"),
     "add_line_annot": _add_shape_annot("LineAnnotation", ("p1", "p2")),

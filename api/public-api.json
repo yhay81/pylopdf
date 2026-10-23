@@ -76,6 +76,8 @@
     "MoveTo",
     "Name",
     "NamedAction",
+    "Note",
+    "NoteIcon",
     "Objects",
     "OcrEngine",
     "OcrError",
@@ -184,6 +186,10 @@
           "kind": "property",
           "returns": "str | None"
         },
+        "in_reply_to": {
+          "kind": "property",
+          "returns": "Annotation | None"
+        },
         "intent": {
           "kind": "property",
           "returns": "str | None"
@@ -191,6 +197,10 @@
         "interior_color": {
           "kind": "property",
           "returns": "Color | None"
+        },
+        "is_open": {
+          "kind": "property",
+          "returns": "bool"
         },
         "line_endings": {
           "kind": "property",
@@ -216,9 +226,17 @@
           "kind": "property",
           "returns": "Page"
         },
+        "popup_rect": {
+          "kind": "property",
+          "returns": "Rect | None"
+        },
         "rect": {
           "kind": "property",
           "returns": "Rect"
+        },
+        "replies": {
+          "kind": "property",
+          "returns": "list[Annotation]"
         },
         "strokes": {
           "kind": "property",
@@ -279,7 +297,7 @@
     },
     "AnnotationSpecification": {
       "kind": "type-alias",
-      "target": "pylopdf.Highlight | pylopdf.Underline | pylopdf.StrikeOut | pylopdf.Squiggly | pylopdf.Square | pylopdf.Circle | pylopdf.LineAnnotation | pylopdf.Polygon | pylopdf.PolyLine | pylopdf.Ink"
+      "target": "pylopdf.Highlight | pylopdf.Underline | pylopdf.StrikeOut | pylopdf.Squiggly | pylopdf.Note | pylopdf.Square | pylopdf.Circle | pylopdf.LineAnnotation | pylopdf.Polygon | pylopdf.PolyLine | pylopdf.Ink"
     },
     "AnnotationType": {
       "kind": "enum",
@@ -5706,6 +5724,99 @@
           }
         ],
         "returns": "None"
+      }
+    },
+    "Note": {
+      "annotations": {
+        "at": "Point",
+        "color": "Color",
+        "contents": "str | None",
+        "icon": "NoteIcon",
+        "is_open": "bool",
+        "opacity": "float"
+      },
+      "dataclass_fields": [
+        "at",
+        "contents",
+        "icon",
+        "color",
+        "opacity",
+        "is_open"
+      ],
+      "kind": "class",
+      "members": {
+        "at": {
+          "kind": "property"
+        },
+        "color": {
+          "kind": "property"
+        },
+        "contents": {
+          "kind": "property"
+        },
+        "icon": {
+          "kind": "property"
+        },
+        "is_open": {
+          "kind": "property"
+        },
+        "opacity": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Point | Sequence[float]",
+            "kind": "positional_or_keyword",
+            "name": "at"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "contents"
+          },
+          {
+            "annotation": "NoteIcon",
+            "default": "note",
+            "kind": "keyword_only",
+            "name": "icon"
+          },
+          {
+            "annotation": "Color",
+            "default": {
+              "repr": "Color(red=1.0, green=1.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "color"
+          },
+          {
+            "annotation": "float",
+            "default": 1.0,
+            "kind": "keyword_only",
+            "name": "opacity"
+          },
+          {
+            "annotation": "bool",
+            "default": false,
+            "kind": "keyword_only",
+            "name": "is_open"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "NoteIcon": {
+      "kind": "enum",
+      "members": {
+        "COMMENT": "comment",
+        "HELP": "help",
+        "INSERT": "insert",
+        "KEY": "key",
+        "NEW_PARAGRAPH": "new_paragraph",
+        "NOTE": "note",
+        "PARAGRAPH": "paragraph"
       }
     },
     "Objects": {

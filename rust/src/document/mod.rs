@@ -1253,6 +1253,40 @@ impl _Document {
         annotations::read_annotation(self, py, page_number, index, xref)
     }
 
+    /// Move, add, or remove the popup of one annotation of a one-based page
+    /// and return the annotation's object number.
+    fn set_annotation_popup(
+        &mut self,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+        rect: Option<(f64, f64, f64, f64)>,
+    ) -> PyResult<u32> {
+        annotations::set_annotation_popup(self, page_number, index, xref, rect)
+    }
+
+    /// Open or close the popup of one annotation of a one-based page.
+    fn set_annotation_open(
+        &mut self,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+        open: bool,
+    ) -> PyResult<u32> {
+        annotations::set_annotation_open(self, page_number, index, xref, open)
+    }
+
+    /// Make one annotation of a one-based page a reply to another, or none.
+    fn set_annotation_reply(
+        &mut self,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+        target: Option<u32>,
+    ) -> PyResult<u32> {
+        annotations::set_annotation_reply(self, page_number, index, xref, target)
+    }
+
     /// Read the display points and line endings of one annotation of a
     /// one-based page, found as `read_annotation` finds it.
     fn read_annotation_geometry(

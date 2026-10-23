@@ -359,7 +359,8 @@ listed. A handle reads the document on every access and has `type`, an
 `interior_color` as `Color` records or `None`, `opacity`, `border`, a
 `Border` record or `None`, `blend_mode`, a `BlendMode` member or `None`,
 `flags`, an `AnnotationFlags` value, `vertices`, `strokes`, and
-`line_endings`, and `xref`, `obj`, and `page`.
+`line_endings`, `popup_rect`, `is_open`, `in_reply_to`, and `replies`, and
+`xref`, `obj`, and `page`.
 
 `page.annotations.add(specification)` adds the annotation that a
 specification describes, with its appearance, so every viewer draws it
@@ -373,6 +374,7 @@ time of their creation in `created` and `modified`.
 | `Underline(rects, *, color=Color(0, 0, 1), opacity=1.0, contents=None)` | A one-point line just above the bottom of each rectangle |
 | `StrikeOut(rects, *, color=Color(1, 0, 0), opacity=1.0, contents=None)` | A one-point line through the middle of each rectangle |
 | `Squiggly(rects, *, color=Color(1, 0, 0), opacity=1.0, contents=None)` | A zigzag along the bottom of each rectangle |
+| `Note(at, *, contents=None, icon=NoteIcon.NOTE, color=Color(1, 1, 0), opacity=1.0, is_open=False)` | A note shown as a 20-point icon whose top-left corner is `at`; `NoteIcon` has `COMMENT`, `HELP`, `INSERT`, `KEY`, `NEW_PARAGRAPH`, `NOTE`, and `PARAGRAPH` |
 | `Square(rect, *, color=Color(1, 0, 0), interior_color=None, border=Border(), opacity=1.0, blend_mode=None, contents=None)` | A rectangle whose border `color` strokes and `interior_color` fills; either may be `None` |
 | `Circle(rect, *, ...)` | The ellipse inscribed in `rect`, with the fields of `Square` |
 | `LineAnnotation(start, end, *, color=Color(1, 0, 0), interior_color=None, border=Border(), line_endings=(LineEnding.NONE, LineEnding.NONE), opacity=1.0, blend_mode=None, contents=None)` | A straight line with a shape at each end, whose closed shapes `interior_color` fills |
@@ -396,6 +398,17 @@ annotation holds at most 65,536 points (`LimitError` code
 the points back as `vertices` (a line's two ends, or a polygon's or
 polyline's points) or `strokes` (an ink annotation's), and the shapes as
 `line_endings`; each is `None` for other types.
+
+A handle's `popup_rect` is the display rectangle of its popup, the window
+that shows the annotation's text, or `None`: assigning a rectangle adds or
+moves the popup, which the page lists after it, and `del` removes it.
+`is_open` tells whether the popup, or a note without one, opens when the page
+is shown, and is assignable on an annotation with a popup and on a note.
+`in_reply_to` is the annotation of the same page that this one answers, or
+`None`, assignable and deletable, and `replies` lists the annotations that
+answer this one. A note's icon neither zooms nor turns with the page
+(ISO 32000-2 §12.5.6.4): viewers that honour this, such as MuPDF and
+Acrobat, keep it upright on a turned page, which hayro does not yet do.
 
 The members of `AnnotationType` and `AnnotationFlags` keep the values of
 pymupdf's `PDF_ANNOT_*` and `PDF_ANNOT_IS_*` constants.
@@ -1035,7 +1048,7 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |
 | `Colorspace` | The color spaces of a [`Pixmap`](#pixmap): `GRAY` and `RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [Outline and page labels](#outline) |
-| `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `AnnotationSpecification`, `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Square`, `Circle`, `LineAnnotation`, `Polygon`, `PolyLine`, `Ink`, `Border`, `BorderStyle`, `LineEnding`, `Link`, `Links` | [Annotations and links](#page-annotations) |
+| `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `AnnotationSpecification`, `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Note`, `NoteIcon`, `Square`, `Circle`, `LineAnnotation`, `Polygon`, `PolyLine`, `Ink`, `Border`, `BorderStyle`, `LineEnding`, `Link`, `Links` | [Annotations and links](#page-annotations) |
 | `PageBoxes` | [Page geometry](#page-geometry) |
 | `Form`, `Field`, `FieldType`, `FieldFlags`, `FieldChoice` | [Forms](#forms) |
 | `FallbackFont`, `FallbackFonts` | [Rendering and images](#document-rendering) |

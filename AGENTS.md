@@ -2410,7 +2410,19 @@ the concept and API overview.
   draw alike: `missing_appearance_plans` draws every annotation of a
   supported type without `/AP /N` into the rendering clone through
   `prepare_vector_canvas_form`, and leaves all of them undrawn above 4,096.
-  The other specifications of api/DESIGN.md come with the Interaction
+  A note (`/Text`) draws a vector icon by `/Name` in a 20-unit square and
+  is created with `/F` Print, NoZoom, and NoRotate, as ISO 32000-2
+  §12.5.6.4 says a note behaves: MuPDF honours that on turned pages and
+  hayro does not (#338), so pylopdf draws no rotation of its own.
+  `popup_rect`, `is_open`, and `in_reply_to` edit through
+  `set_annotation_popup`, `set_annotation_open`, and `set_annotation_reply`,
+  which validate first, then find the annotation with `edited_annotation`
+  (storing direct dictionaries as objects as `set_link` does) and return its
+  object number; a new popup is a `/Popup` annotation with `/Parent` that the
+  page lists, prepared with the same append plan as created annotations, and
+  removing it takes it out of `/Annots`. The read tuple's twelfth element
+  holds the `/IRT` object number, the popup's display rectangle, and the open
+  state. The other specifications of api/DESIGN.md come with the Interaction
   milestone. Creation must preflight the same page count,
   1 MiB aggregate generated subtype plus Contents/URI input, and 4,096
   highlight rectangles before creating dependent objects or invalidating
