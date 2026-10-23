@@ -170,6 +170,23 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "print(list(enumerate(doc.pages)))",
         ),
         ("import fitz\nn = doc.page_count\n", "n = len(doc.pages)"),
+        ("import fitz\nkind = fitz.PDF_ANNOT_3D\n", "kind = pylopdf.AnnotationType.THREE_D"),
+        (
+            "import fitz\nflags = fitz.PDF_ANNOT_IS_HIDDEN | fitz.PDF_ANNOT_IS_PRINT\n",
+            "flags = pylopdf.AnnotationFlags.HIDDEN | pylopdf.AnnotationFlags.PRINT",
+        ),
+        (
+            "from fitz import PDF_ANNOT_TEXT, PDF_ANNOT_INK, Rect\nkinds = (PDF_ANNOT_TEXT, PDF_ANNOT_INK)\n",
+            "from pylopdf import AnnotationType, Rect\nkinds = (AnnotationType.TEXT, AnnotationType.INK)",
+        ),
+        (
+            "from fitz import PDF_PERM_PRINT\nfrom fitz import PDF_PERM_COPY as C\nallowed = PDF_PERM_PRINT | C\n",
+            "from pylopdf import Permissions\nallowed = Permissions.PRINT | Permissions.COPY",
+        ),
+        (
+            "from fitz import PDF_PERM_PRINT\nfrom fitz import Permissions\nallowed = PDF_PERM_PRINT\n",
+            "from pylopdf import Permissions\nallowed = Permissions.PRINT",
+        ),
         ("import fitz\nlocked = doc.needs_pass\n", "locked = doc.needs_password"),
         ("import fitz\npage = doc.load_page(3)\n", "page = doc.pages[3]"),
         ("import fitz\npage = doc.new_page(0, width=200, height=300)\n", "page = doc.pages.new((200, 300), index=0)"),
@@ -221,7 +238,7 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ),
         (
             "import fitz as f\ndoc.save(path, encryption=f.PDF_ENCRYPT_AES_256, permissions=f.PDF_PERM_PRINT)\n",
-            "doc.save(path, encryption=f.Encryption(permissions=f.PDF_PERM_PRINT))",
+            "doc.save(path, encryption=f.Encryption(permissions=f.Permissions.PRINT))",
         ),
         (
             "import fitz\npix.save('a.png', output='png')\ndata = pix.tobytes('png')\n",

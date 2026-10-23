@@ -973,9 +973,10 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `Form`, `Field`, `FieldType`, `FieldFlags`, `FieldChoice` | [Forms](#forms) |
 | `FallbackFont`, `FallbackFonts` | [Rendering and images](#document-rendering) |
 
-Constants keep pymupdf's names and are also grouped in enums:
-`Permissions` (`PDF_PERM_*`), `AnnotationType` (`PDF_ANNOT_*`), and
-`AnnotationFlags` (`PDF_ANNOT_IS_*`). `Access` has the members `USER` and `OWNER`, and
+Codes and flags are enum members, with no module-level constants:
+`Permissions.PRINT` replaces pymupdf's `PDF_PERM_PRINT`, `AnnotationType.TEXT`
+its `PDF_ANNOT_TEXT`, and `AnnotationFlags.HIDDEN` its `PDF_ANNOT_IS_HIDDEN`,
+with the same values. `Access` has the members `USER` and `OWNER`, and
 `Encryption` describes how to encrypt a saved file. The content model's enums
 are `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`,
 `ShadingType`, `SoftMaskType`, and `ImageMask`.
