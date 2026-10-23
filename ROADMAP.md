@@ -504,7 +504,7 @@ engine's maintainer.
 | lopdf | A requested rebuild of the cross-reference table; rebuilding when the catalog or page tree is unreadable, or when a corrected offset misses later objects, and for truncated files | the forced rebuild in `recovery.rs`, and inputs rejected today |
 | lopdf | A linear scan for unterminated streams during recovery | the `recovery_scan_size` pre-scan |
 | lopdf | Linear graph traversal in pruning, renumbering, and deletion | `prune.rs` and `renumber.rs` |
-| lopdf | Checked object-number allocation | most of `unallocated.rs` |
+| hayro | Object numbers read as u32 rather than i32 | with lopdf's panicking `add_object`, the renumbering above 8,388,607 in `unallocated.rs` |
 | lopdf | Parsing small documents on the calling thread instead of the rayon pool | `generated_pdf.rs`, if krilla's Form output does not remove it first |
 | lopdf | A bounded, iterative page-tree walk with inherited attributes | pylopdf's own walker |
 | lopdf | Release of the rebuilt-trailer cleanup merged as J-F-Liu/lopdf#609 | the `/Prev` and `/XRefStm` removal after reconstruction |

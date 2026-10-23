@@ -10,8 +10,8 @@ use crate::document::PdfError;
 /// ISO 32000-1 Table C.1 gives 8,388,607 as the architectural limit on
 /// indirect objects in a PDF file, and MuPDF rejects higher object numbers.
 /// Numbers up to it leave allocation more than four billion numbers, which
-/// memory runs out long before, and bound lopdf's cross-reference writer, which
-/// visits every number up to the highest object on each save.
+/// memory runs out long before, and stay within the i32 that hayro reads
+/// object numbers as.
 const MAX_OBJECT_NUMBER: u32 = 8_388_607;
 
 /// Prepare a loaded document for new objects and return whether any object
@@ -27,7 +27,7 @@ const MAX_OBJECT_NUMBER: u32 = 8_388_607;
 /// are only allocated above it, so a document without higher references keeps
 /// its objects unchanged.
 ///
-/// lopdf 0.45 already keeps `max_id` at least at the highest loaded object,
+/// lopdf 0.46 already keeps `max_id` at least at the highest loaded object,
 /// which can exceed every cross-reference entry when an object header or an
 /// object-stream member disagrees with the table. That is repeated here
 /// because a lower threshold would null references to live objects. The
@@ -35,13 +35,13 @@ const MAX_OBJECT_NUMBER: u32 = 8_388_607;
 /// must keep their headroom.
 ///
 /// A `max_id` above `MAX_OBJECT_NUMBER` comes from an object or an in-use
-/// cross-reference entry numbered past the limit. lopdf increments `max_id`
-/// without an overflow check, so in release builds allocation would wrap to
-/// object 0 and then replace objects 1, 2, and so on, often including the
-/// catalog; every save would also visit up to four billion numbers. Objects
-/// above the limit therefore take consecutive numbers after the highest object
-/// at or below it, in ascending ID order with their generations kept, and
-/// `max_id` ends at the last of them. A reference above that highest object
+/// cross-reference entry numbered past the limit. lopdf 0.46's `add_object`
+/// and `new_object_id` panic once `max_id` reaches u32::MAX
+/// (J-F-Liu/lopdf#614), where 0.45 wrapped to object 0 and then replaced the
+/// catalog, and hayro reads object numbers as i32. Objects above the limit
+/// therefore take consecutive numbers after the highest object at or below
+/// it, in ascending ID order with their generations kept, and `max_id` ends at
+/// the last of them. A reference above that highest object
 /// follows its object to the new number, or becomes null when it names none.
 /// Numbers at or below it stay unchanged, and an over-limit cross-reference
 /// entry without an object only lowers `max_id`.

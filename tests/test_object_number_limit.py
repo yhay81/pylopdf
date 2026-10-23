@@ -1,10 +1,11 @@
 """Keep loaded object numbers low enough for new objects.
 
-lopdf numbers new objects above the highest object a document has, without an
-overflow check. A malformed file numbered near 2**32 made new objects wrap onto
-object 0 and then the catalog, and every save visited each number up to the
-highest one. Loading now moves objects numbered above 8,388,607, the ISO
-32000-1 indirect-object limit, to follow the highest object at or below it.
+lopdf numbers new objects above the highest object a document has. With lopdf
+0.45 a malformed file numbered near 2**32 made new objects wrap onto object 0
+and then the catalog, and every save visited each number up to the highest
+one; lopdf 0.46 panics instead of wrapping, and hayro reads object numbers as
+i32. Loading moves objects numbered above 8,388,607, the ISO 32000-1
+indirect-object limit, to follow the highest object at or below it.
 """
 
 from __future__ import annotations
