@@ -2427,6 +2427,13 @@ the concept and API overview.
   Text that does not fit raises at creation and is left undrawn in a
   synthesized appearance, and an engine error there leaves that annotation
   undrawn rather than failing the render.
+  A stamp draws its `/Name` label (`STAMPS`, the fourteen names of
+  ISO 32000-2 §12.5.6.12; any other name draws itself) in Helvetica-Bold as
+  large as fits, in a rounded frame, in `/C` or the stamp's own colour; a
+  caret draws a filled curve. Both turn counterclockwise by `/Rotate`
+  through the appearance `/Matrix` (`turned_matrix`, the canvas sized for
+  the turned box), and creation writes `/Rotate` as for free text, so they
+  are upright on a turned page.
   `popup_rect`, `is_open`, and `in_reply_to` edit through
   `set_annotation_popup`, `set_annotation_open`, and `set_annotation_reply`,
   which validate first, then find the annotation with `edited_annotation`

@@ -16,6 +16,7 @@
     "BorderStyle",
     "Builder",
     "Canvas",
+    "Caret",
     "Char",
     "Circle",
     "CjkFontLanguage",
@@ -121,6 +122,8 @@
     "Squiggly",
     "StaleObjectError",
     "StalePageError",
+    "Stamp",
+    "StampIcon",
     "Standard",
     "StandardFontName",
     "Stream",
@@ -302,7 +305,7 @@
     },
     "AnnotationSpecification": {
       "kind": "type-alias",
-      "target": "pylopdf.Highlight | pylopdf.Underline | pylopdf.StrikeOut | pylopdf.Squiggly | pylopdf.Note | pylopdf.FreeText | pylopdf.Square | pylopdf.Circle | pylopdf.LineAnnotation | pylopdf.Polygon | pylopdf.PolyLine | pylopdf.Ink"
+      "target": "pylopdf.Highlight | pylopdf.Underline | pylopdf.StrikeOut | pylopdf.Squiggly | pylopdf.Note | pylopdf.FreeText | pylopdf.Stamp | pylopdf.Caret | pylopdf.Square | pylopdf.Circle | pylopdf.LineAnnotation | pylopdf.Polygon | pylopdf.PolyLine | pylopdf.Ink"
     },
     "AnnotationType": {
       "kind": "enum",
@@ -1652,6 +1655,65 @@
             "default": false,
             "kind": "keyword_only",
             "name": "underlay"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "Caret": {
+      "annotations": {
+        "at": "Point",
+        "color": "Color",
+        "contents": "str | None",
+        "opacity": "float"
+      },
+      "dataclass_fields": [
+        "at",
+        "color",
+        "opacity",
+        "contents"
+      ],
+      "kind": "class",
+      "members": {
+        "at": {
+          "kind": "property"
+        },
+        "color": {
+          "kind": "property"
+        },
+        "contents": {
+          "kind": "property"
+        },
+        "opacity": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Point | Sequence[float]",
+            "kind": "positional_or_keyword",
+            "name": "at"
+          },
+          {
+            "annotation": "Color",
+            "default": {
+              "repr": "Color(red=0.0, green=0.0, blue=1.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "color"
+          },
+          {
+            "annotation": "float",
+            "default": 1.0,
+            "kind": "keyword_only",
+            "name": "opacity"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "contents"
           }
         ],
         "returns": "None"
@@ -9557,6 +9619,104 @@
       ],
       "kind": "exception",
       "members": {}
+    },
+    "Stamp": {
+      "annotations": {
+        "color": "Color | None",
+        "contents": "str | None",
+        "icon": "StampIcon",
+        "opacity": "float",
+        "rect": "Rect",
+        "rotate": "int"
+      },
+      "dataclass_fields": [
+        "rect",
+        "icon",
+        "color",
+        "opacity",
+        "rotate",
+        "contents"
+      ],
+      "kind": "class",
+      "members": {
+        "color": {
+          "kind": "property"
+        },
+        "contents": {
+          "kind": "property"
+        },
+        "icon": {
+          "kind": "property"
+        },
+        "opacity": {
+          "kind": "property"
+        },
+        "rect": {
+          "kind": "property"
+        },
+        "rotate": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Sequence[float]",
+            "kind": "positional_or_keyword",
+            "name": "rect"
+          },
+          {
+            "annotation": "StampIcon",
+            "default": "approved",
+            "kind": "keyword_only",
+            "name": "icon"
+          },
+          {
+            "annotation": "Color | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "color"
+          },
+          {
+            "annotation": "float",
+            "default": 1.0,
+            "kind": "keyword_only",
+            "name": "opacity"
+          },
+          {
+            "annotation": "int",
+            "default": 0,
+            "kind": "keyword_only",
+            "name": "rotate"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "contents"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "StampIcon": {
+      "kind": "enum",
+      "members": {
+        "APPROVED": "approved",
+        "AS_IS": "as_is",
+        "CONFIDENTIAL": "confidential",
+        "DEPARTMENTAL": "departmental",
+        "DRAFT": "draft",
+        "EXPERIMENTAL": "experimental",
+        "EXPIRED": "expired",
+        "FINAL": "final",
+        "FOR_COMMENT": "for_comment",
+        "FOR_PUBLIC_RELEASE": "for_public_release",
+        "NOT_APPROVED": "not_approved",
+        "NOT_FOR_PUBLIC_RELEASE": "not_for_public_release",
+        "SOLD": "sold",
+        "TOP_SECRET": "top_secret"
+      }
     },
     "Standard": {
       "kind": "constant",

@@ -2238,7 +2238,7 @@ impl _Canvas {
         max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE),
         rotation=0
     ))]
-    fn add_text(
+    pub(crate) fn add_text(
         &mut self,
         py: Python<'_>,
         at: (f64, f64),

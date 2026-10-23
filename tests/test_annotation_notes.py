@@ -158,7 +158,7 @@ def test_note_specifications_validate_their_fields() -> None:
     core.pages.new((100, 100))
     with pytest.raises(pylopdf.PdfError, match="unknown note icon"):
         core._doc.add_annotation(1, {"subtype": "Text", "rect": (0.0, 0.0, 20.0, 20.0), "icon": "Wave"})  # noqa: SLF001
-    with pytest.raises(pylopdf.PdfError, match="belong to a note"):
+    with pytest.raises(pylopdf.PdfError, match="belongs to a note"):
         core._doc.add_annotation(1, {"subtype": "Square", "rect": (0.0, 0.0, 20.0, 20.0), "open": True})  # noqa: SLF001
 
 
