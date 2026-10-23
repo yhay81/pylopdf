@@ -118,19 +118,15 @@ def _baselines(page: pylopdf.Page) -> list[float]:
 
 
 def _insert_text(page: pylopdf.Page, via: str, text: str, **options: Any) -> int:  # noqa: ANN401
+    assert via == "page"
     options.setdefault("fontsize", 10)
-    if via == "page":
-        return page.insert_text(POINT, text, **options)
-    with page.new_shape() as shape:
-        return shape.insert_text(POINT, text, **options)
+    return page.insert_text(POINT, text, **options)
 
 
 def _insert_textbox(page: pylopdf.Page, via: str, rect: tuple[float, ...], text: str, **options: Any) -> float:  # noqa: ANN401
+    assert via == "page"
     options.setdefault("fontsize", 10)
-    if via == "page":
-        return page.insert_textbox(rect, text, **options)
-    with page.new_shape() as shape:
-        return shape.insert_textbox(rect, text, **options)
+    return page.insert_textbox(rect, text, **options)
 
 
 @pytest.mark.parametrize(("name", "metrics"), STANDARD_METRICS.items())
@@ -166,7 +162,7 @@ def test_faces_report_the_metrics_mupdf_reads(patch: dict[str, Any], metrics: tu
     assert (font.ascender, font.descender) == pytest.approx(metrics, abs=1e-9)
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 @pytest.mark.parametrize(
     ("text", "options", "baselines"),
     [
@@ -210,7 +206,7 @@ def test_insert_text_places_lines_as_pymupdf_does(
     assert _baselines(page) == pytest.approx(baselines, abs=1e-3)
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 def test_a_loaded_font_places_lines_with_its_own_metrics(via: str) -> None:
     font = pylopdf.Font.from_file(NOTO_SANS_JP)
     page = _page()
@@ -222,7 +218,7 @@ def test_a_loaded_font_places_lines_with_its_own_metrics(via: str) -> None:
     assert step == pytest.approx(14.48)
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 def test_zapf_dingbats_falls_back_to_pymupdfs_default_leading(via: str) -> None:
     page = _page()
 
@@ -232,7 +228,7 @@ def test_zapf_dingbats_falls_back_to_pymupdfs_default_leading(via: str) -> None:
     assert re.findall(rb"\b([\d.]+) TL\b", page.document.to_bytes()) == [b"12"]
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 @pytest.mark.parametrize(
     ("text", "options", "baselines", "spare"),
     [
@@ -295,7 +291,7 @@ def test_insert_textbox_places_lines_as_pymupdf_does(
     assert _baselines(page) == pytest.approx(baselines, abs=1e-3)
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 def test_insert_textbox_places_zapf_dingbats_as_pymupdf_does(via: str) -> None:
     page = _page()
 
@@ -306,7 +302,7 @@ def test_insert_textbox_places_zapf_dingbats_as_pymupdf_does(via: str) -> None:
     assert [842 - float(origin) for origin in origins] == pytest.approx([108.19, 118.018, 127.846], abs=1e-3)
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 @pytest.mark.parametrize(
     ("bottom", "spare"),
     [
@@ -324,7 +320,7 @@ def test_insert_textbox_fits_text_as_pymupdf_does(via: str, bottom: float, spare
     assert len(_baselines(page)) == (3 if spare >= 0 else 0)
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 @pytest.mark.parametrize("lineheight", [0, -1.2, math.nan, math.inf, "1.2x"])
 def test_insert_text_rejects_a_lineheight_that_is_not_positive(via: str, lineheight: object) -> None:
     page = _page()
@@ -334,7 +330,7 @@ def test_insert_text_rejects_a_lineheight_that_is_not_positive(via: str, linehei
     assert _baselines(page) == []
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 @pytest.mark.parametrize(
     ("options", "message"),
     [
@@ -359,7 +355,7 @@ def test_insert_textbox_raises_pdf_error_for_unsupported_options(
     assert _baselines(page) == []
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 def test_insert_text_rejects_a_line_distance_beyond_floating_point(via: str) -> None:
     page = _page()
     before = page.document.to_bytes()

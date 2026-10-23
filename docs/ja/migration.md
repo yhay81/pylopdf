@@ -106,8 +106,9 @@ python -m pylopdf.migrate src/
 | `pymupdf.Base14_fontnames`, `Base14_fontdict` | `typing.get_args(pylopdf.StandardFontName)` | `Font.standard()`が受け付ける14のPostScript名 |
 | `page.insert_image(rect, filename=/stream=/pixmap=)` | 同じ | JPEG、PNG、`Pixmap`。ほかの形式はPillowで変換してください。同じ画像を2回挿入しても1回だけ格納されるので、`xref=`は不要です |
 | `page.show_pdf_page(rect, docsrc, pno)` | 同じ | 取り込み元は同じ文書でもかまいません |
-| `page.new_shape()`, `shape.draw_*`, `finish()`, `insert_text()`, `commit()` | 同じ | `with page.new_shape() as shape:`は自動で確定します。`morph=`と`oc=`にはまだ対応していません |
-| `page.draw_line()`, `draw_rect()`, ほかの`draw_*` | 同じ | スタイルの指定はキーワード専用 |
+| `page.new_shape()`, `shape.draw_*`, `finish()`, `insert_text()`, `commit()` | `with page.draw() as canvas:` | キャンバスはパスとテキストを呼び出した順に描き、ブロックが終わったときに書き込みます。`finish()`のスタイルは各呼び出しの`fill=`と`stroke=`になります。[キャンバス](api.md#canvas)を参照 |
+| `page.draw_line()`, `draw_rect()`, `draw_circle()`, `draw_oval()`, `draw_polyline()`, `draw_bezier()` | `canvas.line()`, `rect()`, `circle()`, `ellipse()`, `polygon(close=False)`, `bezier()` | `color=`、`width=`、`dashes=`、`lineCap=`、`lineJoin=`は`stroke=Stroke(paint=Color(...), ...)`に、`fill=`は`Color`に、不透明度は`Color`のアルファになります。`rect(radius=)`はポイント単位で、pymupdfでは短い辺に対する割合です |
+| `page.draw_quad()`, `draw_sector()`, `draw_curve()`, `draw_squiggle()`, `draw_zigzag()` | `canvas.polygon()`, `canvas.path(PathBuilder().sector(...))`, `canvas.bezier()`, `PathBuilder().wave()`, `PathBuilder().zigzag()` | 形状は`PathBuilder`で組み立てます。扇形の角度はx軸から時計回りの度数です |
 | `page.annots()`, `page.first_annot`, `annot.type`, `rect`, `info`, `colors`, `flags`, `parent` | `page.annotations`、`annotation.type`、`rect`、`contents`などのテキスト、`color`、`interior_color`、`flags`、`page` | 型付きのプロパティを持つ`Annotation`ハンドルです。`type`は`AnnotationType`のメンバで、`info`と`colors`の辞書はプロパティになります。リンクとウィジェットは含まれず、ポップアップはその注釈に属します。プロパティは現在は読み取り専用です |
 | `page.add_highlight_annot(quads)`, `page.delete_annot(annot)` | `page.annotations.add(Highlight(quads))`、`del page.annotations[i]` | `color`は`Color`で、`content`は`contents`になります。注釈を削除するとそのポップアップも削除されます |
 | `page.get_links()`, `page.links()`, `page.first_link`, `page.load_links()` | `page.links` | 辞書や`Link`オブジェクトの連鎖ではなく、`rect`と`target`を持つ`Link`ハンドルのシーケンス |

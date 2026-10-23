@@ -777,13 +777,11 @@ pub(crate) fn fmt(v: f64) -> String {
     }
 }
 
-/// A device colour with channels from 0 to 1: gray, RGB, or CMYK, which
-/// pymupdf selects by the number of components.
+/// A device colour with channels from 0 to 1: gray or RGB.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum DeviceColor {
     Gray(f64),
     Rgb(f64, f64, f64),
-    Cmyk(f64, f64, f64, f64),
 }
 
 impl DeviceColor {
@@ -795,13 +793,6 @@ impl DeviceColor {
             Self::Rgb(red, green, blue) => {
                 format!("{} {} {} rg", fmt(red), fmt(green), fmt(blue))
             }
-            Self::Cmyk(cyan, magenta, yellow, black) => format!(
-                "{} {} {} {} k",
-                fmt(cyan),
-                fmt(magenta),
-                fmt(yellow),
-                fmt(black)
-            ),
         }
     }
 }

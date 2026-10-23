@@ -700,40 +700,36 @@ def _font_results(page: Any, font: bytes) -> dict[str, Any]:  # noqa: ANN401 - p
     }
 
 
-def _shape_results(font: bytes) -> dict[str, Any]:
-    """Draw paths and mixed-font text with one Shape and record what it placed."""
+def _rotated_canvas_results(font: bytes) -> dict[str, Any]:
+    """Draw paths and mixed-font text with one canvas on a rotated page and record what it placed."""
     import pylopdf  # noqa: PLC0415
+    from pylopdf import Color, PathBuilder, Stroke  # noqa: PLC0415
 
     face = pylopdf.Font.from_bytes(font)
     document = pylopdf.Document()
     page = document.pages.new((300, 200))
     page.rotation = 90
-    with page.new_shape() as shape:
-        ends = [
-            shape.draw_rect((20, 20, 180, 120), radius=0.1),
-            shape.draw_circle((100, 160), 20),
-            shape.draw_sector((60, 250), (90, 250), 135),
-            shape.draw_zigzag((20, 280), (180, 280), breadth=4),
-        ]
-        shape.finish(color=(0.2, 0.4, 0.6), fill=(0.9, 0.95, 1), width=1.5, dashes="[3 2] 0")
-        lines = [
-            shape.insert_text((30, 50), _JAPANESE, font=face, fontsize=14),
-            shape.insert_text((30, 80), "Standard 14\nsecond line", fontsize=10, color=(0.5,)),
-            shape.insert_text((30, 110), _JAPANESE + "AVA", font=face, fontsize=12, color=(0, 1, 0, 0)),
-            shape.insert_text((120, 50), "spaced\nlines", fontsize=8, lineheight=2),
-            shape.insert_text((120, 80), _JAPANESE + "\n" + _JAPANESE, font=face, fontsize=8, lineheight=1.5),
-        ]
-        spare = shape.insert_textbox((30, 180, 170, 260), _JAPANESE * 6, font=face, fontsize=10)
+    stroke = Stroke(paint=Color(0.2, 0.4, 0.6), width=1.5, dashes=(3, 2))
+    fill = Color(0.9, 0.95, 1)
+    with page.draw() as canvas:
+        canvas.rect((20, 20, 180, 120), radius=16, fill=fill, stroke=stroke)
+        canvas.circle((100, 160), 20, fill=fill, stroke=stroke)
+        canvas.path(PathBuilder().sector((60, 250), 30, 0, 135), fill=fill, stroke=stroke)
+        canvas.path(PathBuilder().zigzag((20, 280), (180, 280), breadth=4), stroke=stroke)
+        canvas.text(_JAPANESE, (30, 50), font=face, size=14)
+        canvas.text("Standard 14\nsecond line", (30, 80), size=10, fill=Color(0.5, 0.5, 0.5))
+        canvas.text(_JAPANESE + "AVA", (30, 110), font=face, size=12, fill=Color(0, 1, 0))
+        canvas.text("spaced\nlines", (120, 50), size=8, line_height=2)
+        canvas.text(_JAPANESE + "\n" + _JAPANESE, (120, 80), font=face, size=8, line_height=1.5)
+        fit = canvas.textbox((30, 180, 170, 260), _JAPANESE * 6, font=face, size=10)
     paths = page.content().paths
-    _require(len(paths) == 1, "a finished shape did not draw one path")
+    _require(len(paths) == 4, "a canvas did not draw one path per call")  # noqa: PLR2004 - four paths.
     data = document.to_bytes()
-    _require(data.count(b"/FontFile") == 1, "a shape commit embedded a font more than once")
+    _require(data.count(b"/FontFile") == 1, "a canvas embedded a font more than once")
     words = [[word.text, round(word.bbox.x0, 2), round(word.bbox.y0, 2)] for word in page.words()]
     return {
-        "ends": [[round(value, 6) for value in point] for point in ends],
-        "drawing": [_path_paints(paths[0]), [round(value, 2) for value in paths[0].bbox]],
-        "lines": lines,
-        "spare": round(spare, 4),
+        "drawing": [[_path_paints(path), [round(value, 2) for value in path.bbox]] for path in paths],
+        "spare": round(fit.spare_height, 4),
         "words": words,
     }
 
@@ -757,9 +753,8 @@ def _insert_text_line_results(font: bytes) -> list[int]:
         page.insert_text((20, 20), "Aa\n", fontsize=10),
         page.insert_text((20, 40), "A\vB\u2028C", fontsize=10),
         page.insert_text((20, 60), "\n", fontsize=10),
+        page.insert_text((150, 100), ["A", "B", "C", "D"], fontsize=10),
     ]
-    with page.new_shape() as shape:
-        counts.append(shape.insert_text((150, 100), ["A", "B", "C", "D"], fontsize=10))
     _require(counts == [3, 2, 3, 1, 3, 0, 3], "insert_text split or counted lines differently from pymupdf")
     return counts
 
@@ -930,7 +925,7 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
         "empty_pages": 0,
         "roundtrip_pages": len(document.pages),
         "font": font_results,
-        "shape": _shape_results(font),
+        "rotated_canvas": _rotated_canvas_results(font),
         "insert_text_lines": _insert_text_line_results(font),
         "variable_font": _variable_font_results(
             (root / "fonts/pylopdf-fonts-he/src/pylopdf_fonts_he/NotoSansHebrew-Variable.ttf").read_bytes(),
@@ -1098,7 +1093,7 @@ def _save_option_results() -> dict[str, Any]:
 
 def _geometry_results() -> dict[str, Any]:
     """Check immutable affine values and their use by the PDF drawing API."""
-    from pylopdf import Document, LineTo, Matrix, MoveTo, Point, open  # noqa: A004, PLC0415
+    from pylopdf import Color, Document, LineTo, Matrix, MoveTo, Point, Stroke, open  # noqa: A004, PLC0415
 
     transform = Matrix(2, 3) * Matrix(1, 0, 0, 1, 20, 30)
     point = Point(10, 20)
@@ -1119,7 +1114,8 @@ def _geometry_results() -> dict[str, Any]:
     with Document() as document:
         page_size = 200
         page = document.pages.new((page_size, page_size))
-        page.draw_line(mapped, mapped + Point(40, 0), width=2)
+        with page.draw() as canvas:
+            canvas.line(mapped, mapped + Point(40, 0), stroke=Stroke(paint=Color(0, 0, 0), width=2))
         page.insert_text(mapped + Point(0, 30), "Affine")
         saved = document.to_bytes()
     with open(saved) as reopened:

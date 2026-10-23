@@ -114,7 +114,7 @@ limits = pylopdf.DocumentLimits(
 | `content_nesting_depth`, `resource_nesting_depth` | ページの入れ子が深すぎて、解釈するのが安全でない。[後述](#built-in-protections)を参照 |
 | `pdf_output_size`, `render_output_size`, `markdown_output_size`, `svg_output_size`, `pixmap_output_size`, `replacement_output_size` | 出力が`max_size`を超える |
 | `search_input_size`, `search_hit_count` | 検索テキストが4,096バイトを超える、または結果が`max_hits`より多い |
-| `text_input_size`, `text_line_count`, `font_input_size`, `path_point_count` | 描画に渡したテキスト、フォント、Shapeのパスが大きすぎる |
+| `text_input_size`, `text_line_count`, `font_input_size`, `path_point_count` | 描画に渡したテキスト、フォント、キャンバスのパスが大きすぎる |
 | `canvas_scope_depth` | Canvasのスコープが16段を超えて入れ子になっている |
 | `tag_text_size` | 新しい文書で、タグのテキストまたはしおりのタイトルが64 KiBを超えている |
 | `image_input_size`, `image_pixel_count`, `image_inventory_count` | 画像が大きすぎる、またはページが4,096を超える画像を使っている |

@@ -139,7 +139,7 @@ change.
 | `content_nesting_depth`, `resource_nesting_depth` | A page is built so deeply nested that interpreting it is unsafe; see [below](#built-in-protections) |
 | `pdf_output_size`, `render_output_size`, `markdown_output_size`, `svg_output_size`, `pixmap_output_size`, `replacement_output_size` | Output would exceed `max_size` |
 | `search_input_size`, `search_hit_count` | The search text is over 4,096 bytes, or there are more results than `max_hits` |
-| `text_input_size`, `text_line_count`, `font_input_size`, `path_point_count` | Text, fonts, or shape paths passed for drawing are too large |
+| `text_input_size`, `text_line_count`, `font_input_size`, `path_point_count` | Text, fonts, or canvas paths passed for drawing are too large |
 | `canvas_scope_depth` | A canvas nests more than 16 scopes |
 | `tag_text_size` | A tag's texts or a bookmark title in a new document exceed 64 KiB |
 | `image_input_size`, `image_pixel_count`, `image_inventory_count` | An image is too large, or a page uses more than 4,096 images |

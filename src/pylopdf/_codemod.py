@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import re
 from dataclasses import dataclass
 from functools import cache
 from typing import TYPE_CHECKING, cast, get_args
@@ -123,6 +124,41 @@ HAS_GLYPH_MESSAGE = (
     "Font.has_glyph(char) takes a one-character string and returns whether the face has a glyph for it, "
     "not the glyph number."
 )
+#: pymupdf's line caps and joins, by number, as ``LineCap`` and ``LineJoin`` members.
+LINE_CAPS = ("BUTT", "ROUND", "SQUARE")
+LINE_JOINS = ("MITER", "ROUND", "BEVEL")
+#: A pymupdf dash pattern such as ``"[3 4] 0"``: the lengths and the phase.
+DASH_PATTERN = re.compile(r"\s*\[\s*((?:\d+(?:\.\d*)?\s*)*)\]\s*(\d+(?:\.\d*)?)?\s*")
+#: The styling options of pymupdf's ``Page.draw_*`` methods.
+DRAWING_STYLE = (
+    "color",
+    "fill",
+    "dashes",
+    "width",
+    "lineCap",
+    "lineJoin",
+    "overlay",
+    "closePath",
+    "stroke_opacity",
+    "fill_opacity",
+    "morph",
+    "oc",
+    "radius",
+)
+#: Each ``Page.draw_*`` method that the canvas draws alike: its geometry parameters, and the canvas
+#: call with its geometry, which ``{builder}`` and ``{close}`` complete.
+PAGE_DRAWINGS: dict[str, tuple[tuple[str, ...], str]] = {
+    "draw_line": (("p1", "p2"), "line({p1}, {p2}"),
+    "draw_polyline": (("points",), "polygon({points}{close}"),
+    "draw_rect": (("rect",), "rect({rect}"),
+    "draw_circle": (("center", "radius"), "circle({center}, {radius}"),
+    "draw_oval": (("tetra",), "ellipse({tetra}"),
+    "draw_bezier": (("p1", "p2", "p3", "p4"), "bezier({p1}, {p2}, {p3}, {p4}"),
+    "draw_squiggle": (("p1", "p2", "breadth"), "path({builder}().wave({p1}, {p2}, breadth={breadth})"),
+    "draw_zigzag": (("p1", "p2", "breadth"), "path({builder}().zigzag({p1}, {p2}, breadth={breadth})"),
+}
+#: The drawing methods whose canvas call takes a fill.
+FILLED_DRAWINGS = frozenset({"draw_polyline", "draw_rect", "draw_circle", "draw_oval"})
 
 
 @dataclass(frozen=True)
@@ -1505,6 +1541,142 @@ def _delete_pages(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     return f"{pages}.select(index for index in range(len({pages})) if index not in {kept})"
 
 
+def _drawing_paint(migrator: _Migrator, color: str, opacity: str | None) -> str | None:
+    """Return the ``Color`` of a pymupdf gray or RGB colour and an opacity, or None for CMYK."""
+    record = migrator.class_name("Color")
+    if record is None:
+        return None
+    alpha = [] if opacity is None or opacity in {"1", "1.0"} else [opacity]
+    node = cst.parse_expression(color)
+    if isinstance(node, (cst.Tuple, cst.List)):
+        if not all(isinstance(element, cst.Element) for element in node.elements):
+            return None
+        components = [_code(element.value) for element in node.elements]
+        if len(components) == 1:
+            components *= 3
+        if len(components) != 3:  # noqa: PLR2004 - red, green, and blue.
+            return None
+        return f"{record}({', '.join([*components, *alpha])})"
+    if isinstance(node, (cst.Integer, cst.Float)):
+        return f"{record}({', '.join([color] * 3 + alpha)})"
+    return f"{record}(*{color}{''.join(f', {value}' for value in alpha)})"
+
+
+def _line_style(migrator: _Migrator, value: str, names: tuple[str, ...], record: str) -> str | None:
+    """Return the ``LineCap`` or ``LineJoin`` member of pymupdf's number, "" for the default, or None."""
+    number = _int_literal(value)
+    if number is None or not 0 <= number < len(names):
+        return None
+    enum = migrator.class_name(record)
+    return "" if number == 0 else None if enum is None else f"{enum}.{names[number]}"
+
+
+def _dash_keywords(value: str) -> list[str] | None:
+    """Return the ``dashes`` and ``dash_offset`` keywords of a literal pymupdf dash pattern, or None."""
+    literal = _string_literal(value)
+    match = None if literal is None else DASH_PATTERN.fullmatch(literal)
+    if match is None:
+        return None
+    lengths = match.group(1).split()
+    keywords = [f"dashes=({', '.join(lengths)}{',' if len(lengths) == 1 else ''})"] if lengths else []
+    offset = match.group(2)
+    if offset is not None and float(offset) != 0:
+        keywords.append(f"dash_offset={offset}")
+    return keywords
+
+
+def _drawing_stroke(migrator: _Migrator, options: dict[str, str]) -> str | None:
+    """Return the canvas ``stroke`` of pymupdf's drawing options, "" for none, or None when it cannot."""
+    color = options.get("color", "(0,)")
+    if color == "None":
+        return ""
+    paint = _drawing_paint(migrator, color, options.get("stroke_opacity"))
+    width = options.get("width", "1")
+    if paint is None or width in {"0", "0.0"}:
+        return None
+    keywords = [] if width in {"1", "1.0"} else [f"width={width}"]
+    for option, names, record, keyword in (
+        ("lineCap", LINE_CAPS, "LineCap", "cap"),
+        ("lineJoin", LINE_JOINS, "LineJoin", "join"),
+    ):
+        member = _line_style(migrator, options.get(option, "0"), names, record)
+        if member is None:
+            return None
+        if member:
+            keywords.append(f"{keyword}={member}")
+    if options.get("dashes", "None") != "None":
+        dashes = _dash_keywords(options["dashes"])
+        if dashes is None:
+            return None
+        keywords.extend(dashes)
+    stroke = migrator.class_name("Stroke")
+    if not keywords:
+        return paint
+    return None if stroke is None else f"{stroke}(paint={paint}, {', '.join(keywords)})"
+
+
+def _drawing_options(method: str, args: _Arguments) -> tuple[dict[str, str], dict[str, str]] | None:
+    """Return the geometry and the styling options of a ``Page.draw_*`` call that a canvas draws alike."""
+    geometry = PAGE_DRAWINGS[method][0]
+    bound = args.bind((*geometry, *DRAWING_STYLE))
+    if bound is None or len(args.positional) > len(geometry):
+        return None
+    values = {"breadth": "2", **{key: value for key, value in bound.items() if key in geometry}}
+    options = {key: value for key, value in bound.items() if key not in geometry}
+    close = options.get("closePath", "False")
+    unsupported = (
+        any(name not in values for name in geometry)
+        or options.get("morph", "None") != "None"
+        or options.get("oc", "0") != "0"
+        or (method == "draw_rect" and options.get("radius", "None") != "None")
+        or close not in _FALSE | _TRUE
+        or (method == "draw_bezier" and close in _TRUE)
+        or options.get("overlay", "True") not in _FALSE | _TRUE
+    )
+    return None if unsupported else (values, options)
+
+
+def _drawing_keywords(migrator: _Migrator, method: str, options: dict[str, str]) -> list[str] | None:
+    """Return the ``fill`` and ``stroke`` keywords of a canvas call, or None when they cannot be written."""
+    keywords = []
+    fill = options.get("fill", "None")
+    if fill != "None":
+        paint = _drawing_paint(migrator, fill, options.get("fill_opacity"))
+        if method not in FILLED_DRAWINGS or paint is None:
+            return None
+        keywords.append(f"fill={paint}")
+    stroke = _drawing_stroke(migrator, options)
+    if stroke is None or (not stroke and fill == "None"):
+        return None
+    # A canvas path without a fill or a stroke is stroked with a 1-point black line, pymupdf's default.
+    if stroke and (fill != "None" or stroke != _drawing_paint(migrator, "(0,)", None)):
+        keywords.append(f"stroke={stroke}")
+    return keywords
+
+
+def _page_drawing(method: str) -> Callable[[_Migrator, str, _Arguments], str | None]:
+    """Rewrite a ``Page.draw_*`` statement to a canvas that draws the same path."""
+    template = PAGE_DRAWINGS[method][1]
+
+    def rule(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+        drawing = None if migrator.is_shape(receiver) else _drawing_options(method, args)
+        if drawing is None:
+            return None
+        values, options = drawing
+        keywords = _drawing_keywords(migrator, method, options)
+        builder = migrator.class_name("PathBuilder")
+        if keywords is None or builder is None:
+            return None
+        close = "" if options.get("closePath", "False") in _TRUE else ", close=False"
+        call = template.format(**values, builder=builder, close=close)
+        name = migrator.canvas_name()
+        draw = "draw(underlay=True)" if options.get("overlay", "True") in _FALSE else "draw()"
+        arguments = "".join(f", {keyword}" for keyword in keywords)
+        return f"with {receiver}.{draw} as {name}:\n    {name}.{call}{arguments})\n"
+
+    return rule
+
+
 #: Calls rewritten only as a statement of their own: pymupdf's in-place
 #: geometry methods become assignments of pylopdf's immutable results, and
 #: page deletions become ``del`` statements.
@@ -1540,6 +1712,7 @@ STATEMENT_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] =
     "set_bleedbox": _set_page_box("bleed"),
     "set_trimbox": _set_page_box("trim"),
     "delete_annot": _delete_annot,
+    **{method: _page_drawing(method) for method in PAGE_DRAWINGS},
 }
 #: Statement rules that assign to their receiver, which must therefore be a name or an attribute.
 ASSIGNING_RULES = frozenset(
@@ -1975,6 +2148,8 @@ class _Scanner(cst.CSTVisitor):
             function.attr.value == "new" and self.is_pages(function.value)
         ):
             return "page"
+        if function.attr.value == "new_shape":
+            return "shape"
         return "tables" if function.attr.value == "find_tables" else "other"
 
     def bind(self, target: cst.BaseExpression | cst.BaseAssignTargetExpression, kind: str) -> None:
@@ -2092,6 +2267,8 @@ class _Migrator(cst.CSTTransformer):
         self._tables = items.names("table")
         #: Names bound to a value that a module factory returned that is not a document.
         self._factories = scan.names("factory")
+        #: Names bound to pymupdf's and pylopdf 0.15's ``Shape``, whose drawing methods have no rule.
+        self._shapes = scan.names("shape")
         self._todos: list[list[str]] = [[]]
         self._attribute_names: set[int] = set()
         self._call_functions: set[int] = set()
@@ -2151,6 +2328,24 @@ class _Migrator(cst.CSTTransformer):
             and isinstance(expression.value, cst.Attribute)
             and expression.value.attr.value == "pages"
         )
+
+    def is_shape(self, receiver: str) -> bool:
+        """Return whether ``receiver`` is a ``Shape``: a name bound to one, or a ``new_shape()`` call."""
+        expression = cst.parse_expression(receiver)
+        if isinstance(expression, cst.Name):
+            return expression.value in self._shapes
+        return (
+            isinstance(expression, cst.Call)
+            and isinstance(expression.func, cst.Attribute)
+            and expression.func.attr.value == "new_shape"
+        )
+
+    def canvas_name(self) -> str:
+        """Return the name that a rewrite binds a canvas to: ``canvas``, unless the module uses that name."""
+        name = "canvas"
+        while name in self._scan.bindings:
+            name = f"page_{name}"
+        return name
 
     def is_document(self, receiver: str) -> bool:
         """Return whether ``receiver`` is a known document name or document factory call."""
@@ -2214,7 +2409,7 @@ class _Migrator(cst.CSTTransformer):
 
     def leave_SimpleStatementLine(
         self, original_node: cst.SimpleStatementLine, updated_node: cst.SimpleStatementLine
-    ) -> cst.SimpleStatementLine:
+    ) -> cst.SimpleStatementLine | cst.BaseCompoundStatement:
         statement = original_node.body[0] if len(original_node.body) == 1 else None
         if (
             isinstance(statement, cst.Expr)
@@ -2235,7 +2430,10 @@ class _Migrator(cst.CSTTransformer):
             else:
                 self.rewrites += 1
                 new_statement = cst.parse_statement(replacement)
-                assert isinstance(new_statement, cst.SimpleStatementLine)  # noqa: S101 - a rule renders one statement.
+                if not isinstance(new_statement, cst.SimpleStatementLine):
+                    # A canvas block replaces the statement and keeps its comments.
+                    compound = new_statement.with_changes(leading_lines=updated_node.leading_lines)
+                    return cast("cst.BaseCompoundStatement", self._pop(compound))
                 updated_node = updated_node.with_changes(body=[new_statement.body[0]])
         result = self._pop(updated_node)
         assert isinstance(result, cst.SimpleStatementLine)  # noqa: S101 - _pop only adds comments.

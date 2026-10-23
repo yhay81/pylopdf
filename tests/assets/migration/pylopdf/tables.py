@@ -5,9 +5,11 @@ import pylopdf
 doc = pylopdf.Document()
 page = doc.pages.new((300, 200))
 for y in (40, 80, 120):
-    page.draw_line((40, y), (260, y))
+    with page.draw() as canvas:
+        canvas.line((40, y), (260, y))
 for x in (40, 150, 260):
-    page.draw_line((x, 40), (x, 120))
+    with page.draw() as canvas:
+        canvas.line((x, 40), (x, 120))
 page.insert_text((50, 65), "Name", fontsize=12)
 page.insert_text((160, 65), "Value", fontsize=12)
 page.insert_text((50, 105), "Alpha", fontsize=12)

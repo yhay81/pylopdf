@@ -80,7 +80,7 @@ def test_hinted_errors_keep_python_semantics() -> None:
 
 
 def test_successful_lookups_never_reach_the_hints() -> None:
-    for cls in (pylopdf.Document, pylopdf.Page, pylopdf.Rect, pylopdf.Matrix, pylopdf.Shape):
+    for cls in (pylopdf.Document, pylopdf.Page, pylopdf.Rect, pylopdf.Matrix, pylopdf.Canvas):
         assert "__getattr__" in vars(cls) or any("__getattr__" in vars(base) for base in cls.__mro__[1:])
     assert len(pylopdf.Document().pages) == 0
 
@@ -396,6 +396,43 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ),
         ("import fitz\nfound = font.has_glyph(ord(char))\n", "found = font.has_glyph(char)"),
         ("import fitz\nfound = font.has_glyph(0x3042)\n", "found = font.has_glyph(chr(0x3042))"),
+        ("import fitz\npage.draw_line(a, b)\n", "with page.draw() as canvas:\n    canvas.line(a, b)\n"),
+        (
+            "import fitz\npage.draw_line(a, b, color=(1, 0, 0), width=2, dashes='[3 4] 0', lineCap=1)\n",
+            (
+                "    canvas.line(a, b, stroke=pylopdf.Stroke(paint=pylopdf.Color(1, 0, 0), width=2, "
+                "cap=pylopdf.LineCap.ROUND, dashes=(3, 4)))"
+            ),
+        ),
+        (
+            "import fitz\npage.draw_rect(r, color=None, fill=(0.9,), overlay=False)\n",
+            "with page.draw(underlay=True) as canvas:\n    canvas.rect(r, fill=pylopdf.Color(0.9, 0.9, 0.9))",
+        ),
+        (
+            "import fitz\npage.draw_rect(r, fill=rgb, fill_opacity=0.5)\n",
+            "    canvas.rect(r, fill=pylopdf.Color(*rgb, 0.5), stroke=pylopdf.Color(0, 0, 0))",
+        ),
+        ("import fitz\npage.draw_polyline(points)\n", "    canvas.polygon(points, close=False)"),
+        ("import fitz\npage.draw_polyline(points, closePath=True)\n", "    canvas.polygon(points)"),
+        (
+            "import fitz\npage.draw_circle(c, 5, fill=(1, 1, 1), stroke_opacity=0.3)\n",
+            "    canvas.circle(c, 5, fill=pylopdf.Color(1, 1, 1), stroke=pylopdf.Color(0, 0, 0, 0.3))",
+        ),
+        ("import fitz\npage.draw_oval(r, color=(0, 0, 1))\n", "    canvas.ellipse(r, stroke=pylopdf.Color(0, 0, 1))"),
+        ("import fitz\npage.draw_bezier(a, b, c, d)\n", "    canvas.bezier(a, b, c, d)"),
+        (
+            "import fitz\npage.draw_squiggle(a, b, breadth=4)\n",
+            "    canvas.path(pylopdf.PathBuilder().wave(a, b, breadth=4))",
+        ),
+        ("import fitz as f\npage.draw_zigzag(a, b)\n", "    canvas.path(f.PathBuilder().zigzag(a, b, breadth=2))"),
+        (
+            "import fitz\ncanvas = None\nfor page in doc:\n    page.draw_line(a, b)\n",
+            "    with page.draw() as page_canvas:\n        page_canvas.line(a, b)",
+        ),
+        (
+            "import fitz\n# The rule under the heading.\npage.draw_line(a, b)\n",
+            "# The rule under the heading.\nwith page.draw() as canvas:",
+        ),
     ],
 )
 def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> None:
@@ -739,6 +776,21 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import fitz\nfound = font.has_glyph(code)\n", "returns whether the face has a glyph for it"),
         ("import fitz\nwidth = font.text_length(text, wmode=1)\n", "Font.text_length is Font.text_width"),
         ("import fitz\nnames = fitz.Base14_fontnames\n", "typing.get_args(pylopdf.StandardFontName)"),
+        ("import fitz\npage.draw_rect(r, radius=0.1)\n", "whose radius is in points"),
+        ("import fitz\npage.draw_line(a, b, color=(0, 0, 0, 1))\n", "Page.draw_line is Canvas.line"),
+        ("import fitz\nend = page.draw_line(a, b)\n", "Page.draw_line is Canvas.line"),
+        ("import fitz\npage.draw_line(a, b, morph=(p, m))\n", "Page.draw_line is Canvas.line"),
+        ("import fitz\npage.draw_quad(quad)\n", "canvas.polygon((quad.ul, quad.ur, quad.lr, quad.ll)"),
+        ("from fitz import Rect\npage.draw_zigzag(a, b)\n", "PathBuilder().zigzag(p1, p2, breadth=2)"),
+        ("import fitz\npage.draw_sector(c, p, 90)\n", "PathBuilder().sector(center, radius, start, sweep"),
+        ("import fitz\npage.draw_curve(a, b, c)\n", "with the curve's control points"),
+        ("import fitz\nshape = page.new_shape()\n", "Page.new_shape is Page.draw"),
+        (
+            "import fitz\nwith page.new_shape() as shape:\n    shape.draw_rect(r)\n    shape.finish(color=(1, 0, 0))\n",
+            "Page.new_shape is Page.draw",
+        ),
+        ("import pylopdf\nshape = page.new_shape()\nshape.commit()\n", "Shape.commit is Canvas"),
+        ("import fitz\ndef f(shape: fitz.Shape) -> None: ...\n", "page.draw() returns a Canvas"),
     ],
 )
 def test_codemod_marks_what_it_cannot_rewrite(migrate_source: Migrate, source: str, hint: str) -> None:

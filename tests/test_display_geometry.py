@@ -142,16 +142,16 @@ def test_page_rect_is_the_page_that_rendering_and_extraction_display(name: str, 
 
 @pages
 @geometry
-@pytest.mark.parametrize("via", ["page", "shape", "embedded-font", "textbox", "ocr-layer"])
+@pytest.mark.parametrize("via", ["page", "canvas", "embedded-font", "textbox", "ocr-layer"])
 def test_text_drawn_at_a_display_point_is_extracted_there(name: str, rotation: int, via: str) -> None:
     page = _page(name, rotation)
     point = (40.0, 50.0)
 
     if via == "page":
         page.insert_text(point, "Probe", fontsize=12)
-    elif via == "shape":
-        with page.new_shape() as shape:
-            shape.insert_text(point, "Probe", fontsize=12)
+    elif via == "canvas":
+        with page.draw() as canvas:
+            canvas.text("Probe", point, size=12)
     elif via == "embedded-font":
         page.insert_text(point, "Probe", fontsize=12, fontfile=NOTO_SANS_HEBREW)
     elif via == "textbox":
@@ -203,9 +203,8 @@ def test_images_and_shapes_land_on_their_display_rectangles(name: str, rotation:
     page = _page(name, rotation)
 
     page.insert_image((200, 100, 260, 160), stream=_png(4, 4))
-    with page.new_shape() as shape:
-        shape.draw_rect((100, 100, 150, 130))
-        shape.finish(fill=(0.0, 0.0, 1.0), color=None)
+    with page.draw() as canvas:
+        canvas.rect((100, 100, 150, 130), fill=pylopdf.Color(0.0, 0.0, 1.0))
 
     assert [tuple(image["bbox"]) for image in drawn_images(page)] == [pytest.approx((200, 100, 260, 160), abs=1e-3)]
     assert [tuple(path.bbox) for path in page.content().paths] == [pytest.approx((100, 100, 150, 130), abs=1e-3)]

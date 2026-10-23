@@ -8,7 +8,7 @@ use std::sync::Arc;
 pub(crate) use harfrust::Font as ShapingFont;
 use harfrust::{Buffer, Direction, ShapeOptions, ShaperFont};
 use krilla::Document;
-use krilla::color::{cmyk, luma, rgb};
+use krilla::color::{luma, rgb};
 use krilla::geom::Point;
 use krilla::num::NormalizedF32;
 use krilla::page::PageSettings;
@@ -167,13 +167,6 @@ pub(crate) fn device_paint(color: DeviceColor) -> Paint {
             channel_to_u8(red),
             channel_to_u8(green),
             channel_to_u8(blue),
-        )
-        .into(),
-        DeviceColor::Cmyk(cyan, magenta, yellow, black) => cmyk::Color::new(
-            channel_to_u8(cyan),
-            channel_to_u8(magenta),
-            channel_to_u8(yellow),
-            channel_to_u8(black),
         )
         .into(),
     }

@@ -51,11 +51,9 @@ def _insert_text(
     point: tuple[float, float] = POINT,
     **options: Any,  # noqa: ANN401
 ) -> int:
+    assert via == "page"
     options.setdefault("fontsize", 10)
-    if via == "page":
-        return page.insert_text(point, text, **options)
-    with page.new_shape() as shape:
-        return shape.insert_text(point, text, **options)
+    return page.insert_text(point, text, **options)
 
 
 def _assert_spans(page: pylopdf.Page, spans: list[tuple[float, str]]) -> None:
@@ -64,7 +62,7 @@ def _assert_spans(page: pylopdf.Page, spans: list[tuple[float, str]]) -> None:
     assert [baseline for baseline, _ in found] == pytest.approx([baseline for baseline, _ in spans], abs=1e-3)
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 @pytest.mark.parametrize(
     ("text", "count", "spans"),
     [
@@ -105,7 +103,7 @@ def test_text_is_split_into_lines_as_pymupdf_splits_it(
     _assert_spans(page, spans)
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 def test_a_line_break_inside_a_list_item_does_not_start_a_line(via: str) -> None:
     page = _page()
 
@@ -117,7 +115,7 @@ def test_a_line_break_inside_a_list_item_does_not_start_a_line(via: str) -> None
     assert baselines == {100.0}
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 @pytest.mark.parametrize(
     "text",
     [
@@ -137,7 +135,7 @@ def test_text_with_nothing_to_draw_inserts_nothing(via: str, text: str | list[st
     assert page.document.to_bytes() == before
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 @pytest.mark.parametrize(
     ("text", "point", "options", "spans"),
     [
@@ -192,7 +190,7 @@ def test_lines_below_the_page_are_left_out_as_in_pymupdf(
     _assert_spans(page, spans)
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 @pytest.mark.parametrize("source", ["fontfile", "fontbuffer", "font"])
 @pytest.mark.parametrize(
     ("point", "options", "baselines"),
@@ -233,7 +231,7 @@ def _one_page(page_entries: str) -> bytes:
     )
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 @pytest.mark.parametrize(
     "page_entries",
     [
@@ -255,7 +253,7 @@ def test_the_bottom_of_the_page_is_that_of_the_display_rectangle(via: str, page_
     _assert_spans(page, HELV_ABC)
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 @pytest.mark.parametrize(
     "options",
     [
@@ -273,7 +271,7 @@ def test_the_font_checks_lines_below_the_page(via: str, options: dict[str, Any])
     assert page.document.to_bytes() == before
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 def test_the_line_limit_counts_lines_as_str_splitlines_does(via: str) -> None:
     # 4,096 line breaks make 4,096 lines, the most that the limit accepts.
     assert _insert_text(_page(), via, "\n" * 4096, max_text_size=4096) == 3
@@ -288,7 +286,7 @@ def test_the_line_limit_counts_lines_as_str_splitlines_does(via: str) -> None:
     assert _insert_text(_page(), via, ["x"] * 4097, max_text_size=None) == 3
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 def test_list_lines_share_the_text_budget(via: str) -> None:
     page = _page()
 
@@ -298,7 +296,7 @@ def test_list_lines_share_the_text_budget(via: str) -> None:
     assert _insert_text(page, via, ["é", "é"], max_text_size=4) == 2
 
 
-@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize("via", ["page"])
 @pytest.mark.parametrize("text", [5, None, ["A", 5], [b"A"]])
 def test_text_must_be_a_string_or_a_list_of_strings(via: str, text: object) -> None:
     page = _page()
