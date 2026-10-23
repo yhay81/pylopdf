@@ -31,7 +31,10 @@ _MAX_OPERAND_DEPTH = 64
 
 _WHITESPACE = b"\x00\t\n\x0c\r "
 _DELIMITERS = b"()<>[]{}/%"
-_REGULAR_OPERATOR_BYTES = frozenset(range(0x21, 0x7F)) - frozenset(_DELIMITERS)
+#: Regular characters, which operators consist of (ISO 32000-2 §7.2.3).
+_REGULAR_BYTES = frozenset(range(256)) - frozenset(_WHITESPACE) - frozenset(_DELIMITERS)
+#: Regular characters that a name writes without a ``#`` escape.
+_PLAIN_NAME_BYTES = frozenset(range(0x21, 0x7F)) - frozenset(_DELIMITERS) - {ord("#")}
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +60,7 @@ class Operation:
             msg = f"operator must be a str: {self.operator!r}"
             raise TypeError(msg)
         data = _name_bytes(self.operator)
-        if not data or not all(byte in _REGULAR_OPERATOR_BYTES for byte in data):
+        if not data or not all(byte in _REGULAR_BYTES for byte in data):
             msg = f"an operator is a run of regular characters, such as 'Tj': {self.operator!r}"
             raise ValueError(msg)
         if data == b"BI":
@@ -324,7 +327,7 @@ def _write(out: bytearray, value: Any) -> None:  # noqa: ANN401, C901, PLR0912 -
     elif isinstance(value, Name):
         out += b"/"
         for byte in _name_bytes(value):
-            if byte in _REGULAR_OPERATOR_BYTES and byte != ord("#"):
+            if byte in _PLAIN_NAME_BYTES:
                 out.append(byte)
             else:
                 out += b"#%02X" % byte

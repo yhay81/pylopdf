@@ -154,6 +154,14 @@ def test_new_operations_are_written_from_their_values() -> None:
     assert reread == Operations(expected)
 
 
+def test_operators_may_hold_any_regular_character() -> None:
+    # pdf.js issue13999.pdf draws with an operator that is a control byte.
+    operations = Operations.parse(b"q \x14 Q")
+
+    assert [operation.operator for operation in operations] == ["q", "\x14", "Q"]
+    assert Operations([Operation("\x14"), Operation("\udcff")]).to_bytes() == b"\x14\n\xff"
+
+
 def test_operations_are_values() -> None:
     operation = Operation("re", [0, 0, 10, 10])  # ty: ignore[invalid-argument-type]
 
