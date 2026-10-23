@@ -611,7 +611,7 @@ original = position / transform      # Point(x=10.0, y=20.0)
 | `abs(p)`、`p.unit`、`p.distance_to(other, unit="px")` | 长度、方向和距离（`px`、`in`、`cm`、`mm`） |
 | `m.is_rectilinear` | 变换后边是否仍保持水平和竖直 |
 
-由于y轴向下，`Matrix(90)`会把`(1, 0)`变为`(0, 1)`。`IdentityMatrix`（也可写作`Identity`）是单位矩阵。
+由于y轴向下，`Matrix(90)`会把`(1, 0)`变为`(0, 1)`。`Matrix.IDENTITY`是单位矩阵，`Matrix.planish(p1, p2)`返回把`p1`移到原点、把`p2`移到x轴正方向上的矩阵。
 
 ### Rect、IRect与Quad { #rectangles }
 
@@ -642,7 +642,7 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 | `r.morph(point, m)`、`q.morph(point, m)` | 绕固定点变换得到的`Quad` |
 | `q * m`、`p in q`、`q.is_rectangular`、`q.is_convex` | 四边形的变换与判断 |
 
-`EMPTY_RECT()`、`INFINITE_RECT()`、它们的`IRECT`和`QUAD`版本以及`planish_line(p1, p2)`是pymupdf的辅助函数。与pymupdf不同，判断矩形是否位于四边形内时会检查全部四个角。
+`Rect.EMPTY`和`Rect.INFINITE`是MuPDF的空矩形和无限矩形，`IRect`和`Quad`也有相同的类属性。与pymupdf不同，判断矩形是否位于四边形内时会检查全部四个角。
 
 ## Pixmap { #pixmap }
 

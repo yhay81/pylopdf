@@ -28,14 +28,9 @@
     "DocumentClosedError",
     "DocumentComplexity",
     "DocumentLimits",
-    "EMPTY_IRECT",
-    "EMPTY_QUAD",
-    "EMPTY_RECT",
     "EncodedImage",
     "EncryptedDocumentError",
     "Encryption",
-    "FZ_MAX_INF_RECT",
-    "FZ_MIN_INF_RECT",
     "FallbackFont",
     "FallbackFonts",
     "Field",
@@ -50,12 +45,7 @@
     "Glyph",
     "GraphicsContext",
     "Highlight",
-    "INFINITE_IRECT",
-    "INFINITE_QUAD",
-    "INFINITE_RECT",
     "IRect",
-    "Identity",
-    "IdentityMatrix",
     "Image",
     "ImageCompressionResult",
     "ImageMask",
@@ -133,7 +123,6 @@
     "Word",
     "create",
     "open",
-    "planish_line",
     "probe"
   ],
   "schema": 1,
@@ -2611,27 +2600,6 @@
         "returns": "None"
       }
     },
-    "EMPTY_IRECT": {
-      "kind": "function",
-      "signature": {
-        "parameters": [],
-        "returns": "IRect"
-      }
-    },
-    "EMPTY_QUAD": {
-      "kind": "function",
-      "signature": {
-        "parameters": [],
-        "returns": "Quad"
-      }
-    },
-    "EMPTY_RECT": {
-      "kind": "function",
-      "signature": {
-        "parameters": [],
-        "returns": "Rect"
-      }
-    },
     "EncodedImage": {
       "annotations": {
         "data": "bytes",
@@ -2740,14 +2708,6 @@
         ],
         "returns": "None"
       }
-    },
-    "FZ_MAX_INF_RECT": {
-      "kind": "constant",
-      "value": 2147483520
-    },
-    "FZ_MIN_INF_RECT": {
-      "kind": "constant",
-      "value": -2147483648
     },
     "FallbackFont": {
       "annotations": {
@@ -3558,27 +3518,6 @@
         "returns": "None"
       }
     },
-    "INFINITE_IRECT": {
-      "kind": "function",
-      "signature": {
-        "parameters": [],
-        "returns": "IRect"
-      }
-    },
-    "INFINITE_QUAD": {
-      "kind": "function",
-      "signature": {
-        "parameters": [],
-        "returns": "Quad"
-      }
-    },
-    "INFINITE_RECT": {
-      "kind": "function",
-      "signature": {
-        "parameters": [],
-        "returns": "Rect"
-      }
-    },
     "IRect": {
       "annotations": {
         "x0": "int",
@@ -3588,6 +3527,24 @@
       },
       "kind": "class",
       "members": {
+        "EMPTY": {
+          "kind": "attribute",
+          "value": [
+            2147483520,
+            2147483520,
+            -2147483648,
+            -2147483648
+          ]
+        },
+        "INFINITE": {
+          "kind": "attribute",
+          "value": [
+            -2147483648,
+            -2147483648,
+            2147483520,
+            2147483520
+          ]
+        },
         "__add__": {
           "kind": "method",
           "signature": {
@@ -3972,60 +3929,6 @@
             "name": "kwargs"
           }
         ],
-        "returns": "Self"
-      }
-    },
-    "Identity": {
-      "kind": "constant",
-      "value": [
-        1.0,
-        0.0,
-        0.0,
-        1.0,
-        0.0,
-        0.0
-      ]
-    },
-    "IdentityMatrix": {
-      "annotations": {
-        "a": "float",
-        "b": "float",
-        "c": "float",
-        "d": "float",
-        "e": "float",
-        "f": "float"
-      },
-      "kind": "class",
-      "members": {
-        "a": {
-          "kind": "property"
-        },
-        "b": {
-          "kind": "property"
-        },
-        "c": {
-          "kind": "property"
-        },
-        "d": {
-          "kind": "property"
-        },
-        "e": {
-          "kind": "property"
-        },
-        "f": {
-          "kind": "property"
-        }
-      },
-      "named_tuple_fields": [
-        "a",
-        "b",
-        "c",
-        "d",
-        "e",
-        "f"
-      ],
-      "signature": {
-        "parameters": [],
         "returns": "Self"
       }
     },
@@ -4823,6 +4726,17 @@
       },
       "kind": "class",
       "members": {
+        "IDENTITY": {
+          "kind": "attribute",
+          "value": [
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ]
+        },
         "__abs__": {
           "kind": "method",
           "signature": {
@@ -5017,6 +4931,24 @@
               }
             ],
             "returns": "float"
+          }
+        },
+        "planish": {
+          "kind": "staticmethod",
+          "signature": {
+            "parameters": [
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p1"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p2"
+              }
+            ],
+            "returns": "Matrix"
           }
         }
       },
@@ -7408,6 +7340,48 @@
       },
       "kind": "class",
       "members": {
+        "EMPTY": {
+          "kind": "attribute",
+          "value": [
+            [
+              2147483520.0,
+              2147483520.0
+            ],
+            [
+              -2147483648.0,
+              2147483520.0
+            ],
+            [
+              2147483520.0,
+              -2147483648.0
+            ],
+            [
+              -2147483648.0,
+              -2147483648.0
+            ]
+          ]
+        },
+        "INFINITE": {
+          "kind": "attribute",
+          "value": [
+            [
+              -2147483648.0,
+              -2147483648.0
+            ],
+            [
+              2147483520.0,
+              -2147483648.0
+            ],
+            [
+              -2147483648.0,
+              2147483520.0
+            ],
+            [
+              2147483520.0,
+              2147483520.0
+            ]
+          ]
+        },
         "__abs__": {
           "kind": "method",
           "signature": {
@@ -7669,6 +7643,24 @@
       },
       "kind": "class",
       "members": {
+        "EMPTY": {
+          "kind": "attribute",
+          "value": [
+            2147483520.0,
+            2147483520.0,
+            -2147483648.0,
+            -2147483648.0
+          ]
+        },
+        "INFINITE": {
+          "kind": "attribute",
+          "value": [
+            -2147483648.0,
+            -2147483648.0,
+            2147483520.0,
+            2147483520.0
+          ]
+        },
         "__abs__": {
           "kind": "method",
           "signature": {
@@ -9168,24 +9160,6 @@
           }
         ],
         "returns": "Document"
-      }
-    },
-    "planish_line": {
-      "kind": "function",
-      "signature": {
-        "parameters": [
-          {
-            "annotation": "Sequence[float]",
-            "kind": "positional_or_keyword",
-            "name": "p1"
-          },
-          {
-            "annotation": "Sequence[float]",
-            "kind": "positional_or_keyword",
-            "name": "p2"
-          }
-        ],
-        "returns": "Matrix"
       }
     },
     "probe": {

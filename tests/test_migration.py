@@ -172,6 +172,21 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ("import fitz\nn = doc.page_count\n", "n = len(doc.pages)"),
         ("import fitz\nkind = fitz.PDF_ANNOT_3D\n", "kind = pylopdf.AnnotationType.THREE_D"),
         (
+            "import fitz\nr = fitz.EMPTY_RECT() | fitz.INFINITE_IRECT()\nm = fitz.IdentityMatrix() * fitz.Identity\n",
+            "r = pylopdf.Rect.EMPTY | pylopdf.IRect.INFINITE\nm = pylopdf.Matrix.IDENTITY * pylopdf.Matrix.IDENTITY",
+        ),
+        (
+            "import fitz\nm = fitz.planish_line(a, b)\nlow = fitz.FZ_MIN_INF_RECT\n",
+            "m = pylopdf.Matrix.planish(a, b)\nlow = pylopdf.Rect.INFINITE.x0",
+        ),
+        (
+            (
+                "from fitz import EMPTY_QUAD, Identity, planish_line\n"
+                "q = EMPTY_QUAD()\nm = planish_line(p, r) @ Identity\n"
+            ),
+            "from pylopdf import Quad, Matrix\nq = Quad.EMPTY\nm = Matrix.planish(p, r) @ Matrix.IDENTITY",
+        ),
+        (
             "import fitz\nflags = fitz.PDF_ANNOT_IS_HIDDEN | fitz.PDF_ANNOT_IS_PRINT\n",
             "flags = pylopdf.AnnotationFlags.HIDDEN | pylopdf.AnnotationFlags.PRINT",
         ),
@@ -631,6 +646,10 @@ def test_codemod_joins_consecutive_canvas_blocks_of_one_page(migrate_source: Mig
         ),
         ("import pylopdf\ndoc = pylopdf.open(path)\ndoc.set_fallback_font(None)\n", "doc.fallback_fonts = {}"),
         ("import pylopdf\ndoc.set_form_field('name', value=True)\n", "doc.form['name'].value = True"),
+        (
+            "from pylopdf import INFINITE_RECT, planish_line\nr = INFINITE_RECT()\nm = planish_line(a, b)\n",
+            "from pylopdf import Rect, Matrix\nr = Rect.INFINITE\nm = Matrix.planish(a, b)",
+        ),
         (
             "import pylopdf\nfields = doc.get_form_fields()\n",
             (

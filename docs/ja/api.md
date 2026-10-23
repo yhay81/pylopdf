@@ -611,7 +611,7 @@ original = position / transform      # Point(x=10.0, y=20.0)
 | `abs(p)`, `p.unit`, `p.distance_to(other, unit="px")` | 長さ、向き、距離（`px`、`in`、`cm`、`mm`） |
 | `m.is_rectilinear` | 変換が辺を水平・垂直に保つかどうか |
 
-y軸は下向きなので、`Matrix(90)`は`(1, 0)`を`(0, 1)`に移します。`IdentityMatrix`（`Identity`とも）は単位行列です。
+y軸は下向きなので、`Matrix(90)`は`(1, 0)`を`(0, 1)`に移します。`Matrix.IDENTITY`は単位行列で、`Matrix.planish(p1, p2)`は`p1`を原点に、`p2`をx軸の正の側に移す行列を返します。
 
 ### Rect、IRect、Quad { #rectangles }
 
@@ -642,7 +642,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | `r.morph(point, m)`, `q.morph(point, m)` | 固定点を中心に変換した`Quad` |
 | `q * m`, `p in q`, `q.is_rectangular`, `q.is_convex` | Quadの変換と判定 |
 
-`EMPTY_RECT()`、`INFINITE_RECT()`とそれらの`IRECT`版・`QUAD`版、`planish_line(p1, p2)`はpymupdfと同じヘルパーです。pymupdfと異なり、矩形が四角形の内側にあるかの判定では4つの角をすべて検査します。
+`Rect.EMPTY`と`Rect.INFINITE`はMuPDFの空の矩形と無限の矩形で、`IRect`と`Quad`にも同じクラス属性があります。pymupdfと異なり、矩形が四角形の内側にあるかの判定では4つの角をすべて検査します。
 
 ## Pixmap { #pixmap }
 

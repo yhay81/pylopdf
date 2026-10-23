@@ -612,7 +612,7 @@ original = position / transform      # Point(x=10.0, y=20.0)
 | `abs(p)`, `p.unit`, `p.distance_to(other, unit="px")` | 길이, 방향, 거리(`px`, `in`, `cm`, `mm`) |
 | `m.is_rectilinear` | 변환이 가장자리를 수평·수직으로 유지하는지 여부 |
 
-y축이 아래를 향하므로 `Matrix(90)`은 `(1, 0)`을 `(0, 1)`로 바꿉니다. `IdentityMatrix`(`Identity`도 가능)는 단위 행렬입니다.
+y축이 아래를 향하므로 `Matrix(90)`은 `(1, 0)`을 `(0, 1)`로 바꿉니다. `Matrix.IDENTITY`는 단위 행렬이고, `Matrix.planish(p1, p2)`는 `p1`을 원점으로, `p2`를 양의 x축 위로 옮기는 행렬을 반환합니다.
 
 ### Rect, IRect, Quad { #rectangles }
 
@@ -643,7 +643,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 | `r.morph(point, m)`, `q.morph(point, m)` | 고정점을 중심으로 변환한 `Quad` |
 | `q * m`, `p in q`, `q.is_rectangular`, `q.is_convex` | Quad 변환과 판정 |
 
-`EMPTY_RECT()`, `INFINITE_RECT()`, 그 `IRECT`와 `QUAD` 형태, `planish_line(p1, p2)`는 pymupdf의 도우미 함수입니다. pymupdf와 달리, 사각형이 quad 안에 있는지 확인할 때는 네 모서리를 모두 검사합니다.
+`Rect.EMPTY`와 `Rect.INFINITE`는 MuPDF의 빈 사각형과 무한 사각형이며, `IRect`와 `Quad`에도 같은 클래스 속성이 있습니다. pymupdf와 달리, 사각형이 quad 안에 있는지 확인할 때는 네 모서리를 모두 검사합니다.
 
 ## Pixmap { #pixmap }
 
