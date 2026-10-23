@@ -1,6 +1,6 @@
 ---
 title: API 레퍼런스
-description: pylopdf의 Document, Page, Font, Shape, Pixmap, 기하 타입, 저수준 객체, 예외를 한눈에 보는 API 지도입니다.
+description: pylopdf의 Document, Page, Canvas, Font, Pixmap, 기하 타입, 저수준 객체, 예외를 한눈에 보는 API 지도입니다.
 ---
 
 # API 레퍼런스
@@ -242,9 +242,7 @@ page.rotation = 90
 | `insert_textbox(rect, text, ...)` | 사각형 안에 줄바꿈한 텍스트를 씀 |
 | `insert_image(rect, *, filename=, stream=, pixmap=, rotate=0, keep_proportion=True, overlay=True)` | JPEG, PNG, `Pixmap`을 그리고 객체 번호를 반환 |
 | `show_pdf_page(rect, docsrc, pno=0, *, keep_proportion=True, overlay=True)` | 다른 PDF(또는 이 PDF)의 페이지를 벡터로 그림 |
-| `draw_line`, `draw_rect`, `draw_circle`, `draw_oval`, `draw_polyline`, `draw_quad`, `draw_sector`, `draw_curve`, `draw_bezier`, `draw_squiggle`, `draw_zigzag` | 도형 하나를 그림. `color`, `fill`, `width`, `dashes` 같은 스타일 옵션은 키워드 전용 |
-| `draw(*, underlay=False)` | 경로, 텍스트, 이미지, 페이지를 순서대로 그리는 [캔버스](#canvas) |
-| `new_shape()` | 여러 경로와 텍스트를 한 번에 그림. [도형](#shapes) 참고 |
+| `draw(*, underlay=False)` | 선이나 사각형 같은 경로, 텍스트, 이미지, 페이지를 순서대로 그리는 [캔버스](#canvas) |
 | `replace_text(search, replacement, *, default_char=None)` | 단순(단일 바이트) 글꼴로 그려진 텍스트를 교체 |
 
 같은 이미지나 페이지를 다시 그리면 파일에는 한 번만 저장됩니다.
@@ -532,31 +530,6 @@ pylopdf.Font.installed(*, language=None, family=None, serif=False, weight=None, 
 
 pylopdf는 시스템 글꼴 디렉터리를 검색하지 않고 전역 글꼴 레지스트리도 없으므로, 출력은 전달한 글꼴에만 의존합니다.
 
-### 도형 { #shapes }
-
-`page.new_shape()`는 여러 경로와 텍스트를 하나의 단위로 그리는 pymupdf의 도구인 `Shape`를 반환합니다.
-
-```python
-regular = pylopdf.Font.standard("Helvetica")
-bold = pylopdf.Font.standard("Helvetica-Bold")
-body = "Findings are listed below. " * 20
-
-with page.new_shape() as shape:
-    shape.draw_rect((50, 50, 545, 792))
-    shape.finish(color=(0.72, 0.78, 0.82), fill=(0.95, 0.96, 0.97), width=0.5)
-    shape.draw_circle((80, 140), 7)
-    shape.finish(color=(1, 1, 1), fill=(0.83, 0.26, 0.05), width=1.2)
-    shape.insert_text((56, 80), "Inspection report", font=bold, fontsize=18)
-    shape.insert_textbox((56, 160, 540, 400), body, font=regular, fontsize=10.5)
-```
-
-- `draw_*` 메서드는 경로 선분을 추가하고 끝점을 반환합니다. 앞 선분이 끝난 곳에서 시작하는 선분은 같은 경로를 이어 갑니다.
-- `finish(*, width=1, color=(0,), fill=None, lineCap=0, lineJoin=0, dashes=None, even_odd=False, closePath=True, fill_opacity=1, stroke_opacity=1)`는 이전 `finish` 이후 그린 모든 것에 스타일을 적용합니다. 색상은 0에서 1 사이 값의 회색조, RGB, CMYK 튜플입니다.
-- `insert_text`와 `insert_textbox`는 `Page`의 메서드와 같이 동작합니다.
-- `commit()`은 도형을 그립니다. 경로를 순서대로 그린 뒤 모든 텍스트를 그 위에 그립니다. `with` 블록은 예외 없이 끝나면 커밋합니다.
-
-각 글꼴은 몇 줄에서 쓰이든 커밋마다 한 번만 포함되므로, 페이지의 텍스트를 하나의 shape로 그리면 파일이 작게 유지됩니다. pymupdf와 달리 pylopdf는 그림을 조용히 버리거나 검게 칠하지 않고 `PdfError`를 발생시킵니다. `commit()`은 `finish()`로 스타일을 지정하지 않은 경로를 거부하고, `finish()`는 아무것도 그리지 않는 스타일을 거부합니다. `morph=`와 `oc=`는 아직 지원하지 않습니다.
-
 ### 폼 { #forms }
 
 `set_form_field`는 텍스트, 콤보 박스, 리스트 박스, 체크 박스, 라디오 버튼 필드를 채우고 각각의 표시 모양을 다시 생성합니다. 서유럽(WinAnsi) 텍스트는 Helvetica로 크기를 맞춥니다. 그 밖의 문자에는 `fontfile`, `fontbuffer`, 불러온 `font`를 전달하거나 글꼴 extra를 설치하세요. 콤(comb) 필드, 정렬, 최대 길이를 지키며, 너무 긴 값은 예외를 발생시키고 문서를 변경하지 않습니다. 서식 있는 텍스트(rich text), 푸시 버튼 동작, 서명은 지원하지 않습니다. 서명은 [생태계 연동](ecosystem.md#signatures)을 참고하세요.
@@ -689,7 +662,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 | `OcrEngine` | 재사용 가능한 OCR 엔진. [오프라인 OCR](ocr.md) 참고 |
 | `Canvas`, `PathBuilder`, `TextFit` | [캔버스](#canvas) 참고 |
 | `create(...)`, `Builder`, `Standard`, `TagRole` | [새 문서](#create) 참고 |
-| `Font`, `StandardFontName`, `Shape` | [Font](#font)와 [도형](#shapes) 참고 |
+| `Font`, `StandardFontName` | [Font](#font) 참고 |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [저수준 객체](#low-level-objects) |
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext` 등 내용 타입 | [페이지 내용](#content) |
 | `Colorspace` | [`Pixmap`](#pixmap)의 색 공간. `GRAY`와 `RGB` |

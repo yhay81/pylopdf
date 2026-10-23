@@ -585,7 +585,8 @@ def test_rectangles_drive_drawing_and_search_on_rotated_pages(rotation: int) -> 
         page.rotation = rotation
         box = (page.rect * Matrix(0.5, 0.5)) + (20, 20, 20, 20)
         assert box in page.rect
-        page.draw_rect(box, color=(0, 0, 1), width=1)
+        with page.draw() as canvas:
+            canvas.rect(box, stroke=pylopdf.Color(0, 0, 1))
         page.insert_text(
             box.tl + (10, 30),  # noqa: RUF005 - geometric addition.
             "Geometry",

@@ -106,8 +106,9 @@ python -m pylopdf.migrate src/
 | `pymupdf.Base14_fontnames`, `Base14_fontdict` | `typing.get_args(pylopdf.StandardFontName)` | `Font.standard()`가 받는 14개의 PostScript 이름 |
 | `page.insert_image(rect, filename=/stream=/pixmap=)` | 같음 | JPEG, PNG, `Pixmap`. 다른 형식은 Pillow로 변환. 같은 이미지를 두 번 삽입해도 한 번만 저장되므로 `xref=`가 필요 없음 |
 | `page.show_pdf_page(rect, docsrc, pno)` | 같음 | 원본이 같은 문서여도 됨 |
-| `page.new_shape()`, `shape.draw_*`, `finish()`, `insert_text()`, `commit()` | 같음 | `with page.new_shape() as shape:`는 자동으로 커밋. `morph=`와 `oc=`는 아직 지원하지 않음 |
-| `page.draw_line()`, `draw_rect()` 및 다른 `draw_*` | 같음 | 스타일 옵션은 키워드 전용 |
+| `page.new_shape()`, `shape.draw_*`, `finish()`, `insert_text()`, `commit()` | `with page.draw() as canvas:` | 캔버스는 경로와 텍스트를 호출한 순서대로 그리고 블록이 끝날 때 기록함. `finish()`의 스타일은 각 호출의 `fill=`과 `stroke=`가 됨. [캔버스](api.md#canvas) 참고 |
+| `page.draw_line()`, `draw_rect()`, `draw_circle()`, `draw_oval()`, `draw_polyline()`, `draw_bezier()` | `canvas.line()`, `rect()`, `circle()`, `ellipse()`, `polygon(close=False)`, `bezier()` | `color=`, `width=`, `dashes=`, `lineCap=`, `lineJoin=`는 `stroke=Stroke(paint=Color(...), ...)`가, `fill=`은 `Color`가, 불투명도는 `Color`의 알파가 됨. `rect(radius=)`는 포인트 단위이며 pymupdf에서는 짧은 변에 대한 비율임 |
+| `page.draw_quad()`, `draw_sector()`, `draw_curve()`, `draw_squiggle()`, `draw_zigzag()` | `canvas.polygon()`, `canvas.path(PathBuilder().sector(...))`, `canvas.bezier()`, `PathBuilder().wave()`, `PathBuilder().zigzag()` | `PathBuilder`로 형상을 만듦. 부채꼴 각도는 x축에서 시계 방향으로 잰 도(degree) |
 | `page.annots()`, `page.first_annot`, `annot.type`, `rect`, `info`, `colors`, `flags`, `parent` | `page.annotations`, `annotation.type`, `rect`, `contents`를 비롯한 텍스트, `color`, `interior_color`, `flags`, `page` | 타입이 있는 프로퍼티를 가진 `Annotation` 핸들입니다. `type`은 `AnnotationType` 멤버이고 `info`와 `colors` 딕셔너리는 프로퍼티가 됩니다. 링크와 위젯은 목록에 없고 팝업은 그 주석에 속하며, 프로퍼티는 현재 읽기 전용입니다 |
 | `page.add_highlight_annot(quads)`, `page.delete_annot(annot)` | `page.annotations.add(Highlight(quads))`, `del page.annotations[i]` | `color`는 `Color`이고 `content`는 `contents`가 됩니다. 주석을 제거하면 팝업도 함께 제거됩니다 |
 | `page.get_links()`, `page.links()`, `page.first_link`, `page.load_links()` | `page.links` | 딕셔너리와 `Link` 객체의 연결 대신 `rect`와 `target`을 가진 `Link` 핸들의 시퀀스 |

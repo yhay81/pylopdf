@@ -240,6 +240,17 @@ replacement, and the migration hint):
 - Page.delete_annot -> Annotations: del page.annotations[index] removes an annotation with its popup.
 - Page.delete_link -> Links: del page.links[index] removes a link; its annotation goes at the next pruning save.
 - Page.derotation_matrix -> Page.user_to_display: pylopdf reads and writes in display space with the rotation resolved; drop the step, and map display space to PDF user space with ~page.user_to_display.
+- Page.draw_bezier -> Canvas.bezier: Inside with page.draw() as canvas:, call canvas.bezier(p1, p2, p3, p4, stroke=...), or canvas.path(PathBuilder()...) for a closed or filled curve.
+- Page.draw_circle -> Canvas.circle: Inside with page.draw() as canvas:, call canvas.circle(center, radius, fill=..., stroke=...); fill=Color(r, g, b) and stroke=Stroke(paint=Color(r, g, b), width=..., cap=..., join=..., dashes=...) replace color, fill, width, lineCap, lineJoin, and dashes, and a Color's alpha the opacities.
+- Page.draw_curve -> Canvas.bezier: Inside with page.draw() as canvas:, call canvas.bezier(p1, c1, c2, p3) with the curve's control points, or build it with PathBuilder.curve_to.
+- Page.draw_line -> Canvas.line: Inside with page.draw() as canvas:, call canvas.line(p1, p2, stroke=...); fill=Color(r, g, b) and stroke=Stroke(paint=Color(r, g, b), width=..., cap=..., join=..., dashes=...) replace color, fill, width, lineCap, lineJoin, and dashes, and a Color's alpha the opacities.
+- Page.draw_oval -> Canvas.ellipse: Inside with page.draw() as canvas:, call canvas.ellipse(rect, fill=..., stroke=...); draw the ellipse of a quad inside canvas.transform(matrix).
+- Page.draw_polyline -> Canvas.polygon: Inside with page.draw() as canvas:, call canvas.polygon(points, close=False, fill=..., stroke=...); fill=Color(r, g, b) and stroke=Stroke(paint=Color(r, g, b), width=..., cap=..., join=..., dashes=...) replace color, fill, width, lineCap, lineJoin, and dashes, and a Color's alpha the opacities.
+- Page.draw_quad -> Canvas.polygon: Inside with page.draw() as canvas:, call canvas.polygon((quad.ul, quad.ur, quad.lr, quad.ll), fill=..., stroke=...).
+- Page.draw_rect -> Canvas.rect: Inside with page.draw() as canvas:, call canvas.rect(rect, radius=..., fill=..., stroke=...), whose radius is in points where pymupdf's is a fraction of the shorter side; fill=Color(r, g, b) and stroke=Stroke(paint=Color(r, g, b), width=..., cap=..., join=..., dashes=...) replace color, fill, width, lineCap, lineJoin, and dashes, and a Color's alpha the opacities.
+- Page.draw_sector -> PathBuilder.sector: Inside with page.draw() as canvas:, call canvas.path(PathBuilder().sector(center, radius, start, sweep, pie=True), fill=..., stroke=...), with angles in degrees clockwise from the x axis.
+- Page.draw_squiggle -> PathBuilder.wave: Inside with page.draw() as canvas:, call canvas.path(PathBuilder().wave(p1, p2, breadth=2), stroke=...).
+- Page.draw_zigzag -> PathBuilder.zigzag: Inside with page.draw() as canvas:, call canvas.path(PathBuilder().zigzag(p1, p2, breadth=2), stroke=...).
 - Page.find_tables -> Page.tables: Use page.tables(strategy=..., clip=...), which returns a list of Table records; table.rows replaces extract().
 - Page.first_annot -> Page.annotations: next(iter(page.annotations), None) is the first annotation; iterate page.annotations instead of following annot.next.
 - Page.first_link -> Page.links: next(iter(page.links), None) is the first link; iterate page.links instead of following link.next.
@@ -266,6 +277,7 @@ replacement, and the migration hint):
 - Page.load_links -> Page.links: next(iter(page.links), None) is the first link; iterate page.links instead of following link.next.
 - Page.mediabox -> Page.boxes: Read page.boxes.media.
 - Page.mediabox_size -> Page.boxes: Read page.boxes.media.width and page.boxes.media.height.
+- Page.new_shape -> Page.draw: with page.draw() as canvas: draws paths and text in the order of the calls and writes them when the block ends, as Shape.commit() did.
 - Page.number -> Page.index: Read page.index.
 - Page.parent -> Page.document: Read page.document.
 - Page.rotation_matrix -> Page.user_to_display: pylopdf reads and writes in display space with the rotation resolved; drop the step, and map PDF user space with page.user_to_display.
@@ -294,6 +306,23 @@ replacement, and the migration hint):
 - Rect.intersect -> Rect.__and__: Use r & other, which returns a new Rect.
 - Rect.normalize -> Rect.normalized: Use r.normalized(), which returns a new Rect.
 - Rect.transform -> Rect.__mul__: Use r * m, which returns a new Rect.
+- Shape -> Canvas: page.draw() returns a Canvas, a context manager that draws paths, text, images, and pages in the order of the calls and writes them as one Form XObject when its with block ends.
+- Shape.commit -> Canvas: The canvas's with block writes the drawing when it ends; page.draw(underlay=True) writes it below the page's content.
+- Shape.draw_bezier -> Canvas.bezier: canvas.bezier(p1, p2, p3, p4, stroke=...), or canvas.path(PathBuilder()...) for a closed or filled curve.
+- Shape.draw_circle -> Canvas.circle: canvas.circle(center, radius, fill=..., stroke=...); fill=Color(r, g, b) and stroke=Stroke(paint=Color(r, g, b), width=..., cap=..., join=..., dashes=...) replace color, fill, width, lineCap, lineJoin, and dashes, and a Color's alpha the opacities.
+- Shape.draw_curve -> Canvas.bezier: canvas.bezier(p1, c1, c2, p3) with the curve's control points, or build it with PathBuilder.curve_to.
+- Shape.draw_line -> Canvas.line: canvas.line(p1, p2, stroke=...); fill=Color(r, g, b) and stroke=Stroke(paint=Color(r, g, b), width=..., cap=..., join=..., dashes=...) replace color, fill, width, lineCap, lineJoin, and dashes, and a Color's alpha the opacities.
+- Shape.draw_oval -> Canvas.ellipse: canvas.ellipse(rect, fill=..., stroke=...); draw the ellipse of a quad inside canvas.transform(matrix).
+- Shape.draw_polyline -> Canvas.polygon: canvas.polygon(points, close=False, fill=..., stroke=...); fill=Color(r, g, b) and stroke=Stroke(paint=Color(r, g, b), width=..., cap=..., join=..., dashes=...) replace color, fill, width, lineCap, lineJoin, and dashes, and a Color's alpha the opacities.
+- Shape.draw_quad -> Canvas.polygon: canvas.polygon((quad.ul, quad.ur, quad.lr, quad.ll), fill=..., stroke=...).
+- Shape.draw_rect -> Canvas.rect: canvas.rect(rect, radius=..., fill=..., stroke=...), whose radius is in points where pymupdf's is a fraction of the shorter side; fill=Color(r, g, b) and stroke=Stroke(paint=Color(r, g, b), width=..., cap=..., join=..., dashes=...) replace color, fill, width, lineCap, lineJoin, and dashes, and a Color's alpha the opacities.
+- Shape.draw_sector -> PathBuilder.sector: canvas.path(PathBuilder().sector(center, radius, start, sweep, pie=True), fill=..., stroke=...), with angles in degrees clockwise from the x axis.
+- Shape.draw_squiggle -> PathBuilder.wave: canvas.path(PathBuilder().wave(p1, p2, breadth=2), stroke=...).
+- Shape.draw_zigzag -> PathBuilder.zigzag: canvas.path(PathBuilder().zigzag(p1, p2, breadth=2), stroke=...).
+- Shape.finish -> Stroke: Pass fill=Color(...) and stroke=Stroke(paint=Color(...), width=..., cap=..., join=..., dashes=...) to each canvas call; fill_rule=FillRule.EVEN_ODD replaces even_odd, and PathBuilder.close() closes a path.
+- Shape.insert_text -> Canvas.text: canvas.text(text, at, font=..., size=..., fill=...) draws lines in call order with the paths, not on top of them.
+- Shape.insert_textbox -> Canvas.textbox: canvas.textbox(rect, text, font=..., size=..., align=...) returns a TextFit; Font.text_height measures the height the text needs.
+- Shape.last_point -> PathBuilder.current_point: PathBuilder.current_point is the end of the last segment added.
 - csGRAY -> Colorspace: Use pylopdf.Colorspace.GRAY.
 - csRGB -> Colorspace: Use pylopdf.Colorspace.RGB.
 - get_pdf_str -> String: Write a Python str into the object model, which encodes it as a PDF text string, or read String.text.
@@ -421,6 +450,8 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - RawTextSpan.font -> Span.font: Read span.font.
 - RawTextSpan.origin -> Span.origin: Read span.origin.
 - RawTextSpan.size -> Span.size: Read span.size.
+- Shape.__enter__ -> Canvas: Use with page.draw() as canvas:, which writes the drawing when the block ends.
+- Shape.__exit__ -> Canvas: Use with page.draw() as canvas:, which writes the drawing when the block ends.
 - Table.col_count -> Table.rows: Use len(table.rows[0]).
 - Table.confidence -> TableDiagnostics.confidence: Read table.diagnostics.confidence.
 - Table.extract -> Table.rows: Read table.rows, the cell text row by row.

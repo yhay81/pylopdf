@@ -127,41 +127,6 @@ class _Font:
     ) -> float: ...
     def has_glyph(self, codepoint: int) -> bool: ...
 
-class _Shape:
-    def __init__(self) -> None: ...
-    def is_empty(self) -> bool: ...
-    def clear(self) -> None: ...
-    def add_path(
-        self,
-        operators: str,
-        coordinates: list[float],
-        close: bool,
-        fill: tuple[list[float], bool, float] | None,
-        stroke: tuple[list[float], float, int, int, tuple[list[float], float] | None, float] | None,
-    ) -> None: ...
-    def insert_text(
-        self,
-        point: tuple[float, float],
-        lines: list[str],
-        font: _Font,
-        fontsize: float,
-        lineheight: float | None,
-        color: list[float],
-        page_height: float,
-        max_text_size: int | None = 1048576,
-    ) -> int: ...
-    def insert_textbox(
-        self,
-        rect: tuple[float, float, float, float],
-        text: str,
-        font: _Font,
-        fontsize: float,
-        lineheight: float | None,
-        align: int,
-        color: list[float],
-        max_text_size: int | None = 1048576,
-    ) -> float: ...
-
 _Rgba: TypeAlias = tuple[float, float, float, float]
 _CanvasStroke: TypeAlias = tuple[_Rgba, float, int, int, float, list[float], float]
 
@@ -705,7 +670,6 @@ class _Document:
         package_font: tuple[str, str] | None = None,
         weight: int | None = None,
     ) -> int: ...
-    def commit_shape(self, page_number: int, shape: _Shape, overlay: bool) -> None: ...
     def commit_canvas(self, page_number: int, canvas: _Canvas, overlay: bool) -> None: ...
     def insert_font_text(
         self,

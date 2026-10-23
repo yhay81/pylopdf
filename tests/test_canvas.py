@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 import gc
 import math
+import re
+import struct
 import warnings
 from pathlib import Path
 from typing import Any
@@ -33,6 +36,38 @@ NOTO_SANS_JP = FONT_ROOT / "pylopdf-fonts-jp" / "src" / "pylopdf_fonts_jp" / "No
 RED = Color(1.0, 0.0, 0.0)
 BLUE = Color(0.0, 0.0, 1.0)
 BLACK = Color(0.0, 0.0, 0.0)
+WHITE = Color(1.0, 1.0, 1.0)
+A4 = (595.28, 841.89)
+
+# Generated 64x64 grayscale linear-gradient JPEG, as in test_image_compression.
+PHOTO_JPEG = base64.b64decode(
+    "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAIBAQEBAQIBAQECAgICAgQDAgICAgUEBAME"
+    "BgUGBgYFBgYGBwkIBgcJBwYGCAsICQoKCgoKBggLDAsKDAkKCgr/wAALCABAAEABAREA"
+    "/8QAFgABAQEAAAAAAAAAAAAAAAAAAAgJ/8QAGhAAAgMBAQAAAAAAAAAAAAAAABcBZKFT"
+    "kf/aAAgBAQAAPwDD5axwkLWOEhaxwkLWOEhaxwkLWOEhaxwkLWOElAravgW1fAtq+Bb"
+    "V8C2r4FtXwLavgW1fCgFtXwLavgW1fAtq+BbV8C2r4FtXwLavhQC2r4FtXwLavgW1fA"
+    "tq+BbV8C2r4FtXwoBbV8C2r4FtXwLavgW1fAtq+BbV8C2r4UAtq+BbV8C2r4FtXwLav"
+    "gW1fAtq+BbV8KAW1fAtq+BbV8C2r4FtXwLavgW1fAtq+FALeOEeBbxwjwLeOEeBbxwj"
+    "wLeOEeBbxwjwLeOEeBbxwjw//9k="
+)
+
+
+@pytest.fixture(scope="module")
+def regular() -> pylopdf.Font:
+    return pylopdf.Font.from_file(NOTO_SANS_JP)
+
+
+@pytest.fixture(scope="module")
+def bold() -> pylopdf.Font:
+    # The repository bundles regular faces only; a patched OS/2 weight class
+    # gives a face that declares bold, as tests/test_font.py does.
+    data = bytearray(NOTO_SANS_JP.read_bytes())
+    table_count = struct.unpack_from(">H", data, 4)[0]
+    for index in range(table_count):
+        tag, _checksum, offset, _length = struct.unpack_from(">4sIII", data, 12 + 16 * index)
+        if tag == b"OS/2":
+            struct.pack_into(">H", data, offset + 4, 700)
+    return pylopdf.Font.from_bytes(bytes(data))
 
 
 def _new_page(width: float = 300, height: float = 200) -> tuple[pylopdf.Document, pylopdf.Page]:
@@ -64,6 +99,10 @@ def _assert_rect(actual: pylopdf.Rect, expected: tuple[float, float, float, floa
 
 def _items(page: pylopdf.Page) -> list[Any]:
     return list(page.content())
+
+
+def _font_files(doc: pylopdf.Document) -> int:
+    return len(re.findall(rb"/FontFile[23]? ", doc.to_bytes()))
 
 
 def test_shapes_draw_paths_in_display_space() -> None:
@@ -426,6 +465,24 @@ def test_underlay_draws_below_existing_content() -> None:
     assert _pixel(page, 75, 75) == (255, 0, 0)
 
 
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_paths_and_text_use_display_space_at_every_rotation(rotation: int, regular: pylopdf.Font) -> None:
+    _doc, page = _new_page(400, 300)
+    page.rotation = rotation
+    with page.draw() as canvas:
+        canvas.rect((20, 30, 120, 80), stroke=Stroke(paint=BLUE, width=2))
+        canvas.text("見出し", (40, 60), font=regular, size=16)
+        canvas.text("Standard", (40, 120), size=12)
+    (path,) = page.content().paths
+    _assert_rect(path.bbox, (20, 30, 120, 80))
+    words = {word.text: word for word in page.words()}
+    assert words["見出し"].bbox.x0 == pytest.approx(40, abs=0.5)
+    assert words["Standard"].bbox.x0 == pytest.approx(40, abs=0.5)
+    assert words["見出し"].bbox.y0 < 60 < words["見出し"].bbox.y1
+    assert words["Standard"].bbox.y0 < 120 < words["Standard"].bbox.y1
+    assert (page.rect.width, page.rect.height) == ((400, 300) if rotation in (0, 180) else (300, 400))
+
+
 def test_rotated_pages_use_display_space() -> None:
     doc = pylopdf.Document()
     page = doc.pages.new((200, 300))
@@ -455,6 +512,18 @@ def test_an_exception_discards_the_drawing() -> None:
         draw_then_fail()
     assert doc.to_bytes() == before
     assert _items(page) == []
+
+
+def test_a_canvas_on_a_stale_page_cannot_write() -> None:
+    doc, page = _new_page()
+    canvas = page.draw()
+    canvas.line((10, 10), (100, 10))
+    doc.pages.new()
+    with pytest.raises(pylopdf.StalePageError), canvas:
+        pass
+    assert len(doc.pages[0].content().paths) == 0
+    with pytest.raises(pylopdf.StalePageError):
+        page.draw()
 
 
 def test_an_empty_canvas_changes_nothing() -> None:
@@ -628,3 +697,120 @@ def test_small_transform_scales_keep_their_precision() -> None:
         canvas.rect((0, 0, 100_000, 50_000), fill=RED)
     (item,) = _items(page)
     _assert_rect(item.bbox, (0, 0, 10, 5))
+
+
+def test_one_canvas_embeds_each_font_once(regular: pylopdf.Font) -> None:
+    doc, page = _new_page(400, 300)
+    with page.draw() as canvas:
+        for row in range(6):
+            canvas.text(f"行 {row} の本文", (20, 30 + 20 * row), font=regular, size=12)
+            canvas.text(f"Standard {row}", (250, 30 + 20 * row), size=10)
+        canvas.textbox((20, 160, 380, 280), "折り返す日本語の文章です。" * 5, font=regular, size=10)
+    assert _font_files(doc) == 1
+    words = [word.text for word in page.words()]
+    assert "Standard" in words
+    assert "の本文" in words
+
+    separate, separate_page = _new_page(400, 300)
+    for row in range(3):
+        with separate_page.draw() as canvas:
+            canvas.text(f"行 {row}", (20, 30 + 20 * row), font=regular, size=12)
+    assert _font_files(separate) == 3
+
+
+def test_installed_fonts_are_embedded_once_per_canvas() -> None:
+    pytest.importorskip("pylopdf_fonts_jp")
+    doc, page = _new_page()
+    with page.draw() as canvas:
+        canvas.text("日本語の見出し", (20, 50), size=14)
+        canvas.text("二行目の本文", (20, 80), size=12)
+    assert [word.text for word in page.words()] == ["日本語の見出し", "二行目の本文"]
+    assert _font_files(doc) == 1
+
+
+def test_weight_instances_of_one_variable_face_keep_their_names() -> None:
+    pytest.importorskip("pylopdf_fonts_he")
+    # Noto Sans Hebrew is variable, and its default instance is Thin.
+    doc, page = _new_page(400, 300)
+    regular = pylopdf.Font.installed(language="he")
+    bold = pylopdf.Font.installed(language="he", weight=700)
+    thin = pylopdf.Font.installed(language="he", weight=100)
+    with page.draw() as canvas:
+        canvas.line((20, 20), (380, 20))
+        canvas.text("שלום", (20, 60), font=regular, size=20)
+        canvas.text("שלום", (20, 100), font=bold, size=20)
+        canvas.text("Standard", (20, 140), size=12)
+        canvas.text("עולם", (20, 180), font=bold, size=20)
+        canvas.text("שלום", (20, 220), font=thin, size=20)
+        canvas.text("עולם", (20, 260), font=regular, size=20)
+    spans = [span for block in page.layout().blocks for line in block.lines for span in line.spans]
+    by_line = {round(span.origin.y): span.font for span in spans if span.text.strip() != "Standard"}
+    assert by_line == {
+        60: "NotoSansHebrew-Regular",
+        100: "NotoSansHebrew-Bold",
+        180: "NotoSansHebrew-Bold",
+        220: "NotoSansHebrew-Thin",
+        260: "NotoSansHebrew-Regular",
+    }
+    # Each instance is embedded once, however many lines use it.
+    assert _font_files(doc) == 3
+    # An installed extra chosen for the text is drawn at the regular weight,
+    # and a new canvas embeds it again.
+    with page.draw() as canvas:
+        canvas.text("עולם", (200, 60), size=20)
+    spans = [span for block in page.layout().blocks for line in block.lines for span in line.spans]
+    assert {span.font for span in spans if span.origin.x >= 200} == {"NotoSansHebrew-Regular"}
+    assert _font_files(doc) == 4
+
+
+def test_report_pages_with_measured_labels_frames_and_photo_marks(regular: pylopdf.Font, bold: pylopdf.Font) -> None:
+    """Build A4 report pages: framed notes sized to their text, measured labels, and marks over a photo."""
+    doc = pylopdf.Document()
+    accent = Color(0.83, 0.26, 0.05)
+    frame = Stroke(paint=Color(0.72, 0.78, 0.82), width=0.5)
+    note = "調査の結果、外壁の北面に幅0.3mmのひび割れを確認した。" * 4
+    for number in range(2):
+        page = doc.pages.new(A4)
+        height = regular.text_height(note, 10.5, width=484)
+        with page.draw() as canvas:
+            canvas.rect((50, 150, 545, 160 + height + 10), radius=4, fill=Color(0.95, 0.96, 0.97), stroke=frame)
+            canvas.line((56, 90), (540, 90), stroke=Stroke(paint=BLACK, width=1.6))
+            canvas.circle((80, 140), 7, fill=accent, stroke=Stroke(paint=WHITE, width=1.2))
+            canvas.polygon([(520, 130), (535, 140), (520, 150)], fill=accent)
+            canvas.text(f"現地調査報告書 {number + 1}", (56, 80), font=bold, size=18)
+            end = 56 + bold.text_width("項目", 12)
+            canvas.text("項目", (56, 120), font=bold, size=12)
+            canvas.text("：外壁のひび割れ", (end, 120), font=regular, size=12)
+            badge = bold.text_width("注意", 9) + 8
+            canvas.rect((440, 112, 440 + badge, 126), radius=2, fill=accent)
+            canvas.text("注意", (444, 123), font=bold, size=9, fill=WHITE)
+            fit = canvas.textbox((56, 160, 540, 160 + height), note, font=regular, size=10.5)
+        assert fit == TextFit(spare_height=0)
+        glyphs = [glyph for run in page.content(paths=False, images=False).text_runs for glyph in run.glyphs]
+        colon = next(glyph for glyph in glyphs if glyph.text == "：")
+        # The value starts where the measured label ends.
+        assert colon.origin.x == pytest.approx(end, abs=0.01)
+        assert len(page.content().paths) == 5
+        # The frame ends one padding below the note's last line.
+        last = max(glyph.bbox.y1 for glyph in glyphs if glyph.bbox is not None)
+        assert last <= 160 + height < 160 + height + 10
+
+    # Each canvas embeds one subset of each face it uses.
+    assert _font_files(doc) == 4
+
+    # A record page: marks drawn after a photo lie on top of it.
+    page = doc.pages.new(A4)
+    with page.draw() as canvas:
+        canvas.image((56, 420, 300, 600), PHOTO_JPEG, keep_aspect=False)
+        canvas.rect((120, 470, 200, 540), stroke=Stroke(paint=RED, width=3))
+        canvas.circle((90, 450), 12, fill=accent)
+        canvas.text("1", (86, 455), font=pylopdf.Font.standard("Helvetica-Bold"), size=12, fill=WHITE)
+        canvas.line((210, 560), (290, 590), stroke=Stroke(paint=RED, width=2))
+    assert _pixel(page, 120, 505) == (255, 0, 0)
+    assert _pixel(page, 98, 445) == (212, 66, 13)
+    # Inside the stroked frame the photo still shows.
+    red, green, blue = _pixel(page, 160, 505)
+    assert red == green == blue < 250
+    saved = pylopdf.open(doc.to_bytes())
+    assert len(saved.pages) == 3
+    assert "現地調査報告書" in saved.pages[0].text()

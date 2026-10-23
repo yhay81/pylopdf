@@ -301,8 +301,8 @@ def _form_generation_font(
 
 #: The PostScript names that :meth:`Font.standard` takes.
 _STANDARD_FONT_NAMES: tuple[str, ...] = get_args(StandardFontName)
-#: The Standard 14 names that the ``fontname=`` of ``insert_text``, ``insert_textbox``,
-#: and ``Shape`` accept, lower-case PostScript names and short aliases alike.
+#: The Standard 14 names that the ``fontname=`` of ``insert_text`` and ``insert_textbox``
+#: accept, lower-case PostScript names and short aliases alike.
 _BASE14_FONT_NAMES: Mapping[str, str] = MappingProxyType(
     {**{name.lower(): name for name in _STANDARD_FONT_NAMES}, **_BASE14_FONTS}
 )

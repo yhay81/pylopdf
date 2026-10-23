@@ -303,7 +303,8 @@ def test_transformed_points_work_with_drawing_and_save_reopen(rotation: int) -> 
         page.rotation = rotation
         transform = Matrix(2, 2) * Matrix(1, 0, 0, 1, 20, 30)
         start, end = Point(10, 10) * transform, Point(40, 10) * transform
-        assert page.draw_line(start, end, color=(1, 0, 0), width=2) == end
+        with page.draw() as canvas:
+            canvas.line(start, end, stroke=pylopdf.Stroke(paint=pylopdf.Color(1, 0, 0), width=2))
         page.insert_text(Point(20, 40) * transform, "Affine", fontsize=12)
         before = bytes(page.pixmap(alpha=True))
         data = document.to_bytes()

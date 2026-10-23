@@ -124,7 +124,9 @@ with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterh
     page = doc.pages[0]
     page.insert_image((72, 72, 200, 200), filename="logo.png")
     page.show_pdf_page(page.rect, letterhead)       # 另一个PDF的第0页，保持矢量
-    page.draw_line((36, 340), (400, 340), width=0.5, dashes="[3 2] 0")
+    rule = pylopdf.Stroke(paint=pylopdf.Color(0, 0, 0), width=0.5, dashes=(3, 2))
+    with page.draw() as canvas:
+        canvas.line((36, 340), (400, 340), stroke=rule)
 
     hits = page.search("important")
     if hits:

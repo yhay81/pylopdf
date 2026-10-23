@@ -120,6 +120,8 @@
     "RawTextSpan.font": {"pylopdf": "Span.font", "hint": "Read span.font."},
     "RawTextSpan.origin": {"pylopdf": "Span.origin", "hint": "Read span.origin."},
     "RawTextSpan.size": {"pylopdf": "Span.size", "hint": "Read span.size."},
+    "Shape.__enter__": {"pylopdf": "Canvas", "hint": "Use with page.draw() as canvas:, which writes the drawing when the block ends."},
+    "Shape.__exit__": {"pylopdf": "Canvas", "hint": "Use with page.draw() as canvas:, which writes the drawing when the block ends."},
     "Table.col_count": {"pylopdf": "Table.rows", "hint": "Use len(table.rows[0])."},
     "Table.confidence": {"pylopdf": "TableDiagnostics.confidence", "hint": "Read table.diagnostics.confidence."},
     "Table.extract": {"pylopdf": "Table.rows", "hint": "Read table.rows, the cell text row by row."},

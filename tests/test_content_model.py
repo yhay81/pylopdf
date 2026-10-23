@@ -426,7 +426,8 @@ def test_content_reflects_edits() -> None:
     doc.pages.new((200, 100))
     page = doc.pages[0]
     assert len(page.content()) == 0
-    page.draw_rect((10, 10, 50, 30), color=(1, 0, 0))
+    with page.draw() as canvas:
+        canvas.rect((10, 10, 50, 30), stroke=Color(1, 0, 0))
     (path,) = page.content().paths
     assert path.stroke is not None
     assert path.stroke.paint == Color(1, 0, 0, 1)

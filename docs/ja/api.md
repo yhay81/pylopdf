@@ -1,6 +1,6 @@
 ---
 title: APIリファレンス
-description: pylopdfのDocument、Page、Font、Shape、Pixmap、幾何型、低レベルオブジェクト、例外の一覧。
+description: pylopdfのDocument、Page、Canvas、Font、Pixmap、幾何型、低レベルオブジェクト、例外の一覧。
 ---
 
 # APIリファレンス
@@ -241,9 +241,7 @@ page.rotation = 90
 | `insert_textbox(rect, text, ...)` | 矩形の中に折り返したテキストを書きます |
 | `insert_image(rect, *, filename=, stream=, pixmap=, rotate=0, keep_proportion=True, overlay=True)` | JPEG、PNG、`Pixmap`を描き、そのオブジェクト番号を返します |
 | `show_pdf_page(rect, docsrc, pno=0, *, keep_proportion=True, overlay=True)` | 別のPDF（または同じPDF）のページをベクタのまま描きます |
-| `draw_line`, `draw_rect`, `draw_circle`, `draw_oval`, `draw_polyline`, `draw_quad`, `draw_sector`, `draw_curve`, `draw_bezier`, `draw_squiggle`, `draw_zigzag` | 図形を1つ描きます。`color`、`fill`、`width`、`dashes`などのスタイル指定はキーワード専用です |
-| `draw(*, underlay=False)` | パス、テキスト、画像、ページを順に描く[キャンバス](#canvas) |
-| `new_shape()` | 複数のパスとテキストを一度に描きます。[Shape](#shapes)を参照 |
+| `draw(*, underlay=False)` | 線や四角形などのパス、テキスト、画像、ページを順に描く[キャンバス](#canvas) |
 | `replace_text(search, replacement, *, default_char=None)` | 単純な（1バイトの）フォントで描かれたテキストを置換 |
 
 同じ画像やページを再び描いても、ファイルには1回だけ格納されます。
@@ -531,31 +529,6 @@ pylopdf.Font.installed(*, language=None, family=None, serif=False, weight=None, 
 
 pylopdfはシステムのフォントディレクトリを探さず、グローバルなフォント登録の仕組みも持たないため、出力は渡したフォントだけで決まります。
 
-### Shape { #shapes }
-
-`page.new_shape()`は`Shape`を返します。複数のパスとテキストを1つの単位として描くための、pymupdfの仕組みです。
-
-```python
-regular = pylopdf.Font.standard("Helvetica")
-bold = pylopdf.Font.standard("Helvetica-Bold")
-body = "Findings are listed below. " * 20
-
-with page.new_shape() as shape:
-    shape.draw_rect((50, 50, 545, 792))
-    shape.finish(color=(0.72, 0.78, 0.82), fill=(0.95, 0.96, 0.97), width=0.5)
-    shape.draw_circle((80, 140), 7)
-    shape.finish(color=(1, 1, 1), fill=(0.83, 0.26, 0.05), width=1.2)
-    shape.insert_text((56, 80), "Inspection report", font=bold, fontsize=18)
-    shape.insert_textbox((56, 160, 540, 400), body, font=regular, fontsize=10.5)
-```
-
-- `draw_*`メソッドはパスの線分を追加し、終点を返します。前の線分の終点から始まる線分は、同じパスの続きになります。
-- `finish(*, width=1, color=(0,), fill=None, lineCap=0, lineJoin=0, dashes=None, even_odd=False, closePath=True, fill_opacity=1, stroke_opacity=1)`は、前の`finish`以降に描いたものすべてにスタイルを付けます。色は0から1のグレー、RGB、CMYKのタプルです。
-- `insert_text`と`insert_textbox`は`Page`のメソッドと同じように動きます。
-- `commit()`でShapeを描きます。パスを順に描き、その上にすべてのテキストを描きます。`with`ブロックは例外なく終わったときに確定します。
-
-各フォントは、何行で使っても確定1回につき1度だけ埋め込まれるので、ページのテキストを1つのShapeで描けばファイルを小さく保てます。pymupdfと異なり、pylopdfは描画を黙って捨てたり黒くしたりせず、`PdfError`を送出します。`commit()`は`finish()`でスタイルを付けていないパスを拒否し、`finish()`は何も描かないスタイルを拒否します。`morph=`と`oc=`にはまだ対応していません。
-
 ### フォーム { #forms }
 
 `set_form_field`はテキスト、コンボボックス、リストボックス、チェックボックス、ラジオボタンのフィールドに記入し、それぞれの見た目を生成し直します。西欧（WinAnsi）のテキストはHelveticaで収まるように大きさを調整します。それ以外の文字には`fontfile`、`fontbuffer`、読み込み済みの`font`を渡すか、フォントのextraをインストールしてください。コーム（comb）フィールド、配置、最大文字数を守り、長すぎる値は例外を送出して文書を変更しません。リッチテキスト、プッシュボタンのアクション、署名には対応していません。署名については[エコシステム連携](ecosystem.md#signatures)を参照してください。
@@ -688,7 +661,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | `OcrEngine` | 再利用できるOCRエンジン。[オフラインOCR](ocr.md)を参照 |
 | `Canvas`, `PathBuilder`, `TextFit` | [キャンバス](#canvas)を参照 |
 | `create(...)`, `Builder`, `Standard`, `TagRole` | [新しい文書](#create)を参照 |
-| `Font`, `StandardFontName`, `Shape` | [Font](#font)と[Shape](#shapes)を参照 |
+| `Font`, `StandardFontName` | [Font](#font)を参照 |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [低レベルオブジェクト](#low-level-objects) |
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`ほかの内容の型 | [ページの内容](#content) |
 | `Colorspace` | [`Pixmap`](#pixmap)の色空間。`GRAY`と`RGB` |

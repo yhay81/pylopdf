@@ -70,14 +70,11 @@ def test_full_standard_14_names_draw_like_their_aliases(fontname: str, base_font
 
     page.insert_text((40, 60), "Named", fontname=fontname)
     page.insert_textbox((40, 100, 300, 160), "Boxed", fontname=fontname)
-    shape = page.new_shape()
-    shape.insert_text((40, 200), "Shaped", fontname=fontname)
-    shape.commit()
 
     data = doc.to_bytes()
     assert f"/BaseFont/{base_font}".encode() in data
     text = pylopdf.open(data).pages[0].text()
-    assert all(word in text for word in ("Named", "Boxed", "Shaped"))
+    assert all(word in text for word in ("Named", "Boxed"))
 
 
 def test_symbol_fonts_draw_with_their_built_in_encoding() -> None:

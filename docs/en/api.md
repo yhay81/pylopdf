@@ -1,6 +1,6 @@
 ---
 title: API reference
-description: A map of pylopdf's Document, Page, Font, Shape, Pixmap, geometry types, low-level objects and exceptions.
+description: A map of pylopdf's Document, Page, Canvas, Font, Pixmap, geometry types, low-level objects and exceptions.
 ---
 
 # API reference
@@ -343,9 +343,7 @@ page.rotation = 90
 | `insert_textbox(rect, text, ...)` | Write wrapped text inside a rectangle |
 | `insert_image(rect, *, filename=, stream=, pixmap=, rotate=0, keep_proportion=True, overlay=True)` | Draw a JPEG, PNG, or `Pixmap`; returns its object number |
 | `show_pdf_page(rect, docsrc, pno=0, *, keep_proportion=True, overlay=True)` | Draw a page of another PDF, or of this one, as vectors |
-| `draw_line`, `draw_rect`, `draw_circle`, `draw_oval`, `draw_polyline`, `draw_quad`, `draw_sector`, `draw_curve`, `draw_bezier`, `draw_squiggle`, `draw_zigzag` | Draw one shape; style options such as `color`, `fill`, `width`, and `dashes` are keyword-only |
-| `draw(*, underlay=False)` | A [canvas](#canvas) that draws paths, text, images, and pages in order |
-| `new_shape()` | Draw several paths and text runs at once; see [Shapes](#shapes) |
+| `draw(*, underlay=False)` | A [canvas](#canvas) that draws lines, rectangles, and other paths, text, images, and pages in order |
 | `replace_text(search, replacement, *, default_char=None)` | Replace text drawn in simple (single-byte) fonts |
 
 The same image or page drawn again is stored once in the file.
@@ -796,41 +794,6 @@ glyphs.
 pylopdf does not search system font directories and has no global font
 registry, so the output depends only on the fonts you pass in.
 
-### Shapes { #shapes }
-
-`page.new_shape()` returns a `Shape`, pymupdf's tool for drawing several paths
-and text runs as one unit:
-
-```python
-regular = pylopdf.Font.standard("Helvetica")
-bold = pylopdf.Font.standard("Helvetica-Bold")
-body = "Findings are listed below. " * 20
-
-with page.new_shape() as shape:
-    shape.draw_rect((50, 50, 545, 792))
-    shape.finish(color=(0.72, 0.78, 0.82), fill=(0.95, 0.96, 0.97), width=0.5)
-    shape.draw_circle((80, 140), 7)
-    shape.finish(color=(1, 1, 1), fill=(0.83, 0.26, 0.05), width=1.2)
-    shape.insert_text((56, 80), "Inspection report", font=bold, fontsize=18)
-    shape.insert_textbox((56, 160, 540, 400), body, font=regular, fontsize=10.5)
-```
-
-- `draw_*` methods add path segments and return the end point; a segment that
-  starts where the previous one ended continues the same path.
-- `finish(*, width=1, color=(0,), fill=None, lineCap=0, lineJoin=0,
-  dashes=None, even_odd=False, closePath=True, fill_opacity=1,
-  stroke_opacity=1)` styles everything drawn since the previous `finish`.
-  Colors are gray, RGB, or CMYK tuples from 0 to 1.
-- `insert_text` and `insert_textbox` work like the `Page` methods.
-- `commit()` draws the shape: the paths in order, then all text on top. The
-  `with` block commits when it ends without an exception.
-
-Each font is embedded once per commit, however many lines use it, so drawing a
-page's text through one shape keeps the file small. Unlike pymupdf, pylopdf
-raises `PdfError` instead of silently dropping or blackening drawing:
-`commit()` refuses paths that `finish()` did not style, and `finish()` refuses
-a style that draws nothing. `morph=` and `oc=` are not supported yet.
-
 ### Forms { #forms }
 
 `set_form_field` fills text, combo box, list box, check box, and radio button
@@ -989,7 +952,7 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `OcrEngine` | A reusable OCR engine; see [Offline OCR](ocr.md) |
 | `Canvas`, `PathBuilder`, `TextFit` | See [Canvas](#canvas) |
 | `create(...)`, `Builder`, `Standard`, `TagRole` | See [New documents](#create) |
-| `Font`, `StandardFontName`, `Shape` | See [Font](#font) and [Shapes](#shapes) |
+| `Font`, `StandardFontName` | See [Font](#font) |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [Low-level objects](#low-level-objects) |
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |
 | `Colorspace` | The color spaces of a [`Pixmap`](#pixmap): `GRAY` and `RGB` |

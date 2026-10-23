@@ -55,7 +55,6 @@ use crate::prune::{prune_unreachable_objects, reachable_object_ids};
 use crate::read_depth::{self, MAX_READ_DEPTH};
 use crate::recovery::{self, XrefRecovery};
 use crate::renumber::renumber_objects;
-use crate::shape::{_Shape, Segment};
 use crate::structure_prune::StructurePagePrune;
 use crate::text_replace::{self, TextReplacementError};
 use crate::unallocated::normalize_object_numbers;
@@ -1941,21 +1940,6 @@ impl _Document {
             package_font,
             weight,
         )
-    }
-
-    /// Draw a recorded shape over a one-based page as one Form XObject.
-    ///
-    /// Everything that can fail on the input, generation and the import
-    /// plan included, is checked before the document changes. An empty shape
-    /// leaves the document unchanged.
-    fn commit_shape(
-        &mut self,
-        py: Python<'_>,
-        page_number: u32,
-        shape: &Bound<'_, _Shape>,
-        overlay: bool,
-    ) -> PyResult<()> {
-        drawing::commit_shape(self, py, page_number, shape, overlay)
     }
 
     /// Draw a recorded canvas over a one-based page, or under it with

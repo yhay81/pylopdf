@@ -320,9 +320,9 @@ Workstream Writing.
   variable-font instance they embed, so pylopdf no longer renames them after
   import; and emitting a page as a Form XObject that pylopdf adds to lopdf's
   graph directly, so `generated_pdf.rs` and the import parse go away.
-- In the [API reset](#api-reset), the canvas replaces `Shape`,
-  `Page.draw_*`, `insert_text`, `insert_textbox`, `insert_image`, and
-  `show_pdf_page`.
+- In the [API reset](#api-reset), the canvas replaces `Shape` and
+  `Page.draw_*` (done), and `insert_text`, `insert_textbox`,
+  `insert_image`, and `show_pdf_page`.
 
 Acceptance: drawing every item of `page.content()` onto a blank page of the
 same size renders, for every page of the bundled corpus, within a published
@@ -417,9 +417,14 @@ the canvas.
   `text_width()` replaces `text_length()`, `text_height()` measures wrapped
   text as the canvas's `textbox` places it, `has_glyph()` returns a bool,
   and `StandardFontName` replaces `Base14_fontnames` and `Base14_fontdict`.
+- Done: vector drawing. `page.draw()` and its `Canvas` replace
+  `Page.draw_*`, `Page.new_shape()`, and `Shape`; the codemod rewrites
+  `draw_line`, `draw_rect`, `draw_circle`, `draw_oval`, `draw_polyline`,
+  `draw_bezier`, `draw_squiggle`, and `draw_zigzag` statements into canvas
+  blocks with `Stroke` and `Color` styles, and marks the rest.
 - Still to come, each with its codemod rules: forms and widgets, the
-  canvas in place of the page's drawing methods and `Shape`, and the
-  remaining constants and records.
+  canvas in place of `insert_text`, `insert_textbox`, `insert_image`, and
+  `show_pdf_page`, and the remaining constants and records.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs

@@ -1,6 +1,6 @@
 ---
 title: API参考
-description: pylopdf的Document、Page、Font、Shape、Pixmap、几何类型、底层对象与异常一览。
+description: pylopdf的Document、Page、Canvas、Font、Pixmap、几何类型、底层对象与异常一览。
 ---
 
 # API参考
@@ -241,9 +241,7 @@ page.rotation = 90
 | `insert_textbox(rect, text, ...)` | 在矩形内写入自动换行的文本 |
 | `insert_image(rect, *, filename=, stream=, pixmap=, rotate=0, keep_proportion=True, overlay=True)` | 绘制JPEG、PNG或`Pixmap`；返回其对象编号 |
 | `show_pdf_page(rect, docsrc, pno=0, *, keep_proportion=True, overlay=True)` | 以矢量形式绘制另一个PDF（或本文档）的某一页 |
-| `draw_line`、`draw_rect`、`draw_circle`、`draw_oval`、`draw_polyline`、`draw_quad`、`draw_sector`、`draw_curve`、`draw_bezier`、`draw_squiggle`、`draw_zigzag` | 绘制一个图形；`color`、`fill`、`width`、`dashes`等样式选项仅限关键字参数 |
-| `draw(*, underlay=False)` | 按顺序绘制路径、文本、图像和页面的[画布](#canvas) |
-| `new_shape()` | 一次绘制多条路径和多段文本；参见[图形](#shapes) |
+| `draw(*, underlay=False)` | 按顺序绘制直线、矩形等路径以及文本、图像和页面的[画布](#canvas) |
 | `replace_text(search, replacement, *, default_char=None)` | 替换以简单（单字节）字体绘制的文本 |
 
 同一图像或页面再次绘制时，在文件中只存储一份。
@@ -531,31 +529,6 @@ pylopdf.Font.installed(*, language=None, family=None, serif=False, weight=None, 
 
 pylopdf不搜索系统字体目录，也没有全局字体注册表，因此输出只取决于你传入的字体。
 
-### 图形 { #shapes }
-
-`page.new_shape()`返回`Shape`，这是pymupdf中把多条路径和多段文本作为一个整体绘制的工具：
-
-```python
-regular = pylopdf.Font.standard("Helvetica")
-bold = pylopdf.Font.standard("Helvetica-Bold")
-body = "Findings are listed below. " * 20
-
-with page.new_shape() as shape:
-    shape.draw_rect((50, 50, 545, 792))
-    shape.finish(color=(0.72, 0.78, 0.82), fill=(0.95, 0.96, 0.97), width=0.5)
-    shape.draw_circle((80, 140), 7)
-    shape.finish(color=(1, 1, 1), fill=(0.83, 0.26, 0.05), width=1.2)
-    shape.insert_text((56, 80), "Inspection report", font=bold, fontsize=18)
-    shape.insert_textbox((56, 160, 540, 400), body, font=regular, fontsize=10.5)
-```
-
-- `draw_*`方法添加路径线段并返回终点；从上一段终点开始的线段会延续同一条路径。
-- `finish(*, width=1, color=(0,), fill=None, lineCap=0, lineJoin=0, dashes=None, even_odd=False, closePath=True, fill_opacity=1, stroke_opacity=1)`为上一次`finish`之后绘制的所有内容设置样式。颜色为0到1之间的灰度、RGB或CMYK元组。
-- `insert_text`和`insert_textbox`的用法与`Page`的同名方法相同。
-- `commit()`绘制该图形：先按顺序绘制路径，再把所有文本绘制在上层。`with`块在未发生异常而结束时会自动提交。
-
-无论有多少行文本使用同一种字体，每次提交中每种字体只嵌入一次，因此通过一个shape绘制整页文本可以让文件保持小巧。与pymupdf不同，pylopdf不会悄悄丢弃绘制内容或将其涂黑，而是抛出`PdfError`：`commit()`会拒绝未经`finish()`设置样式的路径，`finish()`会拒绝不绘制任何内容的样式。`morph=`和`oc=`尚不支持。
-
 ### 表单 { #forms }
 
 `set_form_field`可填写文本框、组合框、列表框、复选框和单选按钮字段，并重新生成每个字段的外观。西欧（WinAnsi）文本会用Helvetica自动缩放以适应字段。其他字符请传入`fontfile`、`fontbuffer`或已加载的`font`，或者安装字体extra。梳状字段（comb）、对齐方式和最大长度都会被遵守；值过长时会抛出异常，文档保持不变。不支持富文本、按钮动作和签名；签名请参阅[生态系统方案](ecosystem.md#signatures)。
@@ -688,7 +661,7 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 | `OcrEngine` | 可复用的OCR引擎；参见[离线OCR](ocr.md) |
 | `Canvas`、`PathBuilder`、`TextFit` | 参见[画布](#canvas) |
 | `create(...)`、`Builder`、`Standard`、`TagRole` | 参见[新文档](#create) |
-| `Font`、`StandardFontName`、`Shape` | 参见[Font](#font)和[图形](#shapes) |
+| `Font`、`StandardFontName` | 参见[Font](#font) |
 | `Name`、`String`、`Array`、`Dictionary`、`Stream`、`Objects` | [底层对象](#low-level-objects) |
 | `Content`、`TextRun`、`Path`、`Image`、`Glyph`、`FontRef`、`Color`、`Stroke`、`GraphicsContext`及其他内容类型 | [页面内容](#content) |
 | `Colorspace` | [`Pixmap`](#pixmap)的颜色空间：`GRAY`和`RGB` |

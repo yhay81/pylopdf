@@ -145,17 +145,15 @@ def test_insert_image_starts_from_the_initial_graphics_state(
 
 @pytest.mark.parametrize("rotation", ROTATIONS)
 @pytest.mark.parametrize("contents", CONTENTS)
-def test_shape_starts_from_the_initial_graphics_state(contents: tuple[bytes, ...], rotation: int) -> None:
+def test_canvas_starts_from_the_initial_graphics_state(contents: tuple[bytes, ...], rotation: int) -> None:
     page = _page(*contents, rotation=rotation).pages[0]
 
-    shape = page.new_shape()
-    shape.draw_rect((20, 30, 60, 70))
-    shape.finish(color=RED, width=1)
-    shape.insert_text((25, 50), "Shaped", fontsize=8)
-    shape.commit()
+    with page.draw() as canvas:
+        canvas.rect((20, 30, 60, 70), stroke=pylopdf.Color(*RED))
+        canvas.text("Drawn", (25, 50), size=8)
 
     assert _red_rects(page) == [pytest.approx((20, 30, 60, 70), abs=0.01)]
-    _assert_text_at(page, "Shaped", (25, 50))
+    _assert_text_at(page, "Drawn", (25, 50))
 
 
 @pytest.mark.parametrize("rotation", ROTATIONS)
@@ -163,7 +161,8 @@ def test_shape_starts_from_the_initial_graphics_state(contents: tuple[bytes, ...
 def test_show_pdf_page_starts_from_the_initial_graphics_state(contents: tuple[bytes, ...], rotation: int) -> None:
     source = pylopdf.Document()
     source.pages.new((100, 100))
-    source.pages[0].draw_rect((0, 0, 100, 100), color=None, fill=RED)
+    with source.pages[0].draw() as canvas:
+        canvas.rect((0, 0, 100, 100), fill=pylopdf.Color(*RED))
     page = _page(*contents, rotation=rotation).pages[0]
 
     page.show_pdf_page((20, 30, 60, 70), source, 0)

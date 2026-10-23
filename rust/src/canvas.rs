@@ -50,7 +50,6 @@ use crate::generate::{self, GenerationFace, GlyphRun};
 use crate::layout::{LinePlacement, MAX_GENERATED_TEXT_LINES};
 use crate::pixmap::Pixmap;
 use crate::placement_reuse::{FormSource, ImageDigest};
-use crate::shape::GeneratedDocument;
 
 /// Path points, of paths and clips together, that one canvas may hold until
 /// it commits.
@@ -602,6 +601,13 @@ pub(crate) struct CanvasRecording {
 enum TextSlot {
     Start { document: usize, page: usize },
     Continue,
+}
+
+/// One generated krilla document of a commit.
+pub(crate) struct GeneratedDocument {
+    pub(crate) pdf: Vec<u8>,
+    /// The face whose instance names the document's fonts, if any.
+    pub(crate) instance: Option<usize>,
 }
 
 /// The krilla documents of a commit and the pages each one draws.
