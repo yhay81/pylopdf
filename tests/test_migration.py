@@ -254,6 +254,16 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ("import fitz\ndoc.save('out.pdf', incremental=False, deflate_images=True)\n", "doc.save('out.pdf')"),
         ("import fitz\ndoc.save(path, incremental=True, garbage=0)\n", "doc.save(path, prune=False, incremental=True)"),
         ("import fitz\ndoc.saveIncr()\n", "doc.save(doc.path, incremental=True)"),
+        ("import fitz\ndoc.journal_undo()\ndoc.journal_redo()\n", "doc.history.undo()\ndoc.history.redo()"),
+        (
+            "import fitz\nstate = doc.journal_can_do()\n",
+            'state = {"undo": doc.history.can_undo, "redo": doc.history.can_redo}',
+        ),
+        (
+            "import fitz\nstep, total = doc.journal_position()\n",
+            "step, total = (doc.history.position, len(doc.history.steps))",
+        ),
+        ("import fitz\nname = doc.journal_op_name(0)\n", "name = doc.history.steps[0]"),
         ("import fitz\nif doc.can_save_incrementally():\n    pass\n", "if doc.can_save_incrementally:"),
         (
             "import fitz\ndoc.ez_save('out.pdf')\n",

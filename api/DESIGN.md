@@ -128,8 +128,10 @@ time. Exceeding one raises `LimitError` and returns no partial result.
   When it cannot, it refuses. What it invalidates and cannot repair, such as
   a signature over changed bytes or a PDF/A or PDF/UA claim, it reports
   ([Goal](../ROADMAP.md#goal)).
-- **Transactions.** `with doc.transaction():` makes a group of edits atomic
-  and records one undo step ([Persistence](../ROADMAP.md#persistence)).
+- **Transactions.** `with doc.transaction(name):` makes a group of edits
+  atomic and records one undo step in `doc.history`, which has `undo()`,
+  `redo()`, `can_undo`, `can_redo`, `steps`, `position`, `clear()`, and an
+  assignable `max_size` memory budget ([Persistence](../ROADMAP.md#persistence)).
 - **Staleness.** A structural change bumps the page generation. `Page`
   handles then raise `StalePageError`, and annotation, link, field, and
   widget handles raise `StaleObjectError` when their page changed or their
@@ -234,7 +236,7 @@ interpret the page separately and agree with it on the bundled corpus.
 | `pylopdf.open(source, /, *, password=None, limits=None)` → `Document` | `source` is a path, `bytes`, `bytearray`, or `memoryview`. |
 | `pylopdf.Document(*, limits=None)` | An empty document; `limits` sets the budgets for the pages it receives. |
 | `pylopdf.probe(source, /, *, password=None, max_file_size=None)` → `Probe` | A record of `page_count`, `version`, `is_encrypted`, `is_repaired`, and `metadata` (the Info entries present, by the names `doc.metadata` uses) without a full load. |
-| `doc.save(path, /, *, compress=True, prune=True, dedupe=False, renumber=False, object_streams=False, encryption=None, incremental=False)` | Each option is a boolean named after its effect. `compress` and `prune` default to true, as qpdf and pikepdf write files; the four that change objects change the document itself, and handles to removed or renumbered objects go stale. `encryption` takes an `Encryption(user_password=..., owner_password=..., permissions=..., method="aes-256")` value; `None` writes plaintext. Saving over the open file replaces it atomically. `incremental` comes with Persistence. |
+| `doc.save(path, /, *, compress=True, prune=True, dedupe=False, renumber=False, object_streams=False, encryption=None, incremental=False)` | Each option is a boolean named after its effect. `compress` and `prune` default to true, as qpdf and pikepdf write files; the four that change objects change the document itself, and handles to removed or renumbered objects go stale. `encryption` takes an `Encryption(user_password=..., owner_password=..., permissions=..., method="aes-256")` value, `method="aes-128"` included, or `Encryption.KEEP` for the input's encryption; `None` writes plaintext, and RC4 is never written. Saving over the open file replaces it atomically. `incremental=True` appends one update to the original bytes and refuses the options that rewrite objects; `doc.can_save_incrementally` tells whether a document can. |
 | `doc.to_bytes(*, ..., max_size=...)` | The options of `save`. |
 | `doc.unlock(password)` → `Access` | `Access.USER` or `Access.OWNER`; a wrong password raises `PasswordError`, and an unencrypted document grants `Access.OWNER`. |
 | `doc.needs_password`, `is_repaired`, `is_dirty`, `is_closed`, `permissions` | `needs_password` is true until `unlock` succeeds; `permissions` is a `Permissions` flag value. |

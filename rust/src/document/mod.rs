@@ -70,6 +70,8 @@ mod flattening;
 mod fonts;
 mod forms;
 mod geometry;
+/// Snapshots that transactions and undo restore.
+mod history;
 mod images;
 /// Incremental saves that append one update to the original bytes.
 mod incremental;
@@ -103,6 +105,7 @@ use self::extraction::*;
 pub(crate) use self::fonts::*;
 pub(crate) use self::forms::*;
 use self::geometry::*;
+pub(crate) use self::history::_DocumentSnapshot;
 pub(crate) use self::images::*;
 use self::incremental::IncrementalBase;
 pub(crate) use self::input::*;
@@ -681,6 +684,16 @@ impl _Document {
     ) -> PyResult<Vec<u8>> {
         self.invalidate_hayro_pdf_keeping_placements();
         py.detach(|| serialize_pdf(&mut self.doc, Some(modern_save_options()), max_size))
+    }
+
+    /// Copy the editable state, for a transaction or an undo step.
+    fn take_snapshot(&self, py: Python<'_>) -> PyResult<_DocumentSnapshot> {
+        history::take_snapshot(self, py)
+    }
+
+    /// Return to the state of `snapshot`, which this uses up.
+    fn restore_snapshot(&mut self, mut snapshot: PyRefMut<'_, _DocumentSnapshot>) -> PyResult<()> {
+        history::restore_snapshot(self, &mut snapshot)
     }
 
     /// Whether an incremental save can extend the original bytes.
