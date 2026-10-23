@@ -56,11 +56,6 @@ pub(super) fn deref_dict_ref<'a>(doc: &'a Document, obj: &'a Object) -> Option<&
     }
 }
 
-pub(super) fn finite_number(doc: &Document, object: &Object) -> Option<f64> {
-    let value = f64::from(deref_object(doc, object).as_float().ok()?);
-    value.is_finite().then_some(value)
-}
-
 /// Read an integer while allowing an indirect reference.
 pub(crate) fn resolve_i64(doc: &Document, obj: &Object) -> Option<i64> {
     match obj {

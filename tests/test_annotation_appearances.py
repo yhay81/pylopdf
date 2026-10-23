@@ -198,8 +198,8 @@ def test_missing_underline_appearance_follows_slanted_quad() -> None:
 
 
 def test_missing_text_markup_quad_budget_is_atomic() -> None:
-    """Do not synthesize a partial set above the aggregate quad budget."""
-    excessive_quads = "10 20 30 20 10 10 30 10 " * 4096
+    """Do not synthesize a partial set when one annotation holds more quads than the engine draws."""
+    excessive_quads = "10 20 30 20 10 10 30 10 " * 4097
     pdf = build_raw_pdf(
         {
             1: "<< /Type /Catalog /Pages 2 0 R >>",
@@ -241,6 +241,41 @@ def test_missing_text_markup_segment_budget_is_atomic() -> None:
     page = pylopdf.open(pdf).pages[0]
 
     assert not _has_yellowish(_region_pixels(page, page.rect))
+
+
+def _squiggles(count: int) -> pylopdf.Page:
+    """Open a page with a highlight and `count` squiggly lines of 65,535 zigzag points each, all without appearances."""
+    squiggles = {
+        6 + index: (
+            f"<< /Type /Annot /Subtype /Squiggly /Rect [0 {index} 131068 {index + 1}] "
+            f"/QuadPoints [0 {index + 1} 131068 {index + 1} 0 {index} 131068 {index}] /C [1 0 0] >>"
+        )
+        for index in range(count)
+    }
+    references = " ".join(f"{number} 0 R" for number in range(5, 6 + count))
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Annots [{references}] >>",
+            4: "<< /Length 0 >>\nstream\n\nendstream",
+            5: (
+                "<< /Type /Annot /Subtype /Highlight /Rect [10 10 30 20] "
+                "/QuadPoints [10 20 30 20 10 10 30 10] /C [1 1 0] >>"
+            ),
+            **squiggles,
+        }
+    )
+    return pylopdf.open(pdf).pages[0]
+
+
+def test_missing_appearance_point_budget_is_atomic() -> None:
+    """Do not synthesize a partial set above the aggregate point budget of a rendering snapshot."""
+    page = _squiggles(5)
+    assert not _has_yellowish(_region_pixels(page, page.rect))
+    # Four of them fit in the budget, and their peer is drawn.
+    page = _squiggles(4)
+    assert _has_yellowish(_region_pixels(page, page.rect))
 
 
 def test_insert_link_reads_back() -> None:
@@ -445,7 +480,8 @@ def test_highlight_input_stops_before_unbounded_materialization() -> None:
 
 
 def test_annotation_add_at_metadata_boundary_remains_readable() -> None:
-    content = "x" * (1024 * 1024 - len("Highlight"))
+    # The subtype, the contents, and the creation and modification dates.
+    content = "x" * (1024 * 1024 - len("Highlight") - 2 * len("D:20260101000000Z"))
     highlight_doc = pylopdf.open(build_pdf([""]))
     highlight_doc.pages[0].annotations.add(pylopdf.Highlight((10, 10, 20, 20), contents=content))
     assert highlight_doc.pages[0].annotations[0].contents == content

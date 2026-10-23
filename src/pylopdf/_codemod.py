@@ -1302,13 +1302,22 @@ def _color_record(migrator: _Migrator, text: str) -> str | None:
     return f"{color}(*{text})"
 
 
-def _add_highlight_annot(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
-    """Rewrite ``add_highlight_annot(quads, ...)`` to ``annotations.add(Highlight(...))``."""
+def _add_text_markup_annot(specification: str) -> Callable[[_Migrator, str, _Arguments], str | None]:
+    """Rewrite ``add_highlight_annot(quads, ...)`` and its siblings to ``annotations.add(...)``."""
+
+    def rule(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+        return _add_markup(migrator, receiver, args, specification)
+
+    return rule
+
+
+def _add_markup(migrator: _Migrator, receiver: str, args: _Arguments, specification: str) -> str | None:
+    """Rewrite one text-markup call to ``annotations.add(Highlight(...))`` or a sibling."""
     keywords = dict(args.keywords)
     if len(args.positional) > 1 or set(keywords) - {"quads", "rects", "color", "opacity", "content"}:
         return None
     area = args.positional[0] if args.positional else keywords.get("quads", keywords.get("rects"))
-    highlight = migrator.class_name("Highlight")
+    highlight = migrator.class_name(specification)
     if area is None or highlight is None:
         return None
     arguments = [area]
@@ -1621,7 +1630,10 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "add_link_annot": _add_link_annot,
     "has_links": _no_arguments("any(page.links for page in {receiver}.pages)"),
     "annots": _annots,
-    "add_highlight_annot": _add_highlight_annot,
+    "add_highlight_annot": _add_text_markup_annot("Highlight"),
+    "add_underline_annot": _add_text_markup_annot("Underline"),
+    "add_strikeout_annot": _add_text_markup_annot("StrikeOut"),
+    "add_squiggly_annot": _add_text_markup_annot("Squiggly"),
     "add_rect_annot": _add_shape_annot("Square"),
     "add_circle_annot": _add_shape_annot("Circle"),
     "add_line_annot": _add_shape_annot("LineAnnotation", ("p1", "p2")),

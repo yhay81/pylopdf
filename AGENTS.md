@@ -1810,23 +1810,23 @@ the concept and API overview.
   fall back to encoded bytes, and size refusal uses `form_content_size`.
   Unfiltered content remains borrowed while building the combined Form stream.
   Annotations must always include an appearance
-  stream at `AP /N`, because hayro does not render annotations without one. The
-  immutable rendering snapshot
-  conservatively synthesizes missing appearances for bounded RGB Highlight,
-  Underline, StrikeOut, and Squiggly annotations with valid `QuadPoints`; this
-  must not mutate the editable or saved PDF. Aggregate geometry stops at 4,096
-  quads and 65,536 generated path segments without returning a partial
-  synthesized set. State substitutions and missing text-markup appearances are
-  planned once, with borrowed dictionary reads and fallible collections, before
-  preparing the rendering clone. Quad bounding boxes do not materialize a
-  second point vector, and generated appearance buffers grow fallibly.
-  Pylopdf-created Highlights prepare quads, `QuadPoints`, and their
-  appearance, a canvas over the highlighted display rectangles that
-  `prepare_canvas_form` composes, before cache invalidation or
-  dependent-object creation. An appearance canvas is as large as the
-  annotation's display rectangle, and its Form's `/Matrix`
-  (`annotations::appearance_matrix`) maps the composed canvas onto `/Rect` in
-  user space, upright on the displayed page.
+  stream at `AP /N`, because hayro does not render annotations without one.
+  The immutable rendering snapshot synthesizes missing appearances for every
+  type that `annotation_appearance.rs` draws (described with
+  `page.annotations` below); this must not mutate the editable or saved PDF.
+  Text markup covers the bounds of its `QuadPoints`, so the rendering clone
+  also takes that rectangle as `/Rect`. An authored `/CA` that is no number
+  from 0 to 1 leaves an annotation undrawn. More than 4,096 synthesized
+  appearances, more than 262,144 path points in all, or one annotation whose
+  geometry holds more than 65,536 points or 4,096 quadrilaterals (a squiggly
+  zigzag counted from the array lengths before drawing) leave every
+  appearance undrawn rather than return a partial synthesized set. Missing
+  appearances are planned once, with borrowed dictionary reads and fallible
+  collections, before preparing the rendering clone. Created annotations
+  draw their appearance with the same engine on a canvas over `/Rect` in
+  user space, which `prepare_canvas_form` composes before cache invalidation
+  or dependent-object creation, and whose Form's `/Matrix` translates it onto
+  `/Rect`.
   Annotation appends validate the final page limit and preallocate their
   `/Annots` target before dependent-object creation. Direct arrays and unshared
   indirect arrays reserve one slot in place; page-shared indirect arrays
@@ -2394,15 +2394,16 @@ the concept and API overview.
   same direct-dictionary rule, and its properties are read-only typed values
   (`/C` and `/IC` of one, three, or four components become a `Color`, CMYK
   converted naively). `remove_annotations` also removes the `/Popup` that
-  an annotation names when the page lists it. `add(Highlight(...))` calls
-  `add_highlight_annotation`; the other specifications pass a dictionary that
-  the core's `add_annotation` extracts as an `AnnotationSpec`
+  an annotation names when the page lists it. Every specification's
+  `_payload()` passes a dictionary that the core's `add_annotation` extracts as an `AnnotationSpec`
   (`from_item_all`, absent keys default), which builds the complete
   annotation dictionary, checks every entry again, and draws its appearance
   with `rust/src/annotation_appearance.rs` before any mutation. That engine
   draws each type it supports (`annotation_appearance::draws`) from the
   dictionary alone (`/Rect`, `/C`, `/IC`, `/BS` else `/Border`, `/CA`,
-  `/BM`, `/RD`, `/L`, `/Vertices`, `/InkList`, and `/LE`, reading unusable
+  `/BM`, `/RD`, `/L`, `/Vertices`, `/InkList`, `/QuadPoints`, and `/LE`;
+  a highlight multiplies unless `/BM` says otherwise, and text-markup lines
+  are one point wide; reading unusable
   entries as absent and geometry of more than 65,536 points as missing) on a
   canvas over `/Rect`
   in user space, so creation, property edits, and the rendering snapshot

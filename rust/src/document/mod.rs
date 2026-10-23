@@ -1286,22 +1286,6 @@ impl _Document {
         navigation::read_link(self, py, page_number, index, xref)
     }
 
-    /// Add a highlight annotation to a one-based page.
-    ///
-    /// `rects` use display coordinates. Generate Acrobat-order QuadPoints and
-    /// an `AP /N` appearance with Multiply blending for hayro and other viewers.
-    fn add_highlight_annotation(
-        &mut self,
-        py: Python<'_>,
-        page_number: u32,
-        rects: Vec<(f64, f64, f64, f64)>,
-        color: (f64, f64, f64),
-        opacity: f64,
-        content: Option<String>,
-    ) -> PyResult<u32> {
-        annotations::add_highlight_annotation(self, py, page_number, rects, color, opacity, content)
-    }
-
     /// Add the annotation that a specification describes to a one-based
     /// page, with its appearance, and return its object number.
     fn add_annotation(

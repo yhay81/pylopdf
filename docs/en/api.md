@@ -370,6 +370,9 @@ time of their creation in `created` and `modified`.
 | Specification | Adds |
 |---|---|
 | `Highlight(rects, *, color=Color(1, 1, 0), opacity=0.4, contents=None)` | A highlight over one or more rectangles or quads, such as search results, drawn in multiply blending |
+| `Underline(rects, *, color=Color(0, 0, 1), opacity=1.0, contents=None)` | A one-point line just above the bottom of each rectangle |
+| `StrikeOut(rects, *, color=Color(1, 0, 0), opacity=1.0, contents=None)` | A one-point line through the middle of each rectangle |
+| `Squiggly(rects, *, color=Color(1, 0, 0), opacity=1.0, contents=None)` | A zigzag along the bottom of each rectangle |
 | `Square(rect, *, color=Color(1, 0, 0), interior_color=None, border=Border(), opacity=1.0, blend_mode=None, contents=None)` | A rectangle whose border `color` strokes and `interior_color` fills; either may be `None` |
 | `Circle(rect, *, ...)` | The ellipse inscribed in `rect`, with the fields of `Square` |
 | `LineAnnotation(start, end, *, color=Color(1, 0, 0), interior_color=None, border=Border(), line_endings=(LineEnding.NONE, LineEnding.NONE), opacity=1.0, blend_mode=None, contents=None)` | A straight line with a shape at each end, whose closed shapes `interior_color` fills |
@@ -407,9 +410,10 @@ for annotation in page.annotations:
         print(annotation.author, annotation.contents)
 ```
 
-Rendering draws a square, circle, line, polygon, polyline, or ink
-annotation that another producer wrote without an appearance from its dictionary, as it does a text-markup annotation from its
-quadrilaterals; neither changes the document.
+Rendering draws an annotation of any of these types that another producer
+wrote without an appearance from its dictionary, without changing the
+document; it draws none of them when they would draw more than 262,144 path
+points in all or when one holds more points than a created one may.
 
 Annotation reads stop at 4,096 annotations and 1 MiB of text per page, and
 the contents of a specification stop at 1 MiB (`LimitError` code
@@ -1031,7 +1035,7 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |
 | `Colorspace` | The color spaces of a [`Pixmap`](#pixmap): `GRAY` and `RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [Outline and page labels](#outline) |
-| `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `AnnotationSpecification`, `Highlight`, `Square`, `Circle`, `LineAnnotation`, `Polygon`, `PolyLine`, `Ink`, `Border`, `BorderStyle`, `LineEnding`, `Link`, `Links` | [Annotations and links](#page-annotations) |
+| `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `AnnotationSpecification`, `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Square`, `Circle`, `LineAnnotation`, `Polygon`, `PolyLine`, `Ink`, `Border`, `BorderStyle`, `LineEnding`, `Link`, `Links` | [Annotations and links](#page-annotations) |
 | `PageBoxes` | [Page geometry](#page-geometry) |
 | `Form`, `Field`, `FieldType`, `FieldFlags`, `FieldChoice` | [Forms](#forms) |
 | `FallbackFont`, `FallbackFonts` | [Rendering and images](#document-rendering) |

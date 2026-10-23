@@ -493,16 +493,60 @@ def _opaque_color(value: object, name: str = "color") -> Color:
     return value
 
 
+class _TextMarkup:
+    """The fields and validation that the text-markup specifications share."""
+
+    __slots__ = ()
+
+    rects: tuple[Rect, ...]
+    color: Color
+    opacity: float
+    contents: str | None
+
+    def _init(self, rects: object, color: object, opacity: object, contents: object) -> None:
+        """Validate the specification; the contents are bounded before the rectangles are read."""
+        if contents is not None and not isinstance(contents, str):
+            msg = f"contents must be a str or None: {type(contents).__name__}"
+            raise TypeError(msg)
+        _validate_cumulative_utf8_input(
+            (type(self).__name__, "" if contents is None else contents, _DATE_PLACEHOLDER, _DATE_PLACEHOLDER),
+            _MAX_ANNOTATION_INPUT_TEXT_SIZE,
+            limit_code="annotation_input_size",
+            input_label="annotation subtype and contents input",
+        )
+        validated = _validate_highlight_rects(rects)
+        if isinstance(opacity, bool) or not isinstance(opacity, (int, float)):
+            msg = f"opacity must be a number: {opacity!r}"
+            raise TypeError(msg)
+        if not (math.isfinite(opacity) and 0.0 < opacity <= 1.0):
+            msg = f"opacity must be greater than 0 and at most 1: {opacity!r}"
+            raise ValueError(msg)
+        object.__setattr__(self, "rects", validated)
+        object.__setattr__(self, "color", _opaque_color(color))
+        object.__setattr__(self, "opacity", float(opacity))
+        object.__setattr__(self, "contents", contents)
+
+    def _payload(self) -> dict[str, Any]:
+        return {
+            "subtype": type(self).__name__,
+            "rects": [(rect.x0, rect.y0, rect.x1, rect.y1) for rect in self.rects],
+            "color": self.color.rgb,
+            "opacity": self.opacity,
+            "contents": self.contents,
+            "created": _now(),
+        }
+
+
 @dataclass(frozen=True, slots=True, init=False)
-class Highlight:
+class Highlight(_TextMarkup):
     """A highlight over text, as ``page.annotations.add`` takes it.
 
     ``rects`` is one rectangle or quad, or a sequence of them, in display
     coordinates, such as the result of ``page.search``; a :class:`Quad`
     contributes its bounding rectangle, and one annotation holds at most
-    4,096. ``color`` and ``opacity`` style the highlight, and ``contents`` is
-    the text of its note. The annotation is written with its appearance, so
-    every viewer draws it alike.
+    4,096. ``color`` fills them in multiply blending at ``opacity``, and
+    ``contents`` is the text of its note. The annotation is written with its
+    appearance, so every viewer draws it alike.
     """
 
     rects: tuple[Rect, ...]
@@ -519,26 +563,83 @@ class Highlight:
         contents: str | None = None,
     ) -> None:
         """Validate the specification; the contents are bounded before the rectangles are read."""
-        if contents is not None and not isinstance(contents, str):
-            msg = f"contents must be a str or None: {type(contents).__name__}"
-            raise TypeError(msg)
-        _validate_cumulative_utf8_input(
-            ("Highlight", "" if contents is None else contents),
-            _MAX_ANNOTATION_INPUT_TEXT_SIZE,
-            limit_code="annotation_input_size",
-            input_label="annotation subtype and contents input",
-        )
-        validated = _validate_highlight_rects(rects)
-        if isinstance(opacity, bool) or not isinstance(opacity, (int, float)):
-            msg = f"opacity must be a number: {opacity!r}"
-            raise TypeError(msg)
-        if not (math.isfinite(opacity) and 0.0 < opacity <= 1.0):
-            msg = f"opacity must be greater than 0 and at most 1: {opacity!r}"
-            raise ValueError(msg)
-        object.__setattr__(self, "rects", validated)
-        object.__setattr__(self, "color", _opaque_color(color))
-        object.__setattr__(self, "opacity", float(opacity))
-        object.__setattr__(self, "contents", contents)
+        self._init(rects, color, opacity, contents)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Underline(_TextMarkup):
+    """A line under text, as ``page.annotations.add`` takes it.
+
+    The fields are those of :class:`Highlight`; ``color`` draws a one-point
+    line just above the bottom edge of each rectangle.
+    """
+
+    rects: tuple[Rect, ...]
+    color: Color
+    opacity: float
+    contents: str | None
+
+    def __init__(
+        self,
+        rects: Sequence[float] | Quad | Iterable[Sequence[float] | Quad],
+        *,
+        color: Color = Color(0.0, 0.0, 1.0),  # noqa: B008 - Color is immutable.
+        opacity: float = 1.0,
+        contents: str | None = None,
+    ) -> None:
+        """Validate the specification; the contents are bounded before the rectangles are read."""
+        self._init(rects, color, opacity, contents)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class StrikeOut(_TextMarkup):
+    """A line through text, as ``page.annotations.add`` takes it.
+
+    The fields are those of :class:`Highlight`; ``color`` draws a one-point
+    line through the middle of each rectangle.
+    """
+
+    rects: tuple[Rect, ...]
+    color: Color
+    opacity: float
+    contents: str | None
+
+    def __init__(
+        self,
+        rects: Sequence[float] | Quad | Iterable[Sequence[float] | Quad],
+        *,
+        color: Color = Color(1.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        opacity: float = 1.0,
+        contents: str | None = None,
+    ) -> None:
+        """Validate the specification; the contents are bounded before the rectangles are read."""
+        self._init(rects, color, opacity, contents)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Squiggly(_TextMarkup):
+    """A wavy line under text, as ``page.annotations.add`` takes it.
+
+    The fields are those of :class:`Highlight`; ``color`` draws a zigzag
+    two points wide along the bottom of each rectangle, at most 65,536 points
+    in all (``annotation_point_count``).
+    """
+
+    rects: tuple[Rect, ...]
+    color: Color
+    opacity: float
+    contents: str | None
+
+    def __init__(
+        self,
+        rects: Sequence[float] | Quad | Iterable[Sequence[float] | Quad],
+        *,
+        color: Color = Color(1.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        opacity: float = 1.0,
+        contents: str | None = None,
+    ) -> None:
+        """Validate the specification; the contents are bounded before the rectangles are read."""
+        self._init(rects, color, opacity, contents)
 
 
 def _optional_color(value: object, name: str) -> Color | None:
@@ -558,6 +659,12 @@ def _contents(value: object) -> str | None:
         msg = f"contents must be a str or None: {type(value).__name__}"
         raise TypeError(msg)
     return value
+
+
+#: A PDF date as created annotations write it twice, for /CreationDate and
+#: /M, which the input budget charges so that the annotation reads back
+#: under the same budget.
+_DATE_PLACEHOLDER = "D:00000000000000Z"
 
 
 def _now() -> str:
@@ -590,7 +697,7 @@ class _Shape:
     ) -> None:
         contents = _contents(contents)
         _validate_cumulative_utf8_input(
-            (type(self).__name__, "" if contents is None else contents),
+            (type(self).__name__, "" if contents is None else contents, _DATE_PLACEHOLDER, _DATE_PLACEHOLDER),
             _MAX_ANNOTATION_INPUT_TEXT_SIZE,
             limit_code="annotation_input_size",
             input_label="annotation subtype and contents input",
@@ -608,6 +715,9 @@ class _Shape:
 
     def _spec(self, subtype: str) -> dict[str, Any]:
         return {"rect": tuple(self.rect), **self._style(subtype)}
+
+    def _payload(self) -> dict[str, Any]:
+        return self._spec(type(self).__name__)
 
     def _style(self, subtype: str) -> dict[str, Any]:
         border = self.border
@@ -738,7 +848,7 @@ class _Drawn(_Shape):
     ) -> None:
         contents = _contents(contents)
         _validate_cumulative_utf8_input(
-            (type(self).__name__, "" if contents is None else contents),
+            (type(self).__name__, "" if contents is None else contents, _DATE_PLACEHOLDER, _DATE_PLACEHOLDER),
             _MAX_ANNOTATION_INPUT_TEXT_SIZE,
             limit_code="annotation_input_size",
             input_label="annotation subtype and contents input",
@@ -921,7 +1031,10 @@ class Ink(_Drawn):
 
 
 #: The specifications that ``page.annotations.add`` takes.
-AnnotationSpecification: TypeAlias = Highlight | Square | Circle | LineAnnotation | Polygon | PolyLine | Ink
+AnnotationSpecification: TypeAlias = (
+    Highlight | Underline | StrikeOut | Squiggly | Square | Circle | LineAnnotation | Polygon | PolyLine | Ink
+)
+_SPECIFICATIONS = (Highlight, Underline, StrikeOut, Squiggly, Square, Circle, LineAnnotation, Polygon, PolyLine, Ink)
 
 
 class Annotations(Sequence[Annotation]):
@@ -975,25 +1088,11 @@ class Annotations(Sequence[Annotation]):
 
     def add(self, specification: AnnotationSpecification) -> Annotation:
         """Add the annotation that ``specification`` describes, with its appearance, and return it."""
-        page = self._page
-        if isinstance(specification, (Square, Circle)):
-            xref = page._document._doc.add_annotation(
-                page._page_number(), specification._spec(type(specification).__name__)
-            )
-            return Annotation(page, xref, 0)
-        if isinstance(specification, (LineAnnotation, Polygon, PolyLine, Ink)):
-            xref = page._document._doc.add_annotation(page._page_number(), specification._payload())
-            return Annotation(page, xref, 0)
-        if not isinstance(specification, Highlight):
+        if not isinstance(specification, _SPECIFICATIONS):
             msg = f"page.annotations.add takes an annotation specification: {type(specification).__name__}"
             raise TypeError(msg)
-        xref = page._document._doc.add_highlight_annotation(
-            page._page_number(),
-            [(rect.x0, rect.y0, rect.x1, rect.y1) for rect in specification.rects],
-            specification.color.rgb,
-            specification.opacity,
-            specification.contents,
-        )
+        page = self._page
+        xref = page._document._doc.add_annotation(page._page_number(), specification._payload())
         # The handle finds the new annotation by its object number.
         return Annotation(page, xref, 0)
 
@@ -1018,5 +1117,8 @@ for _public in (
     Polygon,
     PolyLine,
     Square,
+    Squiggly,
+    StrikeOut,
+    Underline,
 ):
     _public.__module__ = "pylopdf"

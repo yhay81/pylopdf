@@ -115,11 +115,13 @@
     "SoftMaskType",
     "Span",
     "Square",
+    "Squiggly",
     "StaleObjectError",
     "StalePageError",
     "Standard",
     "StandardFontName",
     "Stream",
+    "StrikeOut",
     "String",
     "Stroke",
     "Table",
@@ -132,6 +134,7 @@
     "TextRun",
     "TilingPattern",
     "TransparencyGroup",
+    "Underline",
     "Word",
     "create",
     "open",
@@ -276,7 +279,7 @@
     },
     "AnnotationSpecification": {
       "kind": "type-alias",
-      "target": "pylopdf.Highlight | pylopdf.Square | pylopdf.Circle | pylopdf.LineAnnotation | pylopdf.Polygon | pylopdf.PolyLine | pylopdf.Ink"
+      "target": "pylopdf.Highlight | pylopdf.Underline | pylopdf.StrikeOut | pylopdf.Squiggly | pylopdf.Square | pylopdf.Circle | pylopdf.LineAnnotation | pylopdf.Polygon | pylopdf.PolyLine | pylopdf.Ink"
     },
     "AnnotationType": {
       "kind": "enum",
@@ -9218,6 +9221,65 @@
         "returns": "None"
       }
     },
+    "Squiggly": {
+      "annotations": {
+        "color": "Color",
+        "contents": "str | None",
+        "opacity": "float",
+        "rects": "tuple[Rect, ...]"
+      },
+      "dataclass_fields": [
+        "rects",
+        "color",
+        "opacity",
+        "contents"
+      ],
+      "kind": "class",
+      "members": {
+        "color": {
+          "kind": "property"
+        },
+        "contents": {
+          "kind": "property"
+        },
+        "opacity": {
+          "kind": "property"
+        },
+        "rects": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Sequence[float] | Quad | Iterable[Sequence[float] | Quad]",
+            "kind": "positional_or_keyword",
+            "name": "rects"
+          },
+          {
+            "annotation": "Color",
+            "default": {
+              "repr": "Color(red=1.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "color"
+          },
+          {
+            "annotation": "float",
+            "default": 1.0,
+            "kind": "keyword_only",
+            "name": "opacity"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "contents"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "StaleObjectError": {
       "bases": [
         "pylopdf.PdfError"
@@ -9322,6 +9384,65 @@
             "default": [],
             "kind": "positional_or_keyword",
             "name": "path"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "StrikeOut": {
+      "annotations": {
+        "color": "Color",
+        "contents": "str | None",
+        "opacity": "float",
+        "rects": "tuple[Rect, ...]"
+      },
+      "dataclass_fields": [
+        "rects",
+        "color",
+        "opacity",
+        "contents"
+      ],
+      "kind": "class",
+      "members": {
+        "color": {
+          "kind": "property"
+        },
+        "contents": {
+          "kind": "property"
+        },
+        "opacity": {
+          "kind": "property"
+        },
+        "rects": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Sequence[float] | Quad | Iterable[Sequence[float] | Quad]",
+            "kind": "positional_or_keyword",
+            "name": "rects"
+          },
+          {
+            "annotation": "Color",
+            "default": {
+              "repr": "Color(red=1.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "color"
+          },
+          {
+            "annotation": "float",
+            "default": 1.0,
+            "kind": "keyword_only",
+            "name": "opacity"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "contents"
           }
         ],
         "returns": "None"
@@ -9875,6 +9996,65 @@
             "annotation": "SoftMask | None",
             "kind": "keyword_only",
             "name": "soft_mask"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "Underline": {
+      "annotations": {
+        "color": "Color",
+        "contents": "str | None",
+        "opacity": "float",
+        "rects": "tuple[Rect, ...]"
+      },
+      "dataclass_fields": [
+        "rects",
+        "color",
+        "opacity",
+        "contents"
+      ],
+      "kind": "class",
+      "members": {
+        "color": {
+          "kind": "property"
+        },
+        "contents": {
+          "kind": "property"
+        },
+        "opacity": {
+          "kind": "property"
+        },
+        "rects": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Sequence[float] | Quad | Iterable[Sequence[float] | Quad]",
+            "kind": "positional_or_keyword",
+            "name": "rects"
+          },
+          {
+            "annotation": "Color",
+            "default": {
+              "repr": "Color(red=0.0, green=0.0, blue=1.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "color"
+          },
+          {
+            "annotation": "float",
+            "default": 1.0,
+            "kind": "keyword_only",
+            "name": "opacity"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "contents"
           }
         ],
         "returns": "None"
