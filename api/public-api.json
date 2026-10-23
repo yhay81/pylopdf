@@ -11158,14 +11158,19 @@
     },
     "Span": {
       "annotations": {
+        "ascender": "float",
         "bbox": "Rect",
         "chars": "tuple[Char, ...]",
+        "color": "Color | None",
+        "descender": "float",
         "font": "str",
         "is_bold": "bool",
+        "is_clipped": "bool",
         "is_italic": "bool",
         "is_monospaced": "bool",
         "is_serif": "bool",
         "origin": "Point",
+        "render_mode": "TextRenderMode",
         "size": "float",
         "text": "str"
       },
@@ -11179,20 +11184,37 @@
         "is_italic",
         "is_serif",
         "is_monospaced",
+        "color",
+        "render_mode",
+        "is_clipped",
+        "ascender",
+        "descender",
         "chars"
       ],
       "kind": "class",
       "members": {
+        "ascender": {
+          "kind": "property"
+        },
         "bbox": {
           "kind": "property"
         },
         "chars": {
           "kind": "property"
         },
+        "color": {
+          "kind": "property"
+        },
+        "descender": {
+          "kind": "property"
+        },
         "font": {
           "kind": "property"
         },
         "is_bold": {
+          "kind": "property"
+        },
+        "is_clipped": {
           "kind": "property"
         },
         "is_italic": {
@@ -11205,6 +11227,9 @@
           "kind": "property"
         },
         "origin": {
+          "kind": "property"
+        },
+        "render_mode": {
           "kind": "property"
         },
         "size": {
@@ -11260,6 +11285,31 @@
             "annotation": "bool",
             "kind": "keyword_only",
             "name": "is_monospaced"
+          },
+          {
+            "annotation": "Color | None",
+            "kind": "keyword_only",
+            "name": "color"
+          },
+          {
+            "annotation": "TextRenderMode",
+            "kind": "keyword_only",
+            "name": "render_mode"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_clipped"
+          },
+          {
+            "annotation": "float",
+            "kind": "keyword_only",
+            "name": "ascender"
+          },
+          {
+            "annotation": "float",
+            "kind": "keyword_only",
+            "name": "descender"
           },
           {
             "annotation": "tuple[Char, ...]",

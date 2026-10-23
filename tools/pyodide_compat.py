@@ -172,6 +172,24 @@ def _build_multicolumn_pdf() -> bytes:
     )
 
 
+def _build_painted_text_pdf() -> bytes:
+    stream = (
+        "BT /F1 12 Tf 1 0 0 rg 20 270 Td (Red) Tj ET\n"
+        "q BT /F1 12 Tf 1 Tr 0 0 1 RG 20 240 Td (Outline) Tj ET Q\n"
+        "q BT /F1 12 Tf 3 Tr 20 210 Td (Hidden) Tj ET Q\n"
+        "q 0 0 5 5 re W n BT /F1 12 Tf 20 180 Td (Clipped) Tj ET Q"
+    )
+    return _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 400 300] >>",
+            3: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            4: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R /Resources << /Font << /F1 3 0 R >> >> >>",
+            5: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+        }
+    )
+
+
 def _build_limited_content_pdf(content: bytes, filter_name: str) -> bytes:
     return _build_raw_pdf(
         {
@@ -624,6 +642,29 @@ def _layout_results() -> dict[str, Any]:
         all(math.isfinite(value) for char in raw_chars for value in (*char["bbox"], *char["origin"])),
         "rawdict glyph geometry is not finite",
     )
+    painted = pylopdf.open(_build_painted_text_pdf()).pages[0]
+    span_styles = {
+        span.text: [
+            None if span.color is None else list(span.color.rgb),
+            span.render_mode.value,
+            span.is_clipped,
+            span.ascender,
+            span.descender,
+        ]
+        for block in painted.layout().blocks
+        for line in block.lines
+        for span in line.spans
+    }
+    _require(
+        span_styles
+        == {
+            "Red": [[1.0, 0.0, 0.0], "fill", False, 0.8, -0.2],
+            "Outline": [[0.0, 0.0, 1.0], "stroke", False, 0.8, -0.2],
+            "Hidden": [None, "invisible", False, 0.8, -0.2],
+            "Clipped": [[1.0, 0.0, 0.0], "fill", True, 0.8, -0.2],
+        },
+        "span paint, render modes, or clipping changed",
+    )
     limited_columns = pylopdf.open(_build_multicolumn_pdf(), limits=pylopdf.DocumentLimits(max_text_size=8))
     try:
         limited_columns.pages[0].text()
@@ -648,6 +689,7 @@ def _layout_results() -> dict[str, Any]:
             "glyph_count": len(raw_chars),
             "line_origins": raw_origins,
         },
+        "span_styles": span_styles,
         "text_limit_code": text_limit_code,
     }
 

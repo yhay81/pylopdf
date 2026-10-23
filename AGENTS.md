@@ -187,7 +187,22 @@ the concept and API overview.
   static `PylopdfWarning` through the pending-warnings sink, and
   `pdfium-type3.pdf` pins the extraction gap as an upstream-linked expected
   failure. Hayro normalizes glyph space to 1000 upem, so font size is the transform
-  factor × 1000. Vertical bboxes approximate baseline ± a size ratio.
+  factor × 1000. Glyph boxes span the advance and, across the baseline, the
+  ascender and descender that `generate::font_line_metrics` reads from the
+  font program, scaled to one em together when they span less, as pymupdf's
+  boxes do; hayro hands out no program for Type 1 and non-embedded fonts,
+  and the CJK fallback programs that pylopdf substitutes for fonts that are
+  not embedded (`SubstitutePrograms`, matched by the address of their shared
+  bytes) describe no font of the PDF, so these take MuPDF's 0.8 and -0.2
+  until hayro identifies a glyph's font dictionary (#338). The logical line boxes of column discovery keep fixed
+  0.8 and 0.2 em extents, so font metrics do not move gutters. The sink receives a
+  `GlyphStyle` (sRGB color and alpha, render mode, and the intersected box of
+  the clip paths in force, which the collector tracks for every sink) before
+  each run's glyphs and `stroke_completes_fill` when a stroke repaints the
+  latest fill run; spans split where the paint, render mode, or clipping
+  changes, and a glyph is clipped only when the clip box leaves none of its
+  box visible. `bench/reading.py` compares span colors and box IoU with
+  pymupdf.
   Overlapping paint runs on one baseline are split into source-order logical
   layers before inline geometry sorting; preserve distinct overprints rather
   than interleaving or deduplicating their glyphs. Run detection compares the

@@ -21,19 +21,65 @@ use hayro::hayro_syntax::{Filter, Pdf};
 use kurbo::{Affine, PathSeg, Point, Rect};
 use unicode_bidi::{BidiClass, bidi_class};
 
-use crate::content_model::{ContentCollector, ContentError, ContentSink, ItemKinds};
+use crate::content_model::{
+    ContentCollector, ContentError, ContentSink, GlyphStyle, ItemKinds, RENDER_FILL,
+    RENDER_FILL_STROKE,
+};
+use crate::generate::{ShapingFont, font_line_metrics};
 
 /// Per-font display attributes propagated to spans with pymupdf-compatible flags.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct FontInfo {
     /// PostScript name, or empty when unavailable.
     name: Arc<str>,
     /// pymupdf-compatible flags: italic=2, serif=4, monospace=8, bold=16.
     flags: i64,
+    /// The ascender and descender in em, as MuPDF reads them from the font
+    /// program, or 0.8 and -0.2 without one.
+    ascender: f64,
+    descender: f64,
+}
+
+impl Default for FontInfo {
+    fn default() -> Self {
+        Self {
+            name: Arc::from(""),
+            flags: 0,
+            ascender: DEFAULT_ASCENDER,
+            descender: DEFAULT_DESCENDER,
+        }
+    }
+}
+
+/// The ascender and descender of a font without metrics, MuPDF's defaults.
+const DEFAULT_ASCENDER: f64 = 0.8;
+const DEFAULT_DESCENDER: f64 = -0.2;
+
+/// The font programs that pylopdf hands hayro in place of fonts that are not
+/// embedded, by the address and length of their bytes: their metrics are
+/// those of the substitute, not of the PDF's font.
+#[derive(Default)]
+pub(crate) struct SubstitutePrograms(Vec<(usize, usize)>);
+
+impl SubstitutePrograms {
+    pub(crate) fn new<'a>(programs: impl Iterator<Item = &'a [u8]>) -> Self {
+        Self(
+            programs
+                .map(|program| (program.as_ptr() as usize, program.len()))
+                .collect(),
+        )
+    }
+
+    fn contains(&self, program: &[u8]) -> bool {
+        self.0.contains(&(program.as_ptr() as usize, program.len()))
+    }
 }
 
 /// Derive a font name and flags from OutlineGlyph, once per font.
-fn font_info_of(glyph: &hayro::hayro_interpret::font::OutlineGlyph) -> FontInfo {
+fn font_info_of(
+    glyph: &hayro::hayro_interpret::font::OutlineGlyph,
+    substitutes: &SubstitutePrograms,
+) -> FontInfo {
     let Some(data) = glyph.font_data() else {
         return FontInfo::default();
     };
@@ -52,7 +98,19 @@ fn font_info_of(glyph: &hayro::hayro_interpret::font::OutlineGlyph) -> FontInfo 
     if data.weight.is_some_and(|w| w >= 600) || lower.contains("bold") {
         flags |= 16;
     }
-    FontInfo { name, flags }
+    // A bare CFF program, which OpenType tables do not describe, keeps the
+    // defaults, and so does a substitute for a font that is not embedded.
+    let metrics = if substitutes.contains((*data.data).as_ref()) {
+        None
+    } else {
+        ShapingFont::new(data.data, 0).and_then(|font| font_line_metrics(&font).ok())
+    };
+    FontInfo {
+        name,
+        flags,
+        ascender: metrics.map_or(DEFAULT_ASCENDER, |metrics| metrics.ascender),
+        descender: metrics.map_or(DEFAULT_DESCENDER, |metrics| metrics.descender),
+    }
 }
 
 /// Unicode text of one glyph, mirroring hayro's `BfString` shape.
@@ -171,6 +229,13 @@ struct GlyphRecord {
     font_key: u128,
     /// Font display attributes: name plus pymupdf-compatible flags.
     font: FontInfo,
+    /// The sRGB approximation and alpha of the paint, or `None` for a pattern
+    /// or invisible text.
+    color: Option<[f32; 4]>,
+    /// The `RENDER_*` mode of the run that painted the glyph.
+    render_mode: u8,
+    /// Whether the clip paths leave no part of the glyph's box visible.
+    is_clipped: bool,
     /// Glyph callback order before geometric clustering.
     source_order: usize,
 }
@@ -237,7 +302,7 @@ struct RuleSegment {
 }
 
 /// A Device that collects glyphs and table-rule candidates.
-struct TextCollector {
+struct TextCollector<'s> {
     glyphs: Vec<GlyphRecord>,
     rules: Vec<RuleSegment>,
     /// Skip vector-rule collection for ordinary text extraction.
@@ -258,9 +323,21 @@ struct TextCollector {
     /// Glyphs hayro delivered without any Unicode mapping, e.g. from a
     /// Type 3 font that has no ToUnicode CMap (LaurenzV/hayro#1331).
     skipped_no_unicode: usize,
+    /// The paint, render mode, and clip of the glyphs being received.
+    style: RunStyle,
+    /// The index of the first glyph that the latest run recorded.
+    run_start: usize,
+    substitutes: &'s SubstitutePrograms,
 }
 
-impl TextCollector {
+/// The parts of a [`GlyphStyle`] that glyph records keep.
+struct RunStyle {
+    color: Option<[f32; 4]>,
+    render_mode: u8,
+    clip: Option<Rect>,
+}
+
+impl TextCollector<'_> {
     fn push_rule(&mut self, rule: RuleSegment) -> bool {
         if self.rules.len() >= MAX_TABLE_RULES {
             return false;
@@ -280,7 +357,7 @@ impl TextCollector {
 
 /// Text extraction reads the paths and glyphs of the content model's single
 /// device, so a fill-and-stroke text run contributes its glyphs once.
-impl ContentSink for TextCollector {
+impl ContentSink for TextCollector<'_> {
     fn path(&mut self, path: &kurbo::BezPath, transform: Affine, mode: &DrawMode) {
         if !self.collect_rules || self.rules.len() >= MAX_TABLE_RULES || self.limit_error.is_some()
         {
@@ -335,8 +412,25 @@ impl ContentSink for TextCollector {
         }
     }
 
+    fn glyph_run(&mut self, style: &GlyphStyle) {
+        self.style = RunStyle {
+            color: style.color,
+            render_mode: style.render_mode,
+            clip: style.clip,
+        };
+        self.run_start = self.glyphs.len();
+    }
+
     fn glyph(&mut self, glyph: &Glyph<'_>, transform: Affine) {
         self.collect_glyph(glyph, transform);
+    }
+
+    fn stroke_completes_fill(&mut self) {
+        for glyph in &mut self.glyphs[self.run_start..] {
+            if glyph.render_mode == RENDER_FILL {
+                glyph.render_mode = RENDER_FILL_STROKE;
+            }
+        }
     }
 
     fn stopped(&self) -> bool {
@@ -344,7 +438,7 @@ impl ContentSink for TextCollector {
     }
 }
 
-impl TextCollector {
+impl TextCollector<'_> {
     /// Record one glyph whose combined transform maps glyph space to display space.
     fn collect_glyph(&mut self, glyph: &Glyph<'_>, combined: Affine) {
         if self.limit_error.is_some() {
@@ -436,7 +530,7 @@ impl TextCollector {
                     let info = self
                         .font_infos
                         .entry(key)
-                        .or_insert_with(|| font_info_of(g))
+                        .or_insert_with(|| font_info_of(g, self.substitutes))
                         .clone();
                     self.last_font = Some((key, info.clone()));
                     info
@@ -460,7 +554,7 @@ impl TextCollector {
         // transformed coordinates are directly in top-left-origin display space.
         let source_order = self.glyphs.len();
         let bidi_flags = glyph_bidi_flags(&text);
-        self.glyphs.push(GlyphRecord {
+        let mut record = GlyphRecord {
             text,
             bidi_flags,
             x: origin.x,
@@ -471,8 +565,17 @@ impl TextCollector {
             writing_mode: 0,
             font_key,
             font,
+            color: self.style.color,
+            render_mode: self.style.render_mode,
+            is_clipped: false,
             source_order,
+        };
+        // A glyph whose box the clip paths leave no part of is clipped away.
+        record.is_clipped = self.style.clip.is_some_and(|clip| {
+            let (x0, y0, x1, y1) = glyph_bbox(&record);
+            x1 <= clip.x0 || y1 <= clip.y0 || x0 >= clip.x1 || y0 >= clip.y1
         });
+        self.glyphs.push(record);
     }
 }
 
@@ -596,9 +699,30 @@ const MIN_FILLED_RULE_ASPECT: f64 = 4.0;
 /// Snap rule coordinates and intersections within this distance.
 const TABLE_SNAP_TOLERANCE: f64 = 1.0;
 
-/// Approximate top/bottom from the baseline without real font metrics.
+/// The top and bottom of a line from the baseline, in em, for reading order,
+/// which does not depend on font metrics.
 const ASCENT: f64 = 0.8;
 const DESCENT: f64 = 0.2;
+
+impl GlyphRecord {
+    /// The distances of a glyph box's top above and bottom below the baseline.
+    ///
+    /// Like pymupdf, the box spans the font's ascender and descender, scaled
+    /// to one em together when they span less, and 0.9 and -0.1 em when the
+    /// ascender is not positive, as in a glyphless OCR font.
+    fn vertical_extent(&self) -> (f64, f64) {
+        let (mut ascender, mut descender) = (self.font.ascender, self.font.descender);
+        if ascender < 1e-3 {
+            (ascender, descender) = (0.9, -0.1);
+        }
+        let height = ascender - descender;
+        if height < 1.0 {
+            ascender /= height;
+            descender /= height;
+        }
+        (self.size * ascender, -self.size * descender)
+    }
+}
 
 /// Snap near-axis direction components so common horizontal text stays exact.
 fn normalize_direction((x, y): (f64, f64)) -> (f64, f64) {
@@ -2161,6 +2285,7 @@ impl TextPage {
         settings: InterpreterSettings,
         max_text_size: Option<usize>,
         max_glyph_count: Option<usize>,
+        substitutes: &SubstitutePrograms,
     ) -> Result<Self, TextPageLimit> {
         let (width, height) = page.render_dimensions();
         let marks = collect_page_marks(
@@ -2171,6 +2296,7 @@ impl TextPage {
             false,
             max_text_size,
             max_glyph_count,
+            substitutes,
         )?;
         let physical_lines = cluster_lines(marks.glyphs)?;
         let mut lines = order_page_lines(physical_lines)?;
@@ -2247,6 +2373,7 @@ impl TablePage {
         settings: InterpreterSettings,
         max_text_size: Option<usize>,
         max_glyph_count: Option<usize>,
+        substitutes: &SubstitutePrograms,
     ) -> Result<Self, TextPageLimit> {
         let marks = collect_page_marks(
             pdf,
@@ -2256,6 +2383,7 @@ impl TablePage {
             true,
             max_text_size,
             max_glyph_count,
+            substitutes,
         )?;
         let physical_lines = cluster_lines(marks.glyphs)?;
         let tables = detect_grid_tables(&physical_lines, &marks.rules)?;
@@ -2672,8 +2800,11 @@ fn assemble_text(
 
 /// Bbox `(x0, y0, x1, y1)` with top-left origin and downward y.
 type BBox = (f64, f64, f64, f64);
-/// Span: `(bbox, content, size, origin, font name, flags)`.
-type LayoutSpanTuple<T> = (BBox, T, f64, (f64, f64), String, i64);
+/// Span: `(bbox, content, size, origin, font name, flags, style)`.
+type LayoutSpanTuple<T> = (BBox, T, f64, (f64, f64), String, i64, SpanStyleTuple);
+/// A span's paint and metrics: `(sRGB color and alpha, render mode, clipped,
+/// ascender, descender)`.
+type SpanStyleTuple = (Option<(f32, f32, f32, f32)>, u8, bool, f64, f64);
 /// Span with assembled text, including inferred spaces.
 type SpanTuple = LayoutSpanTuple<String>;
 /// One retained glyph: `(whole Unicode mapping, bbox, baseline origin)`.
@@ -2722,24 +2853,19 @@ fn bbox_is_inside((x0, y0, x1, y1): BBox, (clip_x0, clip_y0, clip_x1, clip_y1): 
         && y1 <= clip_y1 + TABLE_SNAP_TOLERANCE
 }
 
-/// One glyph bbox with vertical extents approximated from baseline and size.
+/// One glyph bbox from its advance and the font's ascender and descender.
 fn glyph_bbox(glyph: &GlyphRecord) -> BBox {
-    if glyph.writing_mode == 1 {
+    let (above, below) = glyph.vertical_extent();
+    if glyph.writing_mode == 1
+        || (glyph.direction.0 >= 1.0 - 1e-6 && glyph.direction.1.abs() <= 1e-6)
+    {
         // Inferred mode-1 CJK retains upright glyph geometry; only its
         // conservative line ordering is vertical.
         return (
             glyph.x,
-            glyph.y - glyph.size * ASCENT,
+            glyph.y - above,
             glyph.x + glyph.advance,
-            glyph.y + glyph.size * DESCENT,
-        );
-    }
-    if glyph.direction.0 >= 1.0 - 1e-6 && glyph.direction.1.abs() <= 1e-6 {
-        return (
-            glyph.x,
-            glyph.y - glyph.size * ASCENT,
-            glyph.x + glyph.advance,
-            glyph.y + glyph.size * DESCENT,
+            glyph.y + below,
         );
     }
     let block = (-glyph.direction.1, glyph.direction.0);
@@ -2748,7 +2874,7 @@ fn glyph_bbox(glyph: &GlyphRecord) -> BBox {
     let mut x1 = f64::NEG_INFINITY;
     let mut y1 = f64::NEG_INFINITY;
     for inline in [0.0, glyph.advance] {
-        for cross in [-glyph.size * ASCENT, glyph.size * DESCENT] {
+        for cross in [-above, below] {
             let x = glyph.x + glyph.direction.0 * inline + block.0 * cross;
             let y = glyph.y + glyph.direction.1 * inline + block.1 * cross;
             x0 = x0.min(x);
@@ -2776,7 +2902,8 @@ fn glyphs_bbox(glyphs: &[GlyphRecord]) -> BBox {
     (x0, y0, x1, y1)
 }
 
-/// Borrow contiguous spans sharing size and font without allocating a partition.
+/// Borrow contiguous spans sharing size, font, paint, render mode, and
+/// clipping without allocating a partition.
 fn span_glyph_slices(line: &[GlyphRecord]) -> impl Iterator<Item = &[GlyphRecord]> {
     let mut start = 0;
     std::iter::from_fn(move || {
@@ -2786,7 +2913,12 @@ fn span_glyph_slices(line: &[GlyphRecord]) -> impl Iterator<Item = &[GlyphRecord
         let mut end = start + 1;
         while end < line.len() {
             let (a, b) = (&line[end - 1], &line[end]);
-            if b.font_key != a.font_key || (b.size - a.size).abs() > 0.1 {
+            if b.font_key != a.font_key
+                || (b.size - a.size).abs() > 0.1
+                || b.color != a.color
+                || b.render_mode != a.render_mode
+                || b.is_clipped != a.is_clipped
+            {
                 break;
             }
             end += 1;
@@ -2815,6 +2947,15 @@ fn span_with_content<T>(
         (glyphs[0].x, glyphs[0].y),
         font_name,
         glyphs[0].font.flags,
+        (
+            glyphs[0]
+                .color
+                .map(|[red, green, blue, alpha]| (red, green, blue, alpha)),
+            glyphs[0].render_mode,
+            glyphs[0].is_clipped,
+            glyphs[0].font.ascender,
+            glyphs[0].font.descender,
+        ),
     ))
 }
 
@@ -4732,6 +4873,7 @@ struct PageMarks {
 ///
 /// The caller owns the interpreter cache so one batched call can reuse parsed
 /// fonts across pages instead of re-parsing them for every page.
+#[allow(clippy::too_many_arguments)]
 fn collect_page_marks<'a>(
     pdf: &'a Pdf,
     page: &Page<'a>,
@@ -4740,6 +4882,7 @@ fn collect_page_marks<'a>(
     collect_rules: bool,
     max_text_size: Option<usize>,
     max_glyph_count: Option<usize>,
+    substitutes: &SubstitutePrograms,
 ) -> Result<PageMarks, TextPageLimit> {
     let mut context = extraction_context(pdf, page, cache, settings);
     let text = TextCollector {
@@ -4753,6 +4896,13 @@ fn collect_page_marks<'a>(
         max_glyph_count,
         limit_error: None,
         skipped_no_unicode: 0,
+        style: RunStyle {
+            color: None,
+            render_mode: RENDER_FILL,
+            clip: None,
+        },
+        run_start: 0,
+        substitutes,
     };
     let mut device = ContentCollector::new(text, ItemKinds::NONE, None);
     interpret_page(page, &mut context, &mut device);

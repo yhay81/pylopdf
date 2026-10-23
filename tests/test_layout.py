@@ -9,6 +9,8 @@ from conftest import build_nonembedded_cjk_pdf, build_pdf, build_raw_pdf, build_
 
 import pylopdf
 
+FONT_ROOT = Path(__file__).resolve().parent.parent / "fonts"
+
 ASSETS = Path(__file__).parent / "assets" / "real_world"
 
 
@@ -106,7 +108,19 @@ def test_dict_structure(usrguide: pylopdf.Page) -> None:
     assert line["wmode"] == 0
     assert line["dir"] == pytest.approx((1.0, 0.0))
     span = line["spans"][0]
-    assert set(span) == {"bbox", "origin", "size", "font", "flags", "text"}
+    assert set(span) == {
+        "bbox",
+        "origin",
+        "size",
+        "font",
+        "flags",
+        "char_flags",
+        "color",
+        "alpha",
+        "ascender",
+        "descender",
+        "text",
+    }
     assert span["size"] > 1.0
     all_text = "".join(span["text"] for b in d["blocks"] for line in b["lines"] for span in line["spans"])
     assert "authors" in all_text
@@ -137,6 +151,162 @@ def test_text_records_hold_checked_geometry_and_compare_as_constructed(usrguide:
     assert [span.text for span in usrguide.layout().blocks[0].lines[0].spans] == [
         span.text for span in layout.blocks[0].lines[0].spans
     ]
+
+
+def build_painted_text_pdf() -> bytes:
+    """Build one page of text lines that are painted differently, one per line."""
+    stream = (
+        "BT /F1 20 Tf 1 0 0 rg 72 700 Td (Red) Tj ET "
+        "q /Half gs BT /F1 20 Tf 0 0 1 rg 72 650 Td (Half) Tj ET Q "
+        "q BT /F1 20 Tf 1 Tr 0 0.5 0 RG 72 600 Td (Outline) Tj ET Q "
+        "q BT /F1 20 Tf 2 Tr 0 0 0 rg 1 0 0 RG 72 550 Td (Both) Tj ET Q "
+        "q BT /F1 20 Tf 3 Tr 72 500 Td (Hidden) Tj ET Q "
+        "q 0 0 10 10 re W n BT /F1 20 Tf 72 450 Td (Clipped) Tj ET Q "
+        "q 60 390 200 40 re W n BT /F1 20 Tf 72 400 Td (Inside) Tj ET Q "
+        "BT /F1 20 Tf /Pattern cs /Shade scn 72 350 Td (Pattern) Tj ET"
+    )
+    return build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: (
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R "
+                "/Resources << /Font << /F1 5 0 R >> /ExtGState << /Half << /ca 0.5 >> >> "
+                "/Pattern << /Shade 6 0 R >> >> >>"
+            ),
+            4: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+            5: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            6: (
+                "<< /PatternType 2 /Shading << /ShadingType 2 /ColorSpace /DeviceRGB /Coords [72 350 300 350] "
+                "/Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [0 0 1] /N 1 >> >> >>"
+            ),
+        }
+    )
+
+
+def test_spans_report_their_paint_render_mode_and_clipping() -> None:
+    page = pylopdf.open(build_painted_text_pdf()).pages[0]
+
+    spans = {span.text: span for block in page.layout().blocks for line in block.lines for span in line.spans}
+
+    assert spans["Red"].color == pylopdf.Color(1.0, 0.0, 0.0, 1.0)
+    # hayro keeps colors and opacities as bytes.
+    assert spans["Half"].color is not None
+    assert spans["Half"].color.rgb == (0.0, 0.0, 1.0)
+    assert spans["Half"].color.alpha == pytest.approx(128 / 255)
+    assert spans["Outline"].color is not None
+    assert spans["Outline"].color.rgb == pytest.approx((0.0, 128 / 255, 0.0))
+    assert spans["Both"].color == pylopdf.Color(0.0, 0.0, 0.0, 1.0)
+    assert spans["Hidden"].color is None
+    assert spans["Pattern"].color is None
+    assert {name: span.render_mode for name, span in spans.items()} == {
+        "Red": pylopdf.TextRenderMode.FILL,
+        "Half": pylopdf.TextRenderMode.FILL,
+        "Outline": pylopdf.TextRenderMode.STROKE,
+        "Both": pylopdf.TextRenderMode.FILL_STROKE,
+        "Hidden": pylopdf.TextRenderMode.INVISIBLE,
+        "Clipped": pylopdf.TextRenderMode.FILL,
+        "Inside": pylopdf.TextRenderMode.FILL,
+        "Pattern": pylopdf.TextRenderMode.FILL,
+    }
+    assert {name for name, span in spans.items() if span.is_clipped} == {"Clipped"}
+    # The render modes and colors agree with what page.content() reports.
+    runs = {run.text: run for run in page.content(paths=False, images=False).text_runs}
+    assert {name: runs[name].render_mode for name in spans} == {name: span.render_mode for name, span in spans.items()}
+
+
+def test_spans_split_where_the_paint_changes() -> None:
+    stream = "BT /F1 20 Tf 72 700 Td 1 0 0 rg (Re) Tj 0 0 1 rg (d) Tj 1 Tr (x) Tj ET"
+    data = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: (
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R "
+                "/Resources << /Font << /F1 5 0 R >> >> >>"
+            ),
+            4: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+            5: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        }
+    )
+    page = pylopdf.open(data).pages[0]
+
+    (line,) = page.layout().blocks[0].lines
+
+    assert [(span.text, span.color, span.render_mode.value) for span in line.spans] == [
+        ("Re", pylopdf.Color(1.0, 0.0, 0.0), "fill"),
+        ("d", pylopdf.Color(0.0, 0.0, 1.0), "fill"),
+        ("x", pylopdf.Color(0.0, 0.0, 0.0), "stroke"),
+    ]
+    assert line.text == "Redx"
+    assert [word.text for word in page.words()] == ["Redx"]
+
+
+def test_span_dictionaries_hold_pymupdf_color_alpha_and_char_flags() -> None:
+    page = pylopdf.open(build_painted_text_pdf()).pages[0]
+
+    spans = {
+        span["text"]: span
+        for block in page.layout().to_dict()["blocks"]
+        for line in block["lines"]
+        for span in line["spans"]
+    }
+
+    assert (spans["Red"]["color"], spans["Red"]["alpha"], spans["Red"]["char_flags"]) == (0xFF0000, 255, 16)
+    assert (spans["Half"]["color"], spans["Half"]["alpha"]) == (0x0000FF, 128)
+    assert spans["Outline"]["char_flags"] == 32
+    assert spans["Both"]["char_flags"] == 48
+    assert spans["Hidden"]["char_flags"] == 0
+    assert spans["Clipped"]["char_flags"] == 16 | 64
+    assert (spans["Red"]["ascender"], spans["Red"]["descender"]) == (0.8, -0.2)
+
+
+def test_spans_take_the_ascender_and_descender_of_an_opentype_program() -> None:
+    font = pylopdf.Font.from_file(
+        FONT_ROOT / "pylopdf-fonts-he" / "src" / "pylopdf_fonts_he" / "NotoSansHebrew-Variable.ttf"
+    )
+    doc = pylopdf.Document()
+    page = doc.pages.new()
+    with page.draw() as canvas:
+        canvas.text("Metrics", (72, 100), font=font, size=20)
+
+    reopened = pylopdf.open(doc.to_bytes()).pages[0]
+    (span,) = reopened.layout().blocks[0].lines[0].spans
+    (char,) = reopened.layout(chars=True).blocks[0].lines[0].spans[0].chars[:1]
+
+    assert (span.ascender, span.descender) == (pytest.approx(font.ascender), pytest.approx(font.descender))
+    # The box spans the ascender and the descender, which span more than one em.
+    assert font.ascender - font.descender > 1
+    assert char.bbox.y0 == pytest.approx(char.origin.y - 20 * font.ascender)
+    assert char.bbox.y1 == pytest.approx(char.origin.y - 20 * font.descender)
+
+
+def test_a_substitute_for_a_font_that_is_not_embedded_lends_no_metrics() -> None:
+    """The OCR layer's font is not embedded; the Japanese fallback that draws it is no metric of it."""
+    source = pylopdf.Document()
+    source.pages.new((360, 200)).apply_ocr(
+        words=[pylopdf.OcrWord(text="Hello 1", bbox=pylopdf.Rect(20, 40, 200, 70), confidence=0.9)]
+    )
+    document = pylopdf.open(source.to_bytes())
+    noto = FONT_ROOT / "pylopdf-fonts-jp" / "src" / "pylopdf_fonts_jp" / "NotoSansJP-Regular.otf"
+    document.fallback_fonts = {"ja": pylopdf.FallbackFont(sans=pylopdf.Font.from_file(noto))}
+    page = document.pages[0]
+
+    (span,) = page.layout().blocks[0].lines[0].spans
+
+    assert span.font == "PyloOCR-Gothic"
+    assert (span.ascender, span.descender) == (0.8, -0.2)
+    # The search box is the box that the OCR word was placed in.
+    assert page.search("Hello 1") == [pytest.approx(pylopdf.Rect(20, 40, 200, 70), abs=0.01)]
+
+
+def test_glyph_boxes_span_at_least_one_em() -> None:
+    page = pylopdf.open(build_painted_text_pdf()).pages[0]
+
+    char = page.layout(chars=True).blocks[0].lines[0].spans[0].chars[0]
+
+    assert char.bbox.y1 - char.bbox.y0 == pytest.approx(20)
+    assert char.bbox.y0 == pytest.approx(char.origin.y - 16)
 
 
 def test_document_level_get_page_text_modes() -> None:
