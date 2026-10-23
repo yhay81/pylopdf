@@ -191,6 +191,8 @@ Every feature pull request satisfies all of the following before merge.
   performance-relevant paths, and fuzz seeds for every new parser.
 - **Changelog.** One changelog fragment, as `changelog.d/README.md`
   describes.
+- **Tracking.** It closes or references an issue under
+  [Tracking](#tracking), and checks the boxes it completes.
 
 ## Workstreams
 
@@ -227,6 +229,31 @@ their acceptance criteria.
 The pymupdf-aligned renames on main since 0.15.0 are not released on their
 own. The next release carries the API reset, so users of pylopdf 0.15 and of
 pymupdf migrate once, with one codemod.
+
+## Tracking
+
+This document says what pylopdf does next and why; GitHub issues record how
+far each part has come. The pinned root issue,
+[Roadmap to 1.0](https://github.com/yhay81/pylopdf/issues/325), has these
+sub-issues, and the roadmap is complete when all of them are closed:
+
+- One tracker per milestone below, titled `Milestone: <name>`, with the
+  milestone's bullets and acceptance criteria as checklists and the
+  capability-map entries of the milestone as a generated list.
+  `tools/roadmap_issues.py sync` rewrites that list from
+  `api/pymupdf-parity.json`, so a tracker can close only when its milestone
+  has no planned capability left.
+- [Engine work](https://github.com/yhay81/pylopdf/issues/324), with one
+  sub-issue per engine: the releases pylopdf adopts, the pull requests it
+  sends upstream, scope questions for the maintainer, what pylopdf gives
+  back, and the workarounds the work removes.
+- The 1.0 release gates and the continuous tracks with the watchlist.
+
+Work on an item starts as a sub-issue of its tracker. GitHub milestones
+`Phase 1`, `Phase 2`, and `1.0` group the trackers; labels name the
+workstream (`workstream:*`), the engine (`engine:*`), and the kind of engine
+work (`upstream`, `adoption`, `scope-question`). A change to a milestone here
+changes its tracker too.
 
 ## Milestones
 
