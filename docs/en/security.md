@@ -103,8 +103,8 @@ a default that is safe for most uses. Raise it with the keyword shown, or pass
 | `Pixmap.to_bytes()`, `Page.svg()` | 64 MiB of output | `max_size` |
 | `Page.search()` | 4,096 results | `max_hits` |
 | `Page.content()` | 262,144 glyphs, path and clip segments, stroke dash lengths, and items | `max_elements` |
-| `Page.insert_text()`, `insert_textbox()` | 1 MiB of text and 4,096 lines | `max_text_size` |
-| Font input to drawing, forms, and `Font` | 64 MiB per font | `max_font_size` |
+| `Canvas.text()`, `textbox()`, `Font.text_width()`, `text_height()` | 1 MiB of text and 4,096 lines | `max_text_size` |
+| `Font.from_file()`, `from_bytes()`, and font input to forms | 64 MiB per font | `max_size`, `max_font_size` |
 | `Page.insert_image()` | 64 MiB of input and 64 million pixels | `max_size`, `max_pixels` |
 | `Page.replace_text()` | 64 MiB of page content | `max_size` |
 | Attachments: `add()`, `read()`, `write()` | 64 MiB per file | `max_size` |

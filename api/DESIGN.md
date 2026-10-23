@@ -385,7 +385,6 @@ The typed object model exposes lopdf's graph.
 | `Permissions` | `PRINT`, `MODIFY`, `COPY`, `ANNOTATE`, `FORM`, `ACCESSIBILITY`, `ASSEMBLE`, `PRINT_HQ` |
 | `Access` | `USER`, `OWNER` |
 | `PageMode`, `PageLayout` | the catalog's `/PageMode` and `/PageLayout` names |
-| `TextAlign` | `LEFT`, `CENTER`, `RIGHT`, `JUSTIFY` |
 | `Colorspace` | `GRAY`, `RGB` (CMYK when hayro or a conversion renders it) |
 | `BlendMode` | the sixteen blend modes of ISO 32000-2 §11.3.5 |
 | `FillRule`, `LineCap`, `LineJoin` | `NONZERO`, `EVEN_ODD`; `BUTT`, `ROUND`, `SQUARE`; `MITER`, `ROUND`, `BEVEL` |
@@ -464,7 +463,7 @@ hint.
 | `Annot` with `info` and `colors` dictionaries | `Annotation` with typed properties |
 | `FileDataError(PdfError, RuntimeError)`, `EmptyFileError` | `MalformedPdfError(PdfError)` |
 | `AnnotType`, `AnnotFlags`, `EncryptionMethod` | `AnnotationType`, `AnnotationFlags`, `Encryption(method=...)` |
-| the 80 module constants (`PDF_ANNOT_*`, `PDF_ENCRYPT_*`, `PDF_PERM_*`, `LINK_*`, `TEXT_ALIGN_*`, `CS_*`, `csGRAY`, `csRGB`, `csCMYK`, `Base14_fontnames`, `Base14_fontdict`) | enum members and `Font.standard()` names |
+| the 80 module constants (`PDF_ANNOT_*`, `PDF_ENCRYPT_*`, `PDF_PERM_*`, `LINK_*`, `TEXT_ALIGN_*`, `CS_*`, `csGRAY`, `csRGB`, `csCMYK`, `Base14_fontnames`, `Base14_fontdict`) | enum members, `Font.standard()` names, and the `align` strings of `Canvas.textbox` |
 | `Identity`, `IdentityMatrix`, `EMPTY_*`, `INFINITE_*`, `FZ_MIN_INF_RECT`, `FZ_MAX_INF_RECT`, `planish_line` | class attributes of the geometry types and `Matrix.planish(p1, p2)` |
 | `Word`, `Block`, `ImageItem`, and `PageLabelSpec` tuples; `TextPageDict`, `DrawingInfo`, `ImageInfo`, `LinkInfo`, `FormFieldInfo`, and the other TypedDicts | frozen dataclasses and handles, with `to_dict()` where a JSON form is needed |
 

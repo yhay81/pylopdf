@@ -33,7 +33,7 @@ from pylopdf._metadata import METADATA_KEYS
 from pylopdf._migration_hints import HINTS, PYLOPDF_015_ONLY, PYLOPDF_015_REMOVED
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterator, Sequence
 
 TODO = "TODO(pylopdf)"
 PYMUPDF_MODULES = frozenset({"fitz", "pymupdf"})
@@ -159,6 +159,84 @@ PAGE_DRAWINGS: dict[str, tuple[tuple[str, ...], str]] = {
 }
 #: The drawing methods whose canvas call takes a fill.
 FILLED_DRAWINGS = frozenset({"draw_polyline", "draw_rect", "draw_circle", "draw_oval"})
+#: The ``align`` option of the canvas's textbox for each ``TEXT_ALIGN_*`` value.
+TEXT_ALIGNMENTS = ("left", "center", "right", "justify")
+#: pymupdf's and pylopdf 0.15's ``insert_text`` parameters: the point and the text, then the options.
+TEXT_PARAMETERS = (
+    "point",
+    "text",
+    "fontsize",
+    "lineheight",
+    "fontname",
+    "fontfile",
+    "set_simple",
+    "encoding",
+    "color",
+    "fill",
+    "render_mode",
+    "border_width",
+    "miter_limit",
+    "rotate",
+    "morph",
+    "stroke_opacity",
+    "fill_opacity",
+    "overlay",
+    "oc",
+    "font",
+    "fontbuffer",
+    "fontindex",
+    "font_language",
+    "max_font_size",
+    "max_text_size",
+)
+#: pymupdf's and pylopdf 0.15's ``insert_textbox`` parameters, in the same way.
+TEXTBOX_PARAMETERS = (
+    "rect",
+    "buffer",
+    "fontsize",
+    "lineheight",
+    "fontname",
+    "fontfile",
+    "set_simple",
+    "encoding",
+    "color",
+    "fill",
+    "expandtabs",
+    "align",
+    "rotate",
+    "render_mode",
+    "border_width",
+    "miter_limit",
+    "morph",
+    "stroke_opacity",
+    "fill_opacity",
+    "oc",
+    "overlay",
+    "font",
+    "fontbuffer",
+    "fontindex",
+    "font_language",
+    "max_font_size",
+    "max_text_size",
+    "text",
+)
+#: Text options whose value changes nothing, and the options that the canvas has no counterpart for.
+TEXT_DEFAULTS = {
+    "set_simple": frozenset({"0", "False"}),
+    "encoding": frozenset({"0"}),
+    "render_mode": frozenset({"0"}),
+    "border_width": frozenset({"0.05", "1"}),
+    "miter_limit": frozenset({"1"}),
+    "rotate": frozenset({"0"}),
+    "morph": frozenset({"None"}),
+    "stroke_opacity": frozenset({"1", "1.0"}),
+    "oc": frozenset({"0"}),
+    "fill": frozenset({"None"}),
+    "fontindex": frozenset({"0"}),
+    "expandtabs": frozenset({"1"}),
+    "fontname": frozenset({"'helv'", '"helv"'}),
+    "overlay": frozenset({"True", "1"}),
+}
 
 
 @dataclass(frozen=True)
@@ -222,6 +300,34 @@ def _code(node: cst.CSTNode) -> str:
 def _same_code(replacement: str, node: cst.CSTNode) -> bool:
     """Return whether ``replacement`` is the expression ``node`` apart from layout and comments."""
     return ast.dump(ast.parse(replacement, mode="eval")) == ast.dump(ast.parse(_code(node).strip(), mode="eval"))
+
+
+def _repeatable(call: cst.BaseExpression) -> bool:
+    """Return whether the receiver of ``call`` names the same page when evaluated again.
+
+    That is a name, or attributes and subscripts by names and literals of one;
+    a call such as ``doc.pages.new()`` makes a new page each time.
+    """
+    if not isinstance(call, cst.Call) or not isinstance(call.func, cst.Attribute):
+        return False
+    node = call.func.value
+    while isinstance(node, (cst.Attribute, cst.Subscript)):
+        if isinstance(node, cst.Subscript) and not all(
+            isinstance(element.slice, cst.Index)
+            and isinstance(element.slice.value, (cst.Name, cst.Integer, cst.SimpleString))
+            for element in node.slice
+        ):
+            return False
+        node = node.value
+    return isinstance(node, cst.Name)
+
+
+def _calls(node: cst.CSTNode) -> Iterator[cst.Call]:
+    """Yield every call in ``node``, outermost first."""
+    if isinstance(node, cst.Call):
+        yield node
+    for child in node.children:
+        yield from _calls(child)
 
 
 def _receiver(node: cst.BaseExpression) -> str:
@@ -1677,6 +1783,122 @@ def _page_drawing(method: str) -> Callable[[_Migrator, str, _Arguments], str | N
     return rule
 
 
+def _text_options(args: _Arguments, names: tuple[str, ...]) -> dict[str, str] | None:
+    """Return the options of an ``insert_text`` or ``insert_textbox`` call that change what it draws."""
+    bound = args.bind(names)
+    if bound is None or len(args.positional) > 2:  # noqa: PLR2004 - the position and the text.
+        return None
+    options = {key: value for key, value in bound.items() if value not in TEXT_DEFAULTS.get(key, ())}
+    unsupported = {"set_simple", "encoding", "render_mode", "border_width", "miter_limit", "rotate", "morph"}
+    if unsupported & set(options) or {"stroke_opacity", "oc", "fill"} & set(options):
+        return None
+    return options
+
+
+def _text_font(migrator: _Migrator, options: dict[str, str]) -> str | None:
+    """Return the canvas ``font=`` of the font options of ``insert_text``, "" for the default, or None."""
+    font = migrator.class_name("Font")
+    sources = [key for key in ("font", "fontfile", "fontbuffer", "font_language") if options.get(key, "None") != "None"]
+    loading = [key for key in ("fontindex", "max_font_size") if key in options]
+    if font is None or len(sources) > 1 or (loading and sources not in (["fontfile"], ["fontbuffer"])):
+        return None
+    if sources == ["font"]:
+        return options["font"]
+    if sources in (["fontfile"], ["fontbuffer"]):
+        keywords = [f"{FONT_KEYWORDS[key]}={options[key]}" for key in loading]
+        method = "from_file" if sources == ["fontfile"] else "from_bytes"
+        return f"{font}.{method}({', '.join([options[sources[0]], *keywords])})"
+    name = _standard_font(options.get("fontname", '"helv"'))
+    if sources == ["font_language"]:
+        serif = ", serif=True" if name is not None and name.startswith("Times") else ""
+        return None if name is None else f"{font}.installed(language={options['font_language']}{serif})"
+    if name is None:
+        return None
+    return "" if name == "Helvetica" else f'{font}.standard("{name}")'
+
+
+def _text_keywords(migrator: _Migrator, options: dict[str, str]) -> list[str] | None:
+    """Return the canvas keywords of the font, size, colour, and line options of a text call."""
+    font = _text_font(migrator, options)
+    keywords = [] if not font else [f"font={font}"]
+    if "fontsize" in options:
+        keywords.append(f"size={options['fontsize']}")
+    color = options.get("color", "None")
+    alpha = options.get("fill_opacity")
+    if color != "None" or alpha is not None:
+        paint = _drawing_paint(migrator, "(0,)" if color == "None" else color, alpha)
+        if paint is None:
+            return None
+        keywords.append(f"fill={paint}")
+    for option, keyword in (("lineheight", "line_height"), ("max_text_size", "max_text_size")):
+        if option in options:
+            keywords.append(f"{keyword}={options[option]}")
+    return None if font is None else keywords
+
+
+def _canvas_block(migrator: _Migrator, receiver: str, options: dict[str, str], body: Callable[[str], str]) -> str:
+    """Return a ``with`` block that draws ``body(name)``, a call of the canvas ``name``, on ``receiver``."""
+    name = migrator.canvas_name()
+    draw = "draw(underlay=True)" if options.get("overlay", "True") in _FALSE else "draw()"
+    return f"with {receiver}.{draw} as {name}:\n    {body(name)}\n"
+
+
+def _insert_text(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite an ``insert_text`` statement to a canvas that draws the same lines."""
+    options = _text_options(args, TEXT_PARAMETERS)
+    if options is None or "point" not in options or "text" not in options:
+        return None
+    if options.get("overlay", "True") not in _FALSE | _TRUE:
+        return None
+    keywords = _text_keywords(migrator, options)
+    if keywords is None:
+        return None
+    text = cst.parse_expression(options["text"])
+    if isinstance(text, (cst.List, cst.Tuple)):
+        # The canvas takes one string and splits it into lines.
+        options["text"] = f'"\\n".join({options["text"]})'
+    arguments = ", ".join([options["text"], options["point"], *keywords])
+    return _canvas_block(migrator, receiver, options, lambda canvas: f"{canvas}.text({arguments})")
+
+
+def _insert_textbox(target: str | None) -> Callable[[_Migrator, str, _Arguments], str | None]:
+    """Rewrite an ``insert_textbox`` statement, or an assignment of its spare height, to a canvas textbox."""
+
+    def rule(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+        options = _text_options(args, TEXTBOX_PARAMETERS)
+        if options is None or "rect" not in options or ("buffer" in options) == ("text" in options):
+            return None
+        if options.get("overlay", "True") not in _FALSE | _TRUE:
+            return None
+        keywords = _text_keywords(migrator, options)
+        if keywords is None:
+            return None
+        text = options.get("buffer", options.get("text", ""))
+        if "expandtabs" in options:
+            text = f"({text}).expandtabs({options['expandtabs']})"
+        if "align" in options:
+            literal = _int_literal(options["align"])
+            name = options["align"].rpartition(".")[2]
+            index = (
+                literal
+                if literal is not None
+                else next((i for i, value in enumerate(TEXT_ALIGNMENTS) if name.endswith(value.upper())), None)
+            )
+            if index is None or not 0 <= index < len(TEXT_ALIGNMENTS):
+                return None
+            if index:
+                keywords.insert(0, f'align="{TEXT_ALIGNMENTS[index]}"')
+        arguments = ", ".join([options["rect"], text, *keywords])
+
+        def body(canvas: str) -> str:
+            call = f"{canvas}.textbox({arguments})"
+            return call if target is None else f"{target} = {call}.spare_height"
+
+        return _canvas_block(migrator, receiver, options, body)
+
+    return rule
+
+
 #: Calls rewritten only as a statement of their own: pymupdf's in-place
 #: geometry methods become assignments of pylopdf's immutable results, and
 #: page deletions become ``del`` statements.
@@ -1713,6 +1935,12 @@ STATEMENT_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] =
     "set_trimbox": _set_page_box("trim"),
     "delete_annot": _delete_annot,
     **{method: _page_drawing(method) for method in PAGE_DRAWINGS},
+    "insert_text": _insert_text,
+    "insert_textbox": _insert_textbox(None),
+}
+#: Calls rewritten when one name or attribute is assigned their result.
+ASSIGNMENT_RULES: dict[str, Callable[[str], Callable[[_Migrator, str, _Arguments], str | None]]] = {
+    "insert_textbox": _insert_textbox,
 }
 #: Statement rules that assign to their receiver, which must therefore be a name or an attribute.
 ASSIGNING_RULES = frozenset(
@@ -2277,6 +2505,8 @@ class _Migrator(cst.CSTTransformer):
         self._consumed: set[int] = set()
         #: Subscripts that are assigned or deleted, which keep their form.
         self._targets: set[int] = set()
+        #: Canvas blocks that statement rules wrote, by identity; consecutive ones on one page are joined.
+        self._canvas_blocks: dict[int, cst.With] = {}
 
     # Hint comments ------------------------------------------------------
 
@@ -2406,25 +2636,47 @@ class _Migrator(cst.CSTTransformer):
                 and (self._scan.pymupdf or call.func.attr.value not in ASSIGNING_RULES)
             ):
                 self._statement_calls.add(id(call))
+        elif (assigned := self._assigned_call(node)) is not None:
+            self._statement_calls.add(id(assigned))
+
+    @staticmethod
+    def _assigned_call(node: cst.SimpleStatementLine) -> cst.Call | None:
+        """Return the call of an assignment rule whose result one name or attribute is assigned, or None."""
+        if len(node.body) != 1 or not isinstance(statement := node.body[0], cst.Assign):
+            return None
+        call = statement.value
+        if (
+            len(statement.targets) == 1
+            and isinstance(statement.targets[0].target, (cst.Name, cst.Attribute))
+            and isinstance(call, cst.Call)
+            and isinstance(call.func, cst.Attribute)
+            and call.func.attr.value in ASSIGNMENT_RULES
+        ):
+            return call
+        return None
 
     def leave_SimpleStatementLine(
         self, original_node: cst.SimpleStatementLine, updated_node: cst.SimpleStatementLine
     ) -> cst.SimpleStatementLine | cst.BaseCompoundStatement:
         statement = original_node.body[0] if len(original_node.body) == 1 else None
+        target = None
+        if isinstance(statement, cst.Assign) and isinstance(updated_node.body[0], cst.Assign):
+            target = _code(updated_node.body[0].targets[0].target)
         if (
-            isinstance(statement, cst.Expr)
+            isinstance(statement, (cst.Expr, cst.Assign))
             and id(statement.value) in self._statement_calls
-            and isinstance(updated := updated_node.body[0], cst.Expr)
+            and isinstance(updated := updated_node.body[0], (cst.Expr, cst.Assign))
             and isinstance(call := updated.value, cst.Call)
             and isinstance(function := call.func, cst.Attribute)
         ):
             name = function.attr.value
             arguments = _Arguments.of(call)
             replacement = None
+            rule = STATEMENT_RULES[name] if target is None else ASSIGNMENT_RULES[name](target)
             if arguments is not None and (
                 name not in ASSIGNING_RULES or isinstance(function.value, (cst.Name, cst.Attribute))
             ):
-                replacement = STATEMENT_RULES[name](self, _receiver(function.value), arguments)
+                replacement = rule(self, _receiver(function.value), arguments)
             if replacement is None:
                 self._member_todo(name)
             else:
@@ -2432,12 +2684,73 @@ class _Migrator(cst.CSTTransformer):
                 new_statement = cst.parse_statement(replacement)
                 if not isinstance(new_statement, cst.SimpleStatementLine):
                     # A canvas block replaces the statement and keeps its comments.
-                    compound = new_statement.with_changes(leading_lines=updated_node.leading_lines)
-                    return cast("cst.BaseCompoundStatement", self._pop(compound))
+                    compound = self._pop(new_statement.with_changes(leading_lines=updated_node.leading_lines))
+                    if isinstance(compound, cst.With):
+                        self._canvas_blocks[id(compound)] = compound
+                    return cast("cst.BaseCompoundStatement", compound)
                 updated_node = updated_node.with_changes(body=[new_statement.body[0]])
         result = self._pop(updated_node)
         assert isinstance(result, cst.SimpleStatementLine)  # noqa: S101 - _pop only adds comments.
         return result
+
+    def leave_IndentedBlock(
+        self, original_node: cst.IndentedBlock, updated_node: cst.IndentedBlock
+    ) -> cst.IndentedBlock:
+        return updated_node.with_changes(body=self._join_canvas_blocks(updated_node.body))
+
+    def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
+        return updated_node.with_changes(body=self._join_canvas_blocks(updated_node.body))
+
+    def _join_canvas_blocks(self, body: Sequence[cst.BaseStatement]) -> list[cst.BaseStatement]:
+        """Join consecutive canvas blocks that rules wrote for one page, so that one canvas draws them all.
+
+        A joined block commits once, after its last call, so a later call's
+        arguments must not be able to read what an earlier one drew: they may
+        hold names, attributes, literals, and the package's own constructors,
+        but no other call. Blank lines and comments keep blocks apart.
+        """
+        joined: list[cst.BaseStatement] = []
+        for statement in body:
+            previous = joined[-1] if joined else None
+            if (
+                isinstance(previous, cst.With)
+                and isinstance(statement, cst.With)
+                and id(previous) in self._canvas_blocks
+                and id(statement) in self._canvas_blocks
+                and not statement.leading_lines
+                and _code(previous.items[0]) == _code(statement.items[0])
+                and _repeatable(previous.items[0].item)
+                and isinstance(previous.body, cst.IndentedBlock)
+                and isinstance(statement.body, cst.IndentedBlock)
+                and self._reads_no_page(statement)
+            ):
+                block = previous.with_changes(
+                    body=previous.body.with_changes(body=[*previous.body.body, *statement.body.body])
+                )
+                self._canvas_blocks[id(block)] = block
+                joined[-1] = block
+            else:
+                joined.append(statement)
+        return joined
+
+    def _reads_no_page(self, block: cst.With) -> bool:
+        """Return whether ``block`` calls only its canvas, string methods, and the package's own names."""
+        alias = block.items[0].asname
+        canvas = alias.name if alias is not None else None
+        for call in _calls(block.body):
+            function = call.func
+            root = function.value if isinstance(function, cst.Attribute) else function
+            while isinstance(root, cst.Attribute):
+                root = root.value
+            if isinstance(root, cst.SimpleString) and root is not function:
+                continue
+            if not isinstance(root, cst.Name) or not (
+                (isinstance(canvas, cst.Name) and root.value == canvas.value and root is not function)
+                or root.value in self.module_names
+                or (root is function and root.value in self.imported)
+            ):
+                return False
+        return True
 
     def on_visit(self, node: cst.CSTNode) -> bool:
         """Open a hint list for every compound statement, whose header can use pymupdf names."""
@@ -2568,6 +2881,13 @@ class _Migrator(cst.CSTTransformer):
             self._consumed.update(
                 id(arg.value) for arg in node.args if arg.keyword and arg.keyword.value == "encryption"
             )
+        if isinstance(node.func, cst.Attribute) and node.func.attr.value == "insert_textbox":
+            # The insert_textbox rule turns a TEXT_ALIGN_* argument into an align option, or marks the call.
+            for arg in node.args:
+                part = arg.value if arg.keyword is not None and arg.keyword.value == "align" else None
+                while isinstance(part, cst.Attribute):
+                    self._consumed.add(id(part))
+                    part = part.value
         if isinstance(node.func, cst.Attribute) and node.func.attr.value == "insert_link" and node.args:
             # The insert_link rule turns the kind of a link dictionary literal into a target, or marks the call.
             link = node.args[0].value

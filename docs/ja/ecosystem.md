@@ -32,7 +32,7 @@ pylopdf.open(pdf_a).pdfa_claim   # PdfaClaim(part=2, conformance='B')
 
 ## typstでデザインした透かしやヘッダー { #cjk-watermarks }
 
-単純なテキストなら`insert_text()`で十分です。`pylopdf[jp]`（または`[ko]`、`[zh-cn]`、`[zh-tw]`）をインストールしていれば、CJKのテキストも書けます。スタンプに本格的なレイアウトが必要なときは、typstでページとしてデザインし、そのページを`show_pdf_page()`で文書の全ページに描きます。
+単純なテキストなら`canvas.text()`で十分です。`pylopdf[jp]`（または`[ko]`、`[zh-cn]`、`[zh-tw]`）をインストールしていれば、CJKのテキストも書けます。スタンプに本格的なレイアウトが必要なときは、typstでページとしてデザインし、そのページを`show_pdf_page()`で文書の全ページに描きます。
 
 ```python
 from pylopdf_fonts_jp import sans_path  # pip install pylopdf[jp]

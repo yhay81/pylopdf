@@ -8,7 +8,6 @@ import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from types import MappingProxyType
 from typing import TYPE_CHECKING, cast, get_args
 
 from pylopdf._hints import hinted_getattr
@@ -23,7 +22,6 @@ from pylopdf._types import StandardFontName
 from pylopdf.pylopdf_core import LimitError, PdfError, _Font
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
     from typing import Any
 
     from pylopdf._types import CjkFontLanguage, FontLanguage
@@ -102,27 +100,6 @@ def _resolve_font_source(
         return data
     return None
 
-
-#: Map pymupdf-style insert_text aliases to Standard 14 font names.
-_BASE14_FONTS: dict[str, str] = {
-    "helv": "Helvetica",
-    "hebo": "Helvetica-Bold",
-    "heit": "Helvetica-Oblique",
-    "hebi": "Helvetica-BoldOblique",
-    "cour": "Courier",
-    "cobo": "Courier-Bold",
-    "coit": "Courier-Oblique",
-    "cobi": "Courier-BoldOblique",
-    "tiro": "Times-Roman",
-    "tibo": "Times-Bold",
-    "tiit": "Times-Italic",
-    "tibi": "Times-BoldItalic",
-    "symb": "Symbol",
-    "zadb": "ZapfDingbats",
-}
-
-#: Times aliases select an optional locale-specific serif generation font.
-_SERIF_BASE14_FONTS = frozenset({"tiro", "tibo", "tiit", "tibi"})
 
 #: Script ranges used only to select an installed CJK locale font package.
 _KANA_RANGES = ((0x3040, 0x30FF), (0x31F0, 0x31FF), (0xFF65, 0xFF9F))
@@ -219,10 +196,9 @@ def _detected_font_language(text: str) -> FontLanguage | None:
 
 def _bundled_generation_font(
     text: str,
-    fontname: str,
     font_language: str | None,
 ) -> tuple[Path | bytes, tuple[FontLanguage, str]] | None:
-    """Select one optional locale font for a complete generated run.
+    """Select the sans face of an installed font extra for a complete generated run.
 
     Return the font source and its ``(language, kind)`` package face, which
     lets the core share an installed package file across calls.
@@ -235,39 +211,18 @@ def _bundled_generation_font(
     provider = _provider_for_language(language)
     if provider is None:
         extra = next(extra for candidate, extra, _ in _FONT_PROVIDER_SPECS if candidate == language)
-        msg = f"font_language={language!r} requires pylopdf[{extra}] or an explicit fontfile/fontbuffer"
+        msg = f"font_language={language!r} requires pylopdf[{extra}] or an explicit font"
         raise ValueError(msg)
-    kind = "serif" if fontname in _SERIF_BASE14_FONTS else "sans"
-    return (provider.serif if kind == "serif" else provider.sans), (language, kind)
+    return provider.sans, (language, "sans")
 
 
-def _resolve_generation_font(
-    text: str,
-    fontname: str,
-    font_data: Path | bytes | None,
-    fontindex: int,
-    font_language: str | None,
-) -> tuple[str | None, Path | bytes | None, tuple[FontLanguage, str] | None]:
-    """Resolve explicit, optional locale, or Standard 14 generation input.
+def _resolve_generation_font(text: str) -> tuple[str | None, Path | bytes | None, tuple[FontLanguage, str] | None]:
+    """Resolve the face that draws ``text`` without a font: an installed extra for its script, else Helvetica.
 
     Return the Standard 14 font name, the embedded font source, and the
     package face of an automatically selected installed font.
     """
-    normalized_language = _normalize_font_language(font_language)
-    if font_data is not None:
-        if normalized_language is not None:
-            msg = "font_language cannot be combined with fontfile or fontbuffer"
-            raise ValueError(msg)
-        if isinstance(fontindex, bool) or not isinstance(fontindex, int) or not 0 <= fontindex <= _UINT32_MAX:
-            msg = f"fontindex must be an integer from 0 through 4294967295: {fontindex!r}"
-            raise ValueError(msg)
-        return None, font_data, None
-    if fontindex != 0:
-        msg = "fontindex requires fontfile or fontbuffer"
-        raise ValueError(msg)
-
-    base_font = _standard_font_name(fontname)
-    bundled_font = _bundled_generation_font(text, _BASE14_ALIASES[base_font], normalized_language)
+    bundled_font = _bundled_generation_font(text, None)
     if bundled_font is not None:
         source, package_font = bundled_font
         return None, source, package_font
@@ -276,10 +231,10 @@ def _resolve_generation_font(
     except UnicodeEncodeError as exc:
         msg = (
             "text generation can only print WinAnsi (Latin-1-equivalent) characters without an embedded font. "
-            "Install a matching optional font extra or pass fontfile or fontbuffer"
+            "Install a matching optional font extra or pass a Font"
         )
         raise ValueError(msg) from exc
-    return base_font, None, None
+    return "Helvetica", None, None
 
 
 def _form_generation_font(
@@ -291,25 +246,16 @@ def _form_generation_font(
     An explicit ``font_language`` selects its package even for WinAnsi text.
     """
     if font_language is not None:
-        return _bundled_generation_font(value, "helv", font_language)
+        return _bundled_generation_font(value, font_language)
     try:
         value.encode("cp1252")
     except UnicodeEncodeError:
-        return _bundled_generation_font(value, "helv", None)
+        return _bundled_generation_font(value, None)
     return None
 
 
 #: The PostScript names that :meth:`Font.standard` takes.
 _STANDARD_FONT_NAMES: tuple[str, ...] = get_args(StandardFontName)
-#: The Standard 14 names that the ``fontname=`` of ``insert_text`` and ``insert_textbox``
-#: accept, lower-case PostScript names and short aliases alike.
-_BASE14_FONT_NAMES: Mapping[str, str] = MappingProxyType(
-    {**{name.lower(): name for name in _STANDARD_FONT_NAMES}, **_BASE14_FONTS}
-)
-#: The short alias of each PostScript name, which selects serif or sans faces.
-_BASE14_ALIASES: dict[str, str] = {name: alias for alias, name in _BASE14_FONTS.items()}
-_SYMBOLIC_BASE14_NAMES = frozenset({"Symbol", "ZapfDingbats"})
-
 #: Family names of the faces that each font extra installs: sans, then serif.
 _FONT_EXTRA_FAMILIES: dict[FontLanguage, tuple[str, str]] = {
     "ar": ("Noto Sans Arabic", "Noto Naskh Arabic"),
@@ -351,21 +297,6 @@ def _describe_face(weight: int | None, *, italic: bool) -> str:
     """Describe a requested face for error messages."""
     name = {None: "regular", 400: "regular", _BOLD_FONT_WEIGHT: "bold"}.get(weight, f"weight-{weight}")
     return f"{name} italic" if italic else name
-
-
-def _standard_font_name(fontname: str) -> str:
-    """Resolve a Standard 14 alias or name to its PostScript name."""
-    if not isinstance(fontname, str):
-        msg = f"fontname must be a string: {fontname!r}"
-        raise TypeError(msg)
-    name = _BASE14_FONT_NAMES.get(fontname) or _BASE14_FONT_NAMES.get(fontname.lower())
-    if name is None:
-        msg = (
-            f"fontname must be a Standard 14 name or alias such as 'helv' or 'Times-Roman': {fontname!r}; "
-            "pymupdf's other built-in fonts are not available, so pass fontfile, fontbuffer, or language"
-        )
-        raise PdfError(msg)
-    return name
 
 
 def _font_extra_family(family: str) -> tuple[FontLanguage, bool]:

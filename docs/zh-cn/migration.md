@@ -99,7 +99,7 @@ python -m pylopdf.migrate src/
 
 | pymupdf | pylopdf | 说明 |
 |---|---|---|
-| `page.insert_text()`、`insert_textbox()` | 相同 | 还接受`font=`、`fontbuffer=`和`font_language=`；参见[文本与字体](api.md#fonts) |
+| `page.insert_text(point, text)`、`insert_textbox(rect, text)` | `canvas.text(text, at)`、`canvas.textbox(rect, text)` | 在`with page.draw() as canvas:`中调用。`fontsize=`变为`size=`，`color=`变为`fill=Color(...)`，`lineheight=`变为`line_height=`，`fontname=`、`fontfile=`或`fontbuffer=`变为作为`font=`传入的`Font`；`align=`接受`"left"`、`"center"`、`"right"`或`"justify"`。`textbox`返回`TextFit`，未绘制任何内容时其`spare_height`为负；参见[写入文本](api.md#writing-text) |
 | `pymupdf.Font(...)` | `Font.standard(name)`、`Font.from_file(path)`、`Font.from_bytes(data)`、`Font.installed(language=...)` | 按PostScript名称指定的Standard 14字体（`"helv"`对应`"Helvetica"`）、OpenType文件和已安装的字体extra；pymupdf的其他内置字体以及`script=`、`ordering=`和`embed=`不可用 |
 | `font.text_length(text, fontsize)`、`pymupdf.get_text_length(text, fontname, fontsize)` | `font.text_width(text, size)` | `size`没有默认值；`font.text_height(text, size, width=...)`按`canvas.textbox`的绘制方式测量换行后的文本 |
 | `font.has_glyph(ord(c))` | `font.has_glyph(c)` | 接受字符本身，返回布尔值而不是字形编号 |
@@ -130,7 +130,7 @@ python -m pylopdf.migrate src/
 - **过期的页面会抛出异常。**添加、删除或重排页面后，先前获取的`Page`会抛出`StalePageError`，而不是悄悄指向另一页。请用`doc.pages[i]`重新获取。
 - **异常。**基类`PdfError`是`ValueError`的子类，因此`except ValueError`仍然有效。不是可读取PDF的输入（包括空输入）会抛出`MalformedPdfError`，而pymupdf在这些情况下抛出`FileDataError`或`EmptyFileError`。文件不存在时抛出Python内置的`FileNotFoundError`，因此请将`except pymupdf.FileNotFoundError`改为`except FileNotFoundError`。
 - **旋转页面。**提取、搜索、绘制和渲染都使用页面显示时的坐标，旋转页面也是如此。
-- **页面底部附近的`insert_text`。**pylopdf依据可见页面区域（`page.rect`）判断哪些行放得下，而pymupdf测量到未旋转页面的底边为止。在普通的未旋转页面上，两者结果一致。
+- **文本排版。**`canvas.textbox`与`canvas.text`一样，按`line_height × size`的间距排列各行，所需高度恰好是`Font.text_height`测得的高度，即从第一行的ascender到最后一行的descender。pymupdf的`insert_textbox`按行高乘以ascender的间距排列第二行及以后的行，并多计一个descender，因此行的位置不同，有些pymupdf放不下的文本在pylopdf中可以放下。`canvas.text`会绘制所有行，而pymupdf的`insert_text`会略去落到页面以下的行。
 - **字体处理严格。**pylopdf不会悄悄改用其他字体，而是抛出异常：例如字体缺少某个字符时，或`is_bold=True`请求的粗体字体未安装时。
 - **合并表单。**`doc.pages.insert()`和`extend()`总是复制表单字段，与pymupdf默认的`widgets=True`相同。接收文档中已存在的同名字段会被重命名为`name+1`、`name+2`等，因此同一表单的各个副本保持各自的值。
 - **表格与Markdown。**`tables()`默认检测以线条绘制的表格；无边框表格请传入`strategy="text"`。`markdown()`按阅读顺序放置检测到的表格，并从周围段落中移除表格文本。

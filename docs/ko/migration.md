@@ -99,7 +99,7 @@ python -m pylopdf.migrate src/
 
 | pymupdf | pylopdf | 비고 |
 |---|---|---|
-| `page.insert_text()`, `insert_textbox()` | 같음 | `font=`, `fontbuffer=`, `font_language=`도 받음. [텍스트와 글꼴](api.md#fonts) 참고 |
+| `page.insert_text(point, text)`, `insert_textbox(rect, text)` | `canvas.text(text, at)`, `canvas.textbox(rect, text)` | `with page.draw() as canvas:` 안에서 호출함. `fontsize=`는 `size=`, `color=`는 `fill=Color(...)`, `lineheight=`는 `line_height=`가 되고, `fontname=`, `fontfile=`, `fontbuffer=`는 `font=`로 전달하는 `Font`가 됨. `align=`은 `"left"`, `"center"`, `"right"`, `"justify"`를 받음. `textbox`는 `TextFit`을 반환하며, 아무것도 그리지 않았으면 `spare_height`가 음수임. [텍스트 쓰기](api.md#writing-text) 참고 |
 | `pymupdf.Font(...)` | `Font.standard(name)`, `Font.from_file(path)`, `Font.from_bytes(data)`, `Font.installed(language=...)` | PostScript 이름으로 지정하는 Standard 14 글꼴(`"helv"`는 `"Helvetica"`), OpenType 파일, 설치된 글꼴 extra. pymupdf의 다른 내장 글꼴과 `script=`, `ordering=`, `embed=`는 사용할 수 없음 |
 | `font.text_length(text, fontsize)`, `pymupdf.get_text_length(text, fontname, fontsize)` | `font.text_width(text, size)` | `size`에는 기본값이 없음. `font.text_height(text, size, width=...)`는 줄바꿈한 텍스트를 `canvas.textbox`가 그리는 대로 잼 |
 | `font.has_glyph(ord(c))` | `font.has_glyph(c)` | 문자 자체를 받고, 글리프 번호가 아니라 불리언을 반환 |
@@ -130,7 +130,7 @@ python -m pylopdf.migrate src/
 - **오래된 페이지는 예외를 발생시킵니다.** 페이지를 추가, 삭제, 재정렬한 뒤에는 그 전에 가져온 `Page`가 조용히 다른 페이지를 가리키는 대신 `StalePageError`를 발생시킵니다. `doc.pages[i]`로 다시 가져오세요.
 - **예외.** `ValueError`의 하위 클래스인 `PdfError`가 기본 클래스이므로 `except ValueError`는 계속 동작합니다. 읽을 수 있는 PDF가 아닌 입력은 빈 입력을 포함해, pymupdf가 `FileDataError`나 `EmptyFileError`를 발생시키는 곳에서 `MalformedPdfError`를 발생시킵니다. 없는 파일은 Python 내장 `FileNotFoundError`를 발생시키므로 `except pymupdf.FileNotFoundError`를 `except FileNotFoundError`로 바꾸세요.
 - **회전된 페이지.** 추출, 검색, 그리기, 렌더링은 모두 화면에 표시되는 페이지의 좌표를 사용하며 회전된 페이지에서도 마찬가지입니다.
-- **페이지 아래쪽 근처의 `insert_text`.** pylopdf는 보이는 페이지 영역(`page.rect`)을 기준으로 어떤 줄이 들어가는지 판단하고, pymupdf는 회전 전 페이지의 아래쪽 가장자리까지 잽니다. 일반적인 회전하지 않은 페이지에서는 둘이 일치합니다.
+- **텍스트 배치.** `canvas.textbox`는 `canvas.text`와 마찬가지로 줄을 `line_height × size` 간격으로 배치하며, `Font.text_height`가 재는 높이, 즉 첫 줄의 ascender부터 마지막 줄의 descender까지를 정확히 필요로 합니다. pymupdf의 `insert_textbox`는 둘째 줄부터 줄 높이 × ascender 간격으로 배치하고 descender를 하나 더 세므로, 줄 위치가 다르고 pymupdf에서는 들어가지 않는 텍스트가 들어갈 수 있습니다. `canvas.text`는 모든 줄을 그리지만, pymupdf의 `insert_text`는 페이지 아래로 벗어나는 줄을 그리지 않습니다.
 - **글꼴은 엄격합니다.** pylopdf는 조용히 다른 글꼴을 쓰는 대신 예외를 발생시킵니다. 예를 들어 글꼴에 문자가 없을 때나, `is_bold=True`로 설치되지 않은 볼드 글꼴을 요청할 때입니다.
 - **폼 병합.** `doc.pages.insert()`와 `extend()`는 pymupdf의 기본값 `widgets=True`처럼 항상 폼 필드를 복사합니다. 받는 문서에 이미 있는 이름의 필드는 `name+1`, `name+2` 등으로 이름을 바꾸므로, 같은 폼의 사본들이 각자 값을 유지합니다.
 - **표와 Markdown.** `tables()`는 기본적으로 선으로 그린 표를 감지합니다. 테두리 없는 표에는 `strategy="text"`를 전달하세요. `markdown()`은 감지한 표를 읽기 순서에 맞게 배치하고 주변 단락에서 그 텍스트를 제거합니다.

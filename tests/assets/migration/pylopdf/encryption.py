@@ -4,7 +4,8 @@ import pylopdf
 
 doc = pylopdf.Document()
 page = doc.pages.new()
-page.insert_text((72, 72), "Secret")
+with page.draw() as canvas:
+    canvas.text("Secret", (72, 72))
 data = doc.to_bytes(dedupe=True, renumber=True, encryption=pylopdf.Encryption(user_password="user", owner_password="owner", permissions=pylopdf.PDF_PERM_PRINT))
 
 locked = pylopdf.open(data)

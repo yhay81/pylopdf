@@ -62,7 +62,8 @@ def test_edits_after_retained_renders_are_visible() -> None:
     before = bytes(doc.pages[0].pixmap(alpha=True))
     assert bytes(doc.pages[0].pixmap(alpha=True)) == before
 
-    doc.pages[0].insert_text((20, 100), "Edited", fontsize=24)
+    with doc.pages[0].draw() as canvas:
+        canvas.text("Edited", (20, 100), size=24)
     after = bytes(doc.pages[0].pixmap(alpha=True))
 
     assert after != before
@@ -121,7 +122,8 @@ def test_other_threads_render_and_edit_consistently() -> None:
 
     def render_then_edit() -> tuple[bytes, bytes]:
         rendered = bytes(doc.pages[0].pixmap(alpha=True))
-        doc.pages[0].insert_text((20, 100), "Edited elsewhere", fontsize=18)
+        with doc.pages[0].draw() as canvas:
+            canvas.text("Edited elsewhere", (20, 100), size=18)
         return rendered, bytes(doc.pages[0].pixmap(alpha=True))
 
     with ThreadPoolExecutor(max_workers=1) as executor:

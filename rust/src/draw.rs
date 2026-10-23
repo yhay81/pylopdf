@@ -895,7 +895,7 @@ pub fn standard_form_layout(
         text,
         box_size,
         font_size,
-        LinePlacement::Stacked {
+        LinePlacement {
             ascent,
             descent,
             line_height,
@@ -975,11 +975,10 @@ pub fn textbox_text_ops(
     Ok(out)
 }
 
-/// Return the ascender and descender that pymupdf's `Font` reports for a
-/// Standard 14 font, which `insert_text` and `insert_textbox` place lines
-/// with. MuPDF draws these fonts with the URW base-35 fonts it builds in and
-/// reports their font bounding boxes, not Adobe's AFM metrics; the values are
-/// those of pymupdf 1.28.2, in thousandths of the em.
+/// Return the ascender and descender of a Standard 14 font, which canvas
+/// text places lines with: the font bounding boxes of the URW base-35 fonts
+/// that MuPDF and other renderers draw these fonts with, not Adobe's AFM
+/// metrics, as pymupdf 1.28.2 reports them, in thousandths of the em.
 pub(crate) fn standard_line_metrics(font: Base14Font) -> LineMetrics {
     let (ascender, descender) = match font {
         Base14Font::Courier => (932, -317),

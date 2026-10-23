@@ -433,12 +433,71 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "import fitz\n# The rule under the heading.\npage.draw_line(a, b)\n",
             "# The rule under the heading.\nwith page.draw() as canvas:",
         ),
+        (
+            "import fitz\npage.insert_text((72, 72), 'Hi', fontsize=9, color=(1, 0, 0))\n",
+            "with page.draw() as canvas:\n    canvas.text('Hi', (72, 72), size=9, fill=pylopdf.Color(1, 0, 0))\n",
+        ),
+        ("import fitz\npage.insert_text(p, ['a', 'b'])\n", "    canvas.text(\"\\n\".join(['a', 'b']), p)"),
+        (
+            "import fitz\npage.insert_text(p, t, fontname='cobo')\n",
+            '    canvas.text(t, p, font=pylopdf.Font.standard("Courier-Bold"))',
+        ),
+        (
+            "import fitz\npage.insert_text(p, t, fontfile=path, fontname='F0')\n",
+            "canvas.text(t, p, font=pylopdf.Font.from_file(path))",
+        ),
+        (
+            "import pylopdf\npage.insert_text(p, t, font_language='ja', fontname='tiro')\n",
+            "canvas.text(t, p, font=pylopdf.Font.installed(language='ja', serif=True))",
+        ),
+        (
+            "import fitz\npage.insert_text(p, t, lineheight=1.5, overlay=False)\n",
+            "with page.draw(underlay=True) as canvas:\n    canvas.text(t, p, line_height=1.5)\n",
+        ),
+        (
+            "import fitz\npage.insert_textbox(r, t, align=fitz.TEXT_ALIGN_CENTER)\n",
+            '    canvas.textbox(r, t, align="center")',
+        ),
+        ("import fitz\npage.insert_textbox(r, t, align=3)\n", '    canvas.textbox(r, t, align="justify")'),
+        ("import fitz\npage.insert_textbox(r, buffer=t, expandtabs=4)\n", "    canvas.textbox(r, (t).expandtabs(4))"),
+        (
+            "import fitz\nspare = page.insert_textbox(r, t, fontsize=10)\n",
+            "with page.draw() as canvas:\n    spare = canvas.textbox(r, t, size=10).spare_height\n",
+        ),
+        (
+            "import fitz\npage.insert_text(a, 'x')\npage.insert_text(b, 'y', color=(1, 0, 0))\n",
+            "with page.draw() as canvas:\n    canvas.text('x', a)\n    canvas.text('y', b, fill=pylopdf.Color(1, ",
+        ),
     ],
 )
 def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> None:
     result = migrate_source(source)
     assert expected in result.code
     assert result.todos == ()
+
+
+@pytest.mark.parametrize(
+    ("source", "blocks"),
+    [
+        pytest.param("page.insert_text(a, 'x')\npage.insert_textbox(r, 'y')\n", 1, id="one-page"),
+        pytest.param("doc[0].insert_text(a, 'x')\ndoc[0].insert_text(b, 'y')\n", 1, id="subscript"),
+        pytest.param("page.insert_text(a, 'x')\n\npage.insert_text(b, 'y')\n", 2, id="blank-line"),
+        pytest.param("page.insert_text(a, 'x')\n# Then y.\npage.insert_text(b, 'y')\n", 2, id="comment"),
+        pytest.param("page.insert_text(a, 'x')\nother.insert_text(b, 'y')\n", 2, id="other-page"),
+        pytest.param("page.insert_text(a, 'x')\npage.insert_text(b, 'y', overlay=False)\n", 2, id="underlay"),
+        pytest.param("new().insert_text(a, 'x')\nnew().insert_text(b, 'y')\n", 2, id="call-receiver"),
+        pytest.param("page.insert_text(a, 'x')\npage.insert_text(b, page.get_text())\n", 2, id="reads-the-page"),
+        pytest.param("page.insert_text(a, 'x')\npage.insert_text(b, str(n))\n", 2, id="other-call"),
+        pytest.param("page.insert_text(a, 'x')\npage.insert_text(b, ['y', 'z'])\n", 1, id="string-method"),
+        pytest.param("page.draw_line(a, b)\npage.insert_text(a, 'x', color=(1, 0, 0))\n", 1, id="path-and-text"),
+    ],
+)
+def test_codemod_joins_consecutive_canvas_blocks_of_one_page(migrate_source: Migrate, source: str, blocks: int) -> None:
+    # A joined block commits once, after its last call, so no later call may
+    # be able to read what an earlier one drew.
+    result = migrate_source(f"import fitz\n{source}")
+    assert result.code.count(".draw(") == blocks, result.code
+    assert result.code.count("canvas.") == 2, result.code
 
 
 @pytest.mark.parametrize(
@@ -777,6 +836,12 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import fitz\nwidth = font.text_length(text, wmode=1)\n", "Font.text_length is Font.text_width"),
         ("import fitz\nnames = fitz.Base14_fontnames\n", "typing.get_args(pylopdf.StandardFontName)"),
         ("import fitz\npage.draw_rect(r, radius=0.1)\n", "whose radius is in points"),
+        ("import fitz\npage.insert_text(p, t, render_mode=3)\n", "Page.insert_text is Canvas.text"),
+        ("import fitz\npage.insert_text(p, t, rotate=90)\n", "Page.insert_text is Canvas.text"),
+        ("import fitz\npage.insert_text(p, t, fontname='china-s')\n", "Page.insert_text is Canvas.text"),
+        ("import fitz\nlines = page.insert_text(p, t)\n", "Page.insert_text is Canvas.text"),
+        ("import fitz\npage.insert_textbox(r, t, align=align)\n", "Page.insert_textbox is Canvas.textbox"),
+        ("import fitz\npage.insert_textbox(r, t, morph=(p, m))\n", "Page.insert_textbox is Canvas.textbox"),
         ("import fitz\npage.draw_line(a, b, color=(0, 0, 0, 1))\n", "Page.draw_line is Canvas.line"),
         ("import fitz\nend = page.draw_line(a, b)\n", "Page.draw_line is Canvas.line"),
         ("import fitz\npage.draw_line(a, b, morph=(p, m))\n", "Page.draw_line is Canvas.line"),

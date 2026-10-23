@@ -237,11 +237,9 @@ page.rotation = 90
 
 | メンバ | 用途 |
 |---|---|
-| `insert_text(point, text, ...)` | 点を起点にテキストを書きます。[テキストとフォント](#fonts)を参照 |
-| `insert_textbox(rect, text, ...)` | 矩形の中に折り返したテキストを書きます |
 | `insert_image(rect, *, filename=, stream=, pixmap=, rotate=0, keep_proportion=True, overlay=True)` | JPEG、PNG、`Pixmap`を描き、そのオブジェクト番号を返します |
 | `show_pdf_page(rect, docsrc, pno=0, *, keep_proportion=True, overlay=True)` | 別のPDF（または同じPDF）のページをベクタのまま描きます |
-| `draw(*, underlay=False)` | 線や四角形などのパス、テキスト、画像、ページを順に描く[キャンバス](#canvas) |
+| `draw(*, underlay=False)` | テキスト、線や四角形などのパス、画像、ページを順に描く[キャンバス](#canvas)。[テキストを書く](#writing-text)を参照 |
 | `replace_text(search, replacement, *, default_char=None)` | 単純な（1バイトの）フォントで描かれたテキストを置換 |
 
 同じ画像やページを再び描いても、ファイルには1回だけ格納されます。
@@ -481,25 +479,25 @@ for table in page.tables():
 
 ### テキストを書く { #writing-text }
 
+テキストは[キャンバス](#canvas)で描きます。`canvas.text(text, at, ...)`は点を起点に行を書き、`canvas.textbox(rect, text, ...)`は矩形の中にテキストを折り返して書きます。
+
 ```python
-page.insert_text(point, text, *, fontsize=11, lineheight=None, font=None,
-                 fontname="helv", fontfile=None, fontbuffer=None, fontindex=0,
-                 font_language=None, color=(0, 0, 0), overlay=True)
-page.insert_textbox(rect, text, *, align=pylopdf.TEXT_ALIGN_LEFT,
-                    expandtabs=1, ...)   # フォントの指定は同じ
+from pylopdf import Color, Font
+
+with page.draw() as canvas:
+    canvas.text("CONFIDENTIAL", (40, 40), size=18, fill=Color(1, 0, 0))
+    canvas.text("社外秘", (40, 70), size=18)                                    # pylopdf[jp]が必要
+    canvas.text("简体中文", (40, 100), font=Font.installed(language="zh-CN"))  # pylopdf[zh-cn]が必要
 ```
 
-フォントは次のいずれかの引数で選びます。
+フォントは`font=`で選びます。
 
-- 何も指定しない、または`fontname`: テキストに必要ならインストール済みextraのフォント、そうでなければStandard 14フォント（既定は`"helv"`、ほかに`"Times-Bold"`など）。Standard 14フォントは埋め込まれず、西欧（WinAnsi）の文字しか扱えません。
-- `fontfile`または`fontbuffer`: OpenTypeフォント。使ったグリフだけを埋め込みます。
-- `font`: 読み込み済みの[`Font`](#font)。
+- 何も指定しない: 西欧（WinAnsi）のテキストはHelvetica、それ以外はテキストの文字体系に対応するインストール済みextraのフォント。
+- `Font.standard(name)`: `"Times-Bold"`などのStandard 14フォント。Standard 14フォントは埋め込まれず、西欧の文字しか扱えません。
+- `Font.from_file(path)`または`Font.from_bytes(data)`: OpenTypeフォント。使ったグリフだけを埋め込みます。
+- `Font.installed(language=...)`または`Font.installed(family=...)`: インストール済みextraのフォント。
 
-1つのフォントがテキストのすべての文字を含んでいる必要があります。pylopdfは文字ごとにフォントを切り替えません。かな、ハングル、注音符号、アラビア文字、ヘブライ文字、デーヴァナーガリー、タイ文字を含むテキストは、対応するインストール済みextraを自動で選びます。漢字だけでは言語を判別できないため、既定では日本語フォントを使います。選ぶには`font_language="zh-CN"`、`"zh-TW"`、`"ko"`、`"ja"`を渡してください。
-
-`insert_text`は文字列を`str.splitlines()`で行に分けるか、1項目を1行とするリストを受け取ります。行の間隔は`lineheight × fontsize`で、`lineheight`の既定値はpymupdfと同じくフォントのアセンダーとディセンダーから決まります。ページの下端より下に出る行は描かず、描いた行数を返します。
-
-`insert_textbox`は、Unicodeが改行を許す位置（UAX #14）でテキストを折り返し、明示的な改行を保ち、タブを展開し、1行に収まらない長い単語は分割します。`align`には`TEXT_ALIGN_LEFT`、`TEXT_ALIGN_CENTER`、`TEXT_ALIGN_RIGHT`、`TEXT_ALIGN_JUSTIFY`を指定します。戻り値は余った高さで、負の値はテキストが収まらなかったことを意味し、そのときは何も描きません。
+1つのフォントがテキストのすべての文字を含んでいる必要があります。pylopdfは文字ごとにフォントを切り替えません。かな、ハングル、注音符号、アラビア文字、ヘブライ文字、デーヴァナーガリー、タイ文字を含むテキストは、対応するインストール済みextraを自動で選びます。漢字だけでは言語を判別できないため、既定では日本語フォントを使います。ほかの言語にするには`font=Font.installed(language="zh-CN")`（または`"zh-TW"`、`"ko"`）を渡してください。
 
 右から左に書くテキストは正しく字形処理されます。PDFを読み戻すと、すべて右から左の行と、右から左のテキストの中にラテン文字の単語か数字を1つだけ含む行は論理順で、それ以外の方向が混在する行は見た目の順で取り出されます。複雑な文字体系のクラスタの一部、特に長いデーヴァナーガリーの並びは、元のテキストとわずかに異なって抽出されることがあります。
 
@@ -523,7 +521,7 @@ pylopdf.Font.installed(*, language=None, family=None, serif=False, weight=None, 
 
 フォントは、[キャンバス](#canvas)が描くとおりにテキストを測ります。`text_width(text, size)`は1行の幅で、カーニングと合字を含みます。`text_height(text, size, *, width, line_height=None)`は、テキストを幅`width`ポイントで折り返したときに`canvas.textbox`が必要とする高さです。この高さのtextboxにはテキストがちょうど収まります。プロパティは`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`、`units_per_em`、`ascender`、`descender`で、`has_glyph(char)`はフェイスがその文字のグリフを持つかどうかを返します。`typing.get_args(pylopdf.StandardFontName)`は`Font.standard()`が受け付ける14の名前を列挙します。Standard 14フォントは埋め込まれず、西欧（WinAnsi）の文字しか書けません。
 
-`weight`を指定せずに読み込んだ可変フォントは既定のインスタンスを使いますが、それがRegularの太さとは限りません。可変フォントのNoto Sans CJK JPの既定はThinです。Regularにするには`weight=400`を渡してください。描画メソッドの`fontfile`と`fontbuffer`引数も既定のインスタンスを使います。別の太さで描くには、`Font`を`font=`に渡してください。
+`weight`を指定せずに読み込んだ可変フォントは既定のインスタンスを使いますが、それがRegularの太さとは限りません。可変フォントのNoto Sans CJK JPの既定はThinです。Regularにするには`weight=400`を渡してください。`set_form_field`の`fontfile`と`fontbuffer`引数も既定のインスタンスを使います。別の太さで記入するには、`Font`を`font=`に渡してください。
 
 アラビア語・ヘブライ語・ヒンディー語・タイ語のextraは可変フォントを含むので、軸上の任意の太さを使えます（100–900。Noto Naskh Arabicは400–700）。CJKのextraはスタイルごとにRegularのフォントを1つだけ含みます。そのため`Font.installed(language="ja", weight=700)`は`PdfError`を送出します。Noto Sans JP Boldのような太字のフェイスを`Font.from_file()`で読み込んでください。pylopdfがグリフを変形して太字や斜体を真似ることはありません。
 
@@ -670,7 +668,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | `PageBoxes` | [ページの幾何情報](#page-geometry) |
 | `FallbackFont`, `FallbackFonts` | [レンダリングと画像](#document-rendering) |
 
-定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotationType`（`PDF_ANNOT_*`）、`AnnotationFlags`（`PDF_ANNOT_IS_*`）です。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
+定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`AnnotationType`（`PDF_ANNOT_*`）、`AnnotationFlags`（`PDF_ANNOT_IS_*`）です。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
 
 テキスト、表、OCR、ページの内容の結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`、しおりの行き先などの変更できないデータクラス（frozen dataclass）です。APIが返すそのほかの辞書はただの`dict`で、型チェッカー向けに`FormFieldInfo`などの`TypedDict`クラスで記述しています。
 

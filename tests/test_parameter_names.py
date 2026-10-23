@@ -60,30 +60,3 @@ def test_pixmap_save_takes_its_path_positionally(tmp_path: Path) -> None:
     with pytest.raises(TypeError):
         pixmap.save(path=tmp_path / "other.png")  # ty: ignore[positional-only-parameter-as-kwarg]
     assert not (tmp_path / "other.png").exists()
-
-
-def _word_left_edges(expandtabs: int | None) -> list[tuple[str, float]]:
-    page = pylopdf.Document().pages.new((300, 200))
-    rect = (20, 20, 280, 180)
-    if expandtabs is None:
-        spare = page.insert_textbox(rect, "ab\tcd", fontsize=12)
-    else:
-        spare = page.insert_textbox(rect, "ab\tcd", fontsize=12, expandtabs=expandtabs)
-    assert spare >= 0
-    return [(word.text, round(word.bbox.x0, 3)) for word in page.words()]
-
-
-def test_insert_textbox_expands_tabs_to_one_column_by_default() -> None:
-    default = _word_left_edges(None)
-
-    assert default == _word_left_edges(1)
-    assert default != _word_left_edges(8)
-    assert [text for text, _ in default] == ["ab", "cd"]
-
-
-def test_insert_textbox_text_is_positional_only() -> None:
-    page = pylopdf.Document().pages.new()
-
-    with pytest.raises(TypeError):
-        page.insert_textbox((20, 20, 280, 180), text="x")  # ty: ignore[positional-only-parameter-as-kwarg]
-    assert page.insert_textbox((20, 20, 280, 180), "x") > 0

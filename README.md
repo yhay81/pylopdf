@@ -65,7 +65,8 @@ page.pixmap(dpi=150).save("page.png")
 svg = page.svg()
 
 # Add content
-page.insert_text((72, 72), "Approved", fontsize=20, color=(0.8, 0, 0))
+with page.draw() as canvas:
+    canvas.text("Approved", (72, 72), size=20, fill=pylopdf.Color(0.8, 0, 0))
 page.insert_image((72, 100, 200, 200), filename="logo.png")
 page.annotations.add(pylopdf.Highlight(hits))
 

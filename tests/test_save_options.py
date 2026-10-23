@@ -256,13 +256,17 @@ def test_drawing_after_compaction_isolates_page_content_once() -> None:
         return len(re.findall(rb"\d+ \d+ R", match.group(1)))
 
     plain = pylopdf.open(build_pdf(["Base"]))
-    plain.pages[0].insert_text((50, 50), "One")
-    plain.pages[0].insert_text((50, 80), "Two")
+    with plain.pages[0].draw() as canvas:
+        canvas.text("One", (50, 50))
+    with plain.pages[0].draw() as canvas:
+        canvas.text("Two", (50, 80))
 
     compacted = pylopdf.open(build_pdf(["Base"]))
-    compacted.pages[0].insert_text((50, 50), "One")
+    with compacted.pages[0].draw() as canvas:
+        canvas.text("One", (50, 50))
     compacted.to_bytes(dedupe=True, renumber=True)
-    compacted.pages[0].insert_text((50, 80), "Two")
+    with compacted.pages[0].draw() as canvas:
+        canvas.text("Two", (50, 80))
 
     assert contents_entries(compacted) == contents_entries(plain)
     assert compacted.pages[0].text() == plain.pages[0].text()

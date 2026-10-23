@@ -659,13 +659,14 @@ def _layout_results() -> dict[str, Any]:
 
 
 def _font_results(page: Any, font: bytes) -> dict[str, Any]:  # noqa: ANN401 - pylopdf imports lazily.
-    """Draw with a reusable Font and require its measurement to match the drawing."""
+    """Draw with a reusable Font and require its measurements to match the drawing."""
     import pylopdf  # noqa: PLC0415
 
     face = pylopdf.Font.from_bytes(font)
     text = _JAPANESE + "AVA"
     measured = face.text_width(text, 18)
-    page.insert_text((20, 115), text, fontsize=18, font=face)
+    with page.draw() as canvas:
+        canvas.text(text, (20, 115), font=face, size=18)
     drawn = [
         span
         for block in page.layout(chars=True).to_dict()["blocks"]
@@ -678,6 +679,11 @@ def _font_results(page: Any, font: bytes) -> dict[str, Any]:  # noqa: ANN401 - p
         abs(drawn[0]["chars"][-1]["bbox"][2] - (20 + measured)) < 0.01,  # noqa: PLR2004 - PDF real precision.
         "Font.text_width differs from the drawn advance",
     )
+    # A textbox exactly as tall as text_height measures fits with nothing to spare.
+    needed = face.text_height(_JAPANESE * 6, 10, width=140)
+    with pylopdf.Document().pages.new((200, 200)).draw() as canvas:
+        fit = canvas.textbox((0, 0, 140, needed), _JAPANESE * 6, font=face, size=10)
+    _require(fit.spare_height == 0, "Font.text_height differs from the height a textbox needs")
     standard = pylopdf.Font.standard("Helvetica")
     return {
         "name": face.name,
@@ -688,6 +694,7 @@ def _font_results(page: Any, font: bytes) -> dict[str, Any]:  # noqa: ANN401 - p
         "ascender": face.ascender,
         "descender": face.descender,
         "text_width": measured,
+        "text_height": needed,
         "glyphs": [face.has_glyph(character) for character in [*_JAPANESE, "\U0001f980"]],
         "standard": [
             standard.name,
@@ -734,31 +741,6 @@ def _rotated_canvas_results(font: bytes) -> dict[str, Any]:
     }
 
 
-def _insert_text_line_results(font: bytes) -> list[int]:
-    """Count the lines that insert_text draws, as pymupdf 1.28.2 splits and counts them.
-
-    On a page 130 points high, lines whose baseline would fall below the page
-    are left out, with the line distance computed from single-precision
-    metrics: 13.7400004 points leave no room for a Helvetica baseline at 130
-    from 102.52, while Noto Sans JP's 14.4799995 points leave room for one
-    from 101.04.
-    """
-    import pylopdf  # noqa: PLC0415
-
-    page = pylopdf.Document().pages.new((200, 130))
-    counts = [
-        page.insert_text((72, 100), "A\nB\nC\nD", fontsize=10),
-        page.insert_text((72, 102.52), "A\nB\nC\nD", fontsize=10),
-        page.insert_text((72, 101.04), "\n".join([_JAPANESE] * 4), fontsize=10, fontbuffer=font),
-        page.insert_text((20, 20), "Aa\n", fontsize=10),
-        page.insert_text((20, 40), "A\vB\u2028C", fontsize=10),
-        page.insert_text((20, 60), "\n", fontsize=10),
-        page.insert_text((150, 100), ["A", "B", "C", "D"], fontsize=10),
-    ]
-    _require(counts == [3, 2, 3, 1, 3, 0, 3], "insert_text split or counted lines differently from pymupdf")
-    return counts
-
-
 def _variable_font_results(font: bytes) -> dict[str, Any]:
     """Select weights of a variable font from bytes and require the bold instance to draw its measured width.
 
@@ -773,7 +755,8 @@ def _variable_font_results(font: bytes) -> dict[str, Any]:
     measured = bold.text_width(_HEBREW, 18)
     document = pylopdf.Document()
     page = document.pages.new((240, 80))
-    page.insert_text((20, 50), _HEBREW, fontsize=18, font=bold)
+    with page.draw() as canvas:
+        canvas.text(_HEBREW, (20, 50), font=bold, size=18)
     spans = [
         span
         for block in page.layout(chars=True).to_dict()["blocks"]
@@ -784,7 +767,7 @@ def _variable_font_results(font: bytes) -> dict[str, Any]:
     _require(spans[0]["font"] == "NotoSansHebrew-Bold", "a variable-font instance was embedded under another name")
     _require(
         abs(max(char["bbox"][2] for char in spans[0]["chars"]) - (20 + measured)) < 0.01,  # noqa: PLR2004 - PDF real precision.
-        "a variable-font instance's text_length differs from the drawn advance",
+        "a variable-font instance's text_width differs from the drawn advance",
     )
     return {
         "faces": [[face.name, face.weight] for face in (as_given, regular, bold)],
@@ -853,8 +836,9 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
     document = pylopdf.Document()
     _require(len(document.pages) == 0, "new document is not empty")
     first = document.pages.new((240, 180))
-    first.insert_text((20, 35), "Generated on Wasm", fontsize=14)
-    first.insert_text((20, 75), _JAPANESE, fontsize=18, fontbuffer=font)
+    with first.draw() as canvas:
+        canvas.text("Generated on Wasm", (20, 35), size=14)
+        canvas.text(_JAPANESE, (20, 75), font=pylopdf.Font.from_bytes(font), size=18)
     font_results = _font_results(first, font)
     first_pixmap = first.pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True)
     _require((first_pixmap.width, first_pixmap.height) == (120, 90), "generated page raster size changed")
@@ -870,11 +854,12 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
     second = document.pages.new((180, 240))
     stale_error = _exception_name(lambda: first.rect)
     _require(stale_error == "StalePageError", "structural edit returned the wrong stale-page exception")
-    spare_height = second.insert_textbox(
-        (20, 20, 160, 100),
-        "Second page wraps text without native filesystem access.",
-        fontsize=12,
-    )
+    with second.draw() as canvas:
+        spare_height = canvas.textbox(
+            (20, 20, 160, 100),
+            "Second page wraps text without native filesystem access.",
+            size=12,
+        ).spare_height
     _require(spare_height >= 0, "generated textbox unexpectedly overflowed")
 
     serialized = document.to_bytes()
@@ -926,7 +911,6 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
         "roundtrip_pages": len(document.pages),
         "font": font_results,
         "rotated_canvas": _rotated_canvas_results(font),
-        "insert_text_lines": _insert_text_line_results(font),
         "variable_font": _variable_font_results(
             (root / "fonts/pylopdf-fonts-he/src/pylopdf_fonts_he/NotoSansHebrew-Variable.ttf").read_bytes(),
         ),
@@ -1116,7 +1100,7 @@ def _geometry_results() -> dict[str, Any]:
         page = document.pages.new((page_size, page_size))
         with page.draw() as canvas:
             canvas.line(mapped, mapped + Point(40, 0), stroke=Stroke(paint=Color(0, 0, 0), width=2))
-        page.insert_text(mapped + Point(0, 30), "Affine")
+            canvas.text("Affine", mapped + Point(0, 30))
         saved = document.to_bytes()
     with open(saved) as reopened:
         text = reopened.pages[0].text().strip()
@@ -1136,7 +1120,7 @@ def _geometry_results() -> dict[str, Any]:
 
 def _rectangle_results() -> dict[str, Any]:
     """Check Rect, IRect, and Quad operators and their use with page geometry."""
-    from pylopdf import INFINITE_RECT, Document, Highlight, IRect, Matrix, Point, Quad, Rect  # noqa: PLC0415
+    from pylopdf import INFINITE_RECT, Document, Font, Highlight, IRect, Matrix, Point, Quad, Rect  # noqa: PLC0415
 
     rect = Rect(1, 2, 3, 4)
     _require(rect | Point(10, 10) == (1, 2, 10, 10), "rectangle union with a point changed")
@@ -1155,7 +1139,8 @@ def _rectangle_results() -> dict[str, Any]:
         page = document.pages.new((300, 200))
         page.rotation = 90
         box = page.rect * Matrix(0.5, 0.5) + 20
-        page.insert_text(box.tl + Point(10, 30), "Boxed")
+        with page.draw() as canvas:
+            canvas.text("Boxed", box.tl + Point(10, 30))
         (hit,) = page.search("Boxed")
         boxed = document.pages.new((600, 800))
         boxed.boxes.crop = (100, 450, 500, 750)
@@ -1175,7 +1160,8 @@ def _rectangle_results() -> dict[str, Any]:
         boxed.links.add(Rect(20, 50, 80, 70), "https://e.test/")
         annotations = [(annotation.type.name, annotation.contents) for annotation in boxed.annotations]
         _require(highlight.xref > 0 and highlight in boxed.annotations, "the highlight returned no handle")
-        boxed.insert_text((20, 250), "Full name", fontname="Times-Bold")
+        with boxed.draw() as canvas:
+            canvas.text("Full name", (20, 250), font=Font.standard("Times-Bold"))
         full_name = "/BaseFont/Times-Bold" in document.to_bytes().decode("latin-1")
     _require(isinstance(hit, Rect) and hit in box and hit.intersects(box), "search hit left its box")
     _require(cropbox == [100, 450, 500, 750] and crop_rect == [0, 0, 400, 300], "the CropBox changed")
@@ -1184,7 +1170,7 @@ def _rectangle_results() -> dict[str, Any]:
     _require(reset_cropbox == [0, 0, 200, 300], "assigning the MediaBox kept the CropBox")
     _require(placed == ["Image", "Form"], "placement did not return the placed XObject")
     _require(annotations == [("HIGHLIGHT", "note")], "annotation handles changed")
-    _require(full_name, "a full Standard 14 name did not select its font")
+    _require(full_name, "Font.standard did not select its Standard 14 font")
     return {
         "cropbox": cropbox,
         "display_matrix": display_matrix,
@@ -1218,7 +1204,8 @@ def _content_isolation_results() -> dict[str, Any]:
             }
         )
         document = pylopdf.open(data)
-        document.pages[0].insert_text(point, "Probe", fontsize=10)
+        with document.pages[0].draw() as canvas:
+            canvas.text("Probe", point, size=10)
         words = [word for word in document.pages[0].words() if word.text == "Probe"]
         _require(len(words) == 1, f"{label} content lost the appended text")
         x0, y0, x1, y1 = words[0].bbox

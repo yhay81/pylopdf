@@ -1,11 +1,12 @@
-"""Line placement of insert_text and insert_textbox, pinned to pymupdf 1.28.2.
+"""Font metrics and the line placement of canvas text and textboxes.
 
-pymupdf is not a test dependency. Every expected value below was measured with
-pymupdf 1.28.2 from the ``bench`` dependency group: ``Font.ascender`` and
-``Font.descender``, and the baselines and return values of
-``Page.insert_text`` and ``Page.insert_textbox`` at ``fontsize=10``, read back
-through ``get_text("dict")``. pymupdf reports its metrics as single-precision
-floats, so they are recorded here in the font units they come from.
+pymupdf is not a test dependency. The metrics below, ``Font.ascender`` and
+``Font.descender``, and the baselines of canvas text, which spaces lines as
+pymupdf 1.28.2's ``Page.insert_text`` did, were measured with pymupdf 1.28.2
+from the ``bench`` dependency group at ``fontsize=10``. pymupdf reports its
+metrics as single-precision floats, so they are recorded here in the font
+units they come from. A canvas textbox places lines as canvas text does, the
+first baseline one ascender below the top of its box.
 """
 
 from __future__ import annotations
@@ -117,16 +118,37 @@ def _baselines(page: pylopdf.Page) -> list[float]:
     ]
 
 
-def _insert_text(page: pylopdf.Page, via: str, text: str, **options: Any) -> int:  # noqa: ANN401
-    assert via == "page"
-    options.setdefault("fontsize", 10)
-    return page.insert_text(POINT, text, **options)
+def _run_baselines(page: pylopdf.Page) -> list[float]:
+    """Return the baseline of each painted line, whether or not its glyphs map to Unicode."""
+    return [run.glyphs[0].origin.y for run in page.content(paths=False, images=False).text_runs]
 
 
-def _insert_textbox(page: pylopdf.Page, via: str, rect: tuple[float, ...], text: str, **options: Any) -> float:  # noqa: ANN401
-    assert via == "page"
-    options.setdefault("fontsize", 10)
-    return page.insert_textbox(rect, text, **options)
+def _font(options: dict[str, Any]) -> pylopdf.Font | None:
+    """Return the font of a parameter set: a Standard 14 name, a file, or font bytes."""
+    if "name" in options:
+        return pylopdf.Font.standard(options["name"])
+    if "path" in options:
+        return pylopdf.Font.from_file(options["path"])
+    if "data" in options:
+        return pylopdf.Font.from_bytes(options["data"])
+    return None
+
+
+def _text(page: pylopdf.Page, text: str, *, line_height: float | None = None, **options: Any) -> None:  # noqa: ANN401
+    with page.draw() as canvas:
+        canvas.text(text, POINT, font=_font(options), size=10, line_height=line_height)
+
+
+def _textbox(
+    page: pylopdf.Page,
+    rect: tuple[float, float, float, float],
+    text: str,
+    *,
+    line_height: float | None = None,
+    **options: Any,  # noqa: ANN401
+) -> float:
+    with page.draw() as canvas:
+        return canvas.textbox(rect, text, font=_font(options), size=10, line_height=line_height).spare_height
 
 
 @pytest.mark.parametrize(("name", "metrics"), STANDARD_METRICS.items())
@@ -162,204 +184,146 @@ def test_faces_report_the_metrics_mupdf_reads(patch: dict[str, Any], metrics: tu
     assert (font.ascender, font.descender) == pytest.approx(metrics, abs=1e-9)
 
 
-@pytest.mark.parametrize("via", ["page"])
 @pytest.mark.parametrize(
     ("text", "options", "baselines"),
     [
         # Helvetica's ascender minus its descender is 1.374 em.
         pytest.param(LATIN, {}, [100, 113.74, 127.48], id="helv"),
-        pytest.param(LATIN, {"lineheight": 1.5}, [100, 115, 130], id="lineheight"),
-        pytest.param(LATIN, {"lineheight": 2}, [100, 120, 140], id="integer-lineheight"),
-        pytest.param(LATIN, {"fontname": "cour"}, [100, 112.49, 124.98], id="cour"),
-        pytest.param(LATIN, {"fontname": "tibo"}, [100, 113.85, 127.7], id="tibo"),
-        pytest.param(JAPANESE, {"fontfile": NOTO_SANS_JP}, [100, 114.48, 128.96], id="noto-sans-jp"),
-        pytest.param(JAPANESE, {"fontfile": NOTO_SANS_JP, "lineheight": 1.5}, [100, 115, 130], id="jp-lineheight"),
-        pytest.param(HEBREW, {"fontfile": NOTO_SANS_HEBREW}, [100, 113.6, 127.2], id="noto-sans-hebrew"),
+        pytest.param(LATIN, {"line_height": 1.5}, [100, 115, 130], id="line-height"),
+        pytest.param(LATIN, {"line_height": 2}, [100, 120, 140], id="integer-line-height"),
+        pytest.param(LATIN, {"name": "Courier"}, [100, 112.49, 124.98], id="cour"),
+        pytest.param(LATIN, {"name": "Times-Bold"}, [100, 113.85, 127.7], id="tibo"),
+        pytest.param(JAPANESE, {"path": NOTO_SANS_JP}, [100, 114.48, 128.96], id="noto-sans-jp"),
+        pytest.param(JAPANESE, {"path": NOTO_SANS_JP, "line_height": 1.5}, [100, 115, 130], id="jp-line-height"),
+        pytest.param(HEBREW, {"path": NOTO_SANS_HEBREW}, [100, 113.6, 127.2], id="noto-sans-hebrew"),
         # An ascender minus descender of at most 1 em falls back to 1.2 em.
-        pytest.param(JAPANESE, {"fontbuffer": _patched(hhea=(700, -200))}, [100, 112, 124], id="small-extent"),
+        pytest.param(JAPANESE, {"data": _patched(hhea=(700, -200))}, [100, 112, 124], id="small-extent"),
         # pymupdf compares MuPDF's single-precision metrics: 0.75 and -0.25
         # span exactly 1 em and 0.88 and -0.12 slightly less, while 0.8 and
         # -0.2, also MuPDF's replacements for untrusted metrics, span
         # 1.000000015 em and keep lines 1 em apart.
-        pytest.param(JAPANESE, {"fontbuffer": _patched(hhea=(750, -250))}, [100, 112, 124], id="exact-1-em"),
-        pytest.param(JAPANESE, {"fontbuffer": _patched(hhea=(880, -120))}, [100, 112, 124], id="below-1-em"),
-        pytest.param(JAPANESE, {"fontbuffer": _patched(hhea=(800, -200))}, [100, 110, 120], id="above-1-em"),
-        pytest.param(
-            JAPANESE,
-            {"fontbuffer": _patched(hhea=(8001, -3001))},
-            [100, 110, 120],
-            id="untrusted-metrics",
-        ),
+        pytest.param(JAPANESE, {"data": _patched(hhea=(750, -250))}, [100, 112, 124], id="exact-1-em"),
+        pytest.param(JAPANESE, {"data": _patched(hhea=(880, -120))}, [100, 112, 124], id="below-1-em"),
+        pytest.param(JAPANESE, {"data": _patched(hhea=(800, -200))}, [100, 110, 120], id="above-1-em"),
+        pytest.param(JAPANESE, {"data": _patched(hhea=(8001, -3001))}, [100, 110, 120], id="untrusted-metrics"),
     ],
 )
-def test_insert_text_places_lines_as_pymupdf_does(
-    via: str,
+def test_text_spaces_lines_as_pymupdf_insert_text_did(
     text: str,
     options: dict[str, Any],
     baselines: list[float],
 ) -> None:
     page = _page()
 
-    count = _insert_text(page, via, text, **options)
+    _text(page, text, **options)
 
-    assert count == 3
     assert _baselines(page) == pytest.approx(baselines, abs=1e-3)
 
 
-@pytest.mark.parametrize("via", ["page"])
-def test_a_loaded_font_places_lines_with_its_own_metrics(via: str) -> None:
+def test_a_loaded_font_places_lines_with_its_own_metrics() -> None:
     font = pylopdf.Font.from_file(NOTO_SANS_JP)
     page = _page()
 
-    _insert_text(page, via, JAPANESE, font=font)
+    with page.draw() as canvas:
+        canvas.text(JAPANESE, POINT, font=font, size=10)
 
     step = (font.ascender - font.descender) * 10
     assert _baselines(page) == pytest.approx([100, 100 + step, 100 + 2 * step], abs=1e-3)
     assert step == pytest.approx(14.48)
 
 
-@pytest.mark.parametrize("via", ["page"])
-def test_zapf_dingbats_falls_back_to_pymupdfs_default_leading(via: str) -> None:
+def test_zapf_dingbats_falls_back_to_the_default_leading() -> None:
     page = _page()
 
-    _insert_text(page, via, LATIN, fontname="zadb")
+    _text(page, LATIN, name="ZapfDingbats")
 
-    # ZapfDingbats spans 0.963 em, so pymupdf sets its lines 1.2 em apart.
-    assert re.findall(rb"\b([\d.]+) TL\b", page.document.to_bytes()) == [b"12"]
+    # ZapfDingbats spans 0.963 em, so its lines lie 1.2 em apart.
+    assert re.findall(rb"\b([\d.]+) TL\b", page.document.to_bytes(compress=False)) == [b"12"]
 
 
-@pytest.mark.parametrize("via", ["page"])
 @pytest.mark.parametrize(
-    ("text", "options", "baselines", "spare"),
+    ("text", "options", "ascender", "line_height"),
     [
-        # The first baseline lies one ascender below the top, later ones the
-        # line height times the ascender apart, while the spare height counts
-        # one line height per line plus one descender.
-        pytest.param(LATIN, {}, [110.75, 125.5205, 140.291], 155.79, id="helv"),
-        pytest.param(LATIN, {"lineheight": 1}, [110.75, 121.5, 132.25], 167.01, id="lineheight-1"),
-        pytest.param(LATIN, {"lineheight": 1.5}, [110.75, 126.875, 143.0], 152.01, id="lineheight-1.5"),
-        pytest.param(LATIN, {"fontname": "cour"}, [109.32, 120.9607, 132.6014], 159.36, id="cour"),
-        pytest.param(LATIN, {"fontname": "tiro"}, [110.53, 124.577, 138.624], 157.17, id="tiro"),
-        pytest.param(JAPANESE, {"fontfile": NOTO_SANS_JP}, [111.6, 128.3968, 145.1936], 153.68, id="noto-sans-jp"),
-        pytest.param(
-            JAPANESE,
-            {"fontfile": NOTO_SANS_JP, "lineheight": 1.5},
-            [111.6, 129.0, 146.4],
-            152.12,
-            id="jp-lineheight",
-        ),
-        pytest.param(
-            JAPANESE,
-            {"fontbuffer": _patched(hhea=(700, -200))},
-            [107.0, 115.4, 123.8],
-            162.0,
-            id="small-extent",
-        ),
-        pytest.param(
-            JAPANESE,
-            {"fontbuffer": _patched(hhea=(750, -250))},
-            [107.5, 116.5, 125.5],
-            161.5,
-            id="exact-1-em",
-        ),
-        pytest.param(
-            JAPANESE,
-            {"fontbuffer": _patched(hhea=(880, -120))},
-            [108.8, 119.36, 129.92],
-            162.8,
-            id="below-1-em",
-        ),
-        pytest.param(
-            JAPANESE,
-            {"fontbuffer": _patched(hhea=(800, -200))},
-            [108.0, 116.0, 124.0],
-            168.0,
-            id="above-1-em",
-        ),
+        pytest.param(LATIN, {}, 1.075, 1.374, id="helv"),
+        pytest.param(LATIN, {"line_height": 1}, 1.075, 1.0, id="line-height-1"),
+        pytest.param(LATIN, {"line_height": 1.5}, 1.075, 1.5, id="line-height-1.5"),
+        pytest.param(LATIN, {"name": "Courier"}, 0.932, 1.249, id="cour"),
+        pytest.param(LATIN, {"name": "ZapfDingbats"}, 0.819, 1.2, id="zadb"),
+        pytest.param(JAPANESE, {"path": NOTO_SANS_JP}, 1.16, 1.448, id="noto-sans-jp"),
+        pytest.param(JAPANESE, {"data": _patched(hhea=(700, -200))}, 0.7, 1.2, id="small-extent"),
     ],
 )
-def test_insert_textbox_places_lines_as_pymupdf_does(
-    via: str,
+def test_textbox_places_lines_as_text_does(
     text: str,
     options: dict[str, Any],
-    baselines: list[float],
-    spare: float,
+    ascender: float,
+    line_height: float,
 ) -> None:
     page = _page()
+    font = _font(options) or pylopdf.Font.standard("Helvetica")
 
-    assert _insert_textbox(page, via, RECT, text, **options) == pytest.approx(spare, abs=1e-5)
-    assert _baselines(page) == pytest.approx(baselines, abs=1e-3)
+    spare = _textbox(page, RECT, text, **options)
 
-
-@pytest.mark.parametrize("via", ["page"])
-def test_insert_textbox_places_zapf_dingbats_as_pymupdf_does(via: str) -> None:
-    page = _page()
-
-    assert _insert_textbox(page, via, RECT, LATIN, fontname="zadb") == pytest.approx(162.56, abs=1e-5)
-
-    # Display baselines 108.19, 118.018, and 127.846 on an 842-point page.
-    origins = re.findall(rb"1 0 0 1 72 ([\d.]+) Tm", page.document.to_bytes())
-    assert [842 - float(origin) for origin in origins] == pytest.approx([108.19, 118.018, 127.846], abs=1e-3)
+    first = RECT[1] + ascender * 10
+    assert _run_baselines(page) == pytest.approx([first, first + 10 * line_height, first + 20 * line_height], abs=1e-3)
+    # The text takes the extent of its first and last lines plus two line steps.
+    used = (font.ascender - font.descender) * 10 + 2 * 10 * line_height
+    assert spare == pytest.approx(RECT[3] - RECT[1] - used, abs=1e-6)
+    assert font.text_height(text, 10, width=RECT[2] - RECT[0], line_height=options.get("line_height")) == pytest.approx(
+        used
+    )
 
 
-@pytest.mark.parametrize("via", ["page"])
 @pytest.mark.parametrize(
     ("bottom", "spare"),
     [
-        pytest.param(140.0, -4.21, id="overflow"),
-        pytest.param(144.2, -0.01, id="just-over"),
-        pytest.param(144.21, 0.0, id="exact"),
+        pytest.param(140.0, -1.22, id="overflow"),
+        pytest.param(141.21, -0.01, id="just-over"),
+        pytest.param(141.22, 0.0, id="exact"),
     ],
 )
-def test_insert_textbox_fits_text_as_pymupdf_does(via: str, bottom: float, spare: float) -> None:
+def test_textbox_fits_text_down_to_its_last_descender(bottom: float, spare: float) -> None:
     page = _page()
 
-    result = _insert_textbox(page, via, (RECT[0], RECT[1], RECT[2], bottom), LATIN)
+    # Three Helvetica lines take 3 times 1.374 em at 10 points.
+    result = _textbox(page, (RECT[0], RECT[1], RECT[2], bottom), LATIN)
 
     assert result == pytest.approx(spare, abs=1e-5)
     assert len(_baselines(page)) == (3 if spare >= 0 else 0)
 
 
-@pytest.mark.parametrize("via", ["page"])
-@pytest.mark.parametrize("lineheight", [0, -1.2, math.nan, math.inf, "1.2x"])
-def test_insert_text_rejects_a_lineheight_that_is_not_positive(via: str, lineheight: object) -> None:
+@pytest.mark.parametrize("line_height", [0, -1.2, math.nan, math.inf])
+def test_text_rejects_a_line_height_that_is_not_positive(line_height: float) -> None:
     page = _page()
 
-    with pytest.raises(pylopdf.PdfError, match="lineheight must be a positive number or None"):
-        _insert_text(page, via, LATIN, lineheight=lineheight)
+    with pytest.raises(ValueError, match="line_height must be"):
+        _text(page, LATIN, line_height=line_height)
+    with pytest.raises(TypeError, match="line_height must be a number"):
+        _text(page, LATIN, line_height="1.2x")  # ty: ignore[invalid-argument-type]
     assert _baselines(page) == []
 
 
-@pytest.mark.parametrize("via", ["page"])
 @pytest.mark.parametrize(
-    ("options", "message"),
+    ("options", "error", "message"),
     [
-        pytest.param({"fontsize": 0}, "fontsize must be a positive number", id="fontsize"),
-        pytest.param({"fontsize": "large"}, "fontsize must be a positive number", id="fontsize-type"),
-        pytest.param({"lineheight": -1}, "lineheight must be a positive number or None", id="lineheight"),
-        pytest.param({"align": 4}, "align must be one of", id="align"),
-        pytest.param({"expandtabs": -1}, "expandtabs must be a non-negative integer", id="expandtabs"),
+        pytest.param({"size": 0}, ValueError, "size must be positive", id="size"),
+        pytest.param({"size": "large"}, TypeError, "size must be a number", id="size-type"),
+        pytest.param({"line_height": -1}, ValueError, "line_height must be positive", id="line-height"),
+        pytest.param({"align": "middle"}, ValueError, "align must be one of", id="align"),
     ],
 )
-def test_insert_textbox_raises_pdf_error_for_unsupported_options(
-    via: str,
-    options: dict[str, Any],
-    message: str,
-) -> None:
+def test_textbox_refuses_unsupported_options(options: dict[str, Any], error: type[Exception], message: str) -> None:
     page = _page()
 
-    # PdfError is a ValueError, so code that catches ValueError keeps working.
-    with pytest.raises(pylopdf.PdfError, match=message) as error:
-        _insert_textbox(page, via, RECT, LATIN, **options)
-    assert isinstance(error.value, ValueError)
+    with pytest.raises(error, match=message), page.draw() as canvas:
+        canvas.textbox(RECT, LATIN, **options)
     assert _baselines(page) == []
 
 
-@pytest.mark.parametrize("via", ["page"])
-def test_insert_text_rejects_a_line_distance_beyond_floating_point(via: str) -> None:
+def test_text_refuses_a_line_distance_beyond_pdf_real_range() -> None:
     page = _page()
     before = page.document.to_bytes()
 
-    with pytest.raises(pylopdf.PdfError, match="lineheight times fontsize must be a finite number"):
-        _insert_text(page, via, LATIN, lineheight=1e300, fontsize=1e10)
+    with pytest.raises(ValueError, match="line_height must be a finite number within PDF real range"):
+        _text(page, LATIN, line_height=1e300)
     assert page.document.to_bytes() == before

@@ -286,6 +286,23 @@ def three_page_pdf() -> bytes:
     return build_pdf(["Page one", "Page two", "Page three"])
 
 
+def draw_text(page: pylopdf.Page, point: tuple[float, float], text: str, **options: Any) -> None:  # noqa: ANN401
+    """Draw text with a canvas of its own, for edits that a test expresses as one call."""
+    with page.draw() as canvas:
+        canvas.text(text, point, **options)
+
+
+def draw_textbox(
+    page: pylopdf.Page,
+    rect: tuple[float, float, float, float],
+    text: str,
+    **options: Any,  # noqa: ANN401
+) -> pylopdf.TextFit:
+    """Wrap text in a canvas textbox of its own and return how it fits."""
+    with page.draw() as canvas:
+        return canvas.textbox(rect, text, **options)
+
+
 def drawn_images(page: pylopdf.Page) -> list[dict[str, Any]]:
     """Decode each image drawn on ``page``, composited with its soft mask.
 

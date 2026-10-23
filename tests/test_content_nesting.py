@@ -826,7 +826,8 @@ def test_inserted_text_does_not_hide_deep_content() -> None:
     doc = pylopdf.open(_document([f"{SHOW} /Fm0 Do"], [deep], "/XObject << /Fm0 {0} 0 R >> "))
     assert _refusal(doc.pages[0].text).code == CODE
 
-    doc.pages[0].insert_text((20, 250), "ADDED")
+    with doc.pages[0].draw() as canvas:
+        canvas.text("ADDED", (20, 250))
 
     assert _refusal(doc.pages[0].text).code == CODE
 

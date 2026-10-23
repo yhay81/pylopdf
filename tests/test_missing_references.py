@@ -120,7 +120,8 @@ def test_page_with_a_null_parent_reads_and_edits_its_own_attributes(value: str) 
 
     assert doc.pages[0].boxes.media == pylopdf.Rect(0, 0, 300, 400)
     assert doc.pages[0].rotation == 90
-    doc.pages[0].insert_text((20, 40), "STAMP")
+    with doc.pages[0].draw() as canvas:
+        canvas.text("STAMP", (20, 40))
     doc.pages.extend(doc.pages[0])
 
     for current in _with_reloaded(doc):
@@ -137,7 +138,8 @@ def test_inheritance_keeps_attributes_below_a_null_parent(value: str) -> None:
 
     assert doc.pages[0].boxes.media == pylopdf.Rect(0, 0, 612, 792)
     assert doc.pages[0].rotation == 90
-    doc.pages[0].insert_text((20, 300), "STAMP")
+    with doc.pages[0].draw() as canvas:
+        canvas.text("STAMP", (20, 300))
     doc.pages.select([0, 0])
 
     for current in _with_reloaded(doc):
@@ -151,7 +153,8 @@ def test_text_insertion_starts_a_null_font_category(value: str) -> None:
     """Registering a font raised `PdfError` for every null-equivalent category."""
     doc = pylopdf.open(_pdf(page=f"/Resources << /Font {value} >>", extra={5: _stream("0 0 m 10 10 l S")}))
 
-    doc.pages[0].insert_text((20, 300), "STAMP")
+    with doc.pages[0].draw() as canvas:
+        canvas.text("STAMP", (20, 300))
 
     for current in _with_reloaded(doc):
         assert current.pages[0].text().splitlines() == ["STAMP"]
@@ -192,7 +195,8 @@ def test_drawing_after_a_null_content_entry_stays_visible(value: str, layout: st
     expected = ["STAMP", "TARGET PAGE"] if layout == "array" else ["STAMP"]
     doc = pylopdf.open(_pdf(contents=contents))
 
-    doc.pages[0].insert_text((20, 300), "STAMP")
+    with doc.pages[0].draw() as canvas:
+        canvas.text("STAMP", (20, 300))
 
     for current in _with_reloaded(doc):
         assert current.pages[0].text().splitlines() == expected

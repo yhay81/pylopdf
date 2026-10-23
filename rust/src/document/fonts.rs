@@ -23,24 +23,6 @@ pub(crate) fn load_generation_font(
     })
 }
 
-/// Select the face that a text drawing call embeds.
-///
-/// A variable face is drawn at `weight` on its weight axis, and Python passes
-/// the regular weight for an installed package face: the default instance of
-/// Noto Sans Hebrew is Thin. A static face, and any face drawn without a
-/// weight, is drawn as given, so explicit `fontfile` and `fontbuffer` input
-/// keeps its default instance. Form appearances select it the same way, per
-/// widget, through `FormFont`.
-pub(super) fn generation_face(
-    py: Python<'_>,
-    data: FontBytes,
-    index: u32,
-    weight: Option<u16>,
-) -> PyResult<GenerationFace> {
-    py.detach(|| GenerationFace::new(data, index, weight))
-        .map_err(PdfError::new_err)
-}
-
 /// One locale-specific fallback pair for non-embedded CJK fonts.
 #[derive(Default, Clone)]
 pub(super) struct FallbackFontPair {

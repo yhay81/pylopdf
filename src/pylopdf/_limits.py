@@ -6,8 +6,7 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from pylopdf._types import TEXT_ALIGN_JUSTIFY, TEXT_ALIGN_LEFT
-from pylopdf.pylopdf_core import LimitError, PdfError
+from pylopdf.pylopdf_core import LimitError
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -135,46 +134,6 @@ def _validate_rect(rect: Sequence[float], *, name: str = "rect") -> tuple[float,
     return x0, y0, x1, y1
 
 
-def _validate_lineheight(lineheight: float | None) -> float | None:
-    """Validate a line-height multiplier; ``None`` keeps the font's default line height."""
-    if lineheight is None:
-        return None
-    try:
-        resolved = float(lineheight)
-    except (TypeError, ValueError) as exc:
-        msg = f"lineheight must be a positive number or None: {lineheight!r}"
-        raise PdfError(msg) from exc
-    if not (math.isfinite(resolved) and resolved > 0):
-        msg = f"lineheight must be a positive number or None: {lineheight!r}"
-        raise PdfError(msg)
-    return resolved
-
-
-def _validate_textbox_options(
-    fontsize: float,
-    lineheight: float | None,
-    align: int,
-    expandtabs: int,
-) -> tuple[float, float | None]:
-    """Validate textbox layout options and return the normalized size and line height."""
-    try:
-        resolved_fontsize = float(fontsize)
-    except (TypeError, ValueError) as exc:
-        msg = f"fontsize must be a positive number: {fontsize!r}"
-        raise PdfError(msg) from exc
-    if not (math.isfinite(resolved_fontsize) and resolved_fontsize > 0):
-        msg = f"fontsize must be a positive number: {fontsize!r}"
-        raise PdfError(msg)
-    resolved_lineheight = _validate_lineheight(lineheight)
-    if isinstance(align, bool) or not isinstance(align, int) or not TEXT_ALIGN_LEFT <= align <= TEXT_ALIGN_JUSTIFY:
-        msg = f"align must be one of 0, 1, 2, or 3: {align!r}"
-        raise PdfError(msg)
-    if isinstance(expandtabs, bool) or not isinstance(expandtabs, int) or expandtabs < 0:
-        msg = f"expandtabs must be a non-negative integer: {expandtabs!r}"
-        raise PdfError(msg)
-    return resolved_fontsize, resolved_lineheight
-
-
 def _validate_utf8_text_input(
     text: str,
     max_text_size: int | None,
@@ -222,40 +181,12 @@ def _validate_utf8_text_input(
             raise_limit()
 
 
-def _validate_generated_text_lines(text: str, max_text_size: int | None) -> None:
-    """Bound physical lines before split or layout object materialization."""
-    if max_text_size is not None and text.count("\n") >= _MAX_GENERATED_TEXT_LINES:
-        raise _text_line_limit()
-
-
 def _text_line_limit() -> LimitError:
     """Return the refusal of text input beyond the generated-line limit."""
     return LimitError(
         "text_line_count",
         f"text input exceeds the {_MAX_GENERATED_TEXT_LINES}-line safety limit",
     )
-
-
-def _insert_text_lines(text: str | Sequence[str], max_text_size: int | None) -> list[str]:
-    r"""Return the lines of ``insert_text`` text, split as pymupdf splits them.
-
-    A string is split with :meth:`str.splitlines`, so a trailing line break
-    adds no line and ``\v``, ``\f``, ``\x1c`` to ``\x1e``, ``\x85``,
-    ``\u2028``, and ``\u2029`` break lines as ``\n``, ``\r``, and ``\r\n`` do.
-    A list or tuple holds one line per item, used as given. The text budgets
-    apply before a string is split.
-    """
-    if isinstance(text, (list, tuple)):
-        lines = list(text)
-        _validate_text_line_list(lines, max_text_size)
-        return lines
-    if not isinstance(text, str):
-        msg = f"text must be a string or a list of strings: {text!r}"
-        raise TypeError(msg)
-    _validate_utf8_text_input(text, max_text_size)
-    if max_text_size is not None and _splitlines_count(text) > _MAX_GENERATED_TEXT_LINES:
-        raise _text_line_limit()
-    return text.splitlines()
 
 
 def _splitlines_count(text: str) -> int:

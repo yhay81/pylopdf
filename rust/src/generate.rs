@@ -35,7 +35,7 @@ pub(crate) struct GlyphRun {
     pub(crate) text: String,
 }
 
-/// Shape `lines` where `insert_text` places them: the first baseline-left
+/// Shape `lines` where canvas text places them: the first baseline-left
 /// point at `point` in top-left-origin page coordinates, and each later
 /// baseline `leading` lower.
 pub(crate) fn text_runs(
@@ -169,15 +169,6 @@ pub(crate) fn device_paint(color: DeviceColor) -> Paint {
             channel_to_u8(blue),
         )
         .into(),
-    }
-}
-
-/// A solid, fully opaque fill with the non-zero rule.
-pub(crate) fn solid_fill(color: DeviceColor) -> Fill {
-    Fill {
-        paint: device_paint(color),
-        opacity: NormalizedF32::ONE,
-        rule: Default::default(),
     }
 }
 
@@ -470,100 +461,6 @@ fn truncate_postscript_name(mut name: String) -> String {
     name
 }
 
-/// Generate one transparent page containing subset-embedded OpenType text,
-/// and return it with the number of lines it draws.
-///
-/// Coordinates use krilla's top-left-origin page surface. `point` is the first
-/// line's baseline-left point; later lines follow at `lineheight` times the
-/// font size, or at the face's default line height, and those whose baseline
-/// would fall below the page are left out, as
-/// [`LineMetrics::lines_on_page`] decides. Every line is still shaped, so a
-/// glyph that the face lacks is refused wherever its line lies.
-pub fn embedded_text_page(
-    page_size: (f64, f64),
-    point: (f64, f64),
-    lines: &[String],
-    face: &GenerationFace,
-    font_size: f64,
-    lineheight: Option<f64>,
-    color: (f64, f64, f64),
-) -> Result<(Vec<u8>, usize), String> {
-    let width = finite_f32(page_size.0, "page width")?;
-    let height = finite_f32(page_size.1, "page height")?;
-    let size = finite_f32(font_size, "font size")?;
-    let page_settings = PageSettings::from_wh(width, height)
-        .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
-    let metrics = font_line_metrics(face.shaping_font())?;
-    let leading = metrics.leading(font_size, lineheight)?;
-    let mut runs = text_runs(face.shaping_font(), point, lines, leading)?;
-    let drawn = metrics.lines_on_page(lines.len(), page_size.1 - point.1, font_size, lineheight);
-    runs.truncate(drawn);
-    let font = face.embedding_font()?;
-
-    let mut document = Document::new();
-    let mut page = document.start_page_with(page_settings);
-    let mut surface = page.surface();
-    surface.set_fill(Some(solid_fill(DeviceColor::Rgb(
-        color.0, color.1, color.2,
-    ))));
-    draw_runs(&mut surface, &runs, &font, size);
-    surface.finish();
-    page.finish();
-    let pdf = document
-        .finish()
-        .map_err(|error| format!("krilla text generation failed: {error}"))?;
-    Ok((pdf, drawn))
-}
-
-/// Lay out and generate subset-embedded OpenType text inside a display-space
-/// rectangle. An overflow returns its negative spare height without PDF bytes.
-#[allow(clippy::too_many_arguments)]
-pub fn embedded_textbox_page(
-    page_size: (f64, f64),
-    rect: [f64; 4],
-    text: &str,
-    face: &GenerationFace,
-    font_size: f64,
-    lineheight: Option<f64>,
-    align: u8,
-    color: (f64, f64, f64),
-    max_lines: Option<usize>,
-) -> Result<(Option<Vec<u8>>, f64), String> {
-    let width = finite_f32(page_size.0, "page width")?;
-    let height = finite_f32(page_size.1, "page height")?;
-    let size = finite_f32(font_size, "font size")?;
-    let page_settings = PageSettings::from_wh(width, height)
-        .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
-    let placement = LinePlacement::textbox(font_line_metrics(face.shaping_font())?, lineheight);
-    let (runs, spare_height) = textbox_runs(
-        face.shaping_font(),
-        rect,
-        text,
-        font_size,
-        placement,
-        align,
-        max_lines,
-    )?;
-    let Some(runs) = runs else {
-        return Ok((None, spare_height));
-    };
-    let font = face.embedding_font()?;
-
-    let mut document = Document::new();
-    let mut page = document.start_page_with(page_settings);
-    let mut surface = page.surface();
-    surface.set_fill(Some(solid_fill(DeviceColor::Rgb(
-        color.0, color.1, color.2,
-    ))));
-    draw_runs(&mut surface, &runs, &font, size);
-    surface.finish();
-    page.finish();
-    let bytes = document
-        .finish()
-        .map_err(|error| format!("krilla text generation failed: {error}"))?;
-    Ok((Some(bytes), spare_height))
-}
-
 /// Auto-fit and generate text for an AcroForm widget appearance.
 ///
 /// Single-line fields collapse explicit line breaks and shrink until they fit
@@ -601,7 +498,7 @@ pub fn embedded_widget_text_page(
             &normalized,
             box_size,
             font_size,
-            LinePlacement::Stacked {
+            LinePlacement {
                 ascent,
                 descent,
                 line_height: 1.2,
@@ -797,8 +694,8 @@ impl<'a> LineShaper<'a> {
     }
 }
 
-/// Return the ascender and descender that pymupdf's `Font` reports for a
-/// face, which `insert_text` and `insert_textbox` place lines with.
+/// Return the ascender and descender of a face, which canvas text places
+/// lines with, as pymupdf's `Font` reports them.
 ///
 /// MuPDF takes them from FreeType, which reads the OS/2 typographic metrics
 /// when the face sets `USE_TYPO_METRICS` and the `hhea` metrics otherwise,

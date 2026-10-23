@@ -19,11 +19,12 @@ _MAX_OVERLAY_GLYPHS = 2_000
 def _demo_document() -> pylopdf.Document:
     document = pylopdf.Document()
     page = document.pages.new((420, 220))
-    page.insert_text((24, 42), "Glyph positions", fontsize=22)
-    page.insert_text((24, 78), "PDF glyphs carry Unicode and geometry.", fontsize=13)
-    page.insert_text((24, 112), "Blue boxes approximate glyph bounds.", fontsize=13)
-    page.insert_text((24, 146), "Red dots mark baseline start points.", fontsize=13)
-    page.insert_text((24, 182), "Hover a glyph or turn on its Unicode label.", fontsize=11)
+    with page.draw() as canvas:
+        canvas.text("Glyph positions", (24, 42), size=22)
+        canvas.text("PDF glyphs carry Unicode and geometry.", (24, 78), size=13)
+        canvas.text("Blue boxes approximate glyph bounds.", (24, 112), size=13)
+        canvas.text("Red dots mark baseline start points.", (24, 146), size=13)
+        canvas.text("Hover a glyph or turn on its Unicode label.", (24, 182), size=11)
     return document
 
 

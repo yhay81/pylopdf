@@ -214,7 +214,7 @@ def _canvas_font(text: str, font: Font | None) -> _Font:
             raise TypeError(msg)
         core_font = font._font
     else:
-        base_font, source, package_font = _resolve_generation_font(text, "helv", None, 0, None)
+        base_font, source, package_font = _resolve_generation_font(text)
         if isinstance(source, FilePath):
             core_font = _Font.from_file(os.fspath(source), 0, _DEFAULT_MAX_FONT_INPUT_SIZE, package_font)
         elif isinstance(source, bytes):

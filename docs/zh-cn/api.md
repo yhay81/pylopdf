@@ -237,11 +237,9 @@ page.rotation = 90
 
 | 成员 | 用途 |
 |---|---|
-| `insert_text(point, text, ...)` | 从某个点开始写入文本；参见[文本与字体](#fonts) |
-| `insert_textbox(rect, text, ...)` | 在矩形内写入自动换行的文本 |
 | `insert_image(rect, *, filename=, stream=, pixmap=, rotate=0, keep_proportion=True, overlay=True)` | 绘制JPEG、PNG或`Pixmap`；返回其对象编号 |
 | `show_pdf_page(rect, docsrc, pno=0, *, keep_proportion=True, overlay=True)` | 以矢量形式绘制另一个PDF（或本文档）的某一页 |
-| `draw(*, underlay=False)` | 按顺序绘制直线、矩形等路径以及文本、图像和页面的[画布](#canvas) |
+| `draw(*, underlay=False)` | 按顺序绘制文本、直线和矩形等路径、图像以及页面的[画布](#canvas)；参见[写入文本](#writing-text) |
 | `replace_text(search, replacement, *, default_char=None)` | 替换以简单（单字节）字体绘制的文本 |
 
 同一图像或页面再次绘制时，在文件中只存储一份。
@@ -481,25 +479,25 @@ for table in page.tables():
 
 ### 写入文本 { #writing-text }
 
+文本用[画布](#canvas)绘制：`canvas.text(text, at, ...)`从某个点开始写入各行，`canvas.textbox(rect, text, ...)`在矩形内写入自动换行的文本。
+
 ```python
-page.insert_text(point, text, *, fontsize=11, lineheight=None, font=None,
-                 fontname="helv", fontfile=None, fontbuffer=None, fontindex=0,
-                 font_language=None, color=(0, 0, 0), overlay=True)
-page.insert_textbox(rect, text, *, align=pylopdf.TEXT_ALIGN_LEFT,
-                    expandtabs=1, ...)   # 字体选项相同
+from pylopdf import Color, Font
+
+with page.draw() as canvas:
+    canvas.text("CONFIDENTIAL", (40, 40), size=18, fill=Color(1, 0, 0))
+    canvas.text("社外秘", (40, 70), size=18)                                    # 需要 pylopdf[jp]
+    canvas.text("简体中文", (40, 100), font=Font.installed(language="zh-CN"))  # 需要 pylopdf[zh-cn]
 ```
 
-用以下参数之一选择字体：
+用`font=`选择字体：
 
-- 不指定，或指定`fontname`：文本需要时使用已安装extra中的字体，否则使用Standard 14字体（默认`"helv"`，也可以是`"Times-Bold"`等）。Standard 14字体不会嵌入，且只覆盖西欧（WinAnsi）字符；
-- `fontfile`或`fontbuffer`：OpenType字体，只嵌入用到的字形；
-- `font`：已加载的[`Font`](#font)。
+- 不指定：西欧（WinAnsi）文本使用Helvetica，其他文本使用与其文字对应的已安装extra中的字体；
+- `Font.standard(name)`：Standard 14字体，例如`"Times-Bold"`。Standard 14字体不会嵌入，且只覆盖西欧字符；
+- `Font.from_file(path)`或`Font.from_bytes(data)`：OpenType字体，只嵌入用到的字形；
+- `Font.installed(language=...)`或`Font.installed(family=...)`：已安装extra中的字体。
 
-一种字体必须包含文本中的所有字符；pylopdf不会逐字符切换字体。包含假名、韩文、注音符号、阿拉伯文、希伯来文、天城文或泰文的文本会自动选用已安装的对应extra。仅由汉字组成的文本有歧义，默认使用日文字体；请传入`font_language="zh-CN"`、`"zh-TW"`、`"ko"`或`"ja"`来指定。
-
-`insert_text`用`str.splitlines()`将字符串分行，也可以传入每项为一行的列表。行与行之间相隔`lineheight × fontsize`；与pymupdf相同，`lineheight`默认由字体的ascender和descender得出。会落到页面底边以下的行将被跳过，方法返回实际绘制的行数。
-
-`insert_textbox`在Unicode允许换行的位置（UAX #14）自动换行，保留显式换行，展开制表符，并拆分一行放不下的过长单词。`align`接受`TEXT_ALIGN_LEFT`、`TEXT_ALIGN_CENTER`、`TEXT_ALIGN_RIGHT`或`TEXT_ALIGN_JUSTIFY`。它返回剩余的高度；负值表示文本放不下，此时不会绘制任何内容。
+一种字体必须包含文本中的所有字符；pylopdf不会逐字符切换字体。包含假名、韩文、注音符号、阿拉伯文、希伯来文、天城文或泰文的文本会自动选用已安装的对应extra。仅由汉字组成的文本有歧义，默认使用日文字体；要选用其他语言，请传入`font=Font.installed(language="zh-CN")`（或`"zh-TW"`、`"ko"`）。
 
 从右到左的文本会被正确地进行字形整形（shaping）。读回PDF时，完全由从右到左文字组成的行，以及在从右到左文字中夹着一个拉丁单词或数字的行，会按逻辑顺序输出；其他混合方向的行按视觉顺序输出。部分复杂文字的字形簇（尤其是较长的天城文）提取结果可能与原文略有不同。
 
@@ -523,7 +521,7 @@ pylopdf.Font.installed(*, language=None, family=None, serif=False, weight=None, 
 
 字体按[画布](#canvas)的绘制方式测量文本。`text_width(text, size)`是一行的宽度，含字距调整和连字。`text_height(text, size, *, width, line_height=None)`是文本按`width`点宽度换行时`canvas.textbox`所需的高度，因此这个高度的textbox正好容纳该文本。属性有`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`、`units_per_em`、`ascender`和`descender`；`has_glyph(char)`返回字体是否有该字符的字形。`typing.get_args(pylopdf.StandardFontName)`列出`Font.standard()`接受的14个名称。Standard 14字体不嵌入，只能书写西欧（WinAnsi）字符。
 
-不指定`weight`加载的可变字体使用其默认实例，而默认实例不一定是常规字重：可变字体Noto Sans CJK JP的默认实例是Thin。要使用常规字重，请传入`weight=400`。绘制方法的`fontfile`和`fontbuffer`参数同样使用默认实例；要以其他字重绘制，请将`Font`作为`font=`传入。
+不指定`weight`加载的可变字体使用其默认实例，而默认实例不一定是常规字重：可变字体Noto Sans CJK JP的默认实例是Thin。要使用常规字重，请传入`weight=400`。`set_form_field`的`fontfile`和`fontbuffer`参数同样使用默认实例；要以其他字重填写字段，请将`Font`作为`font=`传入。
 
 阿拉伯语、希伯来语、印地语和泰语的extra提供可变字体，因此字重轴上的任意字重都可以使用（100–900；Noto Naskh Arabic为400–700）。CJK extra每种样式只提供一个常规字重的字体：`Font.installed(language="ja", weight=700)`会抛出`PdfError`，请用`Font.from_file()`加载Noto Sans JP Bold等粗体字体。pylopdf从不通过扭曲字形来模仿粗体或斜体。
 
@@ -670,7 +668,7 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 | `PageBoxes` | [页面几何](#page-geometry) |
 | `FallbackFont`, `FallbackFonts` | [渲染与图像](#document-rendering) |
 
-常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotationType`（`PDF_ANNOT_*`）和`AnnotationFlags`（`PDF_ANNOT_IS_*`）。`Access`的成员是`USER`和`OWNER`，`Encryption`描述如何加密保存的文件。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
+常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`AnnotationType`（`PDF_ANNOT_*`）和`AnnotationFlags`（`PDF_ANNOT_IS_*`）。`Access`的成员是`USER`和`OWNER`，`Encryption`描述如何加密保存的文件。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
 
 文本、表格、OCR和页面内容的结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`和书签目标等不可变的数据类（frozen dataclass）。API返回的其他字典都是普通的`dict`对象，并通过`FormFieldInfo`等`TypedDict`类向类型检查器描述。
 

@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf, build_raw_pdf
+from conftest import build_pdf, build_raw_pdf, draw_text
 
 import pylopdf
 from pylopdf.pylopdf_core import LimitError
@@ -514,7 +514,7 @@ def test_reads_leave_is_dirty_false() -> None:
         lambda doc: doc.metadata.update(title="t"),
         lambda doc: setattr(doc, "metadata", {**doc.metadata, "author": "a"}),
         lambda doc: setattr(doc.pages[0], "rotation", 90),
-        lambda doc: doc.pages[0].insert_text((72, 72), "x"),
+        lambda doc: draw_text(doc.pages[0], (72, 72), "x"),
         lambda doc: doc.pages.select([0]),
         lambda doc: setattr(doc, "page_mode", "UseOutlines"),
         lambda doc: setattr(doc, "xmp", "<x/>"),

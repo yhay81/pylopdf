@@ -136,22 +136,24 @@ with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterh
     doc.save("annotated.pdf")
 ```
 
-文本与字体。不指定字体参数时，pylopdf用Helvetica写入拉丁文字，其他文字则使用已安装extra（如`pylopdf[jp]`）中的字体：
+文本与字体。文本用画布绘制。不指定字体参数时，pylopdf用Helvetica写入拉丁文字，其他文字则使用已安装extra（如`pylopdf[jp]`）中的字体：
 
 ```python
+from pylopdf import Color, Font
+
 with pylopdf.open("input.pdf") as doc:
     page = doc.pages[0]
-    page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
-    page.insert_text((40, 70), "社外秘", fontsize=18)                          # 需要 pylopdf[jp]
-    page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")  # 需要 pylopdf[zh-cn]
-
-    bold = pylopdf.Font.from_file("NotoSansJP-Bold.otf")      # 任意OpenType文件
-    width = bold.text_width("見出し", 16)                       # 实际绘制的宽度
-    page.insert_text((page.rect.width - 40 - width, 140), "見出し", font=bold, fontsize=16)
+    bold = Font.from_file("NotoSansJP-Bold.otf")    # 任意OpenType文件
+    width = bold.text_width("見出し", 16)             # 实际绘制的宽度
+    with page.draw() as canvas:
+        canvas.text("CONFIDENTIAL", (40, 40), size=18, fill=Color(1, 0, 0))
+        canvas.text("社外秘", (40, 70), size=18)                                             # 需要 pylopdf[jp]
+        canvas.text("简体中文", (40, 100), font=Font.installed(language="zh-CN"), size=18)  # 需要 pylopdf[zh-cn]
+        canvas.text("見出し", (page.rect.width - 40 - width, 140), font=bold, size=16)
     doc.save("text.pdf")
 ```
 
-要按顺序一起绘制图形、文本和图像，请使用画布，这样每种字体和每幅图像只存储一次：
+画布按调用顺序一起绘制图形、文本和图像，每种字体和每幅图像只存储一次：
 
 ```python
 from pylopdf import Color

@@ -12,7 +12,6 @@ import pylopdf
 @pytest.mark.parametrize(
     ("group", "prefix", "values"),
     [
-        (pylopdf.TextAlign, "TEXT_ALIGN_", {"LEFT": 0, "CENTER": 1, "RIGHT": 2, "JUSTIFY": 3}),
         (
             pylopdf.Permissions,
             "PDF_PERM_",
@@ -55,11 +54,9 @@ def test_link_kinds_are_target_types() -> None:
         assert name not in pylopdf.__all__
 
 
-def test_text_align_members_and_plain_integers_align_alike() -> None:
-    def spare(align: int) -> list[tuple[float, ...]]:
-        page = pylopdf.Document().pages.new()
-        page.insert_textbox((20, 20, 300, 100), "centered", align=align)
-        return [tuple(round(value, 3) for value in word.bbox) for word in page.words()]
-
-    assert spare(pylopdf.TEXT_ALIGN_CENTER) == spare(1)
-    assert spare(pylopdf.TEXT_ALIGN_CENTER) != spare(pylopdf.TEXT_ALIGN_LEFT)
+def test_text_alignment_is_an_option_of_the_canvas_textbox() -> None:
+    for name in ("TextAlign", "TEXT_ALIGN_LEFT", "TEXT_ALIGN_CENTER", "TEXT_ALIGN_RIGHT", "TEXT_ALIGN_JUSTIFY"):
+        assert not hasattr(pylopdf, name)
+        assert name not in pylopdf.__all__
+    with pytest.raises(AttributeError, match='align="center"'):
+        _ = pylopdf.TEXT_ALIGN_CENTER  # ty: ignore[unresolved-attribute]

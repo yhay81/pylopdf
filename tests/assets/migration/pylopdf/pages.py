@@ -8,7 +8,8 @@ import pylopdf
 doc = pylopdf.Document()
 for label in ("A", "B", "C"):
     page = doc.pages.new((200, 200))
-    page.insert_text((50, 100), label, fontsize=24)
+    with page.draw() as canvas:
+        canvas.text(label, (50, 100), size=24)
 
 doc.pages.extend(doc.pages[0])
 assert len(doc.pages) == 4
@@ -17,7 +18,8 @@ doc.pages.select([2, 0, 1])
 assert [page.text().strip() for page in doc.pages] == ["A", "A", "C"]
 
 other = pylopdf.Document()
-other.pages.new((200, 200)).insert_text((50, 100), "D", fontsize=24)
+with other.pages.new((200, 200)).draw() as canvas:
+    canvas.text("D", (50, 100), size=24)
 doc.pages.extend(other.pages)
 assert doc.pages[-1].text().strip() == "D"
 

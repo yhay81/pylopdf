@@ -18,7 +18,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from conftest import annotation_subtypes, build_pdf, build_raw_pdf, outline_entries, outline_tuples
+from conftest import (
+    annotation_subtypes,
+    build_pdf,
+    build_raw_pdf,
+    draw_text,
+    draw_textbox,
+    outline_entries,
+    outline_tuples,
+)
 
 import pylopdf
 from pylopdf.pylopdf_core import _Document
@@ -123,9 +131,12 @@ EDITS: dict[str, tuple[Callable[[pylopdf.Document], object], list[int | str]]] =
     "outline": (lambda doc: setattr(doc, "outline", outline_entries([(1, "Last", 4), (1, "First", 0)])), UNCHANGED),
     "set_rotation": (lambda doc: setattr(doc.pages[2], "rotation", 270), UNCHANGED),
     "set_mediabox": (lambda doc: setattr(doc.pages[1].boxes, "media", (0, 0, 300, 400)), [0, "resized", 2, 3, 4]),
-    "insert_text": (lambda doc: doc.pages[0].insert_text((10, 20), "Stamp"), UNCHANGED),
-    "insert_embedded_text": (lambda doc: doc.pages[4].insert_text((10, 20), "日本", fontfile=NOTO_SANS_JP), UNCHANGED),
-    "insert_textbox": (lambda doc: doc.pages[1].insert_textbox((5, 5, 95, 60), "Box text"), UNCHANGED),
+    "text": (lambda doc: draw_text(doc.pages[0], (10, 20), "Stamp"), UNCHANGED),
+    "embedded_text": (
+        lambda doc: draw_text(doc.pages[4], (10, 20), "日本", font=pylopdf.Font.from_file(NOTO_SANS_JP)),
+        UNCHANGED,
+    ),
+    "textbox": (lambda doc: draw_textbox(doc.pages[1], (5, 5, 95, 60), "Box text"), UNCHANGED),
     "insert_image": (lambda doc: doc.pages[2].insert_image((10, 10, 40, 40), stream=PNG), UNCHANGED),
     "show_pdf_page": (lambda doc: doc.pages[2].show_pdf_page((0, 0, 50, 50), STAMP), UNCHANGED),
     "show_pdf_page_self": (lambda doc: doc.pages[0].show_pdf_page((0, 0, 50, 50), doc, 3), UNCHANGED),
@@ -409,8 +420,8 @@ def _aliased_snapshot(doc: pylopdf.Document) -> tuple[object, ...]:
 
 
 PAGE_EDITS: dict[str, Callable[[pylopdf.Page], object]] = {
-    "insert_text": lambda page: page.insert_text((10, 20), "Stamp"),
-    "insert_textbox": lambda page: page.insert_textbox((5, 5, 95, 60), "Box text"),
+    "text": lambda page: draw_text(page, (10, 20), "Stamp"),
+    "textbox": lambda page: draw_textbox(page, (5, 5, 95, 60), "Box text"),
     "insert_image": lambda page: page.insert_image((5, 5, 30, 30), stream=PNG),
     "show_pdf_page": lambda page: page.show_pdf_page((0, 0, 40, 40), STAMP),
     "replace_text": lambda page: page.replace_text("Text", "Done"),

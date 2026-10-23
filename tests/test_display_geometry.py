@@ -142,20 +142,20 @@ def test_page_rect_is_the_page_that_rendering_and_extraction_display(name: str, 
 
 @pages
 @geometry
-@pytest.mark.parametrize("via", ["page", "canvas", "embedded-font", "textbox", "ocr-layer"])
+@pytest.mark.parametrize("via", ["canvas", "embedded-font", "textbox", "ocr-layer"])
 def test_text_drawn_at_a_display_point_is_extracted_there(name: str, rotation: int, via: str) -> None:
     page = _page(name, rotation)
     point = (40.0, 50.0)
 
-    if via == "page":
-        page.insert_text(point, "Probe", fontsize=12)
-    elif via == "canvas":
+    if via == "canvas":
         with page.draw() as canvas:
             canvas.text("Probe", point, size=12)
     elif via == "embedded-font":
-        page.insert_text(point, "Probe", fontsize=12, fontfile=NOTO_SANS_HEBREW)
+        with page.draw() as canvas:
+            canvas.text("Probe", point, font=pylopdf.Font.from_file(NOTO_SANS_HEBREW), size=12)
     elif via == "textbox":
-        assert page.insert_textbox((40.0, 40.0, 300.0, 100.0), "Probe", fontsize=12) > 0
+        with page.draw() as canvas:
+            assert canvas.textbox((40.0, 40.0, 300.0, 100.0), "Probe", size=12).fits
         # The first baseline lies one ascender below the top of the box.
         point = (40.0, 40.0 + pylopdf.Font.standard("Helvetica").ascender * 12)
     else:
@@ -247,7 +247,8 @@ def test_setting_a_cropbox_past_the_mediabox_clips_the_page() -> None:
 
     assert page.boxes.crop == pylopdf.Rect(-50, -40, 650, 850)
     assert page.rect == pylopdf.Rect(0, 0, 600, 800)
-    page.insert_text((40, 50), "Probe", fontsize=12)
+    with page.draw() as page_canvas:
+        page_canvas.text("Probe", (40, 50), size=12)
     assert _origins(page, "Probe") == [pytest.approx((40, 50), abs=1e-3)]
     pixmap = page.pixmap(dpi=72, alpha=True)
     assert (pixmap.width, pixmap.height) == (600, 800)

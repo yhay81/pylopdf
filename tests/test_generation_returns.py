@@ -1,13 +1,17 @@
-"""pymupdf's return values of insert_image and show_pdf_page, and Standard 14 names."""
+"""pymupdf's return values of insert_image and show_pdf_page, and Standard 14 font names."""
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from conftest import build_pdf, drawn_images
 
 import pylopdf
+
+if TYPE_CHECKING:
+    from pylopdf import StandardFontName
 
 
 def _png() -> bytes:
@@ -54,40 +58,33 @@ def test_show_pdf_page_returns_the_form_xref() -> None:
 
 
 @pytest.mark.parametrize(
-    ("fontname", "base_font"),
-    [
-        ("Helvetica", "Helvetica"),
-        ("helv", "Helvetica"),
-        ("Times-Roman", "Times-Roman"),
-        ("TIMES-BOLD", "Times-Bold"),
-        ("cobo", "Courier-Bold"),
-        ("Courier-BoldOblique", "Courier-BoldOblique"),
-    ],
+    "name",
+    ["Helvetica", "Times-Roman", "Times-Bold", "Courier-Bold", "Courier-BoldOblique"],
 )
-def test_full_standard_14_names_draw_like_their_aliases(fontname: str, base_font: str) -> None:
+def test_standard_14_fonts_draw_under_their_postscript_names(name: StandardFontName) -> None:
     doc = pylopdf.Document()
     page = doc.pages.new()
+    font = pylopdf.Font.standard(name)
 
-    page.insert_text((40, 60), "Named", fontname=fontname)
-    page.insert_textbox((40, 100, 300, 160), "Boxed", fontname=fontname)
+    with page.draw() as canvas:
+        canvas.text("Named", (40, 60), font=font)
+        assert canvas.textbox((40, 100, 300, 160), "Boxed", font=font).fits
 
-    data = doc.to_bytes()
-    assert f"/BaseFont/{base_font}".encode() in data
+    data = doc.to_bytes(compress=False)
+    assert f"/BaseFont/{name}".encode() in data
     text = pylopdf.open(data).pages[0].text()
     assert all(word in text for word in ("Named", "Boxed"))
 
 
 def test_symbol_fonts_draw_with_their_built_in_encoding() -> None:
-    page = pylopdf.Document().pages.new()
+    doc = pylopdf.Document()
+    page = doc.pages.new()
 
-    assert page.insert_textbox((40, 40, 300, 100), "abc", fontname="Symbol") > 0
-    assert page.insert_text((40, 140), "abc", fontname="ZapfDingbats") == 1
+    with page.draw() as canvas:
+        assert canvas.textbox((40, 40, 300, 100), "abc", font=pylopdf.Font.standard("Symbol")).fits
+        canvas.text("abc", (40, 140), font=pylopdf.Font.standard("ZapfDingbats"))
 
-
-def test_unknown_fontname_raises() -> None:
-    page = pylopdf.Document().pages.new()
-
-    with pytest.raises(pylopdf.PdfError, match="Standard 14 name or alias"):
-        page.insert_text((40, 60), "x", fontname="Arial")
-    with pytest.raises(ValueError, match="Standard 14 name or alias"):
-        page.insert_textbox((40, 60, 200, 120), "x", fontname="figo")
+    data = doc.to_bytes(compress=False)
+    assert b"/BaseFont/Symbol" in data
+    assert b"/BaseFont/ZapfDingbats" in data
+    assert b"WinAnsiEncoding" not in data

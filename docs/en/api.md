@@ -339,11 +339,9 @@ page.rotation = 90
 
 | Member | Purpose |
 |---|---|
-| `insert_text(point, text, ...)` | Write text starting at a point; see [Text and fonts](#fonts) |
-| `insert_textbox(rect, text, ...)` | Write wrapped text inside a rectangle |
 | `insert_image(rect, *, filename=, stream=, pixmap=, rotate=0, keep_proportion=True, overlay=True)` | Draw a JPEG, PNG, or `Pixmap`; returns its object number |
 | `show_pdf_page(rect, docsrc, pno=0, *, keep_proportion=True, overlay=True)` | Draw a page of another PDF, or of this one, as vectors |
-| `draw(*, underlay=False)` | A [canvas](#canvas) that draws lines, rectangles, and other paths, text, images, and pages in order |
+| `draw(*, underlay=False)` | A [canvas](#canvas) that draws text, lines, rectangles, and other paths, images, and pages in order; see [Writing text](#writing-text) |
 | `replace_text(search, replacement, *, default_char=None)` | Replace text drawn in simple (single-byte) fonts |
 
 The same image or page drawn again is stored once in the file.
@@ -707,41 +705,36 @@ for table in page.tables():
 
 ### Writing text { #writing-text }
 
+Text is drawn with a [canvas](#canvas): `canvas.text(text, at, ...)` writes
+lines from a point, and `canvas.textbox(rect, text, ...)` wraps text inside a
+rectangle.
+
 ```python
-page.insert_text(point, text, *, fontsize=11, lineheight=None, font=None,
-                 fontname="helv", fontfile=None, fontbuffer=None, fontindex=0,
-                 font_language=None, color=(0, 0, 0), overlay=True)
-page.insert_textbox(rect, text, *, align=pylopdf.TEXT_ALIGN_LEFT,
-                    expandtabs=1, ...)   # same font options
+from pylopdf import Color, Font
+
+with page.draw() as canvas:
+    canvas.text("CONFIDENTIAL", (40, 40), size=18, fill=Color(1, 0, 0))
+    canvas.text("社外秘", (40, 70), size=18)                                    # needs pylopdf[jp]
+    canvas.text("简体中文", (40, 100), font=Font.installed(language="zh-CN"))  # needs pylopdf[zh-cn]
 ```
 
-Choose the font with one of these arguments:
+Choose the font with `font=`:
 
-- nothing, or `fontname`: a font from an installed extra when the text needs
-  one, otherwise a Standard 14 font (`"helv"` by default, or for example
-  `"Times-Bold"`). Standard 14 fonts are not embedded and cover Western
-  European (WinAnsi) characters only;
-- `fontfile` or `fontbuffer`: an OpenType font, of which only the glyphs used
-  are embedded;
-- `font`: a [`Font`](#font) you have already loaded.
+- nothing: Helvetica for Western European (WinAnsi) text, otherwise a font
+  from the installed extra for the text's script;
+- `Font.standard(name)`: a Standard 14 font, such as `"Times-Bold"`. Standard
+  14 fonts are not embedded and cover Western European characters only;
+- `Font.from_file(path)` or `Font.from_bytes(data)`: an OpenType font, of
+  which only the glyphs used are embedded;
+- `Font.installed(language=...)` or `Font.installed(family=...)`: a font from
+  an installed extra.
 
 One font must contain every character of the text; pylopdf does not switch
 fonts per character. Text in Kana, Hangul, Bopomofo, Arabic, Hebrew,
 Devanagari, or Thai picks the matching installed extra automatically. Chinese
-characters alone are ambiguous, so they use the Japanese font by default; pass
-`font_language="zh-CN"`, `"zh-TW"`, `"ko"`, or `"ja"` to choose.
-
-`insert_text` splits a string into lines with `str.splitlines()`, or takes a
-list with one line per item. Lines are `lineheight × fontsize` apart; by
-default `lineheight` comes from the font's ascender and descender, as in
-pymupdf. Lines that would fall below the bottom of the page are skipped, and
-the method returns the number of lines drawn.
-
-`insert_textbox` wraps text at the places Unicode allows a line break
-(UAX #14), keeps explicit line breaks, expands tabs, and splits a word that is
-too long for a line. `align` takes `TEXT_ALIGN_LEFT`, `TEXT_ALIGN_CENTER`,
-`TEXT_ALIGN_RIGHT`, or `TEXT_ALIGN_JUSTIFY`. It returns the height left over;
-a negative value means the text did not fit, and then nothing is drawn.
+characters alone are ambiguous, so they use the Japanese font by default;
+pass `font=Font.installed(language="zh-CN")`, or `"zh-TW"` or `"ko"`, to
+choose another.
 
 Right-to-left text is shaped correctly. When the PDF is read back, lines that
 are entirely right-to-left, or that contain one Latin word or number inside
@@ -780,9 +773,9 @@ European (WinAnsi) characters only.
 
 A variable font loaded without `weight` uses its default instance, which is
 not always the regular weight: the variable Noto Sans CJK JP defaults to Thin.
-Pass `weight=400` for regular. The `fontfile` and `fontbuffer` arguments of the
-drawing methods use the default instance too; pass a `Font` as `font=` to draw
-another weight.
+Pass `weight=400` for regular. The `fontfile` and `fontbuffer` arguments of
+`set_form_field` use the default instance too; pass a `Font` as `font=` to
+fill a field in another weight.
 
 The Arabic, Hebrew, Hindi, and Thai extras ship variable fonts, so any weight
 on their axis works (100–900; 400–700 for Noto Naskh Arabic). The CJK extras
@@ -962,8 +955,8 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `FallbackFont`, `FallbackFonts` | [Rendering and images](#document-rendering) |
 
 Constants keep pymupdf's names and are also grouped in enums:
-`Permissions` (`PDF_PERM_*`), `TextAlign` (`TEXT_ALIGN_*`), `AnnotationType`
-(`PDF_ANNOT_*`), and `AnnotationFlags` (`PDF_ANNOT_IS_*`). `Access` has the members `USER` and `OWNER`, and
+`Permissions` (`PDF_PERM_*`), `AnnotationType` (`PDF_ANNOT_*`), and
+`AnnotationFlags` (`PDF_ANNOT_IS_*`). `Access` has the members `USER` and `OWNER`, and
 `Encryption` describes how to encrypt a saved file. The content model's enums
 are `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`,
 `ShadingType`, `SoftMaskType`, and `ImageMask`.
