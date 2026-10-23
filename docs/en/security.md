@@ -28,7 +28,7 @@ import pylopdf
 
 try:
     with pylopdf.open("upload.pdf", limits=pylopdf.DocumentLimits.web()) as doc:
-        if doc.complexity["page_count"] > 50:
+        if doc.complexity.page_count > 50:
             reject_upload("too many pages")
         preview = doc.pages[0].pixmap(dpi=144)
 except pylopdf.LimitError as error:

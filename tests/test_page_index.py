@@ -437,7 +437,7 @@ PAGE_EDITS: dict[str, Callable[[pylopdf.Page], object]] = {
 def test_edits_on_every_page_of_an_aliased_tree_match_a_fresh_document(name: str, edit: str) -> None:
     doc = pylopdf.open(_aliased_pdf(name))
     pages = len(doc.pages)
-    objects = doc.complexity["object_count"]
+    objects = doc.complexity.object_count
 
     for number in range(pages):
         _aliased_snapshot(doc)
@@ -448,7 +448,7 @@ def test_edits_on_every_page_of_an_aliased_tree_match_a_fresh_document(name: str
 
     # No edit replaced an existing object or changed the page tree.
     assert len(doc.pages) == pages
-    assert doc.complexity["object_count"] > objects
+    assert doc.complexity.object_count > objects
 
 
 @pytest.mark.parametrize("edit", PAGE_EDITS)

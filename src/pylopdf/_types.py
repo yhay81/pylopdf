@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import enum
-from typing import Literal, TypeAlias, TypedDict
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal, TypeAlias
+
+from pylopdf._hints import hinted_protocol
 
 
 class Permissions(enum.IntFlag):
@@ -57,25 +60,52 @@ StandardFontName: TypeAlias = Literal[
 ]
 
 
-class ImageCompressionResult(TypedDict):
-    """Summary returned by :meth:`Document.rewrite_images`."""
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ImageCompressionResult:
+    """What :meth:`Document.rewrite_images` did.
+
+    The byte totals compare the encoded payloads of the rewritten images
+    before and after, not the size of the saved document.
+    """
 
     considered: int
+    """The image objects that the document's pages place."""
     rewritten: int
+    """The image objects whose smaller JPEG payload replaced their data."""
     skipped: int
+    """The image objects left as they were: ``considered - rewritten``."""
     bytes_before: int
+    """The encoded payload bytes of the rewritten images before the call."""
     bytes_after: int
+    """Their encoded payload bytes after it."""
     bytes_saved: int
+    """``bytes_before - bytes_after``."""
+
+    if not TYPE_CHECKING:
+        __getitem__ = hinted_protocol(
+            "ImageCompressionResult is a record, not a dictionary: read result.rewritten, result.bytes_saved, and so on"
+        )
 
 
-class DocumentComplexity(TypedDict):
-    """Cheap structural facts that require no stream decoding or rendering."""
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DocumentComplexity:
+    """Cheap structural facts that :attr:`Document.complexity` reads without decoding streams or rendering."""
 
     page_count: int
+    """The number of pages."""
     object_count: int
+    """The number of indirect objects."""
     stream_count: int
+    """The number of stream objects."""
     encoded_stream_bytes: int
+    """The encoded bytes of every stream together."""
     max_object_depth: int
+    """The deepest nesting of arrays and dictionaries in any object."""
+
+    if not TYPE_CHECKING:
+        __getitem__ = hinted_protocol(
+            "DocumentComplexity is a record, not a dictionary: read doc.complexity.page_count and so on"
+        )
 
 
 # The package re-exports these names; reprs, pickles, and documentation name it.

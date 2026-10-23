@@ -19,6 +19,7 @@ alone.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import inspect
 import re
 from dataclasses import dataclass
@@ -2314,6 +2315,11 @@ MODULE_CALL_RULES: dict[str, Callable[[_Migrator, str | None, str, _Arguments], 
 }
 
 
+#: The fields of the records that replaced pylopdf 0.15's dictionaries, by the kind of value the scan finds.
+RECORD_KEYS = {
+    "complexity": frozenset(field.name for field in dataclasses.fields(pylopdf.DocumentComplexity)),
+    "image_rewrite": frozenset(field.name for field in dataclasses.fields(pylopdf.ImageCompressionResult)),
+}
 #: The fields of word and block records by their position in pymupdf's tuples.
 RECORD_FIELDS = {
     "words": {0: "bbox.x0", 1: "bbox.y0", 2: "bbox.x1", 3: "bbox.y1", 4: "text", 5: "block", 6: "line", 7: "index"},
@@ -2513,6 +2519,8 @@ class _Scanner(cst.CSTVisitor):
         """Classify the value bound to a name."""
         if isinstance(node, cst.Call):
             return self._call_kind(node)
+        if isinstance(node, cst.Attribute) and node.attr.value == "complexity":
+            return "complexity"
         if isinstance(node, cst.Subscript) and len(node.slice) == 1 and isinstance(node.slice[0].slice, cst.Index):
             if self.is_pages(node.value):
                 return "page"
@@ -2537,7 +2545,12 @@ class _Scanner(cst.CSTVisitor):
             return "page"
         if name == "draw" and all(arg.keyword is not None and arg.keyword.value == "underlay" for arg in node.args):
             return "canvas"
-        return {"new_shape": "shape", "find_tables": "tables"}.get(name, "other")
+        return {
+            "new_shape": "shape",
+            "find_tables": "tables",
+            "rewrite_images": "image_rewrite",
+            "compress_images": "image_rewrite",
+        }.get(name, "other")
 
     def bind(self, target: cst.BaseExpression | cst.BaseAssignTargetExpression, kind: str) -> None:
         if isinstance(target, cst.Name):
@@ -2656,6 +2669,8 @@ class _Migrator(cst.CSTTransformer):
         self._tables = items.names("table")
         #: Names bound to a value that a module factory returned that is not a document.
         self._factories = scan.names("factory")
+        #: Names bound to pylopdf 0.15's dictionaries that became records, by the kind of record.
+        self._records = {name: kind for kind in RECORD_KEYS for name in scan.names(kind)}
         #: Names bound to pymupdf's and pylopdf 0.15's ``Shape``, whose drawing methods have no rule.
         self._shapes = scan.names("shape")
         self._todos: list[list[str]] = [[]]
@@ -3143,7 +3158,20 @@ class _Migrator(cst.CSTTransformer):
             if metadata is not None:
                 self.rewrites += 1
                 return metadata
+            field = self._record_key(original_node)
+            if field is not None:
+                self.rewrites += 1
+                return cst.Attribute(value=updated_node.value, attr=cst.Name(field))
         return self._extracted_image_key(updated_node)
+
+    def _record_key(self, node: cst.Subscript) -> str | None:
+        """Return the field that a key of pylopdf 0.15's complexity or ``rewrite_images`` dictionary reads, or None."""
+        value = node.value
+        kind = self._records.get(value.value) if isinstance(value, cst.Name) else self._scan.kind(value)
+        if kind not in RECORD_KEYS or len(node.slice) != 1 or not isinstance(node.slice[0].slice, cst.Index):
+            return None
+        key = _string_literal(_code(node.slice[0].slice.value))
+        return key if key in RECORD_KEYS[kind] else None
 
     def _metadata_key(self, node: cst.Subscript) -> cst.BaseExpression | None:
         """Read a key of pymupdf's or pylopdf 0.15's metadata dictionary from ``doc.metadata``.
@@ -3250,8 +3278,9 @@ class _Migrator(cst.CSTTransformer):
         name = original_node.attr.value
         receiver = original_node.value
         if name == "page_count" and not (
-            (isinstance(receiver, cst.Name) and receiver.value in self._factories)
+            (isinstance(receiver, cst.Name) and (receiver.value in self._factories or receiver.value in self._records))
             or (isinstance(receiver, cst.Call) and self._scan.member(receiver.func) in OTHER_FACTORIES)
+            or self._scan.kind(receiver) == "complexity"
         ):
             return cst.parse_expression(f"len({_receiver(updated_node.value)}.pages)")
         if name in {"needs_pass", "is_encrypted"}:

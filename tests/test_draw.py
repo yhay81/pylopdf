@@ -231,11 +231,11 @@ def _split_pixmap() -> pylopdf.Pixmap:
 def test_drawing_wraps_existing_contents_only_once() -> None:
     doc = _new_page_doc()
     page = doc.pages[0]
-    counts = [doc.complexity["object_count"]]
+    counts = [doc.complexity.object_count]
     for y, text in ((20, "First"), (40, "Second"), (60, "Third")):
         with page.draw() as canvas:
             canvas.text(text, (10, y))
-        counts.append(doc.complexity["object_count"])
+        counts.append(doc.complexity.object_count)
 
     first, second, third = (after - before for before, after in itertools.pairwise(counts))
     # The empty page had nothing to wrap; the second drawing wraps the first
@@ -1402,7 +1402,7 @@ def test_textbox_wide_single_line_preserves_content() -> None:
         spare = canvas.textbox((10, 10, 999_999_990, 90), text, max_text_size=len(text)).spare_height
 
     assert spare > 0
-    assert doc.complexity["object_count"] > 4
+    assert doc.complexity.object_count > 4
 
 
 def test_textbox_dense_break_indexes_preserve_content() -> None:

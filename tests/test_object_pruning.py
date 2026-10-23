@@ -42,7 +42,7 @@ def _reachability_pdf() -> bytes:
 
 def test_garbage_save_keeps_exactly_the_objects_reachable_from_the_trailer() -> None:
     doc = pylopdf.open(_reachability_pdf())
-    assert doc.complexity["object_count"] == 14
+    assert doc.complexity.object_count == 14
 
     saved = doc.to_bytes()
 
@@ -52,7 +52,7 @@ def test_garbage_save_keeps_exactly_the_objects_reachable_from_the_trailer() -> 
         assert dropped not in saved
     reloaded = pylopdf.open(saved)
     for current in (doc, reloaded):
-        assert current.complexity["object_count"] == 10
+        assert current.complexity.object_count == 10
         assert current.metadata["title"] == "KEPT-INFO"
         assert "Body text" in current.pages[0].text()
 
@@ -134,7 +134,7 @@ def test_a_placed_page_moves_only_the_objects_its_form_reaches() -> None:
     every other drawing edit.
     """
     doc = pylopdf.open(_structural_edit_pdf())
-    objects = doc.complexity["object_count"]
+    objects = doc.complexity.object_count
 
     with doc.pages[0].draw() as canvas:
         canvas.page((0, 0, 50, 50), _source_with_unreachable_objects().pages[0])
@@ -148,7 +148,7 @@ def test_a_placed_page_moves_only_the_objects_its_form_reaches() -> None:
     # The font, the page's Form XObject, the canvas's Form and its resources,
     # the new content stream, and the q/Q pair that isolates the page's
     # existing content.
-    assert doc.complexity["object_count"] == objects + 7
+    assert doc.complexity.object_count == objects + 7
     assert list(doc.attachments) == []
     assert [entry.title for entry in doc.outline.entries()] == ["OLD-OUTLINE-TITLE"]
     assert b"ORPHAN-OBJECT" not in doc.to_bytes()

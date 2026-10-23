@@ -196,7 +196,7 @@ def test_bounded_page_tree_walk_has_an_iterative_depth_boundary() -> None:
 
     unbounded_exact = pylopdf.open(_deep_page_tree_pdf(256))
     assert len(unbounded_exact.pages) == 1
-    assert unbounded_exact.complexity["page_count"] == 1
+    assert unbounded_exact.complexity.page_count == 1
 
     with pytest.raises(pylopdf.PdfError, match="256-level safety limit"):
         pylopdf.open(_deep_page_tree_pdf(257), limits=pylopdf.DocumentLimits(max_pages=1))
@@ -256,7 +256,7 @@ def test_direct_object_depth_handles_wide_dictionaries_iteratively() -> None:
     )
 
     doc = pylopdf.open(pdf, limits=pylopdf.DocumentLimits(max_object_depth=4))
-    assert doc.complexity["max_object_depth"] == 4
+    assert doc.complexity.max_object_depth == 4
 
     with pytest.raises(pylopdf.LimitError) as depth:
         pylopdf.open(pdf, limits=pylopdf.DocumentLimits(max_object_depth=3))
@@ -419,11 +419,11 @@ def test_complexity_requires_no_stream_decoding() -> None:
     data = build_pdf(["one"])
     doc = pylopdf.open(data)
     facts = doc.complexity
-    assert facts["page_count"] == 1
-    assert facts["object_count"] == 5
-    assert facts["stream_count"] == 1
-    assert facts["encoded_stream_bytes"] > 0
-    assert facts["max_object_depth"] >= 2
+    assert facts.page_count == 1
+    assert facts.object_count == 5
+    assert facts.stream_count == 1
+    assert facts.encoded_stream_bytes > 0
+    assert facts.max_object_depth >= 2
 
 
 @pytest.mark.parametrize("name", ["f1040.pdf", "bunka-kokugo-series-019-p4.pdf"])

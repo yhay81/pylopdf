@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import difflib
 import gc
 import hashlib
@@ -314,8 +315,8 @@ def _limit_results(
         # hayro 0.8 panics on a shading in a Pattern space (LaurenzV/hayro#1546); the unwind becomes PdfError.
         "renderer_panic": renderer_error(pylopdf.open(pattern_shading).pages[0].pixmap),
         "reference_cycle_pages": len(cyclic.pages),
-        "pdf20_complexity": pdf20_complexity,
-        "bounded_scan_complexity": bounded_scan_complexity,
+        "pdf20_complexity": dataclasses.asdict(pdf20_complexity),
+        "bounded_scan_complexity": dataclasses.asdict(bounded_scan_complexity),
     }
 
 

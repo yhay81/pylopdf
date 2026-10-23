@@ -391,7 +391,10 @@ The typed object model exposes lopdf's graph.
 | `TextRenderMode` | `FILL`, `STROKE`, `FILL_STROKE`, `INVISIBLE` |
 | `ShadingType` | the shading types of ISO 32000-2 §8.7.4.5 |
 | `SoftMaskType`, `ImageMask` | `ALPHA`, `LUMINOSITY`; `SOFT`, `EXPLICIT`, `COLOR_KEY` |
-| `FontLanguage` | the languages of the installed font extras |
+
+Language codes are options, not enums: `FontLanguage` and `CjkFontLanguage`
+are `Literal` types of BCP 47 tags such as `"ja"` and `"zh-CN"`, as
+`StandardFontName` and `OcrRotation` are of their values.
 
 ## 13. Migration
 

@@ -65,7 +65,7 @@ from pylopdf._tables import (
     _markdown_table_output,
     _MarkdownBudget,
 )
-from pylopdf._types import Access, Permissions
+from pylopdf._types import Access, DocumentComplexity, ImageCompressionResult, Permissions
 from pylopdf.pylopdf_core import LimitError, PasswordError, PdfError, _Document
 
 if sys.platform == "win32":
@@ -78,11 +78,7 @@ if TYPE_CHECKING:
 
     from pylopdf._fonts import Font
     from pylopdf._geometry import Matrix
-    from pylopdf._types import (
-        CjkFontLanguage,
-        DocumentComplexity,
-        ImageCompressionResult,
-    )
+    from pylopdf._types import CjkFontLanguage
 
 
 _DEFAULT_MAX_XMP_METADATA_SIZE = 1024 * 1024
@@ -487,13 +483,13 @@ class Document:
         """Return cheap structural facts without decoding streams or rendering."""
         self._ensure_not_closed()
         pages, objects, streams, encoded_bytes, depth = self._doc.complexity()
-        return {
-            "page_count": pages,
-            "object_count": objects,
-            "stream_count": streams,
-            "encoded_stream_bytes": encoded_bytes,
-            "max_object_depth": depth,
-        }
+        return DocumentComplexity(
+            page_count=pages,
+            object_count=objects,
+            stream_count=streams,
+            encoded_stream_bytes=encoded_bytes,
+            max_object_depth=depth,
+        )
 
     @property
     def objects(self) -> Objects:
@@ -1134,14 +1130,14 @@ class Document:
             counts = self._doc.rewrite_images(threshold, target, quality, lossy, lossless, color, gray)
             self._emit_warnings()
         considered, rewritten, skipped, bytes_before, bytes_after = counts
-        return {
-            "considered": considered,
-            "rewritten": rewritten,
-            "skipped": skipped,
-            "bytes_before": bytes_before,
-            "bytes_after": bytes_after,
-            "bytes_saved": bytes_before - bytes_after,
-        }
+        return ImageCompressionResult(
+            considered=considered,
+            rewritten=rewritten,
+            skipped=skipped,
+            bytes_before=bytes_before,
+            bytes_after=bytes_after,
+            bytes_saved=bytes_before - bytes_after,
+        )
 
     def save(  # noqa: PLR0913 - one keyword per save option.
         self,

@@ -987,12 +987,12 @@ with the same values. `Access` has the members `USER` and `OWNER`, and
 are `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`,
 `ShadingType`, `SoftMaskType`, and `ImageMask`.
 
-Text, table, OCR, and page content results are records: frozen dataclasses
-such as `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`,
-`TableDiagnostics`, `OcrWord`, `Path`, `Image`, `MarkInfo`, `PdfaClaim`,
-`OutlineEntry`, `PageLabelRange`, and the outline targets. Other dictionaries
-returned by the API are plain `dict` objects, described for type checkers by
-`TypedDict` classes such as `DocumentComplexity`.
+Results are records: frozen dataclasses such as `Word`, `Block`, `Line`,
+`Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord`, `Path`,
+`Image`, `MarkInfo`, `PdfaClaim`, `OutlineEntry`, `PageLabelRange`, the
+outline targets, `DocumentComplexity`, and `ImageCompressionResult`. The API
+returns a plain dictionary only from `Layout.to_dict()`, which gives pymupdf's
+shape for JSON.
 
 ## Exceptions and warnings { #exceptions }
 

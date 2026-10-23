@@ -46,11 +46,11 @@ is stable is how they look, their structure, and the text extracted from them.
 - A **patch** release fixes bugs.
 
 Removing or renaming anything public, adding a required parameter, removing a
-key from a returned dictionary, accepting less input than before, or changing
+field from a returned record, accepting less input than before, or changing
 the exception hierarchy needs a major release. Adding a function, a method, an
-optional parameter, an accepted value, or a returned key does not. Type hints
-count as part of the API: making a `TypedDict` key required or changing its
-type is a breaking change too.
+optional parameter, an accepted value, or a record field does not. Type hints
+count as part of the API: changing the type of a parameter or a record field
+is a breaking change too.
 
 ## Deprecations { #deprecation-lifecycle }
 
