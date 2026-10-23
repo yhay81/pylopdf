@@ -2491,7 +2491,11 @@ the concept and API overview.
   dictionary alone (`/Rect`, `/C`, `/IC`, `/BS` else `/Border`, `/CA`,
   `/BM`, `/RD`, `/L`, `/Vertices`, `/InkList`, `/QuadPoints`, and `/LE`;
   a highlight multiplies unless `/BM` says otherwise, and text-markup lines
-  are one point wide; reading unusable
+  are one point wide; a square, circle, or polygon with a cloudy `/BE`
+  (`/S /C`, `/I` clamped to 0 through 2) draws its outline as semicircular
+  bumps of radius `4 I + width` (`cloud`), inside `/Rect` for squares and
+  circles, whose ellipse is sampled at equal arc lengths, and widening the
+  polygon's `/Rect`; reading unusable
   entries as absent and geometry of more than 65,536 points as missing) on a
   canvas over `/Rect`
   in user space, so creation, property edits, and the rendering snapshot

@@ -790,6 +790,10 @@ pub(super) struct AnnotationSpec {
     interior_color: Option<(f64, f64, f64)>,
     #[pyo3(default)]
     border: Option<(f64, String, Vec<f64>)>,
+    /// The intensity of a cloudy border, `/BE /I`, of a square, circle, or
+    /// polygon.
+    #[pyo3(default)]
+    clouds: Option<f64>,
     #[pyo3(default)]
     opacity: Option<f64>,
     #[pyo3(default)]
@@ -1018,6 +1022,9 @@ fn annotation_dictionary(
         }
         let width = spec.border.as_ref().map_or(1.0, |border| border.0);
         let mut pad = width / 2.0 + 1.0;
+        if let Some(intensity) = spec.clouds.filter(|intensity| *intensity > 0.0) {
+            pad += annotation_appearance::cloud_radius(intensity, width);
+        }
         if let Some((start, end)) = &spec.line_endings {
             if !matches!(subtype, "Line" | "PolyLine") {
                 return Err(PdfError::new_err(format!(
@@ -1099,6 +1106,9 @@ fn annotation_dictionary(
             );
         }
         dict.set("BS", border);
+    }
+    if let Some(intensity) = spec.clouds {
+        dict.set("BE", cloud_effect(spec.subtype.as_bytes(), intensity)?);
     }
     if let Some(opacity) = spec.opacity {
         if !(opacity.is_finite() && opacity > 0.0 && opacity <= 1.0) {
@@ -1850,6 +1860,8 @@ pub(super) struct AnnotationEdit {
     #[pyo3(default)]
     border: Option<(f64, String, Vec<f64>)>,
     #[pyo3(default)]
+    clouds: Option<f64>,
+    #[pyo3(default)]
     blend_mode: Option<String>,
     #[pyo3(default)]
     rotate: Option<i64>,
@@ -1876,6 +1888,25 @@ const RECT_SUBTYPES: [&[u8]; 7] = [
     b"FileAttachment",
 ];
 
+/// The `/BE` dictionary of a cloudy border of `intensity`, which squares,
+/// circles, and polygons take.
+fn cloud_effect(subtype: &[u8], intensity: f64) -> PyResult<Object> {
+    if !matches!(subtype, b"Square" | b"Circle" | b"Polygon") {
+        return Err(PdfError::new_err(
+            "only a square, a circle, or a polygon has a cloudy border",
+        ));
+    }
+    if !(intensity.is_finite() && intensity > 0.0 && intensity <= 2.0) {
+        return Err(PdfError::new_err(
+            "a cloudy border's intensity is greater than 0 and at most 2",
+        ));
+    }
+    Ok(Object::Dictionary(dictionary! {
+        "S" => "C",
+        "I" => Object::Real(intensity as f32),
+    }))
+}
+
 /// Set `/Rect` of a line, polygon, polyline, or ink annotation to the bounds
 /// of its points, widened for its stroke and its line endings.
 fn fit_point_rect(doc: &Document, dict: &mut Dictionary, subtype: &[u8]) {
@@ -1901,6 +1932,10 @@ fn fit_point_rect(doc: &Document, dict: &mut Dictionary, subtype: &[u8]) {
     }
     let width = annotation_appearance::border(doc, dict).map_or(1.0, |border| border.width);
     let mut pad = width / 2.0 + 1.0;
+    let intensity = annotation_appearance::cloud_intensity(doc, dict);
+    if intensity > 0.0 && subtype == b"Polygon" {
+        pad += annotation_appearance::cloud_radius(intensity, width);
+    }
     if annotation_appearance::line_endings(doc, dict) != [0, 0] {
         pad += 2.0 * annotation_appearance::ending_size(width);
     }
@@ -1976,6 +2011,7 @@ pub(super) fn edit_annotation(
                 dict.remove(b"Border");
                 b"BS"
             }
+            "clouds" => b"BE",
             other => {
                 return Err(PdfError::new_err(format!(
                     "an annotation property that cannot be removed: {other:?}"
@@ -2054,6 +2090,9 @@ pub(super) fn edit_annotation(
         }
         dict.remove(b"Border");
         dict.set("BS", border);
+    }
+    if let Some(intensity) = edit.clouds {
+        dict.set("BE", cloud_effect(&subtype, intensity)?);
     }
     if let Some(mode) = &edit.blend_mode {
         if !canvas::BLEND_MODES.contains(&mode.as_str()) {

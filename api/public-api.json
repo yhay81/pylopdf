@@ -188,6 +188,10 @@
           "kind": "property",
           "returns": "Border | None"
         },
+        "clouds": {
+          "kind": "property",
+          "returns": "float"
+        },
         "color": {
           "kind": "property",
           "returns": "Color | None"
@@ -2014,6 +2018,7 @@
       "annotations": {
         "blend_mode": "BlendMode | None",
         "border": "Border",
+        "clouds": "float",
         "color": "Color | None",
         "contents": "str | None",
         "interior_color": "Color | None",
@@ -2025,6 +2030,7 @@
         "color",
         "interior_color",
         "border",
+        "clouds",
         "opacity",
         "blend_mode",
         "contents"
@@ -2035,6 +2041,9 @@
           "kind": "property"
         },
         "border": {
+          "kind": "property"
+        },
+        "clouds": {
           "kind": "property"
         },
         "color": {
@@ -2081,6 +2090,12 @@
             },
             "kind": "keyword_only",
             "name": "border"
+          },
+          {
+            "annotation": "float",
+            "default": 0,
+            "kind": "keyword_only",
+            "name": "clouds"
           },
           {
             "annotation": "float",
@@ -9111,6 +9126,7 @@
       "annotations": {
         "blend_mode": "BlendMode | None",
         "border": "Border",
+        "clouds": "float",
         "color": "Color | None",
         "contents": "str | None",
         "interior_color": "Color | None",
@@ -9122,6 +9138,7 @@
         "color",
         "interior_color",
         "border",
+        "clouds",
         "opacity",
         "blend_mode",
         "contents"
@@ -9132,6 +9149,9 @@
           "kind": "property"
         },
         "border": {
+          "kind": "property"
+        },
+        "clouds": {
           "kind": "property"
         },
         "color": {
@@ -9178,6 +9198,12 @@
             },
             "kind": "keyword_only",
             "name": "border"
+          },
+          {
+            "annotation": "float",
+            "default": 0,
+            "kind": "keyword_only",
+            "name": "clouds"
           },
           {
             "annotation": "float",
@@ -10888,6 +10914,7 @@
       "annotations": {
         "blend_mode": "BlendMode | None",
         "border": "Border",
+        "clouds": "float",
         "color": "Color | None",
         "contents": "str | None",
         "interior_color": "Color | None",
@@ -10899,6 +10926,7 @@
         "color",
         "interior_color",
         "border",
+        "clouds",
         "opacity",
         "blend_mode",
         "contents"
@@ -10909,6 +10937,9 @@
           "kind": "property"
         },
         "border": {
+          "kind": "property"
+        },
+        "clouds": {
           "kind": "property"
         },
         "color": {
@@ -10955,6 +10986,12 @@
             },
             "kind": "keyword_only",
             "name": "border"
+          },
+          {
+            "annotation": "float",
+            "default": 0,
+            "kind": "keyword_only",
+            "name": "clouds"
           },
           {
             "annotation": "float",

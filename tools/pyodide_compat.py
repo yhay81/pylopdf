@@ -1296,7 +1296,9 @@ def _annotation_results() -> dict[str, Any]:
         page.rotation = 90
         page.annotations.add(Square((10, 10, 60, 40), color=Color(0, 0, 1), interior_color=Color(1, 1, 0)))
         page.annotations.add(
-            Circle((10, 50, 90, 90), border=Border(2, dashes=(3, 1)), opacity=0.5, blend_mode=BlendMode.MULTIPLY)
+            Circle(
+                (10, 50, 90, 90), border=Border(2, dashes=(3, 1)), clouds=1, opacity=0.5, blend_mode=BlendMode.MULTIPLY
+            )
         )
         page.annotations.add(
             LineAnnotation((10, 120), (90, 120), line_endings=(LineEnding.CLOSED_ARROW, LineEnding.SLASH))
@@ -1337,6 +1339,7 @@ def _annotation_results() -> dict[str, Any]:
                 else [ending.value for ending in annotation.line_endings],
                 "popup_rect": None if annotation.popup_rect is None else list(annotation.popup_rect),
                 "is_open": annotation.is_open,
+                "clouds": annotation.clouds,
                 "rotation": annotation.rotation,
                 "file": None
                 if annotation.file is None

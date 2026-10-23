@@ -466,6 +466,8 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ("import fitz\nmode = fitz.PDF_BM_ColorDodge\n", "mode = pylopdf.BlendMode.COLOR_DODGE"),
         ("import fitz\nflag = fitz.SigFlag_AppendOnly\n", "flag = pylopdf.SignatureFlags.APPEND_ONLY"),
         ("import fitz\ndoc.bake()\n", "doc.flatten()"),
+        ("import fitz\nannot.set_border(clouds=2)\n", "annot.clouds = 2"),
+        ("import fitz\nstyle = fitz.PDF_BORDER_STYLE_DASHED\n", "style = pylopdf.BorderStyle.DASHED"),
         ("import fitz\ndoc.bake(annots=False)\n", "doc.flatten(annotations=False)"),
         ("import fitz\ndoc.bake(True, False)\n", "doc.flatten(annotations=True, widgets=False)"),
         ("import fitz\nicon = fitz.STAMP_NotForPublicRelease\n", "icon = pylopdf.StampIcon.NOT_FOR_PUBLIC_RELEASE"),

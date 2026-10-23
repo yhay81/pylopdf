@@ -319,20 +319,31 @@ pub(crate) fn appearance_with(
             let stroke = paint.stroke(0, 0);
             let fill = paint.fill();
             if stroke.is_some() || fill.is_some() {
-                // The shape lies inside /RD, with the stroke inside the rectangle.
+                // The shape lies inside /RD, with the stroke and the bumps of
+                // a cloudy border inside the rectangle.
                 let [left, top, right, bottom] = rect_differences(doc, dict, size);
-                let inset = if stroke.is_some() {
-                    paint.width / 2.0
+                let intensity = cloud_intensity(doc, dict);
+                let bumps = if intensity > 0.0 {
+                    cloud_radius(intensity, paint.width)
                 } else {
                     0.0
                 };
+                let inset = bumps
+                    + if stroke.is_some() {
+                        paint.width / 2.0
+                    } else {
+                        0.0
+                    };
                 let (a0, b0) = (left + inset, top + inset);
                 let (a1, b1) = (size.0 - right - inset, size.1 - bottom - inset);
                 if a1 > a0 && b1 > b0 {
-                    let (operators, coordinates) = if subtype == b"Circle" {
-                        ellipse(a0, b0, a1, b1)
-                    } else {
-                        ("mlllh".to_owned(), vec![a0, b0, a1, b0, a1, b1, a0, b1])
+                    let (operators, coordinates) = match (subtype == b"Circle", bumps > 0.0) {
+                        (true, true) => cloud(&ellipse_vertices(a0, b0, a1, b1, bumps), bumps),
+                        (true, false) => ellipse(a0, b0, a1, b1),
+                        (false, true) => cloud(&[(a0, b0), (a1, b0), (a1, b1), (a0, b1)], bumps),
+                        (false, false) => {
+                            ("mlllh".to_owned(), vec![a0, b0, a1, b0, a1, b1, a0, b1])
+                        }
                     };
                     add_path(
                         &mut canvas,
@@ -352,8 +363,15 @@ pub(crate) fn appearance_with(
                 && vertices.len() >= 2
                 && (stroke.is_some() || fill.is_some())
             {
-                let (mut operators, coordinates) = polyline(vertices, to_canvas);
-                operators.push('h');
+                let intensity = cloud_intensity(doc, dict);
+                let (operators, coordinates) = if intensity > 0.0 && vertices.len() >= 3 {
+                    let points: Vec<(f64, f64)> = vertices.iter().copied().map(to_canvas).collect();
+                    cloud(&points, cloud_radius(intensity, paint.width))
+                } else {
+                    let (mut operators, coordinates) = polyline(vertices, to_canvas);
+                    operators.push('h');
+                    (operators, coordinates)
+                };
                 add_path(
                     &mut canvas,
                     &mut drawn,
@@ -1650,4 +1668,124 @@ fn ellipse(x0: f64, y0: f64, x1: f64, y1: f64) -> (String, Vec<f64>) {
             cy,
         ],
     )
+}
+
+/// The most bumps that a cloudy border draws; a longer outline spaces them
+/// further apart.
+const MAX_CLOUD_BUMPS: usize = 1_024;
+
+/// The intensity of a cloudy border effect, `/BE` with `/S /C`, from 0 to 2,
+/// or 0 without one (ISO 32000-2 Table 167).
+pub(crate) fn cloud_intensity(doc: &Document, dict: &Dictionary) -> f64 {
+    let Some(effect) = entry(doc, dict, b"BE").and_then(|value| value.as_dict().ok()) else {
+        return 0.0;
+    };
+    if entry(doc, effect, b"S").and_then(|value| value.as_name().ok()) != Some(b"C".as_slice()) {
+        return 0.0;
+    }
+    effect
+        .get(b"I")
+        .ok()
+        .and_then(|value| number(doc, value))
+        .unwrap_or(0.0)
+        .clamp(0.0, 2.0)
+}
+
+/// How far the bumps of a cloudy border of `intensity`, stroked `width`
+/// wide, reach beyond its outline.
+pub(crate) fn cloud_radius(intensity: f64, width: f64) -> f64 {
+    (4.0 * intensity + width).max(2.0)
+}
+
+/// A closed outline drawn as a cloud: each edge split into chords about
+/// twice `radius` long, each chord a semicircle bulging outward.
+fn cloud(vertices: &[(f64, f64)], radius: f64) -> (String, Vec<f64>) {
+    let n = vertices.len();
+    let edge = |i: usize| (vertices[i], vertices[(i + 1) % n]);
+    let length = |((x0, y0), (x1, y1)): ((f64, f64), (f64, f64))| (x1 - x0).hypot(y1 - y0);
+    let perimeter: f64 = (0..n).map(|i| length(edge(i))).sum();
+    let spacing = (2.0 * radius).max(perimeter / MAX_CLOUD_BUMPS as f64);
+    // The shoelace sign tells which side of each edge is outside.
+    let area: f64 = (0..n)
+        .map(|i| {
+            let ((x0, y0), (x1, y1)) = edge(i);
+            x0 * y1 - x1 * y0
+        })
+        .sum();
+    let side = if area >= 0.0 { 1.0 } else { -1.0 };
+    let mut operators = String::from("m");
+    let mut coordinates = vec![vertices[0].0, vertices[0].1];
+    for i in 0..n {
+        let ((x0, y0), (x1, y1)) = edge(i);
+        let total = length(edge(i));
+        if total <= 0.0 {
+            continue;
+        }
+        let (tx, ty) = ((x1 - x0) / total, (y1 - y0) / total);
+        let (nx, ny) = (side * ty, -side * tx);
+        // Rounding up keeps every chord, and so every bump, within `radius`.
+        let bumps = (total / spacing).ceil().max(1.0);
+        let chord = total / bumps;
+        let (r, k) = (chord / 2.0, chord / 2.0 * KAPPA);
+        for j in 0..bumps as usize {
+            let (px, py) = (x0 + tx * chord * j as f64, y0 + ty * chord * j as f64);
+            let (qx, qy) = (px + tx * chord, py + ty * chord);
+            let (ax, ay) = ((px + qx) / 2.0 + nx * r, (py + qy) / 2.0 + ny * r);
+            operators.push_str("cc");
+            coordinates.extend_from_slice(&[
+                px + nx * k,
+                py + ny * k,
+                ax - tx * k,
+                ay - ty * k,
+                ax,
+                ay,
+                ax + tx * k,
+                ay + ty * k,
+                qx + nx * k,
+                qy + ny * k,
+                qx,
+                qy,
+            ]);
+        }
+    }
+    operators.push('h');
+    (operators, coordinates)
+}
+
+/// The vertices of an ellipse inside a box, spaced about twice `radius`
+/// apart along its outline, so that every bump of its cloud is alike.
+fn ellipse_vertices(x0: f64, y0: f64, x1: f64, y1: f64, radius: f64) -> Vec<(f64, f64)> {
+    const STEPS: usize = 1_440;
+    let (cx, cy) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+    let (rx, ry) = ((x1 - x0) / 2.0, (y1 - y0) / 2.0);
+    let at = |step: usize| {
+        let angle = std::f64::consts::TAU * step as f64 / STEPS as f64;
+        (cx + rx * angle.cos(), cy + ry * angle.sin())
+    };
+    let mut lengths = Vec::with_capacity(STEPS + 1);
+    lengths.push(0.0);
+    for step in 1..=STEPS {
+        let ((ax, ay), (bx, by)) = (at(step - 1), at(step));
+        lengths.push(lengths[step - 1] + (bx - ax).hypot(by - ay));
+    }
+    let perimeter = lengths[STEPS];
+    // A little closer than twice the radius, so that no chord needs two bumps.
+    let count = ((perimeter / (1.9 * radius)).ceil() as usize).clamp(6, MAX_CLOUD_BUMPS);
+    let mut vertices = Vec::with_capacity(count);
+    let mut step = 0;
+    for i in 0..count {
+        let target = perimeter * i as f64 / count as f64;
+        while step < STEPS - 1 && lengths[step + 1] < target {
+            step += 1;
+        }
+        let span = lengths[step + 1] - lengths[step];
+        let fraction = if span > 0.0 {
+            ((target - lengths[step]) / span).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let angle = std::f64::consts::TAU * (step as f64 + fraction) / STEPS as f64;
+        vertices.push((cx + rx * angle.cos(), cy + ry * angle.sin()));
+    }
+    vertices
 }

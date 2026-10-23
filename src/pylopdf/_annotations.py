@@ -16,10 +16,10 @@ from pylopdf._fonts import Font
 from pylopdf._geometry import Point, Quad, Rect
 from pylopdf._hints import hinted_getattr
 from pylopdf._limits import _validate_cumulative_utf8_input, _validate_optional_positive_int, _validate_rect
+from pylopdf._objects import Dictionary
 from pylopdf.pylopdf_core import LimitError, StaleObjectError
 
 if TYPE_CHECKING:
-    from pylopdf._objects import Dictionary
     from pylopdf._page import Page
 
     # The core's form of one annotation: index, xref, subtype, display rect,
@@ -131,6 +131,9 @@ class BorderStyle(enum.StrEnum):
     UNDERLINE = "underline"
     """Only the bottom edge, as a widget's border; other annotations draw it solid."""
 
+
+#: The greatest intensity of a cloudy border (ISO 32000-2 Table 167).
+_MAX_CLOUDS = 2
 
 #: The ``/S`` name of each border style.
 _BORDER_STYLE_NAMES = {
@@ -611,6 +614,32 @@ class Annotation:
     @border.deleter
     def border(self) -> None:
         self._set(clear=["border"])
+
+    @property
+    def clouds(self) -> float:
+        """Return or set the intensity of a cloudy border, ``/BE``, from 0 (none) to 2.
+
+        Squares, circles, and polygons take one; ``del`` and 0 remove it.
+        """
+        effect = self.obj.get("BE")
+        if not isinstance(effect, Dictionary) or effect.get("S") != "C":
+            return 0.0
+        intensity = effect.get("I", 0)
+        if isinstance(intensity, bool) or not isinstance(intensity, (int, float)) or not math.isfinite(intensity):
+            return 0.0
+        return min(max(float(intensity), 0.0), float(_MAX_CLOUDS))
+
+    @clouds.setter
+    def clouds(self, clouds: float) -> None:
+        value = _clouds(clouds)
+        if value:
+            self._set(clouds=value)
+        else:
+            self._set(clear=["clouds"])
+
+    @clouds.deleter
+    def clouds(self) -> None:
+        self._set(clear=["clouds"])
 
     @property
     def blend_mode(self) -> BlendMode | None:
@@ -1142,7 +1171,20 @@ class _Shape:
             "blend_mode": None if self.blend_mode is None else _BLEND_MODE_NAMES[self.blend_mode],
             "contents": self.contents,
             "created": _now(),
+            "clouds": getattr(self, "clouds", 0.0) or None,
         }
+
+
+def _clouds(clouds: object) -> float:
+    """Validate the intensity of a cloudy border: 0 for none, at most 2."""
+    if isinstance(clouds, bool) or not isinstance(clouds, (int, float)):
+        msg = f"clouds is a number from 0 to 2: {clouds!r}"
+        raise TypeError(msg)
+    value = float(clouds)
+    if not 0 <= value <= _MAX_CLOUDS:
+        msg = f"clouds is a number from 0 to 2: {clouds!r}"
+        raise ValueError(msg)
+    return value
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -1151,7 +1193,8 @@ class Square(_Shape):
 
     ``rect`` is in display coordinates. ``color`` strokes the border and
     ``interior_color`` fills the inside; either may be ``None``. The border
-    lies inside ``rect``. ``opacity`` and ``blend_mode`` apply to both
+    lies inside ``rect``, and ``clouds`` from 0 to 2 draws it as a cloud
+    whose bumps grow with it, inside ``rect`` too. ``opacity`` and ``blend_mode`` apply to both
     paints, and ``contents`` is the text of the annotation's note. The
     annotation is written with its appearance, so every viewer draws it
     alike.
@@ -1161,6 +1204,7 @@ class Square(_Shape):
     color: Color | None
     interior_color: Color | None
     border: Border
+    clouds: float
     opacity: float
     blend_mode: BlendMode | None
     contents: str | None
@@ -1172,12 +1216,14 @@ class Square(_Shape):
         color: Color | None = Color(1.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
         interior_color: Color | None = None,
         border: Border = Border(),  # noqa: B008 - Border is immutable.
+        clouds: float = 0,
         opacity: float = 1.0,
         blend_mode: BlendMode | None = None,
         contents: str | None = None,
     ) -> None:
         """Validate the specification."""
         self._init(rect, color, interior_color, border, opacity, blend_mode, contents)
+        object.__setattr__(self, "clouds", _clouds(clouds))
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -1192,6 +1238,7 @@ class Circle(_Shape):
     color: Color | None
     interior_color: Color | None
     border: Border
+    clouds: float
     opacity: float
     blend_mode: BlendMode | None
     contents: str | None
@@ -1203,12 +1250,14 @@ class Circle(_Shape):
         color: Color | None = Color(1.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
         interior_color: Color | None = None,
         border: Border = Border(),  # noqa: B008 - Border is immutable.
+        clouds: float = 0,
         opacity: float = 1.0,
         blend_mode: BlendMode | None = None,
         contents: str | None = None,
     ) -> None:
         """Validate the specification."""
         self._init(rect, color, interior_color, border, opacity, blend_mode, contents)
+        object.__setattr__(self, "clouds", _clouds(clouds))
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -1785,7 +1834,8 @@ class LineAnnotation(_Drawn):
 class Polygon(_Drawn):
     """A closed polygon through two or more display points, as ``page.annotations.add`` takes it.
 
-    ``color`` strokes the outline and ``interior_color`` fills it; one
+    ``color`` strokes the outline and ``interior_color`` fills it; ``clouds``
+    from 0 to 2 draws the outline as a cloud whose bumps grow with it. One
     annotation holds at most 65,536 points.
     """
 
@@ -1793,6 +1843,7 @@ class Polygon(_Drawn):
     color: Color | None
     interior_color: Color | None
     border: Border
+    clouds: float
     opacity: float
     blend_mode: BlendMode | None
     contents: str | None
@@ -1804,12 +1855,14 @@ class Polygon(_Drawn):
         color: Color | None = Color(1.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
         interior_color: Color | None = None,
         border: Border = Border(),  # noqa: B008 - Border is immutable.
+        clouds: float = 0,
         opacity: float = 1.0,
         blend_mode: BlendMode | None = None,
         contents: str | None = None,
     ) -> None:
         """Validate the specification; the contents are bounded before the points are read."""
         self._init_drawn(color, interior_color, border, opacity, blend_mode, contents)
+        object.__setattr__(self, "clouds", _clouds(clouds))
         object.__setattr__(self, "vertices", _points(vertices, "vertices", 2, [0]))
 
     def _payload(self) -> dict[str, Any]:

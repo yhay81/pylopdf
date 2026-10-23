@@ -285,6 +285,7 @@ replacement, and the migration hint):
 - PDF_ANNOT_LE_* -> LineEnding: Line endings such as PDF_ANNOT_LE_ClosedArrow are LineEnding members such as LineEnding.CLOSED_ARROW.
 - PDF_ANNOT_Q_* -> FreeText: Free-text alignments are FreeText(align='left' | 'center' | 'right') strings.
 - PDF_BM_* -> BlendMode: Blend modes such as PDF_BM_Multiply are BlendMode members such as BlendMode.MULTIPLY; annotation specifications take blend_mode=.
+- PDF_BORDER_* -> BorderStyle: PDF_BORDER_STYLE_* are BorderStyle members, which the codemod rewrites; PDF_BORDER_EFFECT_CLOUDY is the clouds intensity (0 to 2) of Square, Circle, and Polygon, read and set as annotation.clouds.
 - PDF_BTN_FIELD_IS_* -> FieldFlags: Button field flags such as PDF_BTN_FIELD_IS_RADIO and PDF_BTN_FIELD_IS_PUSHBUTTON are FieldFlags members such as FieldFlags.RADIO and PUSHBUTTON.
 - PDF_CH_FIELD_IS_* -> FieldFlags: Choice field flags such as PDF_CH_FIELD_IS_COMBO and PDF_CH_FIELD_IS_MULTI_SELECT are FieldFlags members such as FieldFlags.COMBO and MULTI_SELECT.
 - PDF_ENCRYPT_* -> Encryption: Pass encryption=Encryption(user_password=..., owner_password=..., permissions=...) to save() or to_bytes(), which writes AES-256 encryption; encryption=None writes none.
