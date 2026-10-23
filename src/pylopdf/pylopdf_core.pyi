@@ -300,6 +300,14 @@ class Pixmap:
     def resolution(self) -> tuple[int, int]: ...
     @staticmethod
     def from_array(array: Buffer, /, *, resolution: tuple[int, int] | None = None) -> Pixmap: ...
+    @staticmethod
+    def from_file(
+        path: str | os.PathLike[str], /, *, max_size: int | None = 67108864, max_pixels: int | None = 64000000
+    ) -> Pixmap: ...
+    @staticmethod
+    def from_bytes(
+        data: Buffer, /, *, max_size: int | None = 67108864, max_pixels: int | None = 64000000
+    ) -> Pixmap: ...
     def to_bytes(
         self,
         format: Literal["png", "jpeg"] = "png",  # noqa: A002 - the public name.

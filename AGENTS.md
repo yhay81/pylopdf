@@ -1312,7 +1312,14 @@ the concept and API overview.
   `pHYs` in whole pixels per metre, which round-trips every integer dpi, and
   as JPEG JFIF density in inches; `Document.render` writes the same.
   `Pixmap.from_array` of a Pixmap clones its `Arc` instead of copying the
-  samples, which is how a resolution changes. `Pixmap.to_bytes` defaults to a
+  samples, which is how a resolution changes. `Pixmap.from_file` and
+  `from_bytes` decode PNG (png's `normalize_to_color8`, keeping gray, RGB,
+  and alpha) and JPEG (zune-jpeg to gray or RGB, CMYK and YCCK converted,
+  inside `catch_unwind`) under `canvas.image`'s 64 MiB `image_input_size` and
+  64,000,000-pixel `image_pixel_count` limits, sharing `read_image_input` and
+  `validate_image_input`; the pixel and 65,535-pixel side checks read the
+  headers before any sample is allocated, and a buffer that is not `bytes` is
+  measured before PyO3 copies it. `Pixmap.to_bytes` defaults to a
   64 MiB encoded-output boundary; the bounded writer refuses the write
   crossing the limit before Python bytes conversion and grows its retained
   output fallibly. `max_size=None` is the explicit trusted-output opt-out.

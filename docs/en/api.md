@@ -1343,6 +1343,7 @@ checking whether a rectangle lies inside a quad tests all four corners.
 | `numpy.asarray(pix)`, `memoryview(pix)` | The pixels without copying, shaped `(height, width)` for gray and `(height, width, channels)` otherwise |
 | `bytes(pix)` | A copy of the pixels |
 | `Pixmap.from_array(array, /, *, resolution=None)` | A pixmap with a copy of a `uint8` array shaped as above, at `resolution`, an `(x, y)` tuple of integers from 1 through 65,535 that defaults to 96; given a `Pixmap`, it shares its pixels and keeps its resolution unless told otherwise |
+| `Pixmap.from_file(path, /, *, max_size=64 MiB, max_pixels=64,000,000)`, `Pixmap.from_bytes(data, /, ...)` | Decode a PNG or JPEG: PNG keeps gray, RGB, and alpha as 8-bit samples, JPEG decodes to gray or RGB (CMYK converts), and the resolution comes from the file, else 96; larger input raises `LimitError` with `image_input_size` or `image_pixel_count` |
 | `to_bytes(format="png", *, quality=95, max_size=64 MiB)` | PNG or JPEG bytes; JPEG has no alpha |
 | `save(path, /, *, format=None, quality=95)` | Write PNG or JPEG; the extension `.png`, `.jpg`, or `.jpeg` names the format unless `format` does |
 

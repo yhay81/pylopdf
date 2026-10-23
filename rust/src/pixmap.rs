@@ -13,22 +13,27 @@ use pyo3::buffer::PyBuffer;
 use pyo3::exceptions::{PyBufferError, PyTypeError, PyValueError};
 use pyo3::ffi;
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyInt, PyTuple};
+use pyo3::types::{PyBool, PyBytes, PyInt, PyTuple};
 use std::{
     ffi::{CString, c_int, c_void},
     fs::{self, File, OpenOptions},
     io::{self, Write},
+    panic::{AssertUnwindSafe, catch_unwind},
     path::{Path, PathBuf},
     ptr,
     sync::Arc,
 };
 
-use crate::document::{LimitError, PdfError};
+use crate::document::{LimitError, PdfError, limit_err, read_image_input, validate_image_input};
 use crate::extract::DEFAULT_IMAGE_RESOLUTION;
 
 const TEMPORARY_PATH_ATTEMPTS: usize = 100;
 const MAX_SYMLINK_DEPTH: usize = 40;
 const DEFAULT_MAX_OUTPUT_SIZE: usize = 64 * 1024 * 1024;
+/// The default bound on encoded input, as `canvas.image` applies it.
+const DEFAULT_MAX_INPUT_SIZE: usize = 64 * 1024 * 1024;
+/// The default bound on decoded pixels, as `canvas.image` applies it.
+const DEFAULT_MAX_PIXELS: u64 = 64_000_000;
 const DEFAULT_QUALITY: u8 = 95;
 /// The largest side of a Pixmap, as of a rendered page.
 const MAX_SIDE: usize = u16::MAX as usize;
@@ -381,6 +386,176 @@ pub(crate) fn expand_to_rgba(layout: Layout, data: &[u8]) -> Result<Vec<u8>, Str
     Ok(rgba)
 }
 
+fn extract_max_pixels(value: &Bound<'_, PyAny>) -> PyResult<Option<u64>> {
+    if value.is_none() {
+        return Ok(None);
+    }
+    if value.is_instance_of::<PyBool>() || !value.is_instance_of::<PyInt>() {
+        return Err(PyTypeError::new_err(
+            "max_pixels must be a positive integer or None",
+        ));
+    }
+    value
+        .extract::<u64>()
+        .ok()
+        .filter(|&pixels| pixels > 0)
+        .map(Some)
+        .ok_or_else(|| PyValueError::new_err("max_pixels must be a positive integer or None"))
+}
+
+/// A whole number of dots per inch from 1 through [`MAX_RESOLUTION`].
+fn whole_resolution(dpi: f64) -> u32 {
+    dpi.round().clamp(1.0, f64::from(MAX_RESOLUTION)) as u32
+}
+
+/// Refuse an image whose sides a Pixmap cannot hold or whose pixel count
+/// exceeds `max_pixels`.
+fn check_decoded_size(
+    format: &str,
+    width: usize,
+    height: usize,
+    max_pixels: Option<u64>,
+) -> PyResult<()> {
+    if width == 0 || height == 0 || width > MAX_SIDE || height > MAX_SIDE {
+        return Err(PdfError::new_err(format!(
+            "a Pixmap is 1 to {MAX_SIDE} pixels a side, not {width}x{height}"
+        )));
+    }
+    let pixels = width as u64 * height as u64;
+    if let Some(limit) = max_pixels
+        && pixels > limit
+    {
+        return Err(limit_err(
+            "image_pixel_count",
+            format!("{format} image contains {pixels} pixels, exceeding the {limit}-pixel limit"),
+        ));
+    }
+    Ok(())
+}
+
+/// Decode a PNG into 8-bit samples, expanding palettes, transparency, and
+/// low bit depths and reducing 16-bit samples.
+fn decode_png(data: &[u8], max_pixels: Option<u64>) -> PyResult<Pixmap> {
+    let failed =
+        |error: &dyn std::fmt::Display| PdfError::new_err(format!("failed to decode PNG: {error}"));
+    let mut decoder = png::Decoder::new(io::Cursor::new(data));
+    decoder.set_transformations(png::Transformations::normalize_to_color8());
+    let mut reader = decoder.read_info().map_err(|error| failed(&error))?;
+    let info = reader.info();
+    check_decoded_size("PNG", info.width as usize, info.height as usize, max_pixels)?;
+    let resolution = match info.pixel_dims {
+        Some(png::PixelDimensions {
+            xppu,
+            yppu,
+            unit: png::Unit::Meter,
+        }) if xppu > 0 && yppu > 0 => (
+            whole_resolution(f64::from(xppu) * METRES_PER_INCH),
+            whole_resolution(f64::from(yppu) * METRES_PER_INCH),
+        ),
+        _ => DEFAULT_RESOLUTION,
+    };
+    let size = reader
+        .output_buffer_size()
+        .ok_or_else(|| PdfError::new_err("the PNG is too large to decode"))?;
+    let mut samples = Vec::new();
+    samples.try_reserve_exact(size).map_err(|error| {
+        PdfError::new_err(format!("failed to allocate the decoded PNG: {error}"))
+    })?;
+    samples.resize(size, 0);
+    let frame = reader
+        .next_frame(&mut samples)
+        .map_err(|error| failed(&error))?;
+    samples.truncate(frame.buffer_size());
+    let layout = match frame.color_type {
+        png::ColorType::Grayscale => Layout::of_channels(1),
+        png::ColorType::GrayscaleAlpha => Layout::of_channels(2),
+        png::ColorType::Rgb => Layout::of_channels(3),
+        png::ColorType::Rgba => Layout::of_channels(4),
+        png::ColorType::Indexed => None,
+    }
+    .ok_or_else(|| PdfError::new_err("failed to expand the PNG palette"))?;
+    Ok(Pixmap {
+        width: frame.width,
+        height: frame.height,
+        layout,
+        data: Arc::new(samples),
+        resolution,
+    })
+}
+
+/// Decode a baseline or progressive JPEG into gray or RGB samples; CMYK and
+/// YCCK images convert to RGB.
+fn decode_jpeg(data: &[u8], max_pixels: Option<u64>) -> PyResult<Pixmap> {
+    use zune_jpeg::JpegDecoder;
+    use zune_jpeg::zune_core::bytestream::ZCursor;
+    use zune_jpeg::zune_core::colorspace::ColorSpace;
+    use zune_jpeg::zune_core::options::DecoderOptions;
+
+    let options = DecoderOptions::default()
+        .set_max_width(MAX_SIDE)
+        .set_max_height(MAX_SIDE);
+    let decoded = catch_unwind(AssertUnwindSafe(|| {
+        let mut decoder = JpegDecoder::new_with_options(ZCursor::new(data), options);
+        decoder
+            .decode_headers()
+            .map_err(|error| PdfError::new_err(format!("failed to decode JPEG: {error}")))?;
+        let info = decoder
+            .info()
+            .ok_or_else(|| PdfError::new_err("failed to decode JPEG: no frame header"))?;
+        check_decoded_size(
+            "JPEG",
+            usize::from(info.width),
+            usize::from(info.height),
+            max_pixels,
+        )?;
+        let (layout, colorspace) = if info.components == 1 {
+            (Layout::of_channels(1), ColorSpace::Luma)
+        } else {
+            (Layout::of_channels(3), ColorSpace::RGB)
+        };
+        let mut decoder = JpegDecoder::new_with_options(
+            ZCursor::new(data),
+            options.jpeg_set_out_colorspace(colorspace),
+        );
+        let samples = decoder
+            .decode()
+            .map_err(|error| PdfError::new_err(format!("failed to decode JPEG: {error}")))?;
+        let layout = layout.expect("one and three channels are layouts");
+        let expected =
+            usize::from(info.width) * usize::from(info.height) * layout.channels() as usize;
+        if samples.len() != expected {
+            return Err(PdfError::new_err(
+                "failed to decode JPEG: the decoder returned an unexpected sample count",
+            ));
+        }
+        Ok(Pixmap {
+            width: u32::from(info.width),
+            height: u32::from(info.height),
+            layout,
+            data: Arc::new(samples),
+            resolution: crate::extract::jpeg_resolution(data),
+        })
+    }));
+    decoded.unwrap_or_else(|_| {
+        Err(PdfError::new_err(
+            "failed to decode JPEG: the decoder panicked on malformed input",
+        ))
+    })
+}
+
+/// Decode PNG or JPEG bytes, told apart by their signatures.
+fn decode_image(data: &[u8], max_pixels: Option<u64>) -> PyResult<Pixmap> {
+    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        decode_png(data, max_pixels)
+    } else if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        decode_jpeg(data, max_pixels)
+    } else {
+        Err(PdfError::new_err(
+            "unsupported image format (pass PNG or JPEG; decode other formats with Pillow)",
+        ))
+    }
+}
+
 /// The image format that a file name's extension names.
 fn format_of(path: &Path) -> Option<&'static str> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
@@ -544,6 +719,73 @@ impl Pixmap {
             data: Arc::new(data),
             resolution: resolution.unwrap_or(DEFAULT_RESOLUTION),
         })
+    }
+
+    /// Decode a PNG or JPEG file into a Pixmap.
+    ///
+    /// PNG keeps its gray or RGB samples and its alpha, with palettes,
+    /// transparency, and other bit depths converted to 8-bit samples; JPEG
+    /// decodes to gray or RGB, converting CMYK. The resolution comes from
+    /// PNG's `pHYs` chunk or JPEG's JFIF density, else 96. `max_size` caps
+    /// the file at 64 MiB and `max_pixels` the image at 64,000,000 pixels by
+    /// default; `None` opts out.
+    #[staticmethod]
+    #[pyo3(
+        signature = (path, /, *, max_size=Some(DEFAULT_MAX_INPUT_SIZE), max_pixels=Some(DEFAULT_MAX_PIXELS)),
+        text_signature = "(path, /, *, max_size=67108864, max_pixels=64000000)"
+    )]
+    fn from_file(
+        py: Python<'_>,
+        path: PathBuf,
+        #[pyo3(from_py_with = extract_max_size)] max_size: Option<usize>,
+        #[pyo3(from_py_with = extract_max_pixels)] max_pixels: Option<u64>,
+    ) -> PyResult<Self> {
+        let path = path.to_string_lossy().into_owned();
+        py.detach(|| {
+            let data = read_image_input(&path, max_size)?;
+            validate_image_input(&data, max_size, max_pixels)?;
+            decode_image(&data, max_pixels)
+        })
+    }
+
+    /// Decode PNG or JPEG bytes into a Pixmap, as [`Pixmap::from_file`]
+    /// decodes a file.
+    ///
+    /// `data` is `bytes` or another buffer of unsigned bytes, measured
+    /// against `max_size` before it is copied.
+    #[staticmethod]
+    #[pyo3(
+        signature = (data, /, *, max_size=Some(DEFAULT_MAX_INPUT_SIZE), max_pixels=Some(DEFAULT_MAX_PIXELS)),
+        text_signature = "(data, /, *, max_size=67108864, max_pixels=64000000)"
+    )]
+    fn from_bytes(
+        py: Python<'_>,
+        data: &Bound<'_, PyAny>,
+        #[pyo3(from_py_with = extract_max_size)] max_size: Option<usize>,
+        #[pyo3(from_py_with = extract_max_pixels)] max_pixels: Option<u64>,
+    ) -> PyResult<Self> {
+        if let Ok(bytes) = data.cast::<PyBytes>() {
+            let data = bytes.as_bytes();
+            validate_image_input(data, max_size, max_pixels)?;
+            return py.detach(|| decode_image(data, max_pixels));
+        }
+        let buffer = PyBuffer::<u8>::get(data).map_err(|_| {
+            PyTypeError::new_err("from_bytes needs bytes or another buffer of unsigned bytes")
+        })?;
+        if let Some(limit) = max_size
+            && buffer.len_bytes() > limit
+        {
+            return Err(limit_err(
+                "image_input_size",
+                format!(
+                    "encoded image input is {} bytes, exceeding the {limit}-byte limit",
+                    buffer.len_bytes()
+                ),
+            ));
+        }
+        let data = buffer.to_vec(py)?;
+        validate_image_input(&data, max_size, max_pixels)?;
+        py.detach(|| decode_image(&data, max_pixels))
     }
 
     /// Encode the pixels as PNG or JPEG.
