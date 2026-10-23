@@ -703,7 +703,9 @@ differences:
   tagged document a link belongs inside a tag scope, usually
   `TagRole.LINK` around the text it covers. Destinations with a zoom and the
   other targets are refused, because krilla writes neither. A page holds at
-  most 4,096 links.
+  most 4,096 links. The rectangle follows the current transform, using its
+  bounding box after rotation or shear; the destination stays in the target
+  page's display coordinates.
 
 `finish()` and `to_bytes()` can be called again after more pages. Saving the
 `Document` that `finish()` returns writes it again with lopdf, so keep

@@ -410,6 +410,29 @@ def test_tagged_links_join_their_tag_scope(font: pylopdf.Font) -> None:
         outside.to_bytes()
 
 
+def test_links_follow_nested_transforms_without_transforming_the_destination() -> None:
+    builder = pylopdf.create()
+    with builder.page((300, 300)) as canvas:
+        with canvas.transform((1, 0, 0, 1, 100, 50)), canvas.transform((0, 1, -1, 0, 0, 0)):
+            canvas.link((10, 20, 30, 40), pylopdf.Destination(0, (7, 9)))
+        canvas.link((10, 20, 30, 40), "https://example.com/")
+
+    transformed, original = builder.finish().pages[0].links
+    assert tuple(transformed.rect) == pytest.approx((60, 60, 80, 80))
+    assert transformed.target == pylopdf.Destination(0, (7, 9))
+    assert tuple(original.rect) == pytest.approx((10, 20, 30, 40))
+
+
+def test_link_text_limit_counts_uri_and_description_together() -> None:
+    builder = pylopdf.create()
+    with builder.page() as canvas:
+        with pytest.raises(pylopdf.LimitError) as caught:
+            canvas.link((0, 0, 10, 10), "u" * 32768, alt="a" * 32769)
+        assert caught.value.code == "tag_text_size"
+        canvas.link((0, 0, 10, 10), "https://example.com/")
+    assert len(builder.finish().pages[0].links) == 1
+
+
 def test_link_refusals(font: pylopdf.Font) -> None:
     builder = pylopdf.create()
     with builder.page() as canvas:

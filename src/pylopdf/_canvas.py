@@ -36,6 +36,7 @@ from pylopdf._limits import (
     _DEFAULT_MAX_IMAGE_INPUT_SIZE,
     _DEFAULT_MAX_IMAGE_PIXELS,
     _FLOAT32_MAX,
+    _validate_cumulative_utf8_input,
     _validate_optional_positive_int,
 )
 from pylopdf._targets import Destination
@@ -1115,7 +1116,8 @@ class Canvas:
     def link(self, rect: Sequence[float], target: Destination | str, *, alt: str | None = None) -> None:
         """Add a link over ``rect`` of a new document's page that leads to ``target``.
 
-        ``target`` is a URI string or a :class:`Destination` of the new
+        ``rect`` follows the current transform; a rotated or sheared
+        rectangle uses its bounding box. ``target`` is a URI string or a :class:`Destination` of the new
         document, whose page must exist when the document is written and
         whose point defaults to the page's top-left corner; a zoom, and the
         other targets, which krilla does not write, are refused. ``alt``
@@ -1133,6 +1135,12 @@ class Canvas:
         if alt is not None and not isinstance(alt, str):
             msg = f"alt must be a string or None: {alt!r}"
             raise TypeError(msg)
+        _validate_cumulative_utf8_input(
+            (target if isinstance(target, str) else "", alt or ""),
+            64 * 1024,
+            limit_code="tag_text_size",
+            input_label="a link's texts",
+        )
         if isinstance(target, str):
             self._record.add_link(box, uri=target, alt=alt)
         elif isinstance(target, Destination):

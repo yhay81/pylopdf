@@ -2095,6 +2095,14 @@ impl _Canvas {
             return Err(PdfError::new_err("a mask canvas cannot add links"));
         }
         let rect = rect_array(rect)?;
+        let [x0, y0, x1, y1] = rect;
+        let [a, b, c, d, e, f] = self.matrix;
+        let rect = draw::bounding_rect_iter(
+            [(x0, y0), (x1, y0), (x0, y1), (x1, y1)]
+                .map(|(x, y)| (a * x + c * y + e, b * x + d * y + f)),
+        );
+        let [x0, y0, x1, y1] = rect;
+        let rect = rect_array((x0, y0, x1, y1))?;
         coordinate(at.0)?;
         coordinate(at.1)?;
         let size = uri.as_ref().map_or(0, String::len) + alt.as_ref().map_or(0, String::len);
@@ -2115,9 +2123,10 @@ impl _Canvas {
             _ => return Err(PdfError::new_err("a link leads to a URI or to a page")),
         };
         grow(&mut self.recording.links, "links")?;
+        let index = self.recording.links.len();
+        self.push_op(Op::Link(index))?;
         self.recording.links.push(CanvasLink { rect, target, alt });
-        let index = self.recording.links.len() - 1;
-        self.push_op(Op::Link(index))
+        Ok(())
     }
 
     /// Discard everything recorded.
