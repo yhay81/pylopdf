@@ -150,9 +150,10 @@ pub(super) fn pdf_metadata_to_tuple(
         page_count,
         version,
         encrypted,
+        xref_recovery: _,
     } = meta;
     // pylopdf exposes only the standard fields. Release upstream custom clones
-    // before materializing Python-facing strings. lopdf 0.45 drops `/Trapped`
+    // before materializing Python-facing strings. lopdf 0.46 drops `/Trapped`
     // from both, so the fast probe cannot report it.
     drop(custom);
     let mut map = HashMap::new();

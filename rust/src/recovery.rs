@@ -1,17 +1,19 @@
 //! Lenient lopdf loading with visible, bounded cross-reference recovery.
 //!
-//! lopdf 0.45 recovers damaged cross-reference data while loading leniently:
-//! it moves a slightly miswritten `startxref`, `/Prev`, or `/XRefStm` offset to
-//! a nearby `xref` keyword, and rebuilds the table by scanning object headers
-//! when standard resolution fails. It reports both only as `log` warnings,
-//! emitted on the loading thread before object parsing moves to the rayon pool,
-//! so one thread-local capture scope attributes them to a single load. lopdf
-//! trusts any table that it resolves, so a load that leaves the page tree
-//! unreachable is repeated with the rebuild forced.
+//! lopdf 0.46 recovers damaged cross-reference data while loading leniently:
+//! it moves a slightly miswritten `startxref`, `/Prev`, or `/XRefStm` offset
+//! to a nearby cross-reference section, and rebuilds the table by scanning
+//! object headers when standard resolution fails. It reports both only as
+//! `log` warnings, emitted on the loading thread before object parsing moves
+//! to the rayon pool, so one thread-local capture scope attributes them to a
+//! single load. lopdf trusts any table that it resolves, so a load that leaves
+//! the page tree unreachable, or that moved an offset onto a section whose
+//! later entries miss their objects, is repeated with the rebuild forced.
 
 use std::cell::Cell;
 use std::sync::Once;
 
+use lopdf::xref::XrefEntry;
 use lopdf::{Document, LoadOptions, Object, PdfMetadata};
 
 /// lopdf's reader module, which resolves and rebuilds cross-reference data.
@@ -25,7 +27,7 @@ const RECOVERY_SCAN_WORK_SLACK: u64 = 64 * 1024 * 1024;
 /// Cross-reference recovery performed by lopdf, ordered by severity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum XrefRecovery {
-    /// A cross-reference offset was moved to a nearby `xref` keyword.
+    /// A cross-reference offset was moved to a nearby cross-reference section.
     OffsetCorrected,
     /// The table was rebuilt by scanning indirect-object headers.
     Reconstructed,
@@ -201,6 +203,21 @@ fn page_tree_reachable(document: &Document) -> bool {
         .is_ok_and(|root| root.get_type().ok() == Some(b"Pages".as_slice()))
 }
 
+/// Whether an in-use, uncompressed cross-reference entry names an object
+/// that lopdf did not load.
+fn misses_entries(document: &Document) -> bool {
+    document
+        .reference_table
+        .entries
+        .iter()
+        .any(|(&number, entry)| match *entry {
+            XrefEntry::Normal { generation, .. } => {
+                !document.objects.contains_key(&(number, generation))
+            }
+            _ => false,
+        })
+}
+
 /// Load a complete document leniently and report cross-reference recovery.
 ///
 /// lopdf trusts any cross-reference data that it resolves, and it moves a
@@ -209,7 +226,12 @@ fn page_tree_reachable(document: &Document) -> bool {
 /// objects that lead to the page tree then did not load, the document is
 /// unusable, so an unencrypted one is loaded again with the table rebuilt by
 /// scanning object headers, as hayro, MuPDF, and pdf.js rebuild it, and the
-/// rebuilt document replaces it when its page tree is reachable.
+/// rebuilt document replaces it when its page tree is reachable. lopdf 0.46
+/// moves an offset only onto a section of which more than half the entries
+/// locate their objects (J-F-Liu/lopdf#611), so a file that gained or lost
+/// bytes after its first objects can still load without the later ones; such a
+/// load is rebuilt as well, and the rebuilt document replaces it when it also
+/// loads more objects.
 pub fn load_document(
     data: &[u8],
     options: LoadOptions,
@@ -218,10 +240,12 @@ pub fn load_document(
     let (result, mut recovery) =
         capture_recovery(|| Document::load_mem_with_options(data, options.clone()));
     let mut document = result.map_err(LoadError::Pdf)?;
+    let reachable = page_tree_reachable(&document);
+    let partial = recovery == Some(XrefRecovery::OffsetCorrected) && misses_entries(&document);
     if recovery != Some(XrefRecovery::Reconstructed)
         && !document.is_encrypted()
         && !document.was_encrypted()
-        && !page_tree_reachable(&document)
+        && (!reachable || partial)
         && let Some(input) = rebuild_input(data)
     {
         let (rebuilt, retried) =
@@ -229,6 +253,7 @@ pub fn load_document(
         if let Ok(rebuilt) = rebuilt
             && retried == Some(XrefRecovery::Reconstructed)
             && page_tree_reachable(&rebuilt)
+            && (!reachable || rebuilt.objects.len() > document.objects.len())
         {
             document = rebuilt;
             recovery = retried;

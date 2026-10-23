@@ -363,9 +363,8 @@ def _recovery_results(pdf20_bytes: bytes, form_bytes: bytes) -> dict[str, Any]:
     return {
         "offset_corrected": recovered(shift_startxref(pdf20_bytes, 12)),
         "rebuilt": recovered(corrupt_startxref_keyword(pdf20_bytes)),
-        "xref_stream_damage": _exception_name(
-            lambda: pylopdf.open(corrupt_startxref_keyword(form_bytes)),
-        ),
+        # lopdf 0.46 rebuilds files that only have cross-reference streams.
+        "xref_stream_damage": recovered(corrupt_startxref_keyword(form_bytes)),
         "recovery_scan": [
             limit_code(lambda: pylopdf.open(hostile)),
             limit_code(lambda: pylopdf.probe(hostile)),

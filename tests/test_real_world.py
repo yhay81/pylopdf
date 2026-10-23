@@ -94,12 +94,6 @@ def _with_startxref(data: bytes, value: int) -> bytes:
     return data[:start] + str(value).encode() + data[end:]
 
 
-def _uses_classic_xref(data: bytes) -> bool:
-    """Return whether the final startxref points at a classic xref table."""
-    start, end = _startxref_value_span(data)
-    return data[data.index(b"%PDF-") + int(data[start:end]) :].startswith(b"xref")
-
-
 def _truncated(fraction: float) -> Callable[[str, bytes], bytes]:
     def damage(_name: str, data: bytes) -> bytes:
         return data[: int(len(data) * fraction)]
@@ -162,6 +156,14 @@ def _endobj_removed(_name: str, data: bytes) -> bytes:
     return data
 
 
+def _bytes_inserted_late(_name: str, data: bytes) -> bytes:
+    """Insert an 18-byte comment line before the last quarter of the object headers."""
+    start, _ = _startxref_value_span(data)
+    headers = [match.start() for match in re.finditer(rb"(?m)^\d+ \d+ obj", data[:start])]
+    position = headers[len(headers) * 3 // 4]
+    return data[:position] + b"%" + b"x" * 16 + b"\n" + data[position:]
+
+
 DAMAGE: dict[str, Callable[[str, bytes], bytes]] = {
     "truncate-95": _truncated(0.95),
     "truncate-60": _truncated(0.60),
@@ -171,18 +173,21 @@ DAMAGE: dict[str, Callable[[str, bytes], bytes]] = {
     "length-off-37": _lengths_off_by_37,
     "bit-flips-12": _bits_flipped,
     "endobj-removed-2": _endobj_removed,
+    "bytes-inserted-late": _bytes_inserted_late,
 }
 
 #: Pinned outcome for each damaged variant. ``intact`` opens without
 #: cross-reference recovery, ``rebuilt`` reconstructs the table by scanning
 #: object headers (``-without-snippet`` when the damage also hit that text),
-#: ``unusable`` opens without a readable page tree, and ``rejected`` raises
-#: PdfError. pylopdf 0.14 with lopdf 0.44 rejected every ``rebuilt`` case here.
-#: Deleting two ``endobj`` keywords shifts every later object, and lopdf
-#: corrects the nearby ``startxref`` onto a table whose entries miss the
-#: catalog; those documents opened with no readable page tree until loading
-#: rebuilt such a table. lopdf rebuilds only from a classic trailer, so damaged
-#: xref-stream files such as Form 1040 remain rejected.
+#: ``unusable`` opens without a readable page tree (``rebuilt-unusable`` after
+#: a reconstruction), and ``rejected`` raises PdfError. pylopdf 0.14 with lopdf
+#: 0.44 rejected every ``rebuilt`` case here. Deleting two ``endobj`` keywords
+#: or inserting bytes before the last objects shifts every later object, and
+#: lopdf corrects the nearby ``startxref`` onto a table whose entries miss
+#: those objects; loading rebuilds such a table, while the metadata probe keeps
+#: the correction when the page tree loads (``rebuilt-after-offset``). lopdf
+#: 0.46 also rebuilds damaged xref-stream files such as Form 1040, which lopdf
+#: 0.45 rejected because it rebuilt only from a classic trailer.
 DAMAGE_OUTCOMES = {
     "pdf20-simple.pdf": {
         "truncate-95": "rejected",
@@ -193,6 +198,7 @@ DAMAGE_OUTCOMES = {
         "length-off-37": "intact",
         "bit-flips-12": "unusable",
         "endobj-removed-2": "rebuilt",
+        "bytes-inserted-late": "rebuilt-after-offset",
     },
     "nics-background-checks-2015-11.pdf": {
         "truncate-95": "rejected",
@@ -203,6 +209,7 @@ DAMAGE_OUTCOMES = {
         "length-off-37": "intact",
         "bit-flips-12": "rebuilt-without-snippet",
         "endobj-removed-2": "rebuilt",
+        "bytes-inserted-late": "rebuilt-after-offset",
     },
     "patent-us223898.pdf": {
         "truncate-95": "rebuilt",
@@ -213,16 +220,18 @@ DAMAGE_OUTCOMES = {
         "length-off-37": "intact",
         "bit-flips-12": "intact",
         "endobj-removed-2": "rebuilt",
+        "bytes-inserted-late": "rebuilt",
     },
     "f1040.pdf": {
-        "truncate-95": "rejected",
-        "truncate-60": "rejected",
+        "truncate-95": "rebuilt",
+        "truncate-60": "rebuilt-unusable",
         "junk-prefix-512": "intact",
-        "startxref-keyword": "rejected",
-        "xref-section-removed": "rejected",
-        "length-off-37": "rejected",
+        "startxref-keyword": "rebuilt",
+        "xref-section-removed": "rebuilt",
+        "length-off-37": "rebuilt",
         "bit-flips-12": "intact",
-        "endobj-removed-2": "rejected",
+        "endobj-removed-2": "rebuilt",
+        "bytes-inserted-late": "rebuilt-after-offset",
     },
 }
 
@@ -299,22 +308,27 @@ def test_damaged_corpus_outcome(name: str, damage: str, outcome: str) -> None:
     expected_warning = {
         "rebuilt": REBUILT_WARNING,
         "rebuilt-without-snippet": REBUILT_WARNING,
+        "rebuilt-after-offset": REBUILT_WARNING,
+        "rebuilt-unusable": REBUILT_WARNING,
     }.get(outcome)
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        doc = pylopdf.open(damaged)
-        probe = pylopdf.probe(damaged)
-    messages = [str(warning.message) for warning in caught if issubclass(warning.category, pylopdf.PylopdfWarning)]
-    assert doc.is_repaired is (expected_warning is not None)
-    assert probe.is_repaired is doc.is_repaired
-    if expected_warning is None:
-        assert not [message for message in messages if "cross-reference" in message]
-    else:
-        assert [message for message in messages if expected_warning in message] == messages
-        # One warning comes from opening and one from the metadata probe.
-        assert len(messages) == 2
+    # The probe reads too few objects to see that a corrected offset found a
+    # section whose later entries miss their objects, so it keeps the correction.
+    probe_warning = OFFSET_WARNING if outcome == "rebuilt-after-offset" else expected_warning
+    for load, expected in ((pylopdf.open, expected_warning), (pylopdf.probe, probe_warning)):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            loaded = load(damaged)
+        messages = [str(warning.message) for warning in caught if issubclass(warning.category, pylopdf.PylopdfWarning)]
+        assert loaded.is_repaired is (expected is not None)
+        if expected is None:
+            assert not [message for message in messages if "cross-reference" in message]
+        else:
+            assert [message for message in messages if expected in message] == messages
+            assert len(messages) == 1
+    doc = pylopdf.open(damaged)
+    probe = pylopdf.probe(damaged)
 
-    if outcome == "unusable":
+    if outcome in {"unusable", "rebuilt-unusable"}:
         with pytest.raises(pylopdf.PdfError):
             _ = len(doc.pages)
         return
@@ -335,18 +349,19 @@ def test_damaged_corpus_outcome(name: str, damage: str, outcome: str) -> None:
 
 @ALL
 @pytest.mark.filterwarnings("ignore:text extraction skipped glyphs")
-def test_incorrect_startxref_value_recovers_classic_xref_exactly(case: Case) -> None:
-    """Recover nearby and distant startxref damage without changing text."""
+def test_incorrect_startxref_value_recovers_exactly(case: Case) -> None:
+    """Recover nearby and distant startxref damage without changing text.
+
+    lopdf 0.46 moves a nearby offset onto a cross-reference stream as it does
+    onto a classic table, and rebuilds files that only have cross-reference
+    streams (J-F-Liu/lopdf#611, J-F-Liu/lopdf#613), which 0.45 rejected.
+    """
     original = (ASSETS / case.name).read_bytes()
     start, end = _startxref_value_span(original)
     expected_text = pylopdf.open(original).text()
 
     for value, warning in ((int(original[start:end]) + 12, OFFSET_WARNING), (0, REBUILT_WARNING)):
         damaged = _with_startxref(original, value)
-        if not _uses_classic_xref(original):
-            with pytest.raises(pylopdf.PdfError):
-                pylopdf.open(damaged)
-            continue
         with pytest.warns(pylopdf.PylopdfWarning, match=warning):
             doc = pylopdf.open(damaged)
         assert doc.is_repaired is True

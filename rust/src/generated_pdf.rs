@@ -71,7 +71,7 @@ fn matches_lopdf(document: &Document, data: &[u8]) -> bool {
 
 /// Read `data` when it stays inside the pdf-writer subset, or decline.
 ///
-/// This mirrors lopdf 0.45's lenient `Reader::read` for that subset: the
+/// This mirrors lopdf 0.46's lenient `Reader::read` for that subset: the
 /// header version and binary mark, the `startxref` search from the end, one
 /// cross-reference section, the `/Size` correction, and one indirect object
 /// per in-use entry. Comments, other cross-reference forms, `/Prev` chains,
@@ -509,7 +509,7 @@ impl<'a> Parser<'a> {
         Some(name)
     }
 
-    /// Read a literal string, keeping nested parentheses and line endings.
+    /// Read a literal string, keeping nested parentheses and reading line endings as LF.
     fn literal_string(&mut self) -> Option<Vec<u8>> {
         self.pos += 1;
         let mut text = Vec::new();
@@ -531,6 +531,13 @@ impl<'a> Parser<'a> {
                     text.push(byte);
                 }
                 b'\\' => self.escape(&mut text)?,
+                // lopdf 0.46 reads every unescaped end-of-line marker as LF.
+                b'\r' => {
+                    if self.peek() == Some(b'\n') {
+                        self.pos += 1;
+                    }
+                    text.push(b'\n');
+                }
                 _ => text.push(byte),
             }
         }
