@@ -1351,6 +1351,15 @@ impl _Document {
         annotations::read_annotation_geometry(self, py, page_number, index, xref)
     }
 
+    /// Read every named destination with its one-based page, display
+    /// point, and zoom.
+    fn named_destinations(
+        &mut self,
+        py: Python<'_>,
+    ) -> PyResult<Vec<navigation::NamedDestinationItem>> {
+        navigation::named_destinations(self, py)
+    }
+
     /// Read the link annotations of a one-based page with their targets.
     ///
     /// Read `/A` actions (URI, GoTo, GoToR, Launch, Named) and `/Dest`, and

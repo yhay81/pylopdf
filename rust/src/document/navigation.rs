@@ -1152,3 +1152,86 @@ pub(super) fn target_entry(
         }
     })
 }
+
+/// One named destination: its name, and its one-based page, display point,
+/// and zoom, or `None` for a destination that names no page.
+pub(super) type NamedDestinationItem = (String, Option<(u32, Option<(f64, f64)>, Option<f64>)>);
+
+/// Implements [`_Document::named_destinations`]: every name of the
+/// `/Names/Dests` tree, the first entry of a repeated name winning, then the
+/// names of the legacy catalog `/Dests` dictionary that the tree lacks, each
+/// with the destination it resolves to. The tree walk's entry, node, depth,
+/// and text limits apply, and the dictionary counts toward the same entry
+/// limit.
+pub(super) fn named_destinations(
+    this: &mut _Document,
+    py: Python<'_>,
+) -> PyResult<Vec<NamedDestinationItem>> {
+    py.detach(|| {
+        let mut cache = this.link_resolution.take().unwrap_or_default();
+        let result = this.collect_named_destinations(&mut cache);
+        this.link_resolution = Some(cache);
+        result
+    })
+}
+
+impl _Document {
+    fn collect_named_destinations(
+        &self,
+        cache: &mut LinkResolutionCache,
+    ) -> PyResult<Vec<NamedDestinationItem>> {
+        let doc = &self.doc;
+        let mut names: Vec<(&[u8], &Object)> = Vec::new();
+        let mut seen = HashSet::new();
+        if let Some(root) = named_destination_root(doc) {
+            visit_named_destinations(doc, root, |key, value| {
+                seen.try_reserve(1).map_err(|error| {
+                    PdfError::new_err(format!("failed to grow named destinations: {error}"))
+                })?;
+                if seen.insert(key) {
+                    push_fallibly(&mut names, (key, value), "named destinations")?;
+                }
+                Ok(())
+            })?;
+        }
+        if let Some(legacy) = doc
+            .catalog()
+            .ok()
+            .and_then(|catalog| catalog.get(b"Dests").ok())
+            .map(|dests| deref_object(doc, dests))
+            .and_then(|dests| dests.as_dict().ok())
+        {
+            let mut text = 0usize;
+            for (key, value) in legacy {
+                if names.len() >= MAX_NAMED_DEST_ENTRIES {
+                    return Err(named_destination_count_err(format!(
+                        "named destinations exceed the {MAX_NAMED_DEST_ENTRIES}-entry safety limit"
+                    )));
+                }
+                add_named_destination_text_budget(&mut text, key.len())?;
+                if !seen.contains(key.as_slice()) {
+                    push_fallibly(
+                        &mut names,
+                        (key.as_slice(), deref_object(doc, value)),
+                        "named destinations",
+                    )?;
+                }
+            }
+        }
+        let mut out = Vec::new();
+        out.try_reserve_exact(names.len()).map_err(|error| {
+            PdfError::new_err(format!("failed to allocate named destinations: {error}"))
+        })?;
+        for (key, value) in names {
+            let (page, point, zoom, _) =
+                self.resolve_destination(value, cache, true, &mut |name| {
+                    Ok(String::from_utf8_lossy(name).into_owned())
+                })?;
+            out.push((
+                String::from_utf8_lossy(key).into_owned(),
+                page.map(|page| (page, point, zoom)),
+            ));
+        }
+        Ok(out)
+    }
+}

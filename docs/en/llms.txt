@@ -182,6 +182,8 @@ replacement, and the migration hint):
 - Document.pdf_catalog -> Document.catalog: Use doc.catalog, a live dictionary handle; doc.catalog.xref is its object number.
 - Document.pdf_trailer -> Document.trailer: Use doc.trailer, a live dictionary handle, instead of its PDF syntax.
 - Document.reload_page -> Pages.__getitem__: Fetch the page again with doc.pages[page.index].
+- Document.resolve_link -> Document.destinations: For a named destination, doc.destinations[name]; for '#page=N', Destination(N - 1); links and the outline already read their targets resolved.
+- Document.resolve_names -> Document.destinations: doc.destinations maps each named destination to its Destination(page, point, zoom), or None when it names no page.
 - Document.select -> Pages.select: Use doc.pages.select(indexes).
 - Document.set_language -> Document.language: Assign doc.language = tag, or del doc.language to remove it; pylopdf keeps the complete BCP 47 tag, such as zh-TW, where pymupdf keeps at most three letters.
 - Document.set_markinfo -> Document.mark_info: Assign doc.mark_info = MarkInfo(marked=..., user_properties=..., suspects=...); flags left out are written false, as in pymupdf.

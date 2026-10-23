@@ -44,6 +44,7 @@ from pylopdf._limits import (
     _validate_optional_positive_int,
     _validate_utf8_text_input,
 )
+from pylopdf._links import Destinations
 from pylopdf._metadata import METADATA_KEYS, MarkInfo, Metadata, PageLayout, PageMode, PdfaClaim, _metadata_value
 from pylopdf._objects import Dictionary, Name, Objects, String
 from pylopdf._outline import Outline, OutlineEntry, _write_outline
@@ -886,6 +887,12 @@ class Document:
         layout = self._doc.extract_raw_layout(page_number)
         self._emit_warnings(stacklevel=4)
         return layout
+
+    @property
+    def destinations(self) -> Destinations:
+        """Return the named destinations, a read-only :class:`Destinations` mapping from name to destination."""
+        self._ensure_open()
+        return Destinations(self)
 
     @property
     def outline(self) -> Outline:

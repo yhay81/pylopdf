@@ -30,6 +30,7 @@
     "ContentItem",
     "CurveTo",
     "Destination",
+    "Destinations",
     "Dictionary",
     "Document",
     "DocumentClosedError",
@@ -2240,6 +2241,62 @@
         "returns": "None"
       }
     },
+    "Destinations": {
+      "kind": "class",
+      "members": {
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "name"
+              }
+            ],
+            "returns": "Destination | None"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[str]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "Dictionary": {
       "kind": "class",
       "members": {
@@ -2418,6 +2475,10 @@
         "complexity": {
           "kind": "property",
           "returns": "DocumentComplexity"
+        },
+        "destinations": {
+          "kind": "property",
+          "returns": "Destinations"
         },
         "encryption_method": {
           "kind": "property",
