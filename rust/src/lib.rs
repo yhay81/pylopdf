@@ -66,6 +66,7 @@ fn pylopdf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("StaleObjectError", m.py().get_type::<StaleObjectError>())?;
     m.add_function(wrap_pyfunction!(_decode_text_string, m)?)?;
     m.add_function(wrap_pyfunction!(_encode_text_string, m)?)?;
+    m.add_function(wrap_pyfunction!(document::_parse_operations, m)?)?;
     #[cfg(windows)]
     m.add_function(wrap_pyfunction!(
         windows_permissions::_copy_windows_dacl,

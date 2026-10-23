@@ -117,6 +117,7 @@ pub(crate) use self::objects::*;
 use self::outline::*;
 use self::page_tree::*;
 use self::rendering::*;
+pub(crate) use self::replacement::_parse_operations;
 use self::saving::*;
 use self::streams::*;
 
@@ -1898,6 +1899,24 @@ impl _Document {
         page_number: u32,
     ) -> PyResult<Vec<replacement::ContentGlyphTuple>> {
         replacement::content_glyphs(self, py, page_number)
+    }
+
+    /// Tokenize a one-based page's joined content as hayro reads it and
+    /// return its operations with their bytes, and the bytes after the last
+    /// one, for `Page.operations`.
+    #[pyo3(signature = (page_number, max_operations=Some(replacement::DEFAULT_MAX_OPERATIONS)))]
+    fn page_operations(
+        &self,
+        py: Python<'_>,
+        page_number: u32,
+        max_operations: Option<usize>,
+    ) -> PyResult<(Vec<Py<PyAny>>, Py<pyo3::types::PyBytes>)> {
+        replacement::page_operations(self, py, page_number, max_operations)
+    }
+
+    /// Replace a one-based page's `/Contents` with one new stream of `data`.
+    fn set_page_content(&mut self, py: Python<'_>, page_number: u32, data: &[u8]) -> PyResult<()> {
+        replacement::set_page_content(self, py, page_number, data)
     }
 
     /// Replace text on a one-based page and return the replacement count.

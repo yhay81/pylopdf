@@ -1808,6 +1808,7 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
         '"firstpagenum": label.first}} for label in {receiver}.page_labels]'
     ),
     "get_label": _no_arguments("{receiver}.label"),
+    "read_contents": _no_arguments("{receiver}.operations.to_bytes()"),
     "get_form_fields": _no_arguments(
         '[{{"name": name, "type": str(field.type), "value": field.value}} for name, field in {receiver}.form.items()]'
     ),

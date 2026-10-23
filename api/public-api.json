@@ -65,6 +65,7 @@
     "ImageObject",
     "Images",
     "Ink",
+    "InlineImage",
     "Launch",
     "Layer",
     "Layers",
@@ -95,6 +96,8 @@
     "OcrError",
     "OcrRotation",
     "OcrWord",
+    "Operation",
+    "Operations",
     "Outline",
     "OutlineEntry",
     "OutlineItem",
@@ -5663,6 +5666,50 @@
         "returns": "None"
       }
     },
+    "InlineImage": {
+      "annotations": {
+        "_source": "bytes | None",
+        "data": "bytes",
+        "dictionary": "Mapping[str, Any]"
+      },
+      "dataclass_fields": [
+        "dictionary",
+        "data",
+        "_source"
+      ],
+      "kind": "class",
+      "members": {
+        "data": {
+          "kind": "property"
+        },
+        "dictionary": {
+          "kind": "property"
+        },
+        "operands": {
+          "kind": "property",
+          "returns": "tuple[Any, ...]"
+        },
+        "operator": {
+          "kind": "property",
+          "returns": "str"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Mapping[str, Any]",
+            "kind": "positional_or_keyword",
+            "name": "dictionary"
+          },
+          {
+            "annotation": "bytes",
+            "kind": "positional_or_keyword",
+            "name": "data"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "Launch": {
       "annotations": {
         "file": "str"
@@ -7323,6 +7370,149 @@
         "returns": "None"
       }
     },
+    "Operation": {
+      "annotations": {
+        "_source": "bytes | None",
+        "operands": "tuple[Any, ...]",
+        "operator": "str"
+      },
+      "dataclass_fields": [
+        "operator",
+        "operands",
+        "_source"
+      ],
+      "kind": "class",
+      "members": {
+        "operands": {
+          "kind": "property"
+        },
+        "operator": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "operator"
+          },
+          {
+            "annotation": "tuple[Any, ...]",
+            "default": [],
+            "kind": "positional_or_keyword",
+            "name": "operands"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "Operations": {
+      "kind": "class",
+      "members": {
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | slice",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              }
+            ],
+            "returns": "Operation | InlineImage | Operations"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[Operation | InlineImage]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        },
+        "parse": {
+          "kind": "classmethod",
+          "signature": {
+            "parameters": [
+              {
+                "annotation": "bytes",
+                "kind": "positional_only",
+                "name": "data"
+              },
+              {
+                "annotation": "int | None",
+                "default": 1048576,
+                "kind": "keyword_only",
+                "name": "max_operations"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              }
+            ],
+            "returns": "Operations"
+          }
+        },
+        "tail": {
+          "kind": "property",
+          "returns": "bytes"
+        },
+        "to_bytes": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "bytes"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Iterable[Operation | InlineImage]",
+            "default": [],
+            "kind": "positional_or_keyword",
+            "name": "items"
+          },
+          {
+            "annotation": "bytes",
+            "default": {
+              "repr": "b''"
+            },
+            "kind": "keyword_only",
+            "name": "tail"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "Outline": {
       "kind": "class",
       "members": {
@@ -7836,6 +8026,10 @@
             ],
             "returns": "list[OcrWord]"
           }
+        },
+        "operations": {
+          "kind": "property",
+          "returns": "Operations"
         },
         "pixmap": {
           "kind": "method",

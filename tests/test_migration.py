@@ -393,6 +393,7 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             ),
         ),
         ("import fitz\ndoc = fitz.open()\nlabel = doc[0].get_label()\n", "label = doc.pages[0].label"),
+        ("import fitz\ndata = page.read_contents()\n", "data = page.operations.to_bytes()"),
         ("import fitz\ndef f(item: fitz.Outline) -> None: ...\n", "def f(item: pylopdf.OutlineItem) -> None: ..."),
         ("from fitz import Outline\nitem: Outline\n", "from pylopdf import OutlineItem\nitem: OutlineItem"),
         ("import fitz\ndoc = fitz.open()\ndoc[0].set_rotation(90)\n", "doc.pages[0].rotation = 90"),

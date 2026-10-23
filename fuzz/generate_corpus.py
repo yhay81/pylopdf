@@ -148,6 +148,10 @@ def generate(output: Path) -> None:
         "inline-image-resume.pdf": _one_page(inline_image_resume),
         "inline-image-search.pdf": _one_page(inline_image_search),
         "many-pages.pdf": _many_pages(250),
+        # Content operations keep their bytes through an eleventh operand, a filtered inline image, and comments.
+        "operations-tail.pdf": _one_page(
+            b'% c\nq BI /W 1 /H 1 /BPC 8 /CS /G /F /A85 ID 8;Z]"!!~>\nEI Q 1 2 3 4 5 6 7 8 9 10 11 sc (T#j) Tj'
+        ),
         "reference-cycle.pdf": _reference_cycle(),
         "run-length-bomb.pdf": _one_page(run_length, filter_name="RunLengthDecode"),
         "truncated-stream.pdf": b"%PDF-1.7\n1 0 obj\n<< /Length 100 >>\nstream\ntruncated",

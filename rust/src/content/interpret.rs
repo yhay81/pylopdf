@@ -13,10 +13,11 @@
 use std::collections::HashMap;
 
 use hayro::kurbo::{Affine, Point};
-use lopdf::content::{Content, Operation};
+use lopdf::content::Operation;
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 
 use super::fonts::{Decoder, FontMetrics, UNITS_PER_EM, dict_of};
+use super::syntax::Instructions;
 use super::{ContentError, MAX_CONTENT_OPERATIONS, MAX_FORM_NESTING, MAX_GLYPHS, try_push};
 
 /// The stream that holds a glyph's code bytes.
@@ -148,26 +149,8 @@ pub(crate) fn interpret_page(
     Ok(interpreter.glyphs)
 }
 
-fn parse(data: &[u8]) -> Result<Content, ContentError> {
-    // lopdf's strict parse rejects a final comment that no end of line
-    // closes, which hayro reads; a trailing newline changes no operator.
-    let terminated;
-    let data = if data
-        .last()
-        .is_some_and(|byte| *byte != b'\n' && *byte != b'\r')
-    {
-        let mut copy = Vec::new();
-        copy.try_reserve_exact(data.len() + 1)
-            .map_err(|error| ContentError::allocation("content stream", &error))?;
-        copy.extend_from_slice(data);
-        copy.push(b'\n');
-        terminated = copy;
-        terminated.as_slice()
-    } else {
-        data
-    };
-    Content::decode_strict(data)
-        .map_err(|error| ContentError::Malformed(format!("content stream does not parse: {error}")))
+fn parse(data: &[u8]) -> Result<Vec<Operation>, ContentError> {
+    Instructions::parse(data, None)?.to_operations()
 }
 
 struct Interpreter<'a, 'd> {
@@ -186,7 +169,7 @@ struct Interpreter<'a, 'd> {
 impl<'a> Interpreter<'a, '_> {
     fn run(
         &mut self,
-        content: &Content,
+        content: &[Operation],
         container: Container,
         resources: Option<&'a Dictionary>,
         states: &mut Vec<State>,
@@ -197,7 +180,7 @@ impl<'a> Interpreter<'a, '_> {
         let base = states.len();
         let saved = states.last().cloned().ok_or_else(missing_state)?;
         try_push(states, saved, "graphics state stack")?;
-        for (index, operation) in content.operations.iter().enumerate() {
+        for (index, operation) in content.iter().enumerate() {
             self.operations += 1;
             if self.operations > MAX_CONTENT_OPERATIONS {
                 return Err(ContentError::Limit {

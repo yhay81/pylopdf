@@ -965,6 +965,37 @@ def _flatten_results() -> dict[str, Any]:
     return result
 
 
+def _operations_results() -> dict[str, Any]:
+    """Read content operations as hayro tokenizes them and write them back."""
+    import pylopdf  # noqa: PLC0415
+
+    content = b'% c\nq BI /W 1 /H 1 /BPC 8 /CS /G /F /A85 ID 8;Z]"!!~>\nEI Q BT /F1 12 Tf 20 150 Td (Keep) Tj ET'
+    parsed = pylopdf.Operations.parse(content + b" 1 2 3 4 5 6 7 8 9 10 11 sc")
+    _require(parsed.to_bytes() == content + b" 1 2 3 4 5 6 7 8 9 10 11 sc", "operations did not round-trip")
+    with pylopdf.Document() as document:
+        page = document.pages.new((300, 200))
+        page.obj["Resources"] = {
+            "Font": {
+                "F1": {
+                    "Type": pylopdf.Name("Font"),
+                    "Subtype": pylopdf.Name("Type1"),
+                    "BaseFont": pylopdf.Name("Helvetica"),
+                }
+            }
+        }
+        page.operations = parsed
+        kept = [op for op in page.operations if not isinstance(op, pylopdf.InlineImage)]
+        page.operations = [*kept, pylopdf.Operation("re", (10, 10, 20, 20)), pylopdf.Operation("f")]
+        saved = document.to_bytes()
+    with pylopdf.open(saved) as reopened:
+        operations = reopened.pages[0].operations
+        return {
+            "operators": [op.operator for op in operations],
+            "tail": operations.tail.decode(),
+            "text": reopened.pages[0].text().split(),
+        }
+
+
 def _widget_results() -> dict[str, Any]:
     """Read form widgets, restyle them, and draw their values again."""
     import pylopdf  # noqa: PLC0415
@@ -1756,6 +1787,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "annotations": _annotation_results(),
         "widgets": _widget_results(),
         "flatten": _flatten_results(),
+        "operations": _operations_results(),
         "ocr_layer": _ocr_layer_results(),
         "object_model": _object_model_results(),
         "optional_content": _optional_content_results(),

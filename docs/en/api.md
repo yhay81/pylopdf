@@ -394,6 +394,7 @@ page.rotation = 90
 |---|---|
 | `draw(*, underlay=False)` | A [canvas](#canvas) that draws text, lines, rectangles, and other paths, images, and pages of any document in order; see [Writing text](#writing-text) |
 | `replace_text(search, replacement, *, default_char=None)` | Replace text drawn in simple (single-byte) fonts |
+| `operations` | The page's content as [operations](#operations); assignable |
 
 The same image or page drawn again is stored once in the file.
 
@@ -659,6 +660,56 @@ components of a color, layer names and the other marked-content properties,
 the font dictionary behind a `FontRef`, and the object of an image mask. They
 are listed as
 [engine work](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#engine-work).
+
+## Content operations { #operations }
+
+`page.operations` is the page's content as a sequence of operations, for
+programs that work below the [content model](#content). It reads the content
+streams as the renderer reads them, joined in order, and tokenized with
+hayro's parser, so the operations are the ones that rendering and extraction
+interpret.
+
+```python
+from pylopdf import Name, Operation, Operations, String
+
+ops = page.operations
+for op in ops:
+    print(op.operator, op.operands)
+
+# Drop marked-content properties, keep everything else as it was written.
+page.operations = [op for op in ops if op.operator not in ("BDC", "BMC", "EMC")]
+
+# Draw on top, with an operation written from values.
+page.operations = [*ops, Operation("re", (10, 10, 50, 20)), Operation("f")]
+
+# A Form XObject's content.
+form = doc.objects[12]
+Operations.parse(form.read()).to_bytes() == form.read()   # True
+```
+
+| Value | Fields |
+|---|---|
+| `Operations` | An immutable sequence of `Operation` and `InlineImage` items, with `tail`, the bytes after the last operation; `Operations.parse(data)` and `to_bytes()` |
+| `Operation(operator, operands=())` | The operator's text, such as `"Tj"`, and the operand values |
+| `InlineImage(dictionary, data)` | An inline image's dictionary as written (`W`, `H`, `BPC`, `CS`, `F`) and its still-encoded data |
+
+Operands are object-model values: `None`, `bool`, `int`, `float`, `Name`,
+`String`, tuples for arrays, and dictionaries keyed by name text.
+
+- Every operation that a parse produced keeps its bytes, with the comments
+  and white space before it, so `Operations.parse(data).to_bytes() == data`
+  and writing back an edited sequence rewrites only the operations that
+  changed. New operations are written from their values.
+- Assigning `page.operations` writes one new compressed stream as
+  `/Contents`, owned by the page, so other pages that shared the old streams
+  keep them. Resources are not changed: a new operation that names a font or
+  XObject needs the page's `/Resources` to hold it.
+- hayro stops reading content at an operation it cannot read, such as one
+  with more than ten operands. The rest stays in `tail`, which `to_bytes()`
+  writes last; a list of operations has no tail.
+- `page.operations` reads and writes at most 64 MiB of content and reads at
+  most 1,048,576 operations; `Operations.parse(data, max_size=None,
+  max_operations=None)` lifts both for trusted content.
 
 ## Images { #images }
 
