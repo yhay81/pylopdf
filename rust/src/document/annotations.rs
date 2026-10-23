@@ -876,7 +876,7 @@ pub(super) fn add_highlight_annotation(
     let appearance = this.prepare_canvas_form(py, appearance)?;
 
     this.invalidate_hayro_pdf_keeping_placements();
-    let committed = this.commit_canvas_form(appearance, Some(matrix))?;
+    let committed = commit_canvas_form(&mut this.doc, appearance, Some(matrix))?;
     let ap_id = committed.form_id;
     this.remember_canvas_placements(committed, Some(page_number));
 

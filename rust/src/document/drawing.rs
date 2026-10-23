@@ -571,9 +571,16 @@ pub(super) fn prepare_pages_form_import(
 pub(super) trait FormImportTarget: ObjectSink {
     /// Insert renumbered objects at their IDs and set the highest object number.
     fn insert_new_objects(&mut self, objects: Vec<(ObjectId, Object)>, max_id: u32);
+
+    /// The highest object number.
+    fn max_id(&self) -> u32;
 }
 
 impl FormImportTarget for Document {
+    fn max_id(&self) -> u32 {
+        self.max_id
+    }
+
     fn insert_new_objects(&mut self, objects: Vec<(ObjectId, Object)>, max_id: u32) {
         for (id, object) in objects {
             self.objects.insert(id, object);
@@ -777,7 +784,7 @@ impl _Document {
         // Every fallible step on the input is done; change the document.
         self.invalidate_hayro_pdf_keeping_placements();
         let committed = py.detach(|| -> PyResult<_> {
-            let committed = self.commit_canvas_form(form, None)?;
+            let committed = commit_canvas_form(&mut self.doc, form, None)?;
             self.place_pdf_page(
                 page_id,
                 (crop, rotation),
@@ -966,205 +973,6 @@ impl _Document {
         })
     }
 
-    /// Add a prepared canvas as a Form XObject whose BBox is the canvas,
-    /// with `matrix` as its `/Matrix` when given, and return it with what
-    /// `remember_canvas_placements` needs. The caller invalidates the
-    /// caches first.
-    pub(super) fn commit_canvas_form(
-        &mut self,
-        form: CanvasForm,
-        matrix: Option<[f64; 6]>,
-    ) -> PyResult<CommittedCanvas> {
-        let CanvasForm {
-            size,
-            recording,
-            text_imports,
-            images,
-            pages,
-            page_imports,
-            composed:
-                canvas::Composed {
-                    root: content,
-                    groups,
-                    states: graphics_states,
-                },
-            reused_forms,
-            target_revision,
-        } = form;
-        let form_crop = [0.0, 0.0, size.0, size.1];
-        let mut xobjects = Dictionary::new();
-        for (document, import) in text_imports.into_iter().enumerate() {
-            for (page, (form_id, _)) in commit_pages_form_import(&mut self.doc, import)
-                .into_iter()
-                .enumerate()
-            {
-                xobjects.set(
-                    format!("PyloK{document}_{page}"),
-                    Object::Reference(form_id),
-                );
-            }
-        }
-        let mut new_images = Vec::new();
-        for (index, image) in images.into_iter().enumerate() {
-            let id = match image {
-                CanvasImageObject::Placed(placed) => placed.id(),
-                CanvasImageObject::New(streams) => {
-                    let id = draw::add_image_streams(&mut self.doc, streams);
-                    new_images.push((index, id));
-                    id
-                }
-            };
-            xobjects.set(format!("PyloI{index}"), Object::Reference(id));
-        }
-        for (index, placed) in pages.iter().enumerate() {
-            if let Some(placed) = placed {
-                xobjects.set(format!("PyloP{index}"), Object::Reference(placed.id()));
-            }
-        }
-        let mut new_forms = Vec::new();
-        for (import, pending) in page_imports {
-            let geometry: Vec<([f64; 4], i64)> = import
-                .forms
-                .iter()
-                .map(|form| (form.crop, form.rotation))
-                .collect();
-            for (((form_id, len), (index, _)), (crop, rotation)) in
-                commit_pages_form_import(&mut self.doc, import)
-                    .into_iter()
-                    .zip(pending.iter())
-                    .zip(geometry)
-            {
-                xobjects.set(format!("PyloP{index}"), Object::Reference(form_id));
-                new_forms.push((*index, PlacedForm::new(form_id, len, crop, rotation)));
-            }
-        }
-        let mut fonts = Dictionary::new();
-        for (slot, font) in recording.standard_fonts.iter().enumerate() {
-            let mut font_dict = dictionary! {
-                "Type" => "Font",
-                "Subtype" => "Type1",
-                "BaseFont" => Object::Name(font.as_bytes().to_vec()),
-            };
-            if !matches!(*font, "Symbol" | "ZapfDingbats") {
-                font_dict.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
-            }
-            let font_id = self.doc.add_object(font_dict);
-            fonts.set(format!("PyloS{slot}"), Object::Reference(font_id));
-        }
-        // The groups and the composed Form share one resource
-        // dictionary, which lists the groups and the graphics states,
-        // and a soft mask's state names its group, so the dictionary,
-        // the groups, and the states take the next numbers and are
-        // inserted together.
-        let base = self.doc.max_id;
-        let resources_id = (
-            base.checked_add(1)
-                .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?,
-            0,
-        );
-        let mut shared = Vec::new();
-        shared
-            .try_reserve_exact(groups.len() + graphics_states.len() + 1)
-            .map_err(|error| {
-                PdfError::new_err(format!("failed to allocate canvas groups: {error}"))
-            })?;
-        let mut group_ids = Vec::new();
-        group_ids.try_reserve_exact(groups.len()).map_err(|error| {
-            PdfError::new_err(format!("failed to allocate canvas groups: {error}"))
-        })?;
-        let mut next_id = resources_id.0;
-        for (index, group) in groups.into_iter().enumerate() {
-            next_id = next_id
-                .checked_add(1)
-                .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
-            xobjects.set(format!("PyloO{index}"), Object::Reference((next_id, 0)));
-            group_ids.push((next_id, 0));
-            // A soft mask's group names the colour space that a
-            // luminosity mask reads, and hayro reads a soft mask of
-            // either kind only when its group names one.
-            let mut transparency = dictionary! {
-                "Type" => "Group",
-                "S" => "Transparency",
-            };
-            if group.mask.is_some() {
-                transparency.set("CS", "DeviceRGB");
-            }
-            let form = Stream::new(
-                dictionary! {
-                    "Type" => "XObject",
-                    "Subtype" => "Form",
-                    "FormType" => 1,
-                    "BBox" => Object::Array(
-                        group.bbox.iter().map(|&value| Object::Real(value as f32)).collect(),
-                    ),
-                    "Group" => transparency,
-                    "Resources" => Object::Reference(resources_id),
-                },
-                group.content,
-            )
-            .with_compression(false);
-            shared.push(((next_id, 0), Object::Stream(form)));
-        }
-        let mut states = Dictionary::new();
-        for (slot, state) in graphics_states.iter().enumerate() {
-            next_id = next_id
-                .checked_add(1)
-                .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
-            states.set(format!("PyloG{slot}"), Object::Reference((next_id, 0)));
-            shared.push((
-                (next_id, 0),
-                Object::Dictionary(state.dictionary(&group_ids)),
-            ));
-        }
-        let mut resources = Dictionary::new();
-        if !xobjects.is_empty() {
-            resources.set("XObject", xobjects);
-        }
-        if !fonts.is_empty() {
-            resources.set("Font", fonts);
-        }
-        if !states.is_empty() {
-            resources.set("ExtGState", states);
-        }
-        shared.push((resources_id, Object::Dictionary(resources)));
-        self.doc.insert_new_objects(shared, next_id);
-        let len = content.len();
-        let mut form = Stream::new(
-            dictionary! {
-                "Type" => "XObject",
-                "Subtype" => "Form",
-                "FormType" => 1,
-                "BBox" => Object::Array(
-                    form_crop.iter().map(|&value| Object::Real(value as f32)).collect(),
-                ),
-                "Resources" => Object::Reference(resources_id),
-            },
-            content,
-        )
-        .with_compression(false);
-        if let Some(matrix) = matrix {
-            form.dict.set(
-                "Matrix",
-                Object::Array(
-                    matrix
-                        .iter()
-                        .map(|&value| Object::Real(value as f32))
-                        .collect(),
-                ),
-            );
-        }
-        let form_id = self.doc.add_object(form);
-        Ok(CommittedCanvas {
-            form_id,
-            len,
-            recording,
-            new_images,
-            new_forms,
-            reused_forms,
-            target_revision,
-        })
-    }
-
     /// Remember the new images and pages of a committed canvas for later
     /// placements; `target_page` is the page that the canvas draws on.
     pub(super) fn remember_canvas_placements(
@@ -1209,6 +1017,203 @@ impl _Document {
             }
         }
     }
+}
+
+/// Add a prepared canvas as a Form XObject whose BBox is the canvas,
+/// with `matrix` as its `/Matrix` when given, and return it with what
+/// `remember_canvas_placements` needs. The caller invalidates the
+/// caches first.
+pub(super) fn commit_canvas_form(
+    target: &mut impl FormImportTarget,
+    form: CanvasForm,
+    matrix: Option<[f64; 6]>,
+) -> PyResult<CommittedCanvas> {
+    let CanvasForm {
+        size,
+        recording,
+        text_imports,
+        images,
+        pages,
+        page_imports,
+        composed:
+            canvas::Composed {
+                root: content,
+                groups,
+                states: graphics_states,
+            },
+        reused_forms,
+        target_revision,
+    } = form;
+    let form_crop = [0.0, 0.0, size.0, size.1];
+    let mut xobjects = Dictionary::new();
+    for (document, import) in text_imports.into_iter().enumerate() {
+        for (page, (form_id, _)) in commit_pages_form_import(target, import)
+            .into_iter()
+            .enumerate()
+        {
+            xobjects.set(
+                format!("PyloK{document}_{page}"),
+                Object::Reference(form_id),
+            );
+        }
+    }
+    let mut new_images = Vec::new();
+    for (index, image) in images.into_iter().enumerate() {
+        let id = match image {
+            CanvasImageObject::Placed(placed) => placed.id(),
+            CanvasImageObject::New(streams) => {
+                let id = draw::add_image_streams(target, streams);
+                new_images.push((index, id));
+                id
+            }
+        };
+        xobjects.set(format!("PyloI{index}"), Object::Reference(id));
+    }
+    for (index, placed) in pages.iter().enumerate() {
+        if let Some(placed) = placed {
+            xobjects.set(format!("PyloP{index}"), Object::Reference(placed.id()));
+        }
+    }
+    let mut new_forms = Vec::new();
+    for (import, pending) in page_imports {
+        let geometry: Vec<([f64; 4], i64)> = import
+            .forms
+            .iter()
+            .map(|form| (form.crop, form.rotation))
+            .collect();
+        for (((form_id, len), (index, _)), (crop, rotation)) in
+            commit_pages_form_import(target, import)
+                .into_iter()
+                .zip(pending.iter())
+                .zip(geometry)
+        {
+            xobjects.set(format!("PyloP{index}"), Object::Reference(form_id));
+            new_forms.push((*index, PlacedForm::new(form_id, len, crop, rotation)));
+        }
+    }
+    let mut fonts = Dictionary::new();
+    for (slot, font) in recording.standard_fonts.iter().enumerate() {
+        let mut font_dict = dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type1",
+            "BaseFont" => Object::Name(font.as_bytes().to_vec()),
+        };
+        if !matches!(*font, "Symbol" | "ZapfDingbats") {
+            font_dict.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
+        }
+        let font_id = target.add_object(font_dict);
+        fonts.set(format!("PyloS{slot}"), Object::Reference(font_id));
+    }
+    // The groups and the composed Form share one resource
+    // dictionary, which lists the groups and the graphics states,
+    // and a soft mask's state names its group, so the dictionary,
+    // the groups, and the states take the next numbers and are
+    // inserted together.
+    let base = target.max_id();
+    let resources_id = (
+        base.checked_add(1)
+            .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?,
+        0,
+    );
+    let mut shared = Vec::new();
+    shared
+        .try_reserve_exact(groups.len() + graphics_states.len() + 1)
+        .map_err(|error| PdfError::new_err(format!("failed to allocate canvas groups: {error}")))?;
+    let mut group_ids = Vec::new();
+    group_ids
+        .try_reserve_exact(groups.len())
+        .map_err(|error| PdfError::new_err(format!("failed to allocate canvas groups: {error}")))?;
+    let mut next_id = resources_id.0;
+    for (index, group) in groups.into_iter().enumerate() {
+        next_id = next_id
+            .checked_add(1)
+            .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
+        xobjects.set(format!("PyloO{index}"), Object::Reference((next_id, 0)));
+        group_ids.push((next_id, 0));
+        // A soft mask's group names the colour space that a
+        // luminosity mask reads, and hayro reads a soft mask of
+        // either kind only when its group names one.
+        let mut transparency = dictionary! {
+            "Type" => "Group",
+            "S" => "Transparency",
+        };
+        if group.mask.is_some() {
+            transparency.set("CS", "DeviceRGB");
+        }
+        let form = Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "FormType" => 1,
+                "BBox" => Object::Array(
+                    group.bbox.iter().map(|&value| Object::Real(value as f32)).collect(),
+                ),
+                "Group" => transparency,
+                "Resources" => Object::Reference(resources_id),
+            },
+            group.content,
+        )
+        .with_compression(false);
+        shared.push(((next_id, 0), Object::Stream(form)));
+    }
+    let mut states = Dictionary::new();
+    for (slot, state) in graphics_states.iter().enumerate() {
+        next_id = next_id
+            .checked_add(1)
+            .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
+        states.set(format!("PyloG{slot}"), Object::Reference((next_id, 0)));
+        shared.push((
+            (next_id, 0),
+            Object::Dictionary(state.dictionary(&group_ids)),
+        ));
+    }
+    let mut resources = Dictionary::new();
+    if !xobjects.is_empty() {
+        resources.set("XObject", xobjects);
+    }
+    if !fonts.is_empty() {
+        resources.set("Font", fonts);
+    }
+    if !states.is_empty() {
+        resources.set("ExtGState", states);
+    }
+    shared.push((resources_id, Object::Dictionary(resources)));
+    target.insert_new_objects(shared, next_id);
+    let len = content.len();
+    let mut form = Stream::new(
+        dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Form",
+            "FormType" => 1,
+            "BBox" => Object::Array(
+                form_crop.iter().map(|&value| Object::Real(value as f32)).collect(),
+            ),
+            "Resources" => Object::Reference(resources_id),
+        },
+        content,
+    )
+    .with_compression(false);
+    if let Some(matrix) = matrix {
+        form.dict.set(
+            "Matrix",
+            Object::Array(
+                matrix
+                    .iter()
+                    .map(|&value| Object::Real(value as f32))
+                    .collect(),
+            ),
+        );
+    }
+    let form_id = target.add_object(form);
+    Ok(CommittedCanvas {
+        form_id,
+        len,
+        recording,
+        new_images,
+        new_forms,
+        reused_forms,
+        target_revision,
+    })
 }
 
 /// A canvas prepared as a Form XObject, which `commit_canvas_form` adds.

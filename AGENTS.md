@@ -2042,8 +2042,8 @@ the concept and API overview.
   Two backends consume a recording. A canvas from `Page.draw()` commits once,
   in `_Document.commit_canvas` (`place_canvas` in `document/drawing.rs`), as
   one Form XObject on the page. `prepare_canvas_form` does every fallible
-  step on the input, `commit_canvas_form` adds the Form, with a `/Matrix`
-  when given, and `remember_canvas_placements` records its new images and
+  step on the input, `commit_canvas_form` adds the Form to any
+  `FormImportTarget`, with a `/Matrix` when given, and `remember_canvas_placements` records its new images and
   pages; annotation appearances use the same three without placing the Form
   on the page.
   `CanvasRecording::compose` writes its content in display space: it starts
