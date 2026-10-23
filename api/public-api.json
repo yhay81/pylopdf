@@ -3556,7 +3556,8 @@
     },
     "Encryption": {
       "annotations": {
-        "method": "Literal['aes-256']",
+        "KEEP": "ClassVar[Encryption]",
+        "method": "Literal['aes-256', 'aes-128', 'keep']",
         "owner_password": "str | None",
         "permissions": "Permissions",
         "user_password": "str"
@@ -3569,6 +3570,12 @@
       ],
       "kind": "class",
       "members": {
+        "KEEP": {
+          "kind": "attribute",
+          "value": {
+            "repr": "Encryption.KEEP"
+          }
+        },
         "method": {
           "kind": "property"
         },
@@ -3603,7 +3610,7 @@
             "name": "permissions"
           },
           {
-            "annotation": "Literal['aes-256']",
+            "annotation": "Literal['aes-256', 'aes-128', 'keep']",
             "default": "aes-256",
             "kind": "keyword_only",
             "name": "method"

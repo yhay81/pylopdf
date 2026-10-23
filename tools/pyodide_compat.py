@@ -515,6 +515,14 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
         lambda: decrypted.to_bytes(object_streams=True, encryption=pylopdf.Encryption())
     )
     _require(object_streams_error == "ValueError", "encryption with object streams was not refused")
+    aes_128 = decrypted.to_bytes(encryption=pylopdf.Encryption(user_password="user", method="aes-128"))  # noqa: S106
+    aes_128_method = pylopdf.open(aes_128, password="user").encryption_method  # noqa: S106
+    _require(aes_128_method == "Standard V4 R4 128-bit AES", "AES-128 output described the wrong encryption")
+    kept = pylopdf.open(decrypted.to_bytes(encryption=pylopdf.Encryption.KEEP), password="ownerpw")  # noqa: S106
+    _require(kept.encryption_method == encryption_description, "Encryption.KEEP changed the encryption")
+    _require("Encrypted page one" in kept.pages[0].text(), "Encryption.KEEP lost the text")
+    rc4_error = _exception_name(lambda: pylopdf.Encryption(method="rc4-128"))  # ty: ignore[invalid-argument-type]
+    _require(rc4_error == "ValueError", "RC4 output was not refused")
 
     return {
         "pdf20": {

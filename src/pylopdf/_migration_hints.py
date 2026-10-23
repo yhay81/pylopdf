@@ -441,7 +441,7 @@ HINTS: dict[str, str] = {
     "PDF_CJK_FONT_RESOURCE": "pylopdf does not provide pymupdf's PDF_CJK_FONT_RESOURCE.",
     "PDF_CLEAN_*": "pylopdf does not provide pymupdf's PDF_CLEAN_*.",
     "PDF_DOCUMENT_EVENT_*": "pylopdf does not provide pymupdf's PDF_DOCUMENT_EVENT_*.",
-    "PDF_ENCRYPT_*": "PDF_ENCRYPT_* is Encryption in pylopdf. Pass encryption=Encryption(user_password=..., owner_password=..., permissions=...) to save() or to_bytes(), which writes AES-256 encryption; encryption=None writes none.",
+    "PDF_ENCRYPT_*": 'PDF_ENCRYPT_* is Encryption in pylopdf. Pass encryption=Encryption(user_password=..., owner_password=..., permissions=...) to save() or to_bytes(), which writes AES-256, or add method="aes-128"; encryption=Encryption.KEEP keeps the input\'s AES encryption, and encryption=None, the default, writes none where pymupdf kept it. RC4 is not written.',
     "PDF_ENUM_*": "pylopdf does not provide pymupdf's PDF_ENUM_*.",
     "PDF_FALSE": "pylopdf does not provide pymupdf's PDF_FALSE.",
     "PDF_FD_*": "pylopdf does not provide pymupdf's PDF_FD_*.",

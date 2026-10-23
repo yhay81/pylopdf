@@ -16,7 +16,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Literal, TypeGuard, cast
+from typing import TYPE_CHECKING, ClassVar, Literal, TypeGuard, cast
 
 from pylopdf import _fonts, _markdown, _text
 from pylopdf._attachments import Attachments
@@ -1259,10 +1259,12 @@ class Document:
             if encryption is not None:
                 writer = functools.partial(
                     self._doc.save_encrypted,
+                    method=encryption.method,
                     user_password=encryption.user_password,
                     owner_password=_owner_password(encryption),
                     permissions=int(encryption.permissions),
                     file_encryption_key=os.urandom(32),
+                    document_id=os.urandom(16),
                 )
             elif object_streams:
                 writer = self._doc.save_with_object_streams
@@ -1310,10 +1312,12 @@ class Document:
             self._apply_save_options(compress=compress, prune=prune, dedupe=dedupe, renumber=renumber)
             if encryption is not None:
                 return self._doc.save_bytes_encrypted(
+                    encryption.method,
                     encryption.user_password,
                     _owner_password(encryption),
                     int(encryption.permissions),
                     os.urandom(32),
+                    os.urandom(16),
                     max_size,
                 )
             if object_streams:
@@ -1364,7 +1368,7 @@ class Document:
                     ("dedupe", dedupe),
                     ("renumber", renumber),
                     ("object_streams", object_streams),
-                    ("encryption", encryption is not None),
+                    ("encryption", encryption is not None and encryption is not Encryption.KEEP),
                 )
                 if value
             ]
@@ -1570,6 +1574,10 @@ def probe(
     )
 
 
+#: RC4 methods, which pylopdf reads but never writes.
+_RC4_METHODS = frozenset({"rc4", "rc4-40", "rc4-128"})
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Encryption:
     """How :meth:`Document.save` and :meth:`Document.to_bytes` encrypt the file.
@@ -1579,14 +1587,27 @@ class Encryption:
     defaults to ``user_password``. An empty user password lets anyone open
     the document while ``permissions`` still restricts it; that restriction
     holds only as long as the owner password is not empty too. Each password
-    is capped at 127 UTF-8 bytes. ``method`` is ``"aes-256"``, the AES-256
-    encryption of PDF 2.0, the one method that pylopdf writes.
+    is capped at 127 UTF-8 bytes.
+
+    ``method`` is ``"aes-256"``, the AES-256 encryption of PDF 2.0
+    (revision 6), or ``"aes-128"``, AES-128 with crypt filters (revision 4),
+    which PDF 1.6 readers open too. pylopdf reads RC4 encryption but refuses
+    to write it, because RC4 is insecure and PDF 2.0 deprecates it.
+
+    :attr:`Encryption.KEEP` keeps the encryption that the document was opened
+    with, its file key, passwords, and permissions included, so the passwords
+    that opened the input open the output; a document that was not encrypted
+    is written without encryption. It keeps AES-128 and AES-256 and refuses
+    RC4 and the deprecated revision 5 of AES-256.
     """
+
+    #: Keep the encryption that the document was opened with.
+    KEEP: ClassVar[Encryption]
 
     user_password: str = ""
     owner_password: str | None = None
     permissions: Permissions = Permissions.ALL
-    method: Literal["aes-256"] = "aes-256"
+    method: Literal["aes-256", "aes-128", "keep"] = "aes-256"
 
     def __post_init__(self) -> None:
         """Validate the passwords, permissions, and method."""
@@ -1602,9 +1623,31 @@ class Encryption:
             msg = f"permissions must be Permissions flags: {self.permissions!r}"
             raise TypeError(msg)
         object.__setattr__(self, "permissions", Permissions(int(self.permissions) & Permissions.ALL))
-        if self.method != "aes-256":
-            msg = f"method must be 'aes-256': {self.method!r}"
+        if isinstance(self.method, str) and self.method.lower() in _RC4_METHODS:
+            msg = (
+                f"pylopdf does not write {self.method} encryption, which is insecure and deprecated "
+                "in PDF 2.0; use method='aes-256' or 'aes-128'"
+            )
             raise ValueError(msg)
+        if self.method not in ("aes-256", "aes-128", "keep"):
+            msg = f"method must be 'aes-256' or 'aes-128': {self.method!r}"
+            raise ValueError(msg)
+        defaults = (self.user_password, self.owner_password, self.permissions) == ("", None, Permissions.ALL)
+        if self.method == "keep" and not defaults:
+            msg = "Encryption.KEEP takes the passwords and permissions of the document; pass none"
+            raise ValueError(msg)
+
+    def __repr__(self) -> str:
+        """Return ``Encryption.KEEP`` for the constant, else the fields."""
+        if self.method == "keep":
+            return "Encryption.KEEP"
+        return (
+            f"Encryption(user_password={self.user_password!r}, owner_password={self.owner_password!r}, "
+            f"permissions={self.permissions!r}, method={self.method!r})"
+        )
+
+
+Encryption.KEEP = Encryption(method="keep")
 
 
 # The package re-exports these names; reprs, pickles, and documentation name it.
