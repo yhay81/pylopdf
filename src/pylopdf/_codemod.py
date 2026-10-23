@@ -1819,6 +1819,7 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "add_link_annot": _add_link_annot,
     "has_links": _no_arguments("any(page.links for page in {receiver}.pages)"),
     "annots": _annots,
+    "widgets": _no_arguments("list({receiver}.widgets)"),
     "add_highlight_annot": _add_text_markup_annot("Highlight"),
     "add_underline_annot": _add_text_markup_annot("Underline"),
     "add_strikeout_annot": _add_text_markup_annot("StrikeOut"),

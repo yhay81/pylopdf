@@ -51,6 +51,18 @@ _Annotation: TypeAlias = tuple[
     str | None,
     tuple[int | None, tuple[float, float, float, float] | None, bool],
 ]
+_Widget: TypeAlias = tuple[
+    int,
+    int,
+    int,
+    tuple[float, float, float, float],
+    int,
+    tuple[list[float], list[float], str | None],
+    tuple[float, str, list[float]] | None,
+    tuple[str, float, tuple[float, float, float]] | None,
+    list[str],
+    str | None,
+]
 _ObjectStep: TypeAlias = int | bytes
 
 class PdfError(ValueError): ...
@@ -567,6 +579,10 @@ class _Document:
         self, page_number: int, index: int, xref: int
     ) -> tuple[int, int, tuple[float, float, float, float], _Target]: ...
     def add_annotation(self, page_number: int, spec: dict[str, Any]) -> int: ...
+    def read_widgets(self, page_number: int) -> list[_Widget]: ...
+    def read_widget(self, page_number: int, index: int, xref: int) -> _Widget: ...
+    def edit_widget(self, page_number: int, index: int, xref: int, edit: dict[str, Any]) -> int: ...
+    def field_widget_locations(self, xref: int) -> list[tuple[int, int]]: ...
     def named_destinations(
         self,
     ) -> list[tuple[str, tuple[int, tuple[float, float] | None, float | None] | None]]: ...

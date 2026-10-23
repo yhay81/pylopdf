@@ -8,9 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from pylopdf._fonts import Font, _form_generation_font, _package_face_weight
+from pylopdf._fonts import Font, _form_generation_font, _package_face_weight, _regular_instance
 from pylopdf._limits import _DEFAULT_MAX_FONT_INPUT_SIZE, _validate_utf8_text_input
-from pylopdf.pylopdf_core import PdfError, StaleObjectError
+from pylopdf._widgets import Widget
+from pylopdf.pylopdf_core import PdfError, StaleObjectError, _Font
 
 if TYPE_CHECKING:
     from pylopdf._document import Document
@@ -146,6 +147,16 @@ class Field:
         )
 
     @property
+    def widgets(self) -> list[Widget]:
+        """Return the widgets that show the field, in page order, each a :class:`Widget` handle."""
+        self._facts()
+        document = self._document
+        return [
+            Widget(document.pages[page_number - 1], xref, 0)
+            for page_number, xref in document._doc.field_widget_locations(self._xref)
+        ]
+
+    @property
     def value(self) -> str | None:
         """Return or set the field's value.
 
@@ -195,6 +206,26 @@ class Field:
         except (PdfError, StaleObjectError):
             return f"<Field {self._xref}>"
         return f"<Field {name!r} {self._xref}>"
+
+
+def _value_face(document: Document, value: str) -> _Font | None:
+    """Return the OpenType face that a field value draws with: :attr:`Form.font`, else an installed extra.
+
+    ``None`` means Helvetica, for WinAnsi values, or no face that can draw
+    the value.
+    """
+    font = document._form_font
+    if font is not None:
+        return font._font
+    selected = _form_generation_font(value)
+    if selected is None:
+        return None
+    data, package_font = selected
+    if isinstance(data, Path):
+        face = _Font.from_file(str(data), 0, _DEFAULT_MAX_FONT_INPUT_SIZE, package_font)
+    else:
+        face = _Font.from_bytes(data, 0, _DEFAULT_MAX_FONT_INPUT_SIZE)
+    return _regular_instance(face)
 
 
 def _fill(document: Document, name: str, value: object) -> None:

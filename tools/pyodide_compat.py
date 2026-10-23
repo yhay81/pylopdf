@@ -944,6 +944,42 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
     }
 
 
+def _widget_results() -> dict[str, Any]:
+    """Read form widgets, restyle them, and draw their values again."""
+    import pylopdf  # noqa: PLC0415
+
+    data = _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R] /DA (/Helv 0 Tf 0 g) >> >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 100] >>",
+            3: "<< /Type /Page /Parent 2 0 R /Annots [4 0 R 5 0 R] >>",
+            4: "<< /FT /Tx /T (name) /V (Ada) /Type /Annot /Subtype /Widget /Rect [10 60 190 90] /P 3 0 R /F 4 >>",
+            5: "<< /FT /Btn /T (ok) /V /Off /AS /Off /Type /Annot /Subtype /Widget /Rect [10 10 30 30] /P 3 0 R >>",
+        }
+    )
+    with pylopdf.open(data) as document:
+        page = document.pages[0]
+        name, check = page.widgets
+        name.text_color = pylopdf.Color(1, 0, 0)
+        name.font = pylopdf.Font.standard("Courier")
+        name.font_size = 12
+        name.background_color = pylopdf.Color(1, 1, 0)
+        check.border_color = pylopdf.Color(0, 0, 1)
+        saved = document.to_bytes()
+    with pylopdf.open(saved) as reopened:
+        name, check = reopened.pages[0].widgets
+        result = {
+            "fields": [None if widget.field is None else widget.field.name for widget in (name, check)],
+            "rects": [list(widget.rect) for widget in (name, check)],
+            "da": name.obj["DA"].text,
+            "background": list(name.background_color.rgb) if name.background_color else None,
+            "states": list(check.button_states),
+            "text": reopened.pages[0].text().strip(),
+        }
+    _require(result["text"] == "Ada", "the restyled widget lost its value")
+    return result
+
+
 def _form_page_deletion_results() -> dict[str, Any]:
     """Remove the form widgets and fields of pages that deletion and selection drop."""
     import pylopdf  # noqa: PLC0415
@@ -1618,6 +1654,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "save_options": _save_option_results(),
         "content_isolation": _content_isolation_results(),
         "annotations": _annotation_results(),
+        "widgets": _widget_results(),
         "ocr_layer": _ocr_layer_results(),
         "object_model": _object_model_results(),
         "document_properties": _document_property_results(root),

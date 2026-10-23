@@ -2216,6 +2216,22 @@ the concept and API overview.
   `set_form_field_file` with the installed extra that `_form_generation_font`
   selects for non-WinAnsi text. `True` resolves the first non-`Off` state of
   `form_button_states`.
+- `page.widgets` (`src/pylopdf/_widgets.py`) lists `Widget` handles for
+  every `/Subtype /Widget` entry of `/Annots`, read through `read_widgets`
+  and `read_widget` (`document/forms.rs`), which map each widget to its
+  terminal field with one form walk (`widget_fields`). `field.widgets` comes
+  from `field_widget_locations`, which scans the pages' `/Annots` for the
+  field's widgets. Widget setters call `edit_widget`, which checks the edit,
+  stores the page's direct annotations as objects, writes `/Rect`, `/F`,
+  `/BS`, `/MK`, and the widget's own `/DA`, and draws the widget again for
+  its field's value inside a document clone that it restores on failure
+  (`redraw_widget`: text and choice values, every state of a check box or
+  radio button, and a pushbutton's caption). Python passes the face that
+  the value needs (`_value_face`: `doc.form.font`, else an installed extra).
+  Text and choice appearances draw in the Standard 14 font, size, and colour
+  of the `/DA` that the widget inherits (`widget_default_appearance`: its
+  own, its `/Parent` chain, then the AcroForm's; `form::TextStyle`), size 0
+  shrinking the text to fit as before.
 - AcroForm filling writes `/V`, synchronizes button `/AS`, and regenerates
   widget `/AP /N`. Text and choice appearances auto-fit in widget-local
   coordinates, respect inherited `/Q` and multiline `/Ff`, and reuse the Core

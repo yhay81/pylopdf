@@ -3,10 +3,11 @@
 use lopdf::{Dictionary, Document, Object, Stream, dictionary};
 use pdf_base14_metrics::Base14Font;
 
+use crate::annotation_appearance::{DefaultAppearance, da_font};
 use crate::draw;
 use crate::layout::{collect_graphemes, copy_text, normalized_single_line};
 
-/// Resolved widget dimensions, rotation, background, and border.
+/// Resolved widget dimensions, rotation, background, border, and text style.
 pub struct WidgetStyle {
     pub layout_width: f64,
     pub layout_height: f64,
@@ -14,6 +15,45 @@ pub struct WidgetStyle {
     background: Option<PdfColor>,
     border: Option<PdfColor>,
     border_width: f64,
+    pub text: TextStyle,
+}
+
+/// The text style of a widget's `/DA`: a Standard 14 font, its resource
+/// name and PostScript name, a size (0 fits the text to the widget), and a
+/// colour.
+pub struct TextStyle {
+    pub font: Base14Font,
+    pub resource: String,
+    pub base_font: &'static str,
+    pub size: f64,
+    pub color: (f64, f64, f64),
+}
+
+impl TextStyle {
+    /// The style of a `/DA`, Helvetica for a font that is no Standard 14
+    /// abbreviation, and Helvetica fitted in black without one.
+    pub fn from_default_appearance(da: Option<&DefaultAppearance>) -> Self {
+        let (resource, size, color) = da.map_or(("Helv", 0.0, (0.0, 0.0, 0.0)), |da| {
+            (da.font.as_str(), da.size, da.color)
+        });
+        let base_font = da_font(resource);
+        let resource = if base_font == "Helvetica" && resource != "Helv" {
+            "Helv"
+        } else {
+            resource
+        };
+        Self {
+            font: draw::base14_font(base_font).unwrap_or(Base14Font::Helvetica),
+            resource: resource.to_owned(),
+            base_font,
+            size: if size.is_finite() && size > 0.0 {
+                size
+            } else {
+                0.0
+            },
+            color,
+        }
+    }
 }
 
 /// Auto-fit WinAnsi text using the canonical Helvetica metrics.
@@ -22,8 +62,8 @@ pub fn standard_text_ops(
     text: &str,
     multiline: bool,
     align: u8,
-    font_resource: &str,
 ) -> Result<Vec<u8>, String> {
+    let font_resource = style.text.resource.as_str();
     if text.is_empty() {
         return Ok(Vec::new());
     }
@@ -37,17 +77,28 @@ pub fn standard_text_ops(
     if box_size.0 <= 0.0 || box_size.1 <= 0.0 {
         return Ok(Vec::new());
     }
-    let mut font_size = box_size.1.min(12.0);
+    // A fixed size draws what fits and clips the rest; size 0 shrinks the
+    // text until it fits.
+    let fixed = style.text.size > 0.0;
+    let mut font_size = if fixed {
+        style.text.size
+    } else {
+        box_size.1.min(12.0)
+    };
     let layout = loop {
         let candidate = draw::standard_form_layout(
             &normalized,
-            box_size,
-            Base14Font::Helvetica,
+            if fixed {
+                (box_size.0, f64::MAX / 4.0)
+            } else {
+                box_size
+            },
+            style.text.font,
             font_size,
             1.2,
             Some(crate::layout::MAX_GENERATED_TEXT_LINES),
         )?;
-        if candidate.fits() && (multiline || candidate.lines.len() <= 1) {
+        if fixed || candidate.fits() && (multiline || candidate.lines.len() <= 1) {
             break candidate;
         }
         font_size *= 0.85;
@@ -55,6 +106,7 @@ pub fn standard_text_ops(
             return Err("form field text cannot fit inside the widget".to_owned());
         }
     };
+    let (red, green, blue) = style.text.color;
     draw::textbox_text_ops(
         [0.0, 0.0, style.layout_width, style.layout_height],
         0,
@@ -63,7 +115,7 @@ pub fn standard_text_ops(
         align,
         font_resource,
         font_size,
-        draw::DeviceColor::Rgb(0.0, 0.0, 0.0),
+        draw::DeviceColor::Rgb(red, green, blue),
     )
 }
 
@@ -89,8 +141,8 @@ pub fn standard_comb_text_ops(
     text: &str,
     max_len: usize,
     align: u8,
-    font_resource: &str,
 ) -> Result<Vec<u8>, String> {
+    let font_resource = style.text.resource.as_str();
     validate_comb_text(text, max_len)?;
     let normalized = normalized_single_line(text)?;
     let graphemes = collect_graphemes(&normalized)?;
@@ -114,7 +166,7 @@ pub fn standard_comb_text_ops(
             candidates.push(draw::standard_form_layout(
                 grapheme,
                 (cell_width, box_size.1),
-                Base14Font::Helvetica,
+                style.text.font,
                 font_size,
                 1.0,
                 Some(crate::layout::MAX_GENERATED_TEXT_LINES),
@@ -138,6 +190,7 @@ pub fn standard_comb_text_ops(
         2 => unused,
         _ => 0,
     };
+    let (red, green, blue) = style.text.color;
     let mut out = Vec::new();
     for (index, layout) in layouts.iter().enumerate() {
         let x0 = rect[0] + (start_slot + index) as f64 * cell_width;
@@ -149,7 +202,7 @@ pub fn standard_comb_text_ops(
             1,
             font_resource,
             font_size,
-            draw::DeviceColor::Rgb(0.0, 0.0, 0.0),
+            draw::DeviceColor::Rgb(red, green, blue),
         )?;
         out.try_reserve(text_ops.len())
             .map_err(|error| format!("failed to grow comb field text operators: {error}"))?;
@@ -167,7 +220,11 @@ enum PdfColor {
 
 impl WidgetStyle {
     /// Resolve widget `/Rect`, `/MK`, `/BS`, and legacy `/Border`.
-    pub fn from_widget(doc: &Document, widget: &Dictionary) -> Result<Self, String> {
+    pub fn from_widget(
+        doc: &Document,
+        widget: &Dictionary,
+        da: Option<&DefaultAppearance>,
+    ) -> Result<Self, String> {
         let rect = resolve_array(doc, widget.get(b"Rect").map_err(|_| "widget has no Rect")?)
             .ok_or_else(|| "widget Rect is invalid".to_owned())?;
         if rect.len() != 4 {
@@ -235,6 +292,7 @@ impl WidgetStyle {
             background,
             border,
             border_width,
+            text: TextStyle::from_default_appearance(da),
         })
     }
 
