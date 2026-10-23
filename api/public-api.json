@@ -323,13 +323,21 @@
     "AnnotationFile": {
       "kind": "class",
       "members": {
+        "created": {
+          "kind": "property",
+          "returns": "str | None"
+        },
         "description": {
           "kind": "property",
-          "returns": "str"
+          "returns": "str | None"
         },
         "filename": {
           "kind": "property",
           "returns": "str"
+        },
+        "modified": {
+          "kind": "property",
+          "returns": "str | None"
         },
         "read": {
           "kind": "method",
@@ -640,21 +648,21 @@
     "Attachment": {
       "kind": "class",
       "members": {
-        "creation_date": {
+        "created": {
           "kind": "property",
-          "returns": "str"
+          "returns": "str | None"
         },
         "description": {
           "kind": "property",
-          "returns": "str"
+          "returns": "str | None"
         },
         "filename": {
           "kind": "property",
           "returns": "str"
         },
-        "mod_date": {
+        "modified": {
           "kind": "property",
-          "returns": "str"
+          "returns": "str | None"
         },
         "name": {
           "kind": "property",

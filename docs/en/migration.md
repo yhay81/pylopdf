@@ -92,7 +92,7 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `page.mediabox`, `set_mediabox(r)` | `page.boxes.media`, `page.boxes.media = r` | |
 | `page.cropbox`, `artbox`, `bleedbox`, `trimbox`, `set_cropbox(r)`, `set_artbox(r)`, ..., `doc.page_cropbox(pno)` | `page.boxes.crop`, `.art`, `.bleed`, `.trim`, each assignable | PDF user space as stored, where pymupdf flips y against the top of the MediaBox |
 | `page.transformation_matrix`, `rotation_matrix`, `derotation_matrix` | `page.user_to_display` | Maps PDF user space to display space, the rotation included |
-| `doc.embfile_add/names/get/del/upd/info/count` | `doc.attachments` | A mapping: `add(name, data, description=…)`, `list(…)`, `[name].read()`, `del …[name]`, `[name].write(data)`, `len(…)`; `desc=` is `description=` |
+| `doc.embfile_add/names/get/del/upd/info/count` | `doc.attachments` | A mapping: `add(name, data, description=…)`, `list(…)`, `[name].read()`, `del …[name]`, `[name].write(data)`, `len(…)`; `desc=` is `description=`, `creation_date` and `mod_date` are `created` and `modified`, and `embfile_upd(filename=, desc=)` assigns `filename` and `description` |
 | `doc.stream` | The bytes passed to `pylopdf.open`, or `doc.to_bytes()` | pylopdf does not keep the input bytes |
 | `doc.get_ocgs()`, `add_ocg(name, on=, intent=)` | `doc.layers`, `doc.layers.add(name, visible=, intent=)` | `Layer` handles instead of a dictionary keyed by xref; `intent` is a tuple of names |
 | `PDF_OC_ON`, `PDF_OC_OFF`, `PDF_OC_TOGGLE` | `layer.is_visible = True`, `False`, `not layer.is_visible` | |

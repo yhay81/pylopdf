@@ -1099,8 +1099,18 @@ doc.attachments["data.csv"].write(new_bytes)
 del doc.attachments["data.csv"]
 ```
 
-`Attachment` also has `name`, `creation_date`, and `mod_date`. A missing name
-raises `KeyError`.
+`Attachment` also has `name`, `created`, and `modified`, the dates as the PDF
+date strings stored. `filename`, `description`, `created`, and `modified` are
+assignable, and `del` removes the last three; `write()` sets `modified` to the
+current time. `Annotation.file` of a file attachment has the same members. A
+missing name raises `KeyError`.
+
+```python
+item = doc.attachments["data.csv"]
+item.filename = "rows.csv"
+item.created = "D:20260101120000+09'00'"
+del item.description
+```
 
 ## Low-level objects { #low-level-objects }
 

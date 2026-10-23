@@ -1494,6 +1494,32 @@ def _optional_content_results() -> dict[str, Any]:
     }
 
 
+def _attachment_results() -> dict[str, Any]:
+    """Add, edit, and rewrite an attachment and an annotation's file, then read them back."""
+    import pylopdf  # noqa: PLC0415
+
+    document = pylopdf.Document()
+    page = document.pages.new((200, 200))
+    attachment = document.attachments.add("data", b"a,b", filename="data.csv", description="Rows")
+    attachment.filename = "données.csv"
+    attachment.created = "D:20260101000000Z"
+    attachment.modified = "D:20260102000000Z"
+    del attachment.description
+    annotation = page.annotations.add(pylopdf.FileAttachment((20, 30), b"payload", filename="a.bin"))
+    attached = annotation.file
+    _require(attached is not None, "a file attachment lost its file")
+    attached.description = "Raw"
+    attached.created = "D:20250101000000Z"
+    saved = pylopdf.open(document.to_bytes())
+    item = saved.attachments["data"]
+    file = saved.pages[0].annotations[0].file
+    _require(file is not None, "a saved file attachment lost its file")
+    return {
+        "attachment": [item.filename, item.description, item.size, item.created, item.modified, item.read().decode()],
+        "annotation": [file.filename, file.description, file.size, file.created, file.read().decode()],
+    }
+
+
 def _document_property_results(root: Path) -> dict[str, Any]:
     """Read and write XMP metadata and the catalog's viewer and marking properties."""
     import pylopdf  # noqa: PLC0415
@@ -1748,6 +1774,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "object_model": _object_model_results(),
         "optional_content": _optional_content_results(),
         "document_properties": _document_property_results(root),
+        "attachments": _attachment_results(),
         "content_model": _content_model_results(root),
         "canvas": _canvas_results(root),
         "create": _create_results(root),

@@ -1330,7 +1330,7 @@ impl _Document {
 
     /// Replace the data of the file that one file attachment embeds and
     /// return the annotation's object number.
-    #[pyo3(signature = (page_number, index, xref, data, max_size=Some(DEFAULT_MAX_EMBEDDED_FILE_SIZE)))]
+    #[pyo3(signature = (page_number, index, xref, data, max_size=Some(DEFAULT_MAX_EMBEDDED_FILE_SIZE), modified=None))]
     fn annotation_file_write(
         &mut self,
         page_number: u32,
@@ -1338,8 +1338,21 @@ impl _Document {
         xref: u32,
         data: Vec<u8>,
         max_size: Option<usize>,
+        modified: Option<String>,
     ) -> PyResult<u32> {
-        annotations::annotation_file_write(self, page_number, index, xref, data, max_size)
+        annotations::annotation_file_write(self, page_number, index, xref, data, max_size, modified)
+    }
+
+    /// Change the file name, description, or dates of the file that one
+    /// file attachment embeds; returns the annotation's object number.
+    fn annotation_file_edit(
+        &mut self,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+        edit: FileSpecEdit,
+    ) -> PyResult<u32> {
+        annotations::annotation_file_edit(self, page_number, index, xref, edit)
     }
 
     /// Read the display points and line endings of one annotation of a
@@ -1818,15 +1831,21 @@ impl _Document {
     }
 
     /// Replace one attachment's data, raising an error when absent.
-    #[pyo3(signature = (name, data, max_size=Some(DEFAULT_MAX_EMBEDDED_FILE_SIZE)))]
+    #[pyo3(signature = (name, data, max_size=Some(DEFAULT_MAX_EMBEDDED_FILE_SIZE), modified=None))]
     fn embfile_upd(
         &mut self,
         py: Python<'_>,
         name: &str,
         data: Vec<u8>,
         max_size: Option<usize>,
+        modified: Option<String>,
     ) -> PyResult<()> {
-        attachments::embfile_upd(self, py, name, data, max_size)
+        attachments::embfile_upd(self, py, name, data, max_size, modified)
+    }
+
+    /// Change one attachment's file name, description, or dates.
+    fn embfile_edit(&mut self, name: &str, edit: FileSpecEdit) -> PyResult<()> {
+        attachments::embfile_edit(self, name, edit)
     }
 
     /// Insert display-coordinate OCR words as an invisible text layer.
