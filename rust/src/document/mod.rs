@@ -1379,6 +1379,12 @@ impl _Document {
         forms::remove_field(self, py, xref)
     }
 
+    /// Gather top-level radio buttons that share a name under one parent
+    /// field; returns how many groups were made.
+    fn repair_radio_groups(&mut self, py: Python<'_>) -> PyResult<u32> {
+        forms::repair_radio_groups(self, py)
+    }
+
     /// Draw annotation and widget appearances into page content and remove
     /// them; returns how many annotations and widgets were removed.
     #[pyo3(signature = (annotations, widgets))]

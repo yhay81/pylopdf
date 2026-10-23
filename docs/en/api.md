@@ -980,6 +980,9 @@ decide the field's kind. `field.reset()` restores the default value, or
 clears the value, and draws the widgets again. `doc.form.need_appearances`
 reads and sets the form's `/NeedAppearances`, which pylopdf clears once
 every fillable widget has an appearance.
+`doc.form.repair_radio_groups()` gathers top-level radio buttons that
+share a name, which some producers write as separate fields, under one
+radio field of that name, and returns how many groups it made.
 
 A field appears on pages through its widgets. `field.widgets` lists them in
 page order, and `page.widgets` lists the widgets of a page as `Widget`

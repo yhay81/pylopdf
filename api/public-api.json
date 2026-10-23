@@ -4372,6 +4372,18 @@
           "kind": "property",
           "returns": "bool"
         },
+        "repair_radio_groups": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        },
         "signature_flags": {
           "kind": "property",
           "returns": "SignatureFlags"

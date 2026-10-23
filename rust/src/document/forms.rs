@@ -3690,3 +3690,137 @@ pub(super) fn set_widget_script(
     *this.doc.get_object_mut(id).map_err(to_py_err)? = Object::Dictionary(updated);
     Ok(id.0)
 }
+
+/// The keys of a field that a radio button gives up to the parent field
+/// that a repaired group gathers it under.
+const RADIO_FIELD_KEYS: [&[u8]; 7] = [b"FT", b"T", b"TU", b"TM", b"Ff", b"V", b"DV"];
+
+/// Implements [`_Document::repair_radio_groups`]: gather the top-level radio
+/// buttons that share a name, each a field merged with its widget, under
+/// one new parent field of that name, which takes the place of the first
+/// in `/Fields`; returns how many groups it made. Viewers and the field
+/// walk otherwise see only one of them.
+pub(super) fn repair_radio_groups(this: &mut _Document, py: Python<'_>) -> PyResult<u32> {
+    let groups = py.detach(|| -> PyResult<Vec<(Vec<u8>, Vec<ObjectId>)>> {
+        let Some(fields) = this
+            .doc
+            .catalog()
+            .ok()
+            .and_then(|catalog| catalog.get(b"AcroForm").ok())
+            .and_then(|form| deref_object(&this.doc, form).as_dict().ok())
+            .and_then(|form| form.get(b"Fields").ok())
+            .and_then(|fields| deref_object(&this.doc, fields).as_array().ok())
+        else {
+            return Ok(Vec::new());
+        };
+        if fields.len() > MAX_FORM_FIELD_TREE_EDGES {
+            return Err(PdfError::new_err(format!(
+                "AcroForm field tree exceeds the {MAX_FORM_FIELD_TREE_EDGES}-edge safety limit"
+            )));
+        }
+        let mut groups: Vec<(Vec<u8>, Vec<ObjectId>)> = Vec::new();
+        let mut index: HashMap<Vec<u8>, usize> = HashMap::new();
+        for item in fields {
+            let Ok(id) = item.as_reference() else {
+                continue;
+            };
+            let Ok(field) = this.doc.get_dictionary(id) else {
+                continue;
+            };
+            let name = |key: &[u8]| {
+                field
+                    .get(key)
+                    .ok()
+                    .and_then(|value| deref_object(&this.doc, value).as_name().ok())
+            };
+            let radio = name(b"FT") == Some(b"Btn".as_slice())
+                && field
+                    .get(b"Ff")
+                    .ok()
+                    .and_then(|value| deref_object(&this.doc, value).as_i64().ok())
+                    .is_some_and(|flags| flags & (1 << 15) != 0);
+            if !radio || name(b"Subtype") != Some(b"Widget".as_slice()) || field.has(b"Kids") {
+                continue;
+            }
+            let Ok(Object::String(title, _)) =
+                field.get(b"T").map(|title| deref_object(&this.doc, title))
+            else {
+                continue;
+            };
+            match index.get(title) {
+                Some(&group) => groups[group].1.push(id),
+                None => {
+                    index.insert(title.clone(), groups.len());
+                    groups.push((title.clone(), vec![id]));
+                }
+            }
+        }
+        groups.retain(|(_, members)| members.len() > 1);
+        Ok(groups)
+    })?;
+    if groups.is_empty() {
+        return Ok(0);
+    }
+    this.invalidate_hayro_pdf();
+    py.detach(|| {
+        let original = this.doc.clone();
+        let outcome = (|| -> PyResult<()> {
+            let form_id = this.acroform_object()?;
+            let mut replaced = HashMap::new();
+            for (title, members) in &groups {
+                let first = this.doc.get_dictionary(members[0]).map_err(to_py_err)?;
+                let mut parent = dictionary! {
+                    "FT" => "Btn",
+                    "T" => Object::String(title.clone(), StringFormat::Literal),
+                    "Kids" => Object::Array(members.iter().map(|&id| Object::Reference(id)).collect()),
+                };
+                for key in [b"Ff".as_slice(), b"TU", b"TM", b"DV"] {
+                    if let Ok(value) = first.get(key) {
+                        parent.set(key, value.clone());
+                    }
+                }
+                // The group's value is the first value one of its buttons holds.
+                if let Some(value) = members.iter().find_map(|&id| {
+                    this.doc
+                        .get_dictionary(id)
+                        .ok()
+                        .and_then(|member| member.get(b"V").ok())
+                        .filter(|value| !matches!(deref_object(&this.doc, value), Object::Null))
+                        .cloned()
+                }) {
+                    parent.set("V", value);
+                }
+                let parent_id = this.doc.add_object(parent);
+                for &id in members {
+                    let member = this
+                        .doc
+                        .get_object_mut(id)
+                        .and_then(Object::as_dict_mut)
+                        .map_err(to_py_err)?;
+                    for key in RADIO_FIELD_KEYS {
+                        member.remove(key);
+                    }
+                    member.set("Parent", parent_id);
+                    replaced.insert(id, (members[0] == id).then_some(parent_id));
+                }
+            }
+            let fields = this.form_fields_mut(form_id)?;
+            fields.retain_mut(|item| match item.as_reference().ok().and_then(|id| replaced.get(&id)) {
+                Some(Some(parent_id)) => {
+                    *item = Object::Reference(*parent_id);
+                    true
+                }
+                Some(None) => false,
+                None => true,
+            });
+            Ok(())
+        })();
+        if let Err(error) = outcome {
+            this.doc.replace(original);
+            return Err(error);
+        }
+        Ok(())
+    })?;
+    this.invalidate_hayro_pdf();
+    Ok(u32::try_from(groups.len()).unwrap_or(u32::MAX))
+}
