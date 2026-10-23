@@ -335,12 +335,12 @@ Every feature pull request satisfies all of the following before merge.
 | Rewriting | the content engine, redaction, sanitization, text replacement, image rewriting | lopdf, hayro for verification |
 
 Each workstream also owns the upstream work in its engine area and the
-specification-map entries of its features, and AGENTS.md records its modules. Concurrent pull requests stay inside one workstream; a
-change to another workstream's module is its own small pull request. Shared
-files (`src/pylopdf/__init__.py`, `rust/src/lib.rs`,
-`rust/src/document/mod.rs`, `api/public-api.json`, and the capability map)
-take append-only registrations and are regenerated after each rebase. Each
-pull request names its milestone.
+specification-map entries of its features, and AGENTS.md records its modules.
+Concurrent pull requests stay inside one workstream; a change to another
+workstream's module is its own small pull request. Shared files
+(`src/pylopdf/__init__.py`, `rust/src/lib.rs`, `rust/src/document/mod.rs`,
+`api/public-api.json`, and the capability map) take append-only registrations
+and are regenerated after each rebase. Each pull request names its milestone.
 
 ## Phases
 
@@ -645,7 +645,7 @@ engine's maintainer.
 | lopdf | A bounded, iterative page-tree walk with inherited attributes | pylopdf's own walker |
 | lopdf | Release of the rebuilt-trailer cleanup merged as J-F-Liu/lopdf#609 | the `/Prev` and `/XRefStm` removal after reconstruction |
 | lopdf | Linearization facts and the number of revisions | pymupdf's `is_fast_webaccess` and `version_count` |
-| lopdf | Real numbers kept exactly, as `f64` or as the token that was read, and written back as read | the precision that every save loses today (`35.6812345` becomes `35.681236`), a Preserve gap of every feature with real-valued entries |
+| lopdf | Real numbers kept exactly, as `f64` or as the token that was read, and written back as read, reversing the `f32` choice of J-F-Liu/lopdf#190 | the precision that every save loses today (`35.6812345` becomes `35.681236`), a Preserve gap of every feature with real-valued entries |
 | lopdf | The revision and byte range of each object in an incrementally updated file | incremental saves that write only changed objects, earlier revisions as documents, and signed byte ranges checked before an edit |
 | lopdf | Writing linearized and hybrid-reference files, the public-key security handler, AES-GCM (ISO/TS 32003), and integrity protection (ISO/TS 32004) | the Create entries of file structure and encryption in the specification map |
 | krilla | The items listed under [Canvas](#canvas) | the Standard 14 writer, the font renaming, and the import parse |
@@ -1158,13 +1158,13 @@ Dated facts that still drive decisions.
   offset without pylopdf's rebuild; nothing else changed.
 - **2026-10-23, assessment**: an external review asked whether pylopdf reads
   and writes every feature of PDF under complete control, and found that it
-  does not (the [assessment](#assessment-2026-10-23)). The capability map
-  then had 962 names: 455 available, 29 integration, 315 planned, and 163
-  non-goals. lopdf 0.46 stores reals as `f32` (`Object::Real(f32)`) and
-  writes them with `f32`'s shortest representation, so assigning or loading
-  `35.6812345` and saving writes `35.681236`, and `123456.789` becomes
-  `123456.79`. hayro-interpret 0.8.0 implements optional-content visibility
-  (`ocg.rs`) but neither knockout groups nor overprint. ISO 32000-2:2020 is
-  distributed at no cost by the PDF Association since 2023-04-05 under ISO's
-  copyright, and the Arlington PDF Model describes its objects under the
-  Apache-2.0 license.
+  does not (the [assessment](#assessment-2026-10-23)). The capability map then
+  had 962 names: 455 available, 29 integration, 315 planned, and 163
+  non-goals. lopdf 0.46 stores reals as `f32` (`Object::Real(f32)`, chosen for
+  performance in J-F-Liu/lopdf#190 in 2022) and writes them with `f32`'s
+  shortest representation, so assigning or loading `35.6812345` and saving
+  writes `35.681236`, and `123456.789` becomes `123456.79`. hayro-interpret
+  0.8.0 implements optional-content visibility (`ocg.rs`) but neither knockout
+  groups nor overprint. ISO 32000-2:2020 is distributed at no cost by the PDF
+  Association since 2023-04-05 under ISO's copyright, and the Arlington PDF
+  Model describes its objects under the Apache-2.0 license.

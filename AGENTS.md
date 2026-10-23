@@ -2889,13 +2889,13 @@ the concept and API overview.
   `prune_objects` and `renumber_objects_with`; do not call them or the other
   helpers built on it (`delete_object`, `delete_zero_length_streams`, and
   lopdf's own `delete_pages`).
-- lopdf 0.46 stores every real number as `f32` (`Object::Real(f32)`) and
-  writes it with `f32`'s shortest representation, so a loaded or assigned
-  `35.6812345` saves as `35.681236` and `123456.789` as `123456.79`. Every
-  save, edited or not, therefore changes reals with more than about seven
-  significant digits, against ROADMAP.md's lossless principle; the fix is
-  listed under Engine work. Until it lands, preservation tests compare reals
-  at `f32` precision and say so.
+- lopdf 0.46 stores every real number as `f32` (`Object::Real(f32)`, since
+  J-F-Liu/lopdf#190) and writes it with `f32`'s shortest representation, so a
+  loaded or assigned `35.6812345` saves as `35.681236` and `123456.789` as
+  `123456.79`. Every save, edited or not, therefore changes reals with more
+  than about seven significant digits, against ROADMAP.md's lossless
+  principle; the fix is listed under Engine work and tracked in #370. Until it
+  lands, preservation tests compare reals at `f32` precision and say so.
 - lopdf's `rayon` feature parses even tiny documents on the global pool, so
   every native load from a thread outside the pool pays a worker wake-up.
   Without the feature, opening 7- to 29-object PDFs was 10–65% faster on the
@@ -3036,22 +3036,23 @@ it.
 the assessment against the goal, principles, the layer architecture, the
 specification map, the capability map, the definition of done, workstreams,
 phases, milestones, the engine-work ledger, v1.0 criteria, non-goals, the
-watchlist, decisions, and an evidence log. [api/DESIGN.md](api/DESIGN.md) holds the API rules and the
-target surface.
+watchlist, decisions, and an evidence log. [api/DESIGN.md](api/DESIGN.md)
+holds the API rules and the target surface.
 
 - Direction: complete control of PDF as ISO 32000-2:2020 defines it, with its
   errata, its extensions, and the PDF/A and PDF/UA profiles. Every feature is
   read, interpreted, created, edited with its dependent structures kept
   consistent, and preserved, and the specification map (`api/spec-map.json`,
-  which the Verification milestone builds) records each of the five
-  dimensions with the tests that prove it. Writing raw objects counts as
-  reading, not as control. pymupdf's capabilities are the floor, measured by
-  the capability map in `api/pymupdf-parity.json`, with an API of its own
-  that follows the engines. Running scripts, playing media, and displaying 3D
-  artwork stay non-goals; their structures do not. Names follow api/DESIGN.md; a pymupdf name stays only
-  where it is also the clearest one. Do not add aliases, synonyms, or
-  compatibility layers. There are no deprecation windows before 1.0, and
-  every removed or renamed API gets a codemod rule and a migration hint.
+  which the Verification milestone builds) records each of the five dimensions
+  with the tests that prove it. Writing raw objects counts as reading, not as
+  control. pymupdf's capabilities are the floor, measured by the capability
+  map in `api/pymupdf-parity.json`, with an API of its own that follows the
+  engines. Running scripts, playing media, and displaying 3D artwork stay
+  non-goals; their structures do not. Names follow api/DESIGN.md; a pymupdf
+  name stays only where it is also the clearest one. Do not add aliases,
+  synonyms, or compatibility layers. There are no deprecation windows before
+  1.0, and every removed or renamed API gets a codemod rule and a migration
+  hint.
 - Engine-first: work that lopdf, hayro, or krilla owns lands upstream first.
   A pylopdf workaround for an engine gap links the upstream pull request, is
   listed under Engine work in ROADMAP.md, and goes away when pylopdf adopts
