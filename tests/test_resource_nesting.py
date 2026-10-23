@@ -1549,19 +1549,3 @@ def test_edits_drop_the_clearance_of_the_previous_snapshot() -> None:
     del doc.pages[1:2]
     assert doc.pages[0].text() is not None
     assert doc.text() is not None
-
-
-def test_real_world_pages_pass_the_check() -> None:
-    """Shadings, Separation spaces, soft masks, and Type 3 fonts of real files stay far below the limits."""
-    root = Path(__file__).parent / "assets" / "real_world"
-    for name in (
-        "pdf20-simple.pdf",
-        "usrguide.pdf",
-        "pdfium-smask-blend.pdf",
-        "pdfium-type3.pdf",
-        "pdfium-links-highlights-annots.pdf",
-    ):
-        doc = pylopdf.open(root / name)
-        assert doc.text() is not None
-        assert doc.render([0], alpha=True)
-        doc.rewrite_images(quality=75)

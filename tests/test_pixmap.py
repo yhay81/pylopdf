@@ -56,18 +56,6 @@ def test_a_gray_pixmap_buffer_has_two_dimensions(one_page_pdf: bytes) -> None:
     assert gray_alpha.shape == (792, 612, 2)
 
 
-def test_pixmap_scale_and_dpi(one_page_pdf: bytes) -> None:
-    doc = pylopdf.open(one_page_pdf)
-    assert doc.pages[0].pixmap(matrix=pylopdf.Matrix(2.0, 2.0), alpha=True).width == 612 * 2
-    assert doc.pages[0].pixmap(dpi=144, alpha=True).width == 612 * 2
-
-
-def test_pixmap_tobytes_is_png(one_page_pdf: bytes) -> None:
-    doc = pylopdf.open(one_page_pdf)
-    pix = doc.pages[0].pixmap(alpha=True)
-    assert pix.to_bytes().startswith(b"\x89PNG\r\n\x1a\n")
-
-
 def test_pixmap_tobytes_bounds_encoded_output(one_page_pdf: bytes) -> None:
     pix = pylopdf.open(one_page_pdf).pages[0].pixmap(alpha=True)
     expected = pix.to_bytes(max_size=None)

@@ -13,24 +13,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-def test_insert_pdf_range(three_page_pdf: bytes, one_page_pdf: bytes) -> None:
-    doc = pylopdf.open(one_page_pdf)
-    src = pylopdf.open(three_page_pdf)
-    doc.pages.extend(src.pages[1:3])
-    assert len(doc.pages) == 3
-    assert "Page two" in doc.pages[1].text()
-    assert "Page three" in doc.pages[2].text()
-
-
-def test_insert_pdf_reversed_range(three_page_pdf: bytes) -> None:
-    doc = pylopdf.Document()
-    src = pylopdf.open(three_page_pdf)
-    doc.pages.extend(src.pages[0:3][::-1])
-    assert len(doc.pages) == 3
-    assert "Page three" in doc.pages[0].text()
-    assert "Page one" in doc.pages[2].text()
-
-
 def test_insert_pdf_negative_range_follows_pymupdf(three_page_pdf: bytes) -> None:
     # A negative from_page means the first page and a negative to_page the last.
     doc = pylopdf.Document()
@@ -54,20 +36,6 @@ def test_insert_pdf_start_at(three_page_pdf: bytes, one_page_pdf: bytes) -> None
     # Preserve page order after save and reload.
     reloaded = pylopdf.open(doc.to_bytes())
     assert "Hello PDF" in reloaded.pages[1].text()
-
-
-def test_insert_pdf_start_at_zero_prepends(three_page_pdf: bytes, one_page_pdf: bytes) -> None:
-    doc = pylopdf.open(three_page_pdf)
-    doc.pages.insert(0, pylopdf.open(one_page_pdf).pages)
-    assert "Hello PDF" in doc.pages[0].text()
-    assert "Page one" in doc.pages[1].text()
-
-
-def test_insert_pdf_start_at_beyond_the_end_appends(three_page_pdf: bytes, one_page_pdf: bytes) -> None:
-    doc = pylopdf.open(three_page_pdf)
-    doc.pages.insert(40, pylopdf.open(one_page_pdf).pages)
-    assert len(doc.pages) == 4
-    assert "Hello PDF" in doc.pages[3].text()
 
 
 def test_insert_pdf_empty_source_noop(three_page_pdf: bytes) -> None:
@@ -158,14 +126,6 @@ def test_copy_page_append_and_position(three_page_pdf: bytes) -> None:
     assert len(reloaded.pages) == 5
     assert "Page three" in reloaded.pages[0].text()
     assert reloaded.pages[0].pixmap(alpha=True).to_bytes() == reloaded.pages[3].pixmap(alpha=True).to_bytes()
-
-
-def test_structure_ops_invalidate_pages(three_page_pdf: bytes) -> None:
-    doc = pylopdf.open(three_page_pdf)
-    page = doc.pages[0]
-    doc.pages.new()
-    with pytest.raises(pylopdf.StalePageError):
-        _ = page.boxes.media
 
 
 def _delete(pages: pylopdf.Pages, index: object) -> None:

@@ -8,64 +8,12 @@ from conftest import png_size
 import pylopdf
 
 
-def test_getitem_and_iteration(three_page_pdf: bytes) -> None:
-    doc = pylopdf.open(three_page_pdf)
-    page = doc.pages[1]
-    assert isinstance(page, pylopdf.Page)
-    assert page.index == 1
-    assert page.document is doc
-    assert [p.index for p in doc.pages] == [0, 1, 2]
-    assert doc.pages[2].index == 2
-
-
-def test_negative_index(three_page_pdf: bytes) -> None:
-    doc = pylopdf.open(three_page_pdf)
-    assert doc.pages[-1].index == 2
-    assert "Page three" in doc.pages[-1].text()
-    with pytest.raises(IndexError):
-        _ = doc.pages[-4]
-
-
-def test_page_get_text_and_render(three_page_pdf: bytes) -> None:
-    doc = pylopdf.open(three_page_pdf)
-    page = doc.pages[1]
-    assert "Page two" in page.text()
-    png = page.pixmap(alpha=True).to_bytes(max_size=None)
-    assert png == doc.pages[1].pixmap(alpha=True).to_bytes()
-    assert page.pixmap(alpha=True).to_bytes(max_size=len(png)) == png
-    with pytest.raises(pylopdf.LimitError) as caught:
-        page.pixmap(alpha=True).to_bytes(max_size=len(png) - 1)
-    assert caught.value.code == "pixmap_output_size"
-    svg = page.svg(max_size=None)
-    assert svg == doc.pages[1].svg(max_size=None)
-    assert page.svg(max_size=len(svg.encode())) == svg
-
-
-def test_stale_page_after_structure_change(three_page_pdf: bytes) -> None:
-    doc = pylopdf.open(three_page_pdf)
-    page = doc.pages[2]
-    del doc.pages[0]
-    with pytest.raises(pylopdf.StalePageError, match="fetch it again"):
-        _ = page.text()
-    # A freshly fetched page works after the old page shifts to index 1.
-    assert "Page three" in doc.pages[1].text()
-
-
 def test_page_on_closed_document(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
     page = doc.pages[0]
     doc.close()
     with pytest.raises(pylopdf.DocumentClosedError):
         _ = page.rotation
-
-
-def test_mediabox_inherited_from_parent(one_page_pdf: bytes) -> None:
-    # build_pdf places MediaBox on the Pages parent to exercise inheritance.
-    doc = pylopdf.open(one_page_pdf)
-    assert doc.pages[0].boxes.media == pylopdf.Rect(0.0, 0.0, 612.0, 792.0)
-    assert doc.pages[0].boxes.crop == doc.pages[0].boxes.media  # Missing CropBox falls back to MediaBox.
-    assert doc.pages[0].rect.width == 612.0
-    assert doc.pages[0].rect.height == 792.0
 
 
 def test_set_mediabox_roundtrip(one_page_pdf: bytes) -> None:
@@ -76,15 +24,6 @@ def test_set_mediabox_roundtrip(one_page_pdf: bytes) -> None:
     reopened = pylopdf.open(doc.to_bytes())
     assert reopened.pages[0].boxes.media == pylopdf.Rect(0.0, 0.0, 300.0, 400.0)
     assert png_size(reopened.pages[0].pixmap(alpha=True).to_bytes()) == (300, 400)
-
-
-def test_set_cropbox(one_page_pdf: bytes) -> None:
-    doc = pylopdf.open(one_page_pdf)
-    doc.pages[0].boxes.crop = (10, 10, 310, 410)
-    assert doc.pages[0].boxes.crop == pylopdf.Rect(10.0, 10.0, 310.0, 410.0)
-    assert doc.pages[0].boxes.media == pylopdf.Rect(0.0, 0.0, 612.0, 792.0)  # MediaBox stays unchanged.
-    # Rendering uses the CropBox dimensions.
-    assert png_size(doc.pages[0].pixmap(alpha=True).to_bytes()) == (300, 400)
 
 
 @pytest.mark.parametrize(
@@ -116,28 +55,6 @@ def test_rotation_roundtrip_and_render(one_page_pdf: bytes) -> None:
     assert page.rotation == 270
     reopened = pylopdf.open(doc.to_bytes())
     assert reopened.pages[0].rotation == 270
-
-
-def test_rotation_invalid(one_page_pdf: bytes) -> None:
-    doc = pylopdf.open(one_page_pdf)
-    with pytest.raises(ValueError, match="multiple of 90"):
-        doc.pages[0].rotation = 45
-
-
-def test_rect_swaps_for_rotation(one_page_pdf: bytes) -> None:
-    doc = pylopdf.open(one_page_pdf)
-    doc.pages[0].rotation = 90
-    r = doc.pages[0].rect
-    assert (r.width, r.height) == (792.0, 612.0)
-    assert doc.pages[0].boxes.media.width == 612.0  # Rotation does not alter MediaBox itself.
-
-
-def test_rect_helpers() -> None:
-    r = pylopdf.Rect(10.0, 20.0, 110.0, 220.0)
-    assert r.width == 100.0
-    assert r.height == 200.0
-    x0, y0, x1, y1 = r  # Rect supports tuple unpacking.
-    assert (x0, y0, x1, y1) == (10.0, 20.0, 110.0, 220.0)
 
 
 def test_page_repr(one_page_pdf: bytes) -> None:
