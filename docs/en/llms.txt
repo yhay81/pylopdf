@@ -141,6 +141,7 @@ replacement, and the migration hint):
 - Document.__getitem__ -> Pages.__getitem__: Use doc.pages[i]; doc.pages also takes slices.
 - Document.__len__ -> Pages.__len__: Use len(doc.pages).
 - Document.authenticate -> Document.unlock: Use doc.unlock(password), which returns Access.USER or Access.OWNER and raises PasswordError for a wrong password.
+- Document.bake -> Document.flatten: doc.flatten(annotations=True, widgets=True) draws appearances into page content and removes the annotations, keeping links; the codemod rewrites bake() calls.
 - Document.copy_page -> Pages.insert: Use doc.pages.insert(to, doc.pages[i]); the copy is a new page object, not a second reference.
 - Document.del_toc_item -> OutlineItem.destination: pymupdf grays the item out and removes its target: set destination = None, color, and italic on the OutlineItem from doc.outline.walk(), or assign doc.outline without the entry.
 - Document.del_xml_metadata -> Document.xmp: del doc.xmp removes the catalog's XMP metadata entry.

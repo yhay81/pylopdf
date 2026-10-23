@@ -1540,6 +1540,17 @@ def _add_redact_annot(migrator: _Migrator, receiver: str, args: _Arguments) -> s
     return f"{receiver}.annotations.add({redaction}({', '.join(arguments)}))"
 
 
+def _bake(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``doc.bake(annots=..., widgets=...)`` to ``doc.flatten(annotations=..., widgets=...)``."""
+    bound = args.bind(("annots", "widgets"))
+    if bound is None:
+        return None
+    keywords = [
+        f"{name}={bound[key]}" for key, name in (("annots", "annotations"), ("widgets", "widgets")) if key in bound
+    ]
+    return f"{receiver}.flatten({', '.join(keywords)})"
+
+
 def _delete_annot(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     """Rewrite ``delete_annot(annot)`` as a statement to ``del`` of its index."""
     bound = args.bind(("annot",))
@@ -1828,6 +1839,7 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "add_squiggly_annot": _add_text_markup_annot("Squiggly"),
     "add_text_annot": _add_text_annot,
     "add_redact_annot": _add_redact_annot,
+    "bake": _pymupdf_only(_bake),
     "add_file_annot": _add_file_annot,
     "add_stamp_annot": _add_stamp_annot,
     "add_caret_annot": _add_shape_annot("Caret", ("point",)),

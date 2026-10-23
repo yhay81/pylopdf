@@ -938,6 +938,33 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
     }
 
 
+def _flatten_results() -> dict[str, Any]:
+    """Flatten annotations and widgets into page content."""
+    import pylopdf  # noqa: PLC0415
+
+    with pylopdf.Document() as document:
+        page = document.pages.new((300, 200))
+        page.annotations.add(pylopdf.Square((20, 20, 120, 80), interior_color=pylopdf.Color(0, 0, 1)))
+        page.links.add((200, 20, 280, 40), "https://example.test")
+        page.widgets.add(pylopdf.TextField("name", (20, 120, 200, 144), value="Ada"))
+        before = page.pixmap(dpi=36)
+        document.flatten()
+        saved = document.to_bytes()
+    with pylopdf.open(saved) as reopened:
+        page = reopened.pages[0]
+        after = page.pixmap(dpi=36)
+        tolerance, allowed = 8, 20
+        differing = sum(abs(a - b) > tolerance for a, b in zip(bytes(before), bytes(after), strict=True))
+        result = {
+            "annots": [str(item["Subtype"]) for item in page.obj["Annots"]],
+            "form": "AcroForm" in reopened.catalog,
+            "text": page.text().split(),
+            "unchanged": differing < allowed,
+        }
+    _require(result["unchanged"], "flattening changed the rendering")
+    return result
+
+
 def _widget_results() -> dict[str, Any]:
     """Read form widgets, restyle them, and draw their values again."""
     import pylopdf  # noqa: PLC0415
@@ -1675,6 +1702,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "content_isolation": _content_isolation_results(),
         "annotations": _annotation_results(),
         "widgets": _widget_results(),
+        "flatten": _flatten_results(),
         "ocr_layer": _ocr_layer_results(),
         "object_model": _object_model_results(),
         "document_properties": _document_property_results(root),

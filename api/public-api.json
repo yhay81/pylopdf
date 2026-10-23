@@ -2817,6 +2817,30 @@
           "kind": "property",
           "returns": "FallbackFonts"
         },
+        "flatten": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "annotations"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "widgets"
+              }
+            ],
+            "returns": "None"
+          }
+        },
         "form": {
           "kind": "property",
           "returns": "Form"
