@@ -1278,7 +1278,16 @@ the concept and API overview.
   (jpeg-encoder, which `rewrite_images` already uses, at the default Huffman
   tables; JPEG refuses alpha). `write_image` serves every writer:
   `Pixmap.to_bytes` and `Document.render` through bounded writers and
-  `Pixmap.save` straight to its sibling file. `Pixmap.to_bytes` defaults to a
+  `Pixmap.save` straight to its sibling file. Every Pixmap carries a
+  `Resolution` in dots per inch, 1 through 65,535 (the JFIF density's
+  range): `render_resolution` derives a rendered page's from the matrix as
+  the page's pixels per inch along each raster axis (`72 |det| / hypot(b, d)`
+  and `72 |det| / hypot(a, c)`, rounded and clamped), and other Pixmaps take
+  96, `extract::DEFAULT_IMAGE_RESOLUTION`. `write_image` states it as PNG
+  `pHYs` in whole pixels per metre, which round-trips every integer dpi, and
+  as JPEG JFIF density in inches; `Document.render` writes the same.
+  `Pixmap.from_array` of a Pixmap clones its `Arc` instead of copying the
+  samples, which is how a resolution changes. `Pixmap.to_bytes` defaults to a
   64 MiB encoded-output boundary; the bounded writer refuses the write
   crossing the limit before Python bytes conversion and grows its retained
   output fallibly. `max_size=None` is the explicit trusted-output opt-out.

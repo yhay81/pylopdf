@@ -1233,9 +1233,10 @@ checking whether a rectangle lies inside a quad tests all four corners.
 | Member | Purpose |
 |---|---|
 | `width`, `height`, `channels`, `alpha`, `stride`, `colorspace` | Size and layout: `channels` is 1 for gray, 2 for gray with alpha, 3 for RGB, and 4 for RGB with alpha; `colorspace` is `Colorspace.GRAY` or `Colorspace.RGB` |
+| `resolution` | The horizontal and vertical dots per inch: a rendered page's resolution, else 96; PNG and JPEG output states it |
 | `numpy.asarray(pix)`, `memoryview(pix)` | The pixels without copying, shaped `(height, width)` for gray and `(height, width, channels)` otherwise |
 | `bytes(pix)` | A copy of the pixels |
-| `Pixmap.from_array(array)` | A pixmap with a copy of a `uint8` array shaped as above |
+| `Pixmap.from_array(array, /, *, resolution=None)` | A pixmap with a copy of a `uint8` array shaped as above, at `resolution`, an `(x, y)` tuple of integers from 1 through 65,535 that defaults to 96; given a `Pixmap`, it shares its pixels and keeps its resolution unless told otherwise |
 | `to_bytes(format="png", *, quality=95, max_size=64 MiB)` | PNG or JPEG bytes; JPEG has no alpha |
 | `save(path, /, *, format=None, quality=95)` | Write PNG or JPEG; the extension `.png`, `.jpg`, or `.jpeg` names the format unless `format` does |
 

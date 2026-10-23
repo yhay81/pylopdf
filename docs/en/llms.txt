@@ -399,7 +399,10 @@ replacement, and the migration hint):
 - Pixmap.n -> Pixmap.channels: Read pix.channels.
 - Pixmap.samples -> Pixmap: bytes(pix) copies the pixels; memoryview(pix) and numpy.asarray(pix) read them without a copy, shaped (height, width, channels).
 - Pixmap.samples_mv -> Pixmap: Use memoryview(pix), shaped (height, width, channels).
+- Pixmap.set_dpi -> Pixmap.from_array: A Pixmap is immutable: pix = Pixmap.from_array(pix, resolution=(xres, yres)) shares the pixels at the new resolution.
 - Pixmap.tobytes -> Pixmap.to_bytes: Use pix.to_bytes('png') or pix.to_bytes('jpeg', quality=...); other formats belong to Pillow.
+- Pixmap.xres -> Pixmap.resolution: Read pix.resolution[0].
+- Pixmap.yres -> Pixmap.resolution: Read pix.resolution[1].
 - Point.__setitem__ -> Point: Point values are immutable; build a new Point instead.
 - Point.transform -> Point.__mul__: Use p * m, which returns a new Point.
 - Quad.__setitem__ -> Quad: Quad values are immutable; build a new Quad instead.
