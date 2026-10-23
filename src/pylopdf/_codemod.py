@@ -1324,15 +1324,18 @@ def _add_highlight_annot(migrator: _Migrator, receiver: str, args: _Arguments) -
     return f"{receiver}.annotations.add({highlight}({', '.join(arguments)}))"
 
 
-def _add_shape_annot(specification: str) -> Callable[[_Migrator, str, _Arguments], str | None]:
-    """Rewrite ``add_rect_annot(rect)`` or ``add_circle_annot(rect)`` to ``annotations.add(...)``."""
+def _add_shape_annot(
+    specification: str, parameters: tuple[str, ...] = ("rect",)
+) -> Callable[[_Migrator, str, _Arguments], str | None]:
+    """Rewrite ``add_rect_annot(rect)`` and the other shape methods to ``annotations.add(...)``."""
 
     def rule(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
-        bound = args.bind(("rect",))
+        bound = args.bind(parameters)
         name = migrator.class_name(specification)
-        if bound is None or set(bound) != {"rect"} or name is None:
+        if bound is None or set(bound) != set(parameters) or name is None:
             return None
-        return f"{receiver}.annotations.add({name}({bound['rect']}))"
+        arguments = ", ".join(bound[parameter] for parameter in parameters)
+        return f"{receiver}.annotations.add({name}({arguments}))"
 
     return rule
 
@@ -1621,6 +1624,10 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "add_highlight_annot": _add_highlight_annot,
     "add_rect_annot": _add_shape_annot("Square"),
     "add_circle_annot": _add_shape_annot("Circle"),
+    "add_line_annot": _add_shape_annot("LineAnnotation", ("p1", "p2")),
+    "add_polygon_annot": _add_shape_annot("Polygon", ("points",)),
+    "add_polyline_annot": _add_shape_annot("PolyLine", ("points",)),
+    "add_ink_annot": _add_shape_annot("Ink", ("handwriting",)),
     "has_annots": _no_arguments("any(page.annotations for page in {receiver}.pages)"),
     "text_length": _text_length,
     "has_glyph": _has_glyph,

@@ -1191,7 +1191,7 @@ def _rectangle_results() -> dict[str, Any]:  # noqa: PLR0915 - explicit compatib
 def _annotation_results() -> dict[str, Any]:
     """Create annotations with appearances, reopen them, and render them."""
     import pylopdf  # noqa: PLC0415
-    from pylopdf import BlendMode, Border, Circle, Color, Document, Square  # noqa: PLC0415
+    from pylopdf import BlendMode, Border, Circle, Color, Document, Ink, LineAnnotation, LineEnding, Square  # noqa: PLC0415
 
     with Document() as document:
         page = document.pages.new((200, 100))
@@ -1200,6 +1200,10 @@ def _annotation_results() -> dict[str, Any]:
         page.annotations.add(
             Circle((10, 50, 90, 90), border=Border(2, dashes=(3, 1)), opacity=0.5, blend_mode=BlendMode.MULTIPLY)
         )
+        page.annotations.add(
+            LineAnnotation((10, 120), (90, 120), line_endings=(LineEnding.CLOSED_ARROW, LineEnding.SLASH))
+        )
+        page.annotations.add(Ink([[(10, 150), (50, 170), (90, 150)]], border=Border(3)))
         data = document.to_bytes()
     with pylopdf.open(data) as reopened:
         page = reopened.pages[0]
@@ -1214,13 +1218,22 @@ def _annotation_results() -> dict[str, Any]:
                 else [annotation.border.width, annotation.border.style.value, list(annotation.border.dashes)],
                 "opacity": round(annotation.opacity, 3),
                 "blend_mode": None if annotation.blend_mode is None else annotation.blend_mode.value,
+                "vertices": None if annotation.vertices is None else [list(point) for point in annotation.vertices],
+                "strokes": None
+                if annotation.strokes is None
+                else [[list(point) for point in stroke] for stroke in annotation.strokes],
+                "line_endings": None
+                if annotation.line_endings is None
+                else [ending.value for ending in annotation.line_endings],
             }
             for annotation in page.annotations
         ]
         pixmap = page.pixmap(dpi=72)
         samples = bytes(pixmap)
         inside = list(samples[(25 * pixmap.width + 35) * 3 : (25 * pixmap.width + 35) * 3 + 3])
-    _require([entry["type"] for entry in annotations] == ["SQUARE", "CIRCLE"], "annotation types changed")
+    _require(
+        [entry["type"] for entry in annotations] == ["SQUARE", "CIRCLE", "LINE", "INK"], "annotation types changed"
+    )
     _require(inside == [255, 255, 0], "the square's appearance did not render")
     return {"annotations": annotations, "square_inside": inside}
 

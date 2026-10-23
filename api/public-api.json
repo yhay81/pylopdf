@@ -55,11 +55,14 @@
     "ImageMask",
     "ImageObject",
     "Images",
+    "Ink",
     "Launch",
     "Layout",
     "LimitError",
     "Line",
+    "LineAnnotation",
     "LineCap",
+    "LineEnding",
     "LineJoin",
     "LineTo",
     "Link",
@@ -97,6 +100,8 @@
     "Permissions",
     "Pixmap",
     "Point",
+    "PolyLine",
+    "Polygon",
     "Probe",
     "PylopdfWarning",
     "Quad",
@@ -184,6 +189,10 @@
           "kind": "property",
           "returns": "Color | None"
         },
+        "line_endings": {
+          "kind": "property",
+          "returns": "tuple[LineEnding, LineEnding] | None"
+        },
         "modified": {
           "kind": "property",
           "returns": "str | None"
@@ -208,6 +217,10 @@
           "kind": "property",
           "returns": "Rect"
         },
+        "strokes": {
+          "kind": "property",
+          "returns": "tuple[tuple[Point, ...], ...] | None"
+        },
         "subject": {
           "kind": "property",
           "returns": "str | None"
@@ -215,6 +228,10 @@
         "type": {
           "kind": "property",
           "returns": "AnnotationType"
+        },
+        "vertices": {
+          "kind": "property",
+          "returns": "tuple[Point, ...] | None"
         },
         "xref": {
           "kind": "property",
@@ -259,7 +276,7 @@
     },
     "AnnotationSpecification": {
       "kind": "type-alias",
-      "target": "pylopdf.Highlight | pylopdf.Square | pylopdf.Circle"
+      "target": "pylopdf.Highlight | pylopdf.Square | pylopdf.Circle | pylopdf.LineAnnotation | pylopdf.Polygon | pylopdf.PolyLine | pylopdf.Ink"
     },
     "AnnotationType": {
       "kind": "enum",
@@ -4603,6 +4620,89 @@
         "returns": "None"
       }
     },
+    "Ink": {
+      "annotations": {
+        "blend_mode": "BlendMode | None",
+        "border": "Border",
+        "color": "Color | None",
+        "contents": "str | None",
+        "opacity": "float",
+        "strokes": "tuple[tuple[Point, ...], ...]"
+      },
+      "dataclass_fields": [
+        "strokes",
+        "color",
+        "border",
+        "opacity",
+        "blend_mode",
+        "contents"
+      ],
+      "kind": "class",
+      "members": {
+        "blend_mode": {
+          "kind": "property"
+        },
+        "border": {
+          "kind": "property"
+        },
+        "color": {
+          "kind": "property"
+        },
+        "contents": {
+          "kind": "property"
+        },
+        "opacity": {
+          "kind": "property"
+        },
+        "strokes": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Iterable[Iterable[Point | Sequence[float]]]",
+            "kind": "positional_or_keyword",
+            "name": "strokes"
+          },
+          {
+            "annotation": "Color | None",
+            "default": {
+              "repr": "Color(red=1.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "color"
+          },
+          {
+            "annotation": "Border",
+            "default": {
+              "repr": "Border(width=1.0, style=<BorderStyle.SOLID: 'solid'>, dashes=())"
+            },
+            "kind": "keyword_only",
+            "name": "border"
+          },
+          {
+            "annotation": "float",
+            "default": 1.0,
+            "kind": "keyword_only",
+            "name": "opacity"
+          },
+          {
+            "annotation": "BlendMode | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "blend_mode"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "contents"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "Launch": {
       "annotations": {
         "file": "str"
@@ -4759,11 +4859,144 @@
         "returns": "None"
       }
     },
+    "LineAnnotation": {
+      "annotations": {
+        "blend_mode": "BlendMode | None",
+        "border": "Border",
+        "color": "Color | None",
+        "contents": "str | None",
+        "end": "Point",
+        "interior_color": "Color | None",
+        "line_endings": "tuple[LineEnding, LineEnding]",
+        "opacity": "float",
+        "start": "Point"
+      },
+      "dataclass_fields": [
+        "start",
+        "end",
+        "color",
+        "interior_color",
+        "border",
+        "line_endings",
+        "opacity",
+        "blend_mode",
+        "contents"
+      ],
+      "kind": "class",
+      "members": {
+        "blend_mode": {
+          "kind": "property"
+        },
+        "border": {
+          "kind": "property"
+        },
+        "color": {
+          "kind": "property"
+        },
+        "contents": {
+          "kind": "property"
+        },
+        "end": {
+          "kind": "property"
+        },
+        "interior_color": {
+          "kind": "property"
+        },
+        "line_endings": {
+          "kind": "property"
+        },
+        "opacity": {
+          "kind": "property"
+        },
+        "start": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Point | Sequence[float]",
+            "kind": "positional_or_keyword",
+            "name": "start"
+          },
+          {
+            "annotation": "Point | Sequence[float]",
+            "kind": "positional_or_keyword",
+            "name": "end"
+          },
+          {
+            "annotation": "Color | None",
+            "default": {
+              "repr": "Color(red=1.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "color"
+          },
+          {
+            "annotation": "Color | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "interior_color"
+          },
+          {
+            "annotation": "Border",
+            "default": {
+              "repr": "Border(width=1.0, style=<BorderStyle.SOLID: 'solid'>, dashes=())"
+            },
+            "kind": "keyword_only",
+            "name": "border"
+          },
+          {
+            "annotation": "tuple[LineEnding, LineEnding]",
+            "default": [
+              "none",
+              "none"
+            ],
+            "kind": "keyword_only",
+            "name": "line_endings"
+          },
+          {
+            "annotation": "float",
+            "default": 1.0,
+            "kind": "keyword_only",
+            "name": "opacity"
+          },
+          {
+            "annotation": "BlendMode | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "blend_mode"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "contents"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "LineCap": {
       "kind": "enum",
       "members": {
         "BUTT": "butt",
         "ROUND": "round",
+        "SQUARE": "square"
+      }
+    },
+    "LineEnding": {
+      "kind": "enum",
+      "members": {
+        "BUTT": "butt",
+        "CIRCLE": "circle",
+        "CLOSED_ARROW": "closed_arrow",
+        "DIAMOND": "diamond",
+        "NONE": "none",
+        "OPEN_ARROW": "open_arrow",
+        "REVERSED_CLOSED_ARROW": "reversed_closed_arrow",
+        "REVERSED_OPEN_ARROW": "reversed_open_arrow",
+        "SLASH": "slash",
         "SQUARE": "square"
       }
     },
@@ -7584,6 +7817,208 @@
           }
         ],
         "returns": "Self"
+      }
+    },
+    "PolyLine": {
+      "annotations": {
+        "blend_mode": "BlendMode | None",
+        "border": "Border",
+        "color": "Color | None",
+        "contents": "str | None",
+        "interior_color": "Color | None",
+        "line_endings": "tuple[LineEnding, LineEnding]",
+        "opacity": "float",
+        "vertices": "tuple[Point, ...]"
+      },
+      "dataclass_fields": [
+        "vertices",
+        "color",
+        "interior_color",
+        "border",
+        "line_endings",
+        "opacity",
+        "blend_mode",
+        "contents"
+      ],
+      "kind": "class",
+      "members": {
+        "blend_mode": {
+          "kind": "property"
+        },
+        "border": {
+          "kind": "property"
+        },
+        "color": {
+          "kind": "property"
+        },
+        "contents": {
+          "kind": "property"
+        },
+        "interior_color": {
+          "kind": "property"
+        },
+        "line_endings": {
+          "kind": "property"
+        },
+        "opacity": {
+          "kind": "property"
+        },
+        "vertices": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Iterable[Point | Sequence[float]]",
+            "kind": "positional_or_keyword",
+            "name": "vertices"
+          },
+          {
+            "annotation": "Color | None",
+            "default": {
+              "repr": "Color(red=1.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "color"
+          },
+          {
+            "annotation": "Color | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "interior_color"
+          },
+          {
+            "annotation": "Border",
+            "default": {
+              "repr": "Border(width=1.0, style=<BorderStyle.SOLID: 'solid'>, dashes=())"
+            },
+            "kind": "keyword_only",
+            "name": "border"
+          },
+          {
+            "annotation": "tuple[LineEnding, LineEnding]",
+            "default": [
+              "none",
+              "none"
+            ],
+            "kind": "keyword_only",
+            "name": "line_endings"
+          },
+          {
+            "annotation": "float",
+            "default": 1.0,
+            "kind": "keyword_only",
+            "name": "opacity"
+          },
+          {
+            "annotation": "BlendMode | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "blend_mode"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "contents"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "Polygon": {
+      "annotations": {
+        "blend_mode": "BlendMode | None",
+        "border": "Border",
+        "color": "Color | None",
+        "contents": "str | None",
+        "interior_color": "Color | None",
+        "opacity": "float",
+        "vertices": "tuple[Point, ...]"
+      },
+      "dataclass_fields": [
+        "vertices",
+        "color",
+        "interior_color",
+        "border",
+        "opacity",
+        "blend_mode",
+        "contents"
+      ],
+      "kind": "class",
+      "members": {
+        "blend_mode": {
+          "kind": "property"
+        },
+        "border": {
+          "kind": "property"
+        },
+        "color": {
+          "kind": "property"
+        },
+        "contents": {
+          "kind": "property"
+        },
+        "interior_color": {
+          "kind": "property"
+        },
+        "opacity": {
+          "kind": "property"
+        },
+        "vertices": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Iterable[Point | Sequence[float]]",
+            "kind": "positional_or_keyword",
+            "name": "vertices"
+          },
+          {
+            "annotation": "Color | None",
+            "default": {
+              "repr": "Color(red=1.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "color"
+          },
+          {
+            "annotation": "Color | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "interior_color"
+          },
+          {
+            "annotation": "Border",
+            "default": {
+              "repr": "Border(width=1.0, style=<BorderStyle.SOLID: 'solid'>, dashes=())"
+            },
+            "kind": "keyword_only",
+            "name": "border"
+          },
+          {
+            "annotation": "float",
+            "default": 1.0,
+            "kind": "keyword_only",
+            "name": "opacity"
+          },
+          {
+            "annotation": "BlendMode | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "blend_mode"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "contents"
+          }
+        ],
+        "returns": "None"
       }
     },
     "Probe": {

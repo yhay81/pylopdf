@@ -146,6 +146,7 @@ change.
 | `embedded_file_size`, `embedded_file_input_size` | An attachment, or its name or description, is too large |
 | `stream_data_size`, `object_value_depth` | A low-level stream is too large to read, or a value written is nested too deeply |
 | `password_input_size`, `metadata_input_size`, `annotation_input_size`, `form_field_input_size`, `toc_input_size`, `page_label_input_size`, `replacement_input_size` | Text passed to the method is too large |
+| `annotation_point_count` | An annotation's points, given or read, number more than 65,536 |
 | `page_entry_count` | A list of pages is longer than allowed |
 | `toc_entry_count`, `toc_text_size`, `named_destination_count`, `named_destination_text_size`, `structure_tree_count`, `form_content_size` | An outline, link destination table, tagged-PDF structure, or imported page is too large |
 | `xmp_metadata_size` | The XMP metadata is larger than 1 MiB |

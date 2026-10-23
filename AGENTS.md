@@ -2402,7 +2402,9 @@ the concept and API overview.
   with `rust/src/annotation_appearance.rs` before any mutation. That engine
   draws each type it supports (`annotation_appearance::draws`) from the
   dictionary alone (`/Rect`, `/C`, `/IC`, `/BS` else `/Border`, `/CA`,
-  `/BM`, `/RD`, reading unusable entries as absent) on a canvas over `/Rect`
+  `/BM`, `/RD`, `/L`, `/Vertices`, `/InkList`, and `/LE`, reading unusable
+  entries as absent and geometry of more than 65,536 points as missing) on a
+  canvas over `/Rect`
   in user space, so creation, property edits, and the rendering snapshot
   draw alike: `missing_appearance_plans` draws every annotation of a
   supported type without `/AP /N` into the rendering clone through

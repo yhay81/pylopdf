@@ -1253,6 +1253,18 @@ impl _Document {
         annotations::read_annotation(self, py, page_number, index, xref)
     }
 
+    /// Read the display points and line endings of one annotation of a
+    /// one-based page, found as `read_annotation` finds it.
+    fn read_annotation_geometry(
+        &self,
+        py: Python<'_>,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+    ) -> PyResult<annotations::AnnotationGeometry> {
+        annotations::read_annotation_geometry(self, py, page_number, index, xref)
+    }
+
     /// Read the link annotations of a one-based page with their targets.
     ///
     /// Read `/A` actions (URI, GoTo, GoToR, Launch, Named) and `/Dest`, and

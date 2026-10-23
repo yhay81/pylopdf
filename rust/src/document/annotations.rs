@@ -742,6 +742,88 @@ pub(super) fn read_annotation(
     })
 }
 
+/// The display points and line endings of an annotation, as
+/// `read_annotation_geometry` returns them.
+pub(super) type AnnotationGeometry = (
+    Option<Vec<Vec<(f64, f64)>>>,
+    Option<(&'static str, &'static str)>,
+);
+
+/// Implements [`_Document::read_annotation_geometry`]: the points of a line,
+/// polygon, polyline, or ink annotation in display space, `None` when its
+/// geometry is missing or malformed, and the line endings of a line or
+/// polyline. More than `MAX_ANNOTATION_POINTS` points raise rather than
+/// read in part.
+pub(super) fn read_annotation_geometry(
+    this: &_Document,
+    py: Python<'_>,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+) -> PyResult<AnnotationGeometry> {
+    py.detach(|| {
+        let (crop, rotation) = this.page_display_geometry(page_number)?;
+        let page_id = this.page_id(page_number)?;
+        let (_, dict) = this.annotation_at(page_id, index, xref)?;
+        let doc = &*this.doc;
+        let Some(subtype) = dict
+            .get(b"Subtype")
+            .ok()
+            .and_then(|value| deref_object(doc, value).as_name().ok())
+            .filter(|subtype| matches!(*subtype, b"Line" | b"Polygon" | b"PolyLine" | b"Ink"))
+        else {
+            return Ok((None, None));
+        };
+        let key: &[u8] = match subtype {
+            b"Line" => b"L",
+            b"Ink" => b"InkList",
+            _ => b"Vertices",
+        };
+        let numbers = dict
+            .get(key)
+            .ok()
+            .and_then(|value| deref_object(doc, value).as_array().ok())
+            .map_or(0, |items| {
+                if subtype == b"Ink" {
+                    items
+                        .iter()
+                        .map(|item| deref_object(doc, item).as_array().map_or(0, Vec::len))
+                        .fold(items.len(), usize::saturating_add)
+                } else {
+                    items.len()
+                }
+            });
+        if numbers / 2 > annotation_appearance::MAX_ANNOTATION_POINTS {
+            return Err(limit_err(
+                "annotation_point_count",
+                format!(
+                    "an annotation's geometry holds more than {} points",
+                    annotation_appearance::MAX_ANNOTATION_POINTS
+                ),
+            ));
+        }
+        let points = annotation_appearance::point_lists(doc, dict, subtype).map(|lists| {
+            lists
+                .into_iter()
+                .map(|points| {
+                    points
+                        .into_iter()
+                        .map(|(x, y)| draw::pdf_to_display(crop, rotation, x, y))
+                        .collect()
+                })
+                .collect()
+        });
+        let endings = matches!(subtype, b"Line" | b"PolyLine").then(|| {
+            let [start, end] = annotation_appearance::line_endings(doc, dict);
+            (
+                annotation_appearance::LINE_ENDINGS[start],
+                annotation_appearance::LINE_ENDINGS[end],
+            )
+        });
+        Ok((points, endings))
+    })
+}
+
 impl _Document {
     /// Read an annotation that `page.annotations` lists, or `None` for a
     /// link, a widget, a popup, or an annotation without a rectangle. `budget` holds
@@ -1024,7 +1106,16 @@ pub(super) fn add_highlight_annotation(
 #[pyo3(from_item_all)]
 pub(super) struct AnnotationSpec {
     subtype: String,
-    rect: (f64, f64, f64, f64),
+    /// The display rectangle of a square or circle.
+    #[pyo3(default)]
+    rect: Option<(f64, f64, f64, f64)>,
+    /// The display points of a line, polygon, or polyline, as one list, or
+    /// of an ink annotation's strokes.
+    #[pyo3(default)]
+    points: Option<Vec<Vec<(f64, f64)>>>,
+    /// The start and end `/LE` styles of a line or polyline.
+    #[pyo3(default)]
+    line_endings: Option<(String, String)>,
     #[pyo3(default)]
     color: Option<(f64, f64, f64)>,
     #[pyo3(default)]
@@ -1042,7 +1133,7 @@ pub(super) struct AnnotationSpec {
 }
 
 /// The subtypes that `add_annotation` creates.
-const CREATED_SUBTYPES: [&str; 2] = ["Square", "Circle"];
+const CREATED_SUBTYPES: [&str; 6] = ["Square", "Circle", "Line", "Polygon", "PolyLine", "Ink"];
 
 fn rgb_array(name: &str, (red, green, blue): (f64, f64, f64)) -> PyResult<Object> {
     if ![red, green, blue]
@@ -1080,12 +1171,119 @@ fn annotation_dictionary(
         ],
         "subtype, contents, and date",
     )?;
-    let (x0, y0, x1, y1) = spec.rect;
-    if ![x0, y0, x1, y1].iter().all(|value| value.is_finite()) {
-        return Err(PdfError::new_err("an annotation rectangle is finite"));
-    }
-    let quad = draw::display_rect_quad_pdf(crop, rotation, [x0, y0, x1, y1]);
-    let rect = draw::bounding_rect_iter(quad.iter().copied());
+    let subtype = spec.subtype.as_str();
+    let mut geometry = Dictionary::new();
+    let rect = if matches!(subtype, "Square" | "Circle") {
+        let Some((x0, y0, x1, y1)) = spec.rect.filter(|_| spec.points.is_none()) else {
+            return Err(PdfError::new_err(format!(
+                "a {subtype} annotation takes a rectangle"
+            )));
+        };
+        if ![x0, y0, x1, y1].iter().all(|value| value.is_finite()) {
+            return Err(PdfError::new_err("an annotation rectangle is finite"));
+        }
+        let quad = draw::display_rect_quad_pdf(crop, rotation, [x0, y0, x1, y1]);
+        draw::bounding_rect_iter(quad.iter().copied())
+    } else {
+        let Some(lists) = spec.points.as_ref().filter(|_| spec.rect.is_none()) else {
+            return Err(PdfError::new_err(format!(
+                "a {subtype} annotation takes points"
+            )));
+        };
+        let shape_ok = match subtype {
+            "Line" => lists.len() == 1 && lists[0].len() == 2,
+            "Polygon" | "PolyLine" => lists.len() == 1 && lists[0].len() >= 2,
+            _ => !lists.is_empty() && lists.iter().all(|points| !points.is_empty()),
+        };
+        if !shape_ok {
+            return Err(PdfError::new_err(format!(
+                "a {subtype} annotation has {}",
+                match subtype {
+                    "Line" => "two points",
+                    "Ink" => "one or more strokes of one or more points",
+                    _ => "two or more vertices",
+                }
+            )));
+        }
+        let total = lists
+            .iter()
+            .try_fold(0usize, |total, points| total.checked_add(points.len()));
+        if total.is_none_or(|total| total > annotation_appearance::MAX_ANNOTATION_POINTS) {
+            return Err(limit_err(
+                "annotation_point_count",
+                format!(
+                    "an annotation holds at most {} points",
+                    annotation_appearance::MAX_ANNOTATION_POINTS
+                ),
+            ));
+        }
+        let mut arrays = Vec::new();
+        arrays.try_reserve_exact(lists.len()).map_err(|error| {
+            PdfError::new_err(format!("failed to allocate annotation points: {error}"))
+        })?;
+        let mut bounds = [
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        ];
+        for points in lists {
+            let mut array = Vec::new();
+            array.try_reserve_exact(points.len() * 2).map_err(|error| {
+                PdfError::new_err(format!("failed to allocate annotation points: {error}"))
+            })?;
+            for &(x, y) in points {
+                if !(x.is_finite() && y.is_finite()) {
+                    return Err(PdfError::new_err("annotation points are finite"));
+                }
+                let (x, y) = draw::display_to_pdf(crop, rotation, x, y);
+                bounds = [
+                    bounds[0].min(x),
+                    bounds[1].min(y),
+                    bounds[2].max(x),
+                    bounds[3].max(y),
+                ];
+                array.push(Object::Real(x as f32));
+                array.push(Object::Real(y as f32));
+            }
+            arrays.push(Object::Array(array));
+        }
+        match subtype {
+            "Line" => geometry.set("L", arrays.swap_remove(0)),
+            "Polygon" | "PolyLine" => geometry.set("Vertices", arrays.swap_remove(0)),
+            _ => geometry.set("InkList", Object::Array(arrays)),
+        }
+        let width = spec.border.as_ref().map_or(1.0, |border| border.0);
+        let mut pad = width / 2.0 + 1.0;
+        if let Some((start, end)) = &spec.line_endings {
+            if !matches!(subtype, "Line" | "PolyLine") {
+                return Err(PdfError::new_err(format!(
+                    "a {subtype} annotation has no line endings"
+                )));
+            }
+            for style in [start, end] {
+                if !annotation_appearance::LINE_ENDINGS.contains(&style.as_str()) {
+                    return Err(PdfError::new_err(format!("unknown line ending {style:?}")));
+                }
+            }
+            if start != "None" || end != "None" {
+                pad += 2.0 * annotation_appearance::ending_size(width);
+            }
+            geometry.set(
+                "LE",
+                Object::Array(vec![
+                    Object::Name(start.as_bytes().to_vec()),
+                    Object::Name(end.as_bytes().to_vec()),
+                ]),
+            );
+        }
+        [
+            bounds[0] - pad,
+            bounds[1] - pad,
+            bounds[2] + pad,
+            bounds[3] + pad,
+        ]
+    };
     let mut dict = dictionary! {
         "Type" => "Annot",
         "Subtype" => Object::Name(spec.subtype.as_bytes().to_vec()),
@@ -1093,6 +1291,9 @@ fn annotation_dictionary(
         // Printable.
         "F" => 4,
     };
+    for (key, value) in geometry {
+        dict.set(key, value);
+    }
     if let Some(color) = spec.color {
         dict.set("C", rgb_array("colour", color)?);
     }

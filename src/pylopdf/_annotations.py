@@ -11,10 +11,10 @@ from typing import TYPE_CHECKING, Any, TypeAlias, cast, overload
 
 from pylopdf._content import BlendMode, Color
 from pylopdf._errors import StalePageError
-from pylopdf._geometry import Quad, Rect
+from pylopdf._geometry import Point, Quad, Rect
 from pylopdf._hints import hinted_getattr
 from pylopdf._limits import _validate_cumulative_utf8_input, _validate_rect
-from pylopdf.pylopdf_core import StaleObjectError
+from pylopdf.pylopdf_core import LimitError, StaleObjectError
 
 if TYPE_CHECKING:
     from pylopdf._objects import Dictionary
@@ -31,6 +31,8 @@ _MAX_HIGHLIGHT_RECTS = 4096
 _RECT_COORDINATE_COUNT = 4
 #: The most dash lengths that a border pattern holds.
 _MAX_BORDER_DASHES = 32
+#: The most points that one annotation's geometry holds.
+_MAX_ANNOTATION_POINTS = 65536
 
 
 class AnnotationType(enum.IntEnum):
@@ -196,6 +198,42 @@ class Border:
         object.__setattr__(self, "dashes", lengths)
 
 
+class LineEnding(enum.StrEnum):
+    """The shape at an end of a line or polyline, ``/LE`` (ISO 32000-2 Table 179).
+
+    Closed shapes are filled with the annotation's interior color.
+    """
+
+    NONE = "none"
+    SQUARE = "square"
+    CIRCLE = "circle"
+    DIAMOND = "diamond"
+    OPEN_ARROW = "open_arrow"
+    CLOSED_ARROW = "closed_arrow"
+    BUTT = "butt"
+    """A short line across the end."""
+    REVERSED_OPEN_ARROW = "reversed_open_arrow"
+    REVERSED_CLOSED_ARROW = "reversed_closed_arrow"
+    SLASH = "slash"
+    """A short line 30 degrees clockwise from across the end."""
+
+
+#: The ``/LE`` name of each line ending.
+_LINE_ENDING_NAMES = {
+    LineEnding.NONE: "None",
+    LineEnding.SQUARE: "Square",
+    LineEnding.CIRCLE: "Circle",
+    LineEnding.DIAMOND: "Diamond",
+    LineEnding.OPEN_ARROW: "OpenArrow",
+    LineEnding.CLOSED_ARROW: "ClosedArrow",
+    LineEnding.BUTT: "Butt",
+    LineEnding.REVERSED_OPEN_ARROW: "ROpenArrow",
+    LineEnding.REVERSED_CLOSED_ARROW: "RClosedArrow",
+    LineEnding.SLASH: "Slash",
+}
+_LINE_ENDINGS = {name: ending for ending, name in _LINE_ENDING_NAMES.items()}
+
+
 #: The PDF name of each blend mode, such as ``ColorDodge``.
 _BLEND_MODE_NAMES: dict[BlendMode, str] = {
     mode: "".join(part.capitalize() for part in mode.value.split("_")) for mode in BlendMode
@@ -355,6 +393,40 @@ class Annotation:
         """Return the blend mode that the appearance is drawn with, ``/BM``, or ``None`` without one."""
         name = self._read()[10]
         return None if name is None else _BLEND_MODES[name]
+
+    def _geometry(self) -> tuple[list[list[tuple[float, float]]] | None, tuple[str, str] | None]:
+        page = self._page
+        self._read()
+        return page._document._doc.read_annotation_geometry(page._page_number(), self._index, self._xref)
+
+    @property
+    def vertices(self) -> tuple[Point, ...] | None:
+        """Return the display points of a line (its two ends), polygon, or polyline.
+
+        ``None`` for another type or a missing or malformed geometry. Reads
+        refuse more than 65,536 points (``annotation_point_count``).
+        """
+        if self.type not in (AnnotationType.LINE, AnnotationType.POLYGON, AnnotationType.POLY_LINE):
+            return None
+        points, _ = self._geometry()
+        return None if points is None else tuple(Point(x, y) for x, y in points[0])
+
+    @property
+    def strokes(self) -> tuple[tuple[Point, ...], ...] | None:
+        """Return the display points of each stroke of an ink annotation, ``None`` for another type."""
+        if self.type is not AnnotationType.INK:
+            return None
+        points, _ = self._geometry()
+        return None if points is None else tuple(tuple(Point(x, y) for x, y in stroke) for stroke in points)
+
+    @property
+    def line_endings(self) -> tuple[LineEnding, LineEnding] | None:
+        """Return the start and end shapes of a line or polyline, ``None`` for another type."""
+        _, endings = self._geometry()
+        if endings is None:
+            return None
+        start, end = endings
+        return _LINE_ENDINGS[start], _LINE_ENDINGS[end]
 
     def __eq__(self, other: object) -> bool:
         """Compare the page and the annotation: its object number, or its index for a direct dictionary."""
@@ -535,12 +607,14 @@ class _Shape:
         object.__setattr__(self, "contents", contents)
 
     def _spec(self, subtype: str) -> dict[str, Any]:
+        return {"rect": tuple(self.rect), **self._style(subtype)}
+
+    def _style(self, subtype: str) -> dict[str, Any]:
         border = self.border
         return {
             "subtype": subtype,
-            "rect": tuple(self.rect),
             "color": None if self.color is None else self.color.rgb,
-            "interior_color": None if self.interior_color is None else self.interior_color.rgb,
+            "interior_color": None if (interior := getattr(self, "interior_color", None)) is None else interior.rgb,
             "border": (border.width, _BORDER_STYLE_NAMES[border.style], list(border.dashes)),
             "opacity": self.opacity,
             "blend_mode": None if self.blend_mode is None else _BLEND_MODE_NAMES[self.blend_mode],
@@ -615,8 +689,239 @@ class Circle(_Shape):
         self._init(rect, color, interior_color, border, opacity, blend_mode, contents)
 
 
+def _point(value: object) -> tuple[float, float]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence) or len(value) != 2:  # noqa: PLR2004
+        msg = f"a point is a Point or a pair of numbers: {value!r}"
+        raise TypeError(msg)
+    return _number(value[0], "a point coordinate"), _number(value[1], "a point coordinate")
+
+
+def _points(values: object, name: str, minimum: int, budget: list[int]) -> tuple[Point, ...]:
+    """Validate a sequence of points, stopping an iterable at the first point over the budget."""
+    if isinstance(values, (str, bytes)) or not isinstance(values, Iterable):
+        msg = f"{name} must be a sequence of points: {values!r}"
+        raise TypeError(msg)
+    points: list[Point] = []
+    for value in values:
+        if budget[0] >= _MAX_ANNOTATION_POINTS:
+            code = "annotation_point_count"
+            msg = f"an annotation holds at most {_MAX_ANNOTATION_POINTS} points"
+            raise LimitError(code, msg)
+        budget[0] += 1
+        points.append(Point(*_point(value)))
+    if len(points) < minimum:
+        msg = f"{name} must hold at least {minimum} points"
+        raise ValueError(msg)
+    return tuple(points)
+
+
+def _line_endings(value: object) -> tuple[LineEnding, LineEnding]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence) or len(value) != 2:  # noqa: PLR2004
+        msg = f"line_endings is a pair of LineEnding members: {value!r}"
+        raise TypeError(msg)
+    return LineEnding(value[0]), LineEnding(value[1])
+
+
+class _Drawn(_Shape):
+    """The fields of the specifications that draw lines through points."""
+
+    __slots__ = ()
+
+    def _init_drawn(  # noqa: PLR0913, PLR0917 - the shared fields, as each __init__ received them.
+        self,
+        color: object,
+        interior_color: object,
+        border: object,
+        opacity: object,
+        blend_mode: object,
+        contents: object,
+    ) -> None:
+        contents = _contents(contents)
+        _validate_cumulative_utf8_input(
+            (type(self).__name__, "" if contents is None else contents),
+            _MAX_ANNOTATION_INPUT_TEXT_SIZE,
+            limit_code="annotation_input_size",
+            input_label="annotation subtype and contents input",
+        )
+        if not isinstance(border, Border):
+            msg = f"border must be a Border: {border!r}"
+            raise TypeError(msg)
+        object.__setattr__(self, "color", _optional_color(color, "color"))
+        if not isinstance(self, Ink):
+            object.__setattr__(self, "interior_color", _optional_color(interior_color, "interior_color"))
+        object.__setattr__(self, "border", border)
+        object.__setattr__(self, "opacity", _opacity(opacity))
+        object.__setattr__(self, "blend_mode", None if blend_mode is None else BlendMode(blend_mode))
+        object.__setattr__(self, "contents", contents)
+
+    def _drawn_spec(self, subtype: str, points: list[list[tuple[float, float]]]) -> dict[str, Any]:
+        spec = self._style(subtype)
+        spec["points"] = points
+        endings = getattr(self, "line_endings", None)
+        if endings is not None:
+            spec["line_endings"] = tuple(_LINE_ENDING_NAMES[ending] for ending in endings)
+        return spec
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class LineAnnotation(_Drawn):
+    """A straight line between two display points, as ``page.annotations.add`` takes it.
+
+    ``color`` strokes the line with the ``border`` width and dashes, and
+    ``line_endings`` gives the shapes at its start and end, whose closed
+    shapes ``interior_color`` fills. The annotation's rectangle is the line's
+    bounds, widened for the stroke and the endings.
+    """
+
+    start: Point
+    end: Point
+    color: Color | None
+    interior_color: Color | None
+    border: Border
+    line_endings: tuple[LineEnding, LineEnding]
+    opacity: float
+    blend_mode: BlendMode | None
+    contents: str | None
+
+    def __init__(  # noqa: PLR0913 - the annotation's style options.
+        self,
+        start: Point | Sequence[float],
+        end: Point | Sequence[float],
+        *,
+        color: Color | None = Color(1.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        interior_color: Color | None = None,
+        border: Border = Border(),  # noqa: B008 - Border is immutable.
+        line_endings: tuple[LineEnding, LineEnding] = (LineEnding.NONE, LineEnding.NONE),
+        opacity: float = 1.0,
+        blend_mode: BlendMode | None = None,
+        contents: str | None = None,
+    ) -> None:
+        """Validate the specification."""
+        self._init_drawn(color, interior_color, border, opacity, blend_mode, contents)
+        object.__setattr__(self, "start", Point(*_point(start)))
+        object.__setattr__(self, "end", Point(*_point(end)))
+        object.__setattr__(self, "line_endings", _line_endings(line_endings))
+
+    def _payload(self) -> dict[str, Any]:
+        return self._drawn_spec("Line", [[tuple(self.start), tuple(self.end)]])
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Polygon(_Drawn):
+    """A closed polygon through two or more display points, as ``page.annotations.add`` takes it.
+
+    ``color`` strokes the outline and ``interior_color`` fills it; one
+    annotation holds at most 65,536 points.
+    """
+
+    vertices: tuple[Point, ...]
+    color: Color | None
+    interior_color: Color | None
+    border: Border
+    opacity: float
+    blend_mode: BlendMode | None
+    contents: str | None
+
+    def __init__(  # noqa: PLR0913 - the annotation's style options.
+        self,
+        vertices: Iterable[Point | Sequence[float]],
+        *,
+        color: Color | None = Color(1.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        interior_color: Color | None = None,
+        border: Border = Border(),  # noqa: B008 - Border is immutable.
+        opacity: float = 1.0,
+        blend_mode: BlendMode | None = None,
+        contents: str | None = None,
+    ) -> None:
+        """Validate the specification; the contents are bounded before the points are read."""
+        self._init_drawn(color, interior_color, border, opacity, blend_mode, contents)
+        object.__setattr__(self, "vertices", _points(vertices, "vertices", 2, [0]))
+
+    def _payload(self) -> dict[str, Any]:
+        return self._drawn_spec("Polygon", [[tuple(point) for point in self.vertices]])
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class PolyLine(_Drawn):
+    """An open line through two or more display points, as ``page.annotations.add`` takes it.
+
+    The fields are those of :class:`LineAnnotation`, with ``line_endings`` at the
+    first and last points; one annotation holds at most 65,536 points.
+    """
+
+    vertices: tuple[Point, ...]
+    color: Color | None
+    interior_color: Color | None
+    border: Border
+    line_endings: tuple[LineEnding, LineEnding]
+    opacity: float
+    blend_mode: BlendMode | None
+    contents: str | None
+
+    def __init__(  # noqa: PLR0913 - the annotation's style options.
+        self,
+        vertices: Iterable[Point | Sequence[float]],
+        *,
+        color: Color | None = Color(1.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        interior_color: Color | None = None,
+        border: Border = Border(),  # noqa: B008 - Border is immutable.
+        line_endings: tuple[LineEnding, LineEnding] = (LineEnding.NONE, LineEnding.NONE),
+        opacity: float = 1.0,
+        blend_mode: BlendMode | None = None,
+        contents: str | None = None,
+    ) -> None:
+        """Validate the specification; the contents are bounded before the points are read."""
+        self._init_drawn(color, interior_color, border, opacity, blend_mode, contents)
+        object.__setattr__(self, "line_endings", _line_endings(line_endings))
+        object.__setattr__(self, "vertices", _points(vertices, "vertices", 2, [0]))
+
+    def _payload(self) -> dict[str, Any]:
+        return self._drawn_spec("PolyLine", [[tuple(point) for point in self.vertices]])
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Ink(_Drawn):
+    """Freehand strokes, each through one or more display points, as ``page.annotations.add`` takes it.
+
+    ``color`` draws every stroke with round caps and joins at the ``border``
+    width; one annotation holds at most 65,536 points in all.
+    """
+
+    strokes: tuple[tuple[Point, ...], ...]
+    color: Color | None
+    border: Border
+    opacity: float
+    blend_mode: BlendMode | None
+    contents: str | None
+
+    def __init__(  # noqa: PLR0913 - the annotation's style options.
+        self,
+        strokes: Iterable[Iterable[Point | Sequence[float]]],
+        *,
+        color: Color | None = Color(1.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        border: Border = Border(),  # noqa: B008 - Border is immutable.
+        opacity: float = 1.0,
+        blend_mode: BlendMode | None = None,
+        contents: str | None = None,
+    ) -> None:
+        """Validate the specification; the contents are bounded before the points are read."""
+        self._init_drawn(color, None, border, opacity, blend_mode, contents)
+        if isinstance(strokes, (str, bytes)) or not isinstance(strokes, Iterable):
+            msg = f"strokes must be a sequence of point sequences: {strokes!r}"
+            raise TypeError(msg)
+        budget = [0]
+        validated = tuple(_points(stroke, "a stroke", 1, budget) for stroke in strokes)
+        if not validated:
+            msg = "strokes must hold at least one stroke"
+            raise ValueError(msg)
+        object.__setattr__(self, "strokes", validated)
+
+    def _payload(self) -> dict[str, Any]:
+        return self._drawn_spec("Ink", [[tuple(point) for point in stroke] for stroke in self.strokes])
+
+
 #: The specifications that ``page.annotations.add`` takes.
-AnnotationSpecification: TypeAlias = Highlight | Square | Circle
+AnnotationSpecification: TypeAlias = Highlight | Square | Circle | LineAnnotation | Polygon | PolyLine | Ink
 
 
 class Annotations(Sequence[Annotation]):
@@ -676,6 +981,9 @@ class Annotations(Sequence[Annotation]):
                 page._page_number(), specification._spec(type(specification).__name__)
             )
             return Annotation(page, xref, 0)
+        if isinstance(specification, (LineAnnotation, Polygon, PolyLine, Ink)):
+            xref = page._document._doc.add_annotation(page._page_number(), specification._payload())
+            return Annotation(page, xref, 0)
         if not isinstance(specification, Highlight):
             msg = f"page.annotations.add takes an annotation specification: {type(specification).__name__}"
             raise TypeError(msg)
@@ -704,6 +1012,11 @@ for _public in (
     BorderStyle,
     Circle,
     Highlight,
+    Ink,
+    LineAnnotation,
+    LineEnding,
+    Polygon,
+    PolyLine,
     Square,
 ):
     _public.__module__ = "pylopdf"
