@@ -281,6 +281,25 @@ def test_spans_take_the_ascender_and_descender_of_an_opentype_program() -> None:
     assert char.bbox.y1 == pytest.approx(char.origin.y - 20 * font.descender)
 
 
+def test_a_substitute_for_a_font_that_is_not_embedded_lends_no_metrics() -> None:
+    """The OCR layer's font is not embedded; the Japanese fallback that draws it is no metric of it."""
+    source = pylopdf.Document()
+    source.pages.new((360, 200)).apply_ocr(
+        words=[pylopdf.OcrWord(text="Hello 1", bbox=pylopdf.Rect(20, 40, 200, 70), confidence=0.9)]
+    )
+    document = pylopdf.open(source.to_bytes())
+    noto = FONT_ROOT / "pylopdf-fonts-jp" / "src" / "pylopdf_fonts_jp" / "NotoSansJP-Regular.otf"
+    document.fallback_fonts = {"ja": pylopdf.FallbackFont(sans=pylopdf.Font.from_file(noto))}
+    page = document.pages[0]
+
+    (span,) = page.layout().blocks[0].lines[0].spans
+
+    assert span.font == "PyloOCR-Gothic"
+    assert (span.ascender, span.descender) == (0.8, -0.2)
+    # The search box is the box that the OCR word was placed in.
+    assert page.search("Hello 1") == [pytest.approx(pylopdf.Rect(20, 40, 200, 70), abs=0.01)]
+
+
 def test_glyph_boxes_span_at_least_one_em() -> None:
     page = pylopdf.open(build_painted_text_pdf()).pages[0]
 

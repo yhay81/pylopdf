@@ -55,8 +55,31 @@ impl Default for FontInfo {
 const DEFAULT_ASCENDER: f64 = 0.8;
 const DEFAULT_DESCENDER: f64 = -0.2;
 
+/// The font programs that pylopdf hands hayro in place of fonts that are not
+/// embedded, by the address and length of their bytes: their metrics are
+/// those of the substitute, not of the PDF's font.
+#[derive(Default)]
+pub(crate) struct SubstitutePrograms(Vec<(usize, usize)>);
+
+impl SubstitutePrograms {
+    pub(crate) fn new<'a>(programs: impl Iterator<Item = &'a [u8]>) -> Self {
+        Self(
+            programs
+                .map(|program| (program.as_ptr() as usize, program.len()))
+                .collect(),
+        )
+    }
+
+    fn contains(&self, program: &[u8]) -> bool {
+        self.0.contains(&(program.as_ptr() as usize, program.len()))
+    }
+}
+
 /// Derive a font name and flags from OutlineGlyph, once per font.
-fn font_info_of(glyph: &hayro::hayro_interpret::font::OutlineGlyph) -> FontInfo {
+fn font_info_of(
+    glyph: &hayro::hayro_interpret::font::OutlineGlyph,
+    substitutes: &SubstitutePrograms,
+) -> FontInfo {
     let Some(data) = glyph.font_data() else {
         return FontInfo::default();
     };
@@ -76,8 +99,12 @@ fn font_info_of(glyph: &hayro::hayro_interpret::font::OutlineGlyph) -> FontInfo 
         flags |= 16;
     }
     // A bare CFF program, which OpenType tables do not describe, keeps the
-    // defaults.
-    let metrics = ShapingFont::new(data.data, 0).and_then(|font| font_line_metrics(&font).ok());
+    // defaults, and so does a substitute for a font that is not embedded.
+    let metrics = if substitutes.contains((*data.data).as_ref()) {
+        None
+    } else {
+        ShapingFont::new(data.data, 0).and_then(|font| font_line_metrics(&font).ok())
+    };
     FontInfo {
         name,
         flags,
@@ -275,7 +302,7 @@ struct RuleSegment {
 }
 
 /// A Device that collects glyphs and table-rule candidates.
-struct TextCollector {
+struct TextCollector<'s> {
     glyphs: Vec<GlyphRecord>,
     rules: Vec<RuleSegment>,
     /// Skip vector-rule collection for ordinary text extraction.
@@ -300,6 +327,7 @@ struct TextCollector {
     style: RunStyle,
     /// The index of the first glyph that the latest run recorded.
     run_start: usize,
+    substitutes: &'s SubstitutePrograms,
 }
 
 /// The parts of a [`GlyphStyle`] that glyph records keep.
@@ -309,7 +337,7 @@ struct RunStyle {
     clip: Option<Rect>,
 }
 
-impl TextCollector {
+impl TextCollector<'_> {
     fn push_rule(&mut self, rule: RuleSegment) -> bool {
         if self.rules.len() >= MAX_TABLE_RULES {
             return false;
@@ -329,7 +357,7 @@ impl TextCollector {
 
 /// Text extraction reads the paths and glyphs of the content model's single
 /// device, so a fill-and-stroke text run contributes its glyphs once.
-impl ContentSink for TextCollector {
+impl ContentSink for TextCollector<'_> {
     fn path(&mut self, path: &kurbo::BezPath, transform: Affine, mode: &DrawMode) {
         if !self.collect_rules || self.rules.len() >= MAX_TABLE_RULES || self.limit_error.is_some()
         {
@@ -410,7 +438,7 @@ impl ContentSink for TextCollector {
     }
 }
 
-impl TextCollector {
+impl TextCollector<'_> {
     /// Record one glyph whose combined transform maps glyph space to display space.
     fn collect_glyph(&mut self, glyph: &Glyph<'_>, combined: Affine) {
         if self.limit_error.is_some() {
@@ -502,7 +530,7 @@ impl TextCollector {
                     let info = self
                         .font_infos
                         .entry(key)
-                        .or_insert_with(|| font_info_of(g))
+                        .or_insert_with(|| font_info_of(g, self.substitutes))
                         .clone();
                     self.last_font = Some((key, info.clone()));
                     info
@@ -2257,6 +2285,7 @@ impl TextPage {
         settings: InterpreterSettings,
         max_text_size: Option<usize>,
         max_glyph_count: Option<usize>,
+        substitutes: &SubstitutePrograms,
     ) -> Result<Self, TextPageLimit> {
         let (width, height) = page.render_dimensions();
         let marks = collect_page_marks(
@@ -2267,6 +2296,7 @@ impl TextPage {
             false,
             max_text_size,
             max_glyph_count,
+            substitutes,
         )?;
         let physical_lines = cluster_lines(marks.glyphs)?;
         let mut lines = order_page_lines(physical_lines)?;
@@ -2343,6 +2373,7 @@ impl TablePage {
         settings: InterpreterSettings,
         max_text_size: Option<usize>,
         max_glyph_count: Option<usize>,
+        substitutes: &SubstitutePrograms,
     ) -> Result<Self, TextPageLimit> {
         let marks = collect_page_marks(
             pdf,
@@ -2352,6 +2383,7 @@ impl TablePage {
             true,
             max_text_size,
             max_glyph_count,
+            substitutes,
         )?;
         let physical_lines = cluster_lines(marks.glyphs)?;
         let tables = detect_grid_tables(&physical_lines, &marks.rules)?;
@@ -4841,6 +4873,7 @@ struct PageMarks {
 ///
 /// The caller owns the interpreter cache so one batched call can reuse parsed
 /// fonts across pages instead of re-parsing them for every page.
+#[allow(clippy::too_many_arguments)]
 fn collect_page_marks<'a>(
     pdf: &'a Pdf,
     page: &Page<'a>,
@@ -4849,6 +4882,7 @@ fn collect_page_marks<'a>(
     collect_rules: bool,
     max_text_size: Option<usize>,
     max_glyph_count: Option<usize>,
+    substitutes: &SubstitutePrograms,
 ) -> Result<PageMarks, TextPageLimit> {
     let mut context = extraction_context(pdf, page, cache, settings);
     let text = TextCollector {
@@ -4868,6 +4902,7 @@ fn collect_page_marks<'a>(
             clip: None,
         },
         run_start: 0,
+        substitutes,
     };
     let mut device = ContentCollector::new(text, ItemKinds::NONE, None);
     interpret_page(page, &mut context, &mut device);

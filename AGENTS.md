@@ -191,8 +191,10 @@ the concept and API overview.
   ascender and descender that `generate::font_line_metrics` reads from the
   font program, scaled to one em together when they span less, as pymupdf's
   boxes do; hayro hands out no program for Type 1 and non-embedded fonts,
-  which take MuPDF's 0.8 and -0.2 until hayro identifies a glyph's font
-  dictionary (#338). The logical line boxes of column discovery keep fixed
+  and the CJK fallback programs that pylopdf substitutes for fonts that are
+  not embedded (`SubstitutePrograms`, matched by the address of their shared
+  bytes) describe no font of the PDF, so these take MuPDF's 0.8 and -0.2
+  until hayro identifies a glyph's font dictionary (#338). The logical line boxes of column discovery keep fixed
   0.8 and 0.2 em extents, so font metrics do not move gutters. The sink receives a
   `GlyphStyle` (sRGB color and alpha, render mode, and the intersected box of
   the clip paths in force, which the collector tracks for every sink) before
