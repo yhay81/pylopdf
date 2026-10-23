@@ -1,45 +1,30 @@
-"""pymupdf's constant groups as IntEnum and IntFlag members."""
+"""pymupdf's constant groups, which pylopdf provides as IntEnum and IntFlag members only."""
 
 from __future__ import annotations
-
-import enum
 
 import pytest
 
 import pylopdf
 
 
-@pytest.mark.parametrize(
-    ("group", "prefix", "values"),
-    [
-        (
-            pylopdf.Permissions,
-            "PDF_PERM_",
-            {
-                "PRINT": 4,
-                "MODIFY": 8,
-                "COPY": 16,
-                "ANNOTATE": 32,
-                "FORM": 256,
-                "ACCESSIBILITY": 512,
-                "ASSEMBLE": 1024,
-                "PRINT_HQ": 2048,
-            },
-        ),
-    ],
-)
-def test_module_constants_are_members_with_pymupdf_values(
-    group: type[enum.IntEnum | enum.IntFlag],
-    prefix: str,
-    values: dict[str, int],
-) -> None:
-    assert group.__module__ == "pylopdf"
+def test_permissions_keep_pymupdf_values() -> None:
+    values = {
+        "PRINT": 4,
+        "MODIFY": 8,
+        "COPY": 16,
+        "ANNOTATE": 32,
+        "FORM": 256,
+        "ACCESSIBILITY": 512,
+        "ASSEMBLE": 1024,
+        "PRINT_HQ": 2048,
+    }
+    assert pylopdf.Permissions.__module__ == "pylopdf"
     for name, value in values.items():
-        member = getattr(pylopdf, prefix + name)
-        assert member is group[name]
-        assert member == value
-        assert isinstance(member, int)
-        assert prefix + name in pylopdf.__all__
+        assert pylopdf.Permissions[name] == value
+        assert not hasattr(pylopdf, f"PDF_PERM_{name}")
+        assert f"PDF_PERM_{name}" not in pylopdf.__all__
+    with pytest.raises(AttributeError, match=r"Permissions\.PRINT"):
+        _ = pylopdf.PDF_PERM_PRINT  # ty: ignore[unresolved-attribute]
 
 
 def test_permissions_drop_the_old_member_names() -> None:

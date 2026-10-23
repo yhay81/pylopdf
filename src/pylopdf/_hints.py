@@ -20,10 +20,9 @@ def migration_hint(name: str) -> str | None:
     hint = HINTS.get(name)
     if hint is not None:
         return hint
-    for key, message in HINTS.items():
-        if key.endswith("*") and name.startswith(key[:-1]):
-            return message
-    return None
+    # The longest prefix wins, so PDF_ANNOT_IS_HIDDEN takes the hint of PDF_ANNOT_IS_* rather than PDF_ANNOT_*.
+    groups = [key for key in HINTS if key.endswith("*") and name.startswith(key[:-1])]
+    return HINTS[max(groups, key=len)] if groups else None
 
 
 def missing_attribute(owner: str | None, obj: object, name: str) -> AttributeError:

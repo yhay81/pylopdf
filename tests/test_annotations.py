@@ -214,11 +214,17 @@ def test_add_takes_specifications_only() -> None:
     assert not hasattr(page, "add_highlight_annot")
 
 
-def test_annotation_constants_match_pymupdf() -> None:
-    assert (pylopdf.PDF_ANNOT_TEXT, pylopdf.PDF_ANNOT_WIDGET, pylopdf.PDF_ANNOT_3D) == (0, 21, 26)
-    assert (pylopdf.PDF_ANNOT_UNKNOWN, pylopdf.PDF_ANNOT_PROJECTION) == (-1, 27)
-    assert pylopdf.PDF_ANNOT_3D is AnnotationType.THREE_D
-    assert pylopdf.PDF_ANNOT_IS_LOCKED_CONTENTS == 512
-    assert AnnotationFlags(6) == pylopdf.PDF_ANNOT_IS_PRINT | pylopdf.PDF_ANNOT_IS_HIDDEN
+def test_annotation_enums_keep_pymupdf_values() -> None:
+    assert (AnnotationType.TEXT, AnnotationType.WIDGET, AnnotationType.THREE_D) == (0, 21, 26)
+    assert (AnnotationType.UNKNOWN, AnnotationType.PROJECTION) == (-1, 27)
+    assert AnnotationFlags.LOCKED_CONTENTS == 512
+    assert AnnotationFlags(6) == AnnotationFlags.PRINT | AnnotationFlags.HIDDEN
+    for name in ("PDF_ANNOT_TEXT", "PDF_ANNOT_3D", "PDF_ANNOT_IS_HIDDEN"):
+        assert not hasattr(pylopdf, name)
+        assert name not in pylopdf.__all__
+    with pytest.raises(AttributeError, match=r"AnnotationType\.THREE_D"):
+        _ = pylopdf.PDF_ANNOT_3D  # ty: ignore[unresolved-attribute]
+    with pytest.raises(AttributeError, match="is AnnotationFlags in pylopdf"):
+        _ = pylopdf.PDF_ANNOT_IS_HIDDEN  # ty: ignore[unresolved-attribute]
     for name in ("Annot", "AnnotType", "AnnotFlags"):
         assert not hasattr(pylopdf, name)

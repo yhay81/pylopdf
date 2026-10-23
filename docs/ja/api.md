@@ -679,7 +679,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | `Form`, `Field`, `FieldType`, `FieldFlags`, `FieldChoice` | [フォーム](#forms) |
 | `FallbackFont`, `FallbackFonts` | [レンダリングと画像](#document-rendering) |
 
-定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`AnnotationType`（`PDF_ANNOT_*`）、`AnnotationFlags`（`PDF_ANNOT_IS_*`）です。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
+コードとフラグは列挙型のメンバだけで、モジュールの定数はありません。pymupdfの`PDF_PERM_PRINT`は`Permissions.PRINT`、`PDF_ANNOT_TEXT`は`AnnotationType.TEXT`、`PDF_ANNOT_IS_HIDDEN`は`AnnotationFlags.HIDDEN`で、値は同じです。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
 
 テキスト、表、OCR、ページの内容の結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`、しおりの行き先などの変更できないデータクラス（frozen dataclass）です。APIが返すそのほかの辞書はただの`dict`で、型チェッカー向けに`DocumentComplexity`などの`TypedDict`クラスで記述しています。
 

@@ -64,36 +64,6 @@ class AnnotationType(enum.IntEnum):
     PROJECTION = 27
 
 
-PDF_ANNOT_UNKNOWN = AnnotationType.UNKNOWN
-PDF_ANNOT_TEXT = AnnotationType.TEXT
-PDF_ANNOT_LINK = AnnotationType.LINK
-PDF_ANNOT_FREE_TEXT = AnnotationType.FREE_TEXT
-PDF_ANNOT_LINE = AnnotationType.LINE
-PDF_ANNOT_SQUARE = AnnotationType.SQUARE
-PDF_ANNOT_CIRCLE = AnnotationType.CIRCLE
-PDF_ANNOT_POLYGON = AnnotationType.POLYGON
-PDF_ANNOT_POLY_LINE = AnnotationType.POLY_LINE
-PDF_ANNOT_HIGHLIGHT = AnnotationType.HIGHLIGHT
-PDF_ANNOT_UNDERLINE = AnnotationType.UNDERLINE
-PDF_ANNOT_SQUIGGLY = AnnotationType.SQUIGGLY
-PDF_ANNOT_STRIKE_OUT = AnnotationType.STRIKE_OUT
-PDF_ANNOT_REDACT = AnnotationType.REDACT
-PDF_ANNOT_STAMP = AnnotationType.STAMP
-PDF_ANNOT_CARET = AnnotationType.CARET
-PDF_ANNOT_INK = AnnotationType.INK
-PDF_ANNOT_POPUP = AnnotationType.POPUP
-PDF_ANNOT_FILE_ATTACHMENT = AnnotationType.FILE_ATTACHMENT
-PDF_ANNOT_SOUND = AnnotationType.SOUND
-PDF_ANNOT_MOVIE = AnnotationType.MOVIE
-PDF_ANNOT_RICH_MEDIA = AnnotationType.RICH_MEDIA
-PDF_ANNOT_WIDGET = AnnotationType.WIDGET
-PDF_ANNOT_SCREEN = AnnotationType.SCREEN
-PDF_ANNOT_PRINTER_MARK = AnnotationType.PRINTER_MARK
-PDF_ANNOT_TRAP_NET = AnnotationType.TRAP_NET
-PDF_ANNOT_WATERMARK = AnnotationType.WATERMARK
-PDF_ANNOT_3D = AnnotationType.THREE_D
-PDF_ANNOT_PROJECTION = AnnotationType.PROJECTION
-
 #: The PDF subtype name of each annotation type.
 _SUBTYPE_TYPES: dict[str, AnnotationType] = {
     "Text": AnnotationType.TEXT,
@@ -141,17 +111,6 @@ class AnnotationFlags(enum.IntFlag):
     TOGGLE_NO_VIEW = 1 << 8
     LOCKED_CONTENTS = 1 << 9
 
-
-PDF_ANNOT_IS_INVISIBLE = AnnotationFlags.INVISIBLE
-PDF_ANNOT_IS_HIDDEN = AnnotationFlags.HIDDEN
-PDF_ANNOT_IS_PRINT = AnnotationFlags.PRINT
-PDF_ANNOT_IS_NO_ZOOM = AnnotationFlags.NO_ZOOM
-PDF_ANNOT_IS_NO_ROTATE = AnnotationFlags.NO_ROTATE
-PDF_ANNOT_IS_NO_VIEW = AnnotationFlags.NO_VIEW
-PDF_ANNOT_IS_READ_ONLY = AnnotationFlags.READ_ONLY
-PDF_ANNOT_IS_LOCKED = AnnotationFlags.LOCKED
-PDF_ANNOT_IS_TOGGLE_NO_VIEW = AnnotationFlags.TOGGLE_NO_VIEW
-PDF_ANNOT_IS_LOCKED_CONTENTS = AnnotationFlags.LOCKED_CONTENTS
 
 #: The positions of the text entries in the core's annotation tuple.
 _CONTENTS, _ICON, _AUTHOR, _CREATED, _MODIFIED, _SUBJECT, _NAME, _INTENT = range(8)

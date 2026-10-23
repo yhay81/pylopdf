@@ -54,6 +54,14 @@ MODULE_MEMBER_RENAMES = {
     "csGRAY": "Colorspace.GRAY",
     "CS_RGB": "Colorspace.RGB",
     "CS_GRAY": "Colorspace.GRAY",
+    **{
+        f"PDF_ANNOT_{member.name}": f"AnnotationType.{member.name}"
+        for member in pylopdf.AnnotationType
+        if member is not pylopdf.AnnotationType.THREE_D
+    },
+    "PDF_ANNOT_3D": "AnnotationType.THREE_D",
+    **{f"PDF_ANNOT_IS_{member.name}": f"AnnotationFlags.{member.name}" for member in pylopdf.AnnotationFlags},
+    **{f"PDF_PERM_{member.name}": f"Permissions.{member.name}" for member in pylopdf.Permissions},
 }
 #: Document properties that the API reset renamed; only pymupdf's and pylopdf 0.15's Document had them.
 DOCUMENT_PROPERTY_RENAMES = {
@@ -2608,6 +2616,8 @@ class _Migrator(cst.CSTTransformer):
         self.module_names: set[str] = set()
         #: Local names that ``import fitz`` or a renamed import bound, and what they read now.
         self.renamed: dict[str, str] = {}
+        #: Local names of imported module constants and the enum members that replace them.
+        self.member_renamed: dict[str, str] = {}
         #: Names that ``from fitz import ...`` or ``from pylopdf import ...`` bound.
         self.imported: set[str] = set()
         self._scan = scan
@@ -2994,7 +3004,9 @@ class _Migrator(cst.CSTTransformer):
             names.append(alias)
         return updated_node.with_changes(names=names)
 
-    def leave_ImportFrom(self, original_node: cst.ImportFrom, updated_node: cst.ImportFrom) -> cst.ImportFrom:
+    def leave_ImportFrom(
+        self, original_node: cst.ImportFrom, updated_node: cst.ImportFrom
+    ) -> cst.ImportFrom | cst.RemovalSentinel:
         if original_node.module is None or original_node.relative:
             return updated_node
         # The original name: a preceding ``import fitz`` already renamed this one.
@@ -3008,23 +3020,43 @@ class _Migrator(cst.CSTTransformer):
             updated_node = updated_node.with_changes(module=cst.Name(PACKAGE))
         if isinstance(updated_node.names, cst.ImportStar):
             return updated_node
-        aliases = []
-        for alias in updated_node.names:
-            name = _code(alias.name)
-            local = _code(alias.asname.name) if alias.asname is not None else name
-            renames = PYMUPDF_MODULE_RENAMES if module in PYMUPDF_MODULES else {}
-            if name in MODULE_RENAMES or name in renames:
-                self.rewrites += 1
-                renamed = MODULE_RENAMES.get(name) or renames[name]
-                alias = alias.with_changes(name=cst.Name(renamed))  # noqa: PLW2901
-                if alias.asname is None:
-                    self.renamed[name] = renamed
-                    local = renamed
-            elif not hasattr(pylopdf, name):
-                self.todo(migration_hint(name) or f"pylopdf does not provide pymupdf's {name}.")
-            self.imported.add(local)
-            aliases.append(alias)
+        listed = {_code(alias.name) for alias in updated_node.names if alias.asname is None}
+        aliases = [
+            kept for alias in updated_node.names if (kept := self._import_alias(alias, module, listed)) is not None
+        ]
+        if len(aliases) < len(updated_node.names):
+            if not aliases:
+                # Another statement imports the enum already.
+                return cst.RemoveFromParent()
+            if updated_node.lpar is None:
+                aliases[-1] = aliases[-1].with_changes(comma=cst.MaybeSentinel.DEFAULT)
         return updated_node.with_changes(names=aliases)
+
+    def _import_alias(self, alias: cst.ImportAlias, module: str, listed: set[str]) -> cst.ImportAlias | None:
+        """Rewrite one name of a ``from ... import``, or return None when the statement no longer needs it."""
+        name = _code(alias.name)
+        local = _code(alias.asname.name) if alias.asname is not None else name
+        renames = PYMUPDF_MODULE_RENAMES if module in PYMUPDF_MODULES else {}
+        if name in MODULE_RENAMES or name in renames:
+            self.rewrites += 1
+            renamed = MODULE_RENAMES.get(name) or renames[name]
+            alias = alias.with_changes(name=cst.Name(renamed))
+            if alias.asname is None:
+                self.renamed[name] = renamed
+                local = renamed
+        elif name in MODULE_MEMBER_RENAMES:
+            # The constant's uses read the member of its enum, which the statement imports in its place.
+            self.rewrites += 1
+            enum_name = MODULE_MEMBER_RENAMES[name].split(".")[0]
+            self.member_renamed[local] = MODULE_MEMBER_RENAMES[name]
+            if enum_name in self.imported or enum_name in listed or self._scan.imported.get(enum_name) == enum_name:
+                return None
+            local = enum_name
+            alias = cst.ImportAlias(name=cst.Name(enum_name))
+        elif not hasattr(pylopdf, name):
+            self.todo(migration_hint(name) or f"pylopdf does not provide pymupdf's {name}.")
+        self.imported.add(local)
+        return alias
 
     # Expressions ------------------------------------------------------------
 
@@ -3060,9 +3092,11 @@ class _Migrator(cst.CSTTransformer):
                     self._consumed.add(id(part))
                     part = part.value
 
-    def leave_Name(self, original_node: cst.Name, updated_node: cst.Name) -> cst.Name:
+    def leave_Name(self, original_node: cst.Name, updated_node: cst.Name) -> cst.BaseExpression:
         if id(original_node) not in self._attribute_names and updated_node.value in self.renamed:
             return updated_node.with_changes(value=self.renamed[updated_node.value])
+        if id(original_node) not in self._attribute_names and updated_node.value in self.member_renamed:
+            return cst.parse_expression(self.member_renamed[updated_node.value])
         return updated_node
 
     def visit_AssignTarget(self, node: cst.AssignTarget) -> None:

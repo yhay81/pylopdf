@@ -1,4 +1,4 @@
-"""Public value types, type aliases, flags, and constants."""
+"""Public value types, type aliases, and flags."""
 
 from __future__ import annotations
 
@@ -23,16 +23,6 @@ class Permissions(enum.IntFlag):
     ASSEMBLE = 1 << 10
     PRINT_HQ = 1 << 11
     ALL = PRINT | MODIFY | COPY | ANNOTATE | FORM | ACCESSIBILITY | ASSEMBLE | PRINT_HQ
-
-
-PDF_PERM_PRINT = Permissions.PRINT
-PDF_PERM_MODIFY = Permissions.MODIFY
-PDF_PERM_COPY = Permissions.COPY
-PDF_PERM_ANNOTATE = Permissions.ANNOTATE
-PDF_PERM_FORM = Permissions.FORM
-PDF_PERM_ACCESSIBILITY = Permissions.ACCESSIBILITY
-PDF_PERM_ASSEMBLE = Permissions.ASSEMBLE
-PDF_PERM_PRINT_HQ = Permissions.PRINT_HQ
 
 
 class Access(enum.IntEnum):
