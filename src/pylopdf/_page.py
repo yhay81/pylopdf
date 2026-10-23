@@ -26,7 +26,7 @@ from pylopdf._links import Links
 from pylopdf._objects import Dictionary
 from pylopdf._ocr import OcrEngine, OcrWord, _default_ocr_engine, _validate_ocr_rotation
 from pylopdf._page_labels import _label, _read_page_labels
-from pylopdf._pixmap import Colorspace, _render_background, _render_gray, _render_scale, _validate_bool
+from pylopdf._pixmap import Colorspace, _render_background, _render_gray, _render_matrix, _validate_bool
 from pylopdf._tables import Table, build_tables
 from pylopdf._widgets import Widgets
 
@@ -575,9 +575,13 @@ class Page:
         """Render the page to a :class:`Pixmap`.
 
         The default is opaque RGB on white at 72 dpi. ``dpi`` sets the
-        resolution, or ``matrix`` scales the page with the identity at 72 dpi;
-        pass one of them. Only scaling matrices are supported: rotation, shear,
-        and flips raise :class:`PdfError`, and a translation moves no pixels.
+        resolution, or ``matrix`` transforms the page, with the identity at
+        72 dpi; pass one of them. Any invertible matrix renders: the pixmap
+        covers the bounding box of the transformed page, with each side
+        truncated to whole pixels, so a translation moves no pixels and
+        ``Matrix(2, 2)`` renders exactly what ``dpi=144`` does.
+        ``Matrix(90) * Matrix(2, 2)`` turns the page a quarter turn clockwise
+        on the screen, as MuPDF does.
         ``alpha=True`` keeps transparency in a straight alpha channel.
         ``background`` is an RGB or RGBA tuple with components from 0 to 255
         painted beneath the page, which must be opaque without ``alpha``.
@@ -585,8 +589,9 @@ class Page:
         form widgets. ``colorspace="gray"`` converts the rendered colors to
         gray with ITU-R BT.601 luma weights.
 
-        ``clip`` is an optional display-coordinate rectangle. It is intersected
-        with the page and rounded outward to pixel boundaries. A clip that does
+        ``clip`` is an optional display-coordinate rectangle. The bounding box
+        of the clip under ``matrix`` is rounded outward to pixel boundaries
+        and intersected with the page. A clip that does
         not intersect the page raises :class:`PdfError`. Only the clipped
         region is rasterized, but full-page render-size limits still apply:
         65,535 pixels per side and 64,000,000 pixels in all.
@@ -595,7 +600,7 @@ class Page:
         ``(height, width, channels)``, so ``numpy.asarray(pix)`` reads them
         without a copy.
         """
-        scale = _render_scale(matrix, dpi)
+        linear = _render_matrix(matrix, dpi)
         rgba = _render_background(background, alpha=alpha)
         _validate_bool("annotations", annotations)
         gray = _render_gray(colorspace)
@@ -603,7 +608,7 @@ class Page:
         page_number = self._page_number()
         document = self._document
         document._ensure_fallback_fonts()
-        result = document._doc.render_page_pixmap(page_number, scale, gray, alpha, rgba, clip_rect, annotations)
+        result = document._doc.render_page_pixmap(page_number, linear, gray, alpha, rgba, clip_rect, annotations)
         document._emit_warnings()
         return result
 

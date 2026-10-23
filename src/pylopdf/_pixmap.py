@@ -7,7 +7,6 @@ import math
 from typing import TYPE_CHECKING
 
 from pylopdf._geometry import Matrix
-from pylopdf.pylopdf_core import PdfError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -100,12 +99,11 @@ def _render_background(
     return rgba
 
 
-def _render_scale(matrix: Matrix | Sequence[float] | None, dpi: float | None) -> tuple[float, float]:
-    """Return the horizontal and vertical scale of ``dpi`` or of ``matrix``.
+def _render_matrix(matrix: Matrix | Sequence[float] | None, dpi: float | None) -> tuple[float, float, float, float]:
+    """Return the linear part ``(a, b, c, d)`` of ``dpi`` or of ``matrix``.
 
-    The two are exclusive. Only scaling matrices are supported: rotation,
-    shear, and flips raise ``PdfError``, and a translation does not move the
-    rendered pixels.
+    The two are exclusive. The raster covers the bounding box of the
+    transformed page, so a translation moves no pixels and is dropped.
     """
     if dpi is not None and matrix is not None:
         msg = "pass dpi or matrix, not both"
@@ -115,14 +113,14 @@ def _render_scale(matrix: Matrix | Sequence[float] | None, dpi: float | None) ->
             msg = f"dpi must be a positive finite number: {dpi!r}"
             raise ValueError(msg)
         scale = float(dpi) / _POINTS_PER_INCH
-        return (scale, scale)
+        return (scale, 0.0, 0.0, scale)
     if matrix is None:
-        return (1.0, 1.0)
+        return (1.0, 0.0, 0.0, 1.0)
     resolved = matrix if isinstance(matrix, Matrix) else Matrix(*matrix)
-    if resolved.b != 0 or resolved.c != 0 or resolved.a <= 0 or resolved.d <= 0:
-        msg = f"matrix must scale without rotating, shearing, or flipping: {tuple(resolved)!r}"
-        raise PdfError(msg)
-    return (float(resolved.a), float(resolved.d))
+    if resolved.a * resolved.d - resolved.b * resolved.c == 0:
+        msg = f"matrix must be invertible: {tuple(resolved)!r}"
+        raise ValueError(msg)
+    return (float(resolved.a), float(resolved.b), float(resolved.c), float(resolved.d))
 
 
 # The package re-exports this enum; reprs, pickles, and documentation name it.

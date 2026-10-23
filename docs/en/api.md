@@ -302,8 +302,10 @@ are not interpreted.
 | `resources` | What the page's resources reach: `resources.images` lists its image objects; see [Images](#images) |
 
 A pixmap is RGB on white at 72 dpi by default and RGBA with `alpha=True`.
-Pass `dpi` or `matrix`, not both; a matrix must only scale, such as
-`Matrix(2, 2)`. `clip` renders only part of the page, and
+Pass `dpi` or `matrix`, not both. Any invertible matrix renders: the pixmap
+covers the transformed page, so `Matrix(90) * Matrix(2, 2)` turns the page a
+quarter turn clockwise at 144 dpi, and a translation moves no pixels.
+`clip` renders only part of the page, and
 `annotations=False` leaves out annotations and form widgets, and
 `colorspace="gray"` renders gray pixels.
 

@@ -1293,11 +1293,20 @@ the concept and API overview.
   RGBA with `expand_to_rgba`.
 - `Page.pixmap` renders opaque RGB (`n == 3`) on white by default and
   straight-alpha RGBA with `alpha=True`. `dpi` and `matrix` are exclusive
-  (`_render_scale` refuses both), and only scaling matrices are accepted
-  (rotation, shear, and flips raise `PdfError`; a translation moves no
-  pixels). The core takes separate x and y scale factors, which hayro's
-  transform applies, and `raster_samples` drops the alpha bytes of an opaque
-  raster in place rather than copying it. `background=` must be opaque
+  (`_render_matrix` refuses both), and any invertible matrix renders: the
+  core takes its linear part `(a, b, c, d)`, and `RasterGeometry` maps the
+  display page through it, shifts it by whole pixels so that the raster
+  starts at the first pixel inside the transformed page, and truncates each
+  side to whole pixels (with MuPDF's 0.001-pixel tolerance), so the page's
+  top-left corner stays on a pixel corner and a translation moves no pixels.
+  A diagonal matrix is therefore pixel-identical to the equivalent `dpi`, and
+  right-angle rotations and flips of a scanned page are pixel-identical to
+  the rotated upright raster; vello_cpu's anti-aliasing differs by up to one
+  level on most vector pixels, more on a few thin strokes. `clip=` is the
+  outward-rounded bounding box of the clip under the matrix. pymupdf rounds
+  the transformed page outward and keeps the translation as the pixmap's
+  origin; a pylopdf `Pixmap` has no origin. `raster_samples` drops the alpha
+  bytes of an opaque raster in place rather than copying it. `background=` must be opaque
   without `alpha`. `annotations=False` sets hayro's
   `InterpreterSettings::render_annotations` for the call; the retained render
   cache holds fonts and images, which do not depend on it.

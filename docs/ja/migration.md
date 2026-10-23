@@ -81,7 +81,7 @@ python -m pylopdf.migrate src/
 | `page.find_tables()` | `page.tables()` | `Table`レコードのリスト。`table.rows`が`extract()`に、`len(table.rows)`が`row_count`に代わり、`table.cells`は各セルの矩形を行ごとに持ちます。調整用のキーワード、`header`、`to_pandas()`はまだありません |
 | `page.get_textpage_ocr()` | `page.ocr()`, `page.apply_ocr()` | 組み込みのオフラインOCR。[オフラインOCR](ocr.md)を参照 |
 | `pymupdf4llm.to_markdown(doc)` | `doc.markdown()` | 組み込み |
-| `page.get_pixmap(matrix=…, dpi=…, annots=…)` | `page.pixmap(dpi=…, annotations=…)` | `dpi`と`matrix`はどちらか一方。拡大縮小の行列のみ。`colorspace=`は`Colorspace.GRAY`か`Colorspace.RGB`で、CMYKはありません。`doc.get_page_pixmap(i)`は`doc.pages[i].pixmap()`になります |
+| `page.get_pixmap(matrix=…, dpi=…, annots=…)` | `page.pixmap(dpi=…, annotations=…)` | `dpi`と`matrix`はどちらか一方。平行移動は画素を動かさず、ピクセルマップは原点を持ちません。`colorspace=`は`Colorspace.GRAY`か`Colorspace.RGB`で、CMYKはありません。`doc.get_page_pixmap(i)`は`doc.pages[i].pixmap()`になります |
 | `pix.samples`, `pix.samples_mv` | `bytes(pix)`, `memoryview(pix)` | `numpy.asarray(pix)`はコピーせずに形`(height, width, channels)`で画素を読みます |
 | `pix.n` | `pix.channels` | |
 | `pix.tobytes(output, jpg_quality=…)`, `pix.save(path, output, jpg_quality=…)` | `pix.to_bytes(format, quality=…)`, `pix.save(path, format=…, quality=…)` | PNGとJPEG。ほかの形式はPillowに任せます |

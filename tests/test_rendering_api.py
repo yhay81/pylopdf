@@ -62,15 +62,6 @@ def test_matrix_scales_each_axis_and_excludes_dpi() -> None:
         pylopdf.open(build_pdf(["One"])).render(matrix=pylopdf.Matrix(4, 4), dpi=36)
 
 
-@pytest.mark.parametrize(
-    "matrix",
-    [pylopdf.Matrix(90), pylopdf.Matrix(1, 0.5, 0, 1, 0, 0), pylopdf.Matrix(-1, 0, 0, 1, 0, 0), (1, 0, 0, 0, 0, 0)],
-)
-def test_matrices_that_do_not_only_scale_raise(matrix: object) -> None:
-    with pytest.raises(pylopdf.PdfError, match="matrix must scale"):
-        _page().pixmap(matrix=matrix)  # ty: ignore[invalid-argument-type]
-
-
 def test_negative_indexes_render_the_same_page() -> None:
     doc = pylopdf.open(build_pdf(["One", "Two"]))
 

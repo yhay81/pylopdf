@@ -81,7 +81,7 @@ python -m pylopdf.migrate src/
 | `page.find_tables()` | `page.tables()` | `Table` 레코드 리스트. `table.rows`가 `extract()`를, `len(table.rows)`가 `row_count`를 대신하고, `table.cells`는 각 셀의 상자를 행별로 담음. 조정용 키워드, `header`, `to_pandas()`는 아직 없음 |
 | `page.get_textpage_ocr()` | `page.ocr()`, `page.apply_ocr()` | 내장 오프라인 OCR. [오프라인 OCR](ocr.md) 참고 |
 | `pymupdf4llm.to_markdown(doc)` | `doc.markdown()` | 내장 |
-| `page.get_pixmap(matrix=…, dpi=…, annots=…)` | `page.pixmap(dpi=…, annotations=…)` | `dpi`와 `matrix` 중 하나만 전달. 배율 행렬만 지원. `colorspace=`는 `Colorspace.GRAY` 또는 `Colorspace.RGB`이며 CMYK는 없음. `doc.get_page_pixmap(i)`는 `doc.pages[i].pixmap()`으로 바뀜 |
+| `page.get_pixmap(matrix=…, dpi=…, annots=…)` | `page.pixmap(dpi=…, annotations=…)` | `dpi`와 `matrix` 중 하나만 전달. 평행 이동은 픽셀을 움직이지 않으며 pixmap에는 원점이 없음. `colorspace=`는 `Colorspace.GRAY` 또는 `Colorspace.RGB`이며 CMYK는 없음. `doc.get_page_pixmap(i)`는 `doc.pages[i].pixmap()`으로 바뀜 |
 | `pix.samples`, `pix.samples_mv` | `bytes(pix)`, `memoryview(pix)` | `numpy.asarray(pix)`는 복사 없이 `(height, width, channels)` 모양으로 픽셀을 읽음 |
 | `pix.n` | `pix.channels` | |
 | `pix.tobytes(output, jpg_quality=…)`, `pix.save(path, output, jpg_quality=…)` | `pix.to_bytes(format, quality=…)`, `pix.save(path, format=…, quality=…)` | PNG와 JPEG. 다른 형식은 Pillow에 맡김 |

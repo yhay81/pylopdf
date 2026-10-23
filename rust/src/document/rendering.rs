@@ -84,8 +84,137 @@ pub(super) fn rgba_bytes(pixmap: hayro::vello_cpu::Pixmap) -> Vec<u8> {
     pixmap.take_rgba8(ImageAlphaType::Alpha)
 }
 
-/// Horizontal and vertical render scale factors, where 1.0 is 72 dpi.
-pub(super) type RenderScale = (f32, f32);
+/// The linear part `(a, b, c, d)` of a render matrix, in the row-vector
+/// convention of PDF and `Matrix`: display point `(x, y)` maps to pixel
+/// `(a x + c y, b x + d y)`, so the identity renders at 72 dpi.
+pub(super) type RenderMatrix = (f64, f64, f64, f64);
+
+/// How far a page edge may fall short of a pixel boundary through
+/// floating-point error and still cover that pixel, as MuPDF's
+/// `fz_round_rect` allows.
+const RASTER_EDGE_TOLERANCE: f64 = 0.001;
+
+/// Where a page lands on its raster under a render matrix.
+pub(super) struct RasterGeometry {
+    /// The matrix, shifted by whole pixels so that the raster starts at the
+    /// first pixel inside the transformed page. The page's top-left corner
+    /// stays on a pixel corner, so a right-angle rotation or a flip turns the
+    /// pixel grid of the upright page, and a translation moves no pixel.
+    pub(super) linear: Affine,
+    /// The raster size: the whole pixels inside the bounding box of the
+    /// transformed page.
+    pub(super) width: u16,
+    pub(super) height: u16,
+}
+
+impl RasterGeometry {
+    /// Map a display page of `page_width` by `page_height` points through
+    /// `matrix`, refusing rasters above the side and pixel limits.
+    pub(super) fn new(
+        page_width: f32,
+        page_height: f32,
+        matrix: RenderMatrix,
+    ) -> Result<Self, String> {
+        let (a, b, c, d) = matrix;
+        if ![a, b, c, d].into_iter().all(f64::is_finite) || a * d - b * c == 0.0 {
+            return Err("matrix must be finite and invertible".to_owned());
+        }
+        let (page_width, page_height) = (f64::from(page_width), f64::from(page_height));
+        let linear = Affine::new([a, b, c, d, 0.0, 0.0]);
+        let corners = [
+            (0.0, 0.0),
+            (page_width, 0.0),
+            (0.0, page_height),
+            (page_width, page_height),
+        ]
+        .map(|(x, y)| linear * hayro::kurbo::Point::new(x, y));
+        let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for corner in corners {
+            x0 = x0.min(corner.x);
+            y0 = y0.min(corner.y);
+            x1 = x1.max(corner.x);
+            y1 = y1.max(corner.y);
+        }
+        // The corner at the origin is on a pixel corner, so whole pixels
+        // start at a ceiling and end at a floor.
+        let (x0, y0) = (
+            (x0 - RASTER_EDGE_TOLERANCE).ceil(),
+            (y0 - RASTER_EDGE_TOLERANCE).ceil(),
+        );
+        let pixel_width = (x1 + RASTER_EDGE_TOLERANCE).floor() - x0;
+        let pixel_height = (y1 + RASTER_EDGE_TOLERANCE).floor() - y0;
+        if !pixel_width.is_finite()
+            || !pixel_height.is_finite()
+            || pixel_width < 1.0
+            || pixel_height < 1.0
+        {
+            return Err("scale is too small, or the PDF page size is invalid".to_owned());
+        }
+        if pixel_width > f64::from(u16::MAX) || pixel_height > f64::from(u16::MAX) {
+            return Err(format!(
+                "render size {pixel_width:.0}x{pixel_height:.0} exceeds the 65535-pixel limit per side"
+            ));
+        }
+        let total_pixels = (pixel_width as u64) * (pixel_height as u64);
+        if total_pixels > MAX_RENDER_PIXELS {
+            return Err(format!(
+                "render size {pixel_width:.0}x{pixel_height:.0} ({total_pixels} pixels) exceeds the {MAX_RENDER_PIXELS}-pixel limit"
+            ));
+        }
+        Ok(Self {
+            linear: Affine::translate((-x0, -y0)) * linear,
+            // Both sides were checked against the u16 limit above.
+            width: pixel_width as u16,
+            height: pixel_height as u16,
+        })
+    }
+
+    /// The raster's pixel count.
+    pub(super) fn pixels(&self) -> u64 {
+        u64::from(self.width) * u64::from(self.height)
+    }
+
+    /// The pixel viewport of a display-coordinate clip: the bounding box of
+    /// the transformed clip, rounded outward to pixel boundaries and
+    /// intersected with the raster. Returns the viewport origin and size.
+    pub(super) fn clip_viewport(
+        &self,
+        clip: (f64, f64, f64, f64),
+    ) -> Result<(f64, f64, u16, u16), String> {
+        if ![clip.0, clip.1, clip.2, clip.3]
+            .into_iter()
+            .all(f64::is_finite)
+            || clip.0 >= clip.2
+            || clip.1 >= clip.3
+        {
+            return Err("clip must be a finite rectangle with x0 < x1 and y0 < y1".to_owned());
+        }
+        let corners = [
+            (clip.0, clip.1),
+            (clip.2, clip.1),
+            (clip.0, clip.3),
+            (clip.2, clip.3),
+        ]
+        .map(|(x, y)| self.linear * hayro::kurbo::Point::new(x, y));
+        let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for corner in corners {
+            x0 = x0.min(corner.x);
+            y0 = y0.min(corner.y);
+            x1 = x1.max(corner.x);
+            y1 = y1.max(corner.y);
+        }
+        let (width, height) = (f64::from(self.width), f64::from(self.height));
+        let x0 = x0.floor().clamp(0.0, width);
+        let y0 = y0.floor().clamp(0.0, height);
+        let x1 = x1.ceil().clamp(0.0, width);
+        let y1 = y1.ceil().clamp(0.0, height);
+        if x0 >= x1 || y0 >= y1 {
+            return Err("clip does not intersect the rendered page".to_owned());
+        }
+        // Both extents are bounded by the u16 raster, so the casts are exact.
+        Ok((x0, y0, (x1 - x0) as u16, (y1 - y0) as u16))
+    }
+}
 
 /// Return a rendered raster's samples in `layout`: straight-alpha RGBA, RGB,
 /// or their gray counterparts. Without alpha the raster was cleared to an
@@ -107,78 +236,25 @@ pub(super) fn raster_samples(pixmap: hayro::vello_cpu::Pixmap, layout: Layout) -
     data
 }
 
-/// Pixel viewport of a display-coordinate clip on the scaled page raster.
-///
-/// The clip is intersected with the page and rounded outward to pixel
-/// boundaries. Returns the viewport origin and size in pixels.
-pub(super) fn clip_viewport(
-    page_width: u16,
-    page_height: u16,
-    scale: RenderScale,
-    clip: (f64, f64, f64, f64),
-) -> Result<(f64, f64, u16, u16), String> {
-    if ![clip.0, clip.1, clip.2, clip.3]
-        .into_iter()
-        .all(f64::is_finite)
-        || clip.0 >= clip.2
-        || clip.1 >= clip.3
-    {
-        return Err("clip must be a finite rectangle with x0 < x1 and y0 < y1".to_owned());
-    }
-    let (x_scale, y_scale) = (f64::from(scale.0), f64::from(scale.1));
-    let (width, height) = (f64::from(page_width), f64::from(page_height));
-    let x0 = (clip.0 * x_scale).floor().clamp(0.0, width);
-    let y0 = (clip.1 * y_scale).floor().clamp(0.0, height);
-    let x1 = (clip.2 * x_scale).ceil().clamp(0.0, width);
-    let y1 = (clip.3 * y_scale).ceil().clamp(0.0, height);
-    if x0 >= x1 || y0 >= y1 {
-        return Err("clip does not intersect the rendered page".to_owned());
-    }
-    // Both extents are bounded by the u16 page raster, so the casts are exact.
-    Ok((x0, y0, (x1 - x0) as u16, (y1 - y0) as u16))
-}
-
-/// Validate one page and return its raster pixel count.
-pub(super) fn render_pixel_count(
+/// Validate one page and return its raster geometry under `matrix`.
+pub(super) fn page_raster_geometry(
     pdf: &Pdf,
     page_number: u32,
-    scale: RenderScale,
-) -> Result<u64, String> {
-    if !(scale.0.is_finite() && scale.1.is_finite() && scale.0 > 0.0 && scale.1 > 0.0) {
-        return Err("scale must be a finite, positive value".to_owned());
-    }
+    matrix: RenderMatrix,
+) -> Result<RasterGeometry, String> {
     let pages = pdf.pages();
     let page = page_number
         .checked_sub(1)
         .and_then(|index| pages.get(index as usize))
         .ok_or_else(|| format!("page {page_number} does not exist"))?;
     let (page_width, page_height) = page.render_dimensions();
-    let pixel_width = (f64::from(page_width) * f64::from(scale.0)).floor();
-    let pixel_height = (f64::from(page_height) * f64::from(scale.1)).floor();
-    if !pixel_width.is_finite()
-        || !pixel_height.is_finite()
-        || pixel_width < 1.0
-        || pixel_height < 1.0
-    {
-        return Err("scale is too small, or the PDF page size is invalid".to_owned());
-    }
-    if pixel_width > f64::from(u16::MAX) || pixel_height > f64::from(u16::MAX) {
-        return Err(format!(
-            "render size {pixel_width:.0}x{pixel_height:.0} exceeds the 65535-pixel limit per side"
-        ));
-    }
-    let total_pixels = (pixel_width as u64) * (pixel_height as u64);
-    if total_pixels > MAX_RENDER_PIXELS {
-        return Err(format!(
-            "render size {pixel_width:.0}x{pixel_height:.0} ({total_pixels} pixels) exceeds the {MAX_RENDER_PIXELS}-pixel limit"
-        ));
-    }
-    Ok(total_pixels)
+    RasterGeometry::new(page_width, page_height, matrix)
 }
 
 /// Render one page, or one display-coordinate clip of it, from an immutable
 /// hayro snapshot and caller-owned cache.
 ///
+/// The raster covers the bounding box of the page transformed by `matrix`.
 /// A clip renders through an offset viewport, so only its pixels are
 /// rasterized and allocated. Full-page render-size limits still apply.
 pub(super) fn render_pdf_page<'a>(
@@ -186,29 +262,18 @@ pub(super) fn render_pdf_page<'a>(
     cache: &RenderCache<'a>,
     interpreter_settings: &InterpreterSettings,
     page_number: u32,
-    scale: RenderScale,
+    matrix: RenderMatrix,
     background: Option<(u8, u8, u8, u8)>,
     clip: Option<(f64, f64, f64, f64)>,
 ) -> Result<hayro::vello_cpu::Pixmap, String> {
-    render_pixel_count(pdf, page_number, scale)?;
-    let pages = pdf.pages();
-    let page = page_number
-        .checked_sub(1)
-        .and_then(|index| pages.get(index as usize))
-        .ok_or_else(|| format!("page {page_number} does not exist"))?;
-    let (page_width, page_height) = page.render_dimensions();
-    // Match hayro::render, which truncates the scaled page size.
-    let (width, height) = (
-        (page_width * scale.0) as u16,
-        (page_height * scale.1) as u16,
-    );
+    let geometry = page_raster_geometry(pdf, page_number, matrix)?;
+    let page = &pdf.pages()[page_number as usize - 1];
     let (x0, y0, width, height) = match clip {
-        Some(clip) => clip_viewport(width, height, scale, clip)?,
-        None => (0.0, 0.0, width, height),
+        Some(clip) => geometry.clip_viewport(clip)?,
+        None => (0.0, 0.0, geometry.width, geometry.height),
     };
-    let transform = Affine::translate((-x0, -y0))
-        * Affine::scale_non_uniform(f64::from(scale.0), f64::from(scale.1))
-        * page.initial_transform(true).to_kurbo();
+    let transform =
+        Affine::translate((-x0, -y0)) * geometry.linear * page.initial_transform(true).to_kurbo();
     let mut context = RenderContext::new(width, height);
     render_into(
         page,
@@ -363,7 +428,7 @@ pub(super) fn rendered_batch_image(
 
 pub(super) struct BatchRenderer<'shared> {
     pub(super) interpreter_settings: &'shared InterpreterSettings,
-    pub(super) scale: RenderScale,
+    pub(super) matrix: RenderMatrix,
     pub(super) layout: Layout,
     pub(super) encoding: Encoding,
     pub(super) background: Option<(u8, u8, u8, u8)>,
@@ -384,7 +449,7 @@ impl BatchRenderer<'_> {
             cache,
             self.interpreter_settings,
             page_number,
-            self.scale,
+            self.matrix,
             self.background,
             None,
         )
@@ -738,7 +803,7 @@ impl _Document {
         &mut self,
         py: Python<'_>,
         page_number: u32,
-        scale: RenderScale,
+        matrix: RenderMatrix,
         background: Option<(u8, u8, u8, u8)>,
         clip: Option<(f64, f64, f64, f64)>,
         annotations: bool,
@@ -759,7 +824,7 @@ impl _Document {
                             cache,
                             &interpreter_settings,
                             page_number,
-                            scale,
+                            matrix,
                             background,
                             clip,
                         )
@@ -784,7 +849,7 @@ pub(super) fn render_page_png(
     this: &mut _Document,
     py: Python<'_>,
     page_number: u32,
-    scale: RenderScale,
+    matrix: RenderMatrix,
     alpha: bool,
     background: Option<(u8, u8, u8, u8)>,
     max_output_size: Option<usize>,
@@ -794,7 +859,7 @@ pub(super) fn render_page_png(
             "max_output_size must be a positive integer or None",
         ));
     }
-    let pixmap = this.render_pixmap_impl(py, page_number, scale, background, None, true)?;
+    let pixmap = this.render_pixmap_impl(py, page_number, matrix, background, None, true)?;
     // PNG encoding can cost more than rasterization, so release the GIL and
     // use Fast/fdeflate. Balanced is tens of times slower for about 10%
     // smaller output and made PNG the dominant render cost in benchmarks.
@@ -808,7 +873,7 @@ pub(super) fn render_pages_encoded(
     this: &mut _Document,
     py: Python<'_>,
     page_numbers: Vec<u32>,
-    scale: RenderScale,
+    matrix: RenderMatrix,
     layout: Layout,
     background: Option<(u8, u8, u8, u8)>,
     annotations: bool,
@@ -835,13 +900,14 @@ pub(super) fn render_pages_encoded(
             let max_pixels = page_numbers
                 .iter()
                 .try_fold(0u64, |maximum, &page_number| {
-                    render_pixel_count(pdf, page_number, scale).map(|pixels| maximum.max(pixels))
+                    page_raster_geometry(pdf, page_number, matrix)
+                        .map(|geometry| maximum.max(geometry.pixels()))
                 })
                 .map_err(PdfError::new_err)?;
             let output_bytes = AtomicUsize::new(0);
             let renderer = BatchRenderer {
                 interpreter_settings: &interpreter_settings,
-                scale,
+                matrix,
                 layout,
                 encoding,
                 background,
@@ -952,13 +1018,13 @@ pub(super) fn render_page_pixmap(
     this: &mut _Document,
     py: Python<'_>,
     page_number: u32,
-    scale: RenderScale,
+    matrix: RenderMatrix,
     layout: Layout,
     background: Option<(u8, u8, u8, u8)>,
     clip: Option<(f64, f64, f64, f64)>,
     annotations: bool,
 ) -> PyResult<crate::pixmap::Pixmap> {
-    let pixmap = this.render_pixmap_impl(py, page_number, scale, background, clip, annotations)?;
+    let pixmap = this.render_pixmap_impl(py, page_number, matrix, background, clip, annotations)?;
     let width = u32::from(pixmap.width());
     let height = u32::from(pixmap.height());
     // Release the GIL: unpremultiplication touches every rendered pixel.

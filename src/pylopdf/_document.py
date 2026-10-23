@@ -55,7 +55,7 @@ from pylopdf._pixmap import (
     Colorspace,
     _render_background,
     _render_gray,
-    _render_scale,
+    _render_matrix,
     _validate_bool,
     _validate_encoding,
 )
@@ -1046,7 +1046,7 @@ class Document:
         parallel rendering boundary.
         """
         self._ensure_open()
-        scale = _render_scale(matrix, dpi)
+        linear = _render_matrix(matrix, dpi)
         rgba = _render_background(background, alpha=alpha)
         _validate_bool("annotations", annotations)
         gray = _render_gray(colorspace)
@@ -1066,7 +1066,7 @@ class Document:
             return []
         self._ensure_fallback_fonts()
         result = self._doc.render_pages_encoded(
-            page_numbers, scale, gray, alpha, rgba, annotations, format, quality, workers, max_size
+            page_numbers, linear, gray, alpha, rgba, annotations, format, quality, workers, max_size
         )
         self._emit_warnings()
         return result
