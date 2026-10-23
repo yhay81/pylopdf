@@ -106,7 +106,7 @@ from pylopdf._errors import (
     StalePageError,
 )
 from pylopdf._fallback_fonts import FallbackFont, FallbackFonts
-from pylopdf._fonts import Base14_fontdict, Base14_fontnames, Font
+from pylopdf._fonts import Font
 from pylopdf._geometry import (
     EMPTY_IRECT,
     EMPTY_QUAD,
@@ -232,8 +232,6 @@ __all__ = [
     "Array",
     "Attachment",
     "Attachments",
-    "Base14_fontdict",
-    "Base14_fontnames",
     "BlendMode",
     "Block",
     "Builder",
@@ -330,6 +328,7 @@ __all__ = [
     "StaleObjectError",
     "StalePageError",
     "Standard",
+    "StandardFontName",
     "Stream",
     "String",
     "Stroke",
@@ -357,6 +356,7 @@ __all__ += ["Pixmap", "PylopdfWarning"]
 OcrRotation: TypeAlias = _types.OcrRotation
 FontLanguage: TypeAlias = _types.FontLanguage
 CjkFontLanguage: TypeAlias = _types.CjkFontLanguage
+StandardFontName: TypeAlias = _types.StandardFontName
 FormFieldType: TypeAlias = _types.FormFieldType
 ContentItem: TypeAlias = _content.ContentItem
 Paint: TypeAlias = _content.Paint

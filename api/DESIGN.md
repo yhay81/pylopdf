@@ -284,7 +284,7 @@ return one from `builder.page(size)`.
 | `path(path, *, fill=None, stroke=None, fill_rule=FillRule.NONZERO)` | `path` is a `Path` item or a geometry built with `PathBuilder`, whose constructors also cover sectors, wavy lines, and zigzag lines. |
 | `line`, `rect(rect, *, radius=0, ...)`, `circle`, `ellipse`, `polygon`, `bezier` | Shortcuts that build one path. |
 | `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None, rotate=0)` | Shaped with HarfRust and embedded as a subset by krilla. The fill and the stroke select the render mode; invisible text belongs to `page.apply_ocr`. |
-| `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` → `TextFit` | Wraps with UAX #14; on overflow it draws nothing and reports the shortfall. |
+| `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` → `TextFit` | Wraps with UAX #14 and places lines as `text` does, the first baseline one ascender below the top; on overflow it draws nothing and reports the shortfall. |
 | `image(rect, source, *, keep_aspect=True, rotate=0)` | `source` is a path, encoded bytes, a `Pixmap`, or an `ImageObject`; the same image is stored once. |
 | `page(rect, source, *, clip=None, keep_aspect=True, rotate=0)` | Places another page, which may belong to the same document. |
 | `clip(path)`, `transform(matrix)`, `opacity(alpha)`, `blend(mode)`, `mask(...)`, `layer(layer)`, `tag(role, ...)` | Context managers that scope a graphics state; `tag` scopes build a tagged new document's structure tree. |
@@ -293,14 +293,19 @@ return one from `builder.page(size)`.
 
 Strokes take a paint or a `Stroke(paint=..., width=1.0, cap=LineCap.BUTT,
 join=LineJoin.MITER, miter_limit=10.0, dashes=(), dash_offset=0.0)` value,
-the type that content items carry. Fonts are `Font` values: `Font.standard(name)` for the
-Standard 14 fonts, `Font.from_file(path, *, index=0, weight=None)`,
-`Font.from_bytes(data, *, index=0, weight=None)`, and
-`Font.installed(*, language=None, family=None, weight=None, italic=False)`
-for the faces of installed font extras. A `Font` reports `name`, `family`,
-`weight`, `is_bold`, `is_italic`, `ascender`, `descender`, and
-`units_per_em`, and measures with `text_width(text, size)` and
-`has_glyph(char)`.
+the type that content items carry. Fonts are `Font` values, which have no public
+constructor: `Font.standard(name)` for the Standard 14 fonts by PostScript
+name (`StandardFontName`), `Font.from_file(path, /, *, index=0,
+weight=None)` and `Font.from_bytes(data, /, *, index=0, weight=None)`, both
+bounded by `max_size`, and `Font.installed(*, language=None, family=None,
+serif=False, weight=None, italic=False)` for the faces of installed font
+extras. A `Font` reports `name`, `family`, `weight`, `is_bold`, `is_italic`,
+`is_serif`, `ascender`, `descender`, and `units_per_em`, tells with
+`has_glyph(char)` whether it has a glyph for a character, and measures text
+as the canvas draws it: `text_width(text, size)` for one line, and
+`text_height(text, size, *, width, line_height=None)` for the height that
+`textbox` needs for the text wrapped `width` points wide, so a page can be
+planned before anything is drawn.
 
 `pylopdf.create(*, standard=None, tagged=False, language=None, title=None,
 author=None, subject=None, keywords=(), created=None)` returns a `Builder`

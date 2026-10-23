@@ -402,7 +402,18 @@ with page.draw() as canvas:
 
 경로는 `Color` 채우기와 선을 받습니다. 선은 너비, 끝 모양, 연결 모양, 마이터 한계, 대시를 가진 `Stroke`이거나, 1포인트 선을 뜻하는 `Color`입니다. 둘 다 없는 경로는 1포인트 검은 선으로 그립니다. 색의 `alpha`는 그 채우기나 선을 반투명하게 만듭니다. `PathBuilder`는 `move_to`, `line_to`, `curve_to`, `quad_to`, `close`로 기하 형태를 만들고, `rect`, `ellipse`, `circle`, `polygon`, `sector`, `zigzag`, `wave`로 완성된 도형을 추가합니다. 모든 메서드가 빌더 자신을 반환하므로 호출을 이어서 쓸 수 있습니다.
 
-텍스트는 [`Font`](#font)로 그립니다. OpenType 글꼴은 HarfRust로 셰이핑되며, 몇 번의 호출에서 쓰이든 캔버스마다 한 번만 서브셋으로 포함됩니다. `font`가 없으면 서유럽 텍스트는 Helvetica로, 그 밖의 텍스트는 해당 문자 체계를 위한 설치된 [글꼴 extra](getting-started.md#installation)로 그립니다. 텍스트는 채우거나, 선으로 그리거나, 둘 다 할 수 있습니다. `textbox`는 Unicode가 줄바꿈을 허용하는 위치에서 줄을 나눕니다. 텍스트가 들어가지 않으면 아무것도 그리지 않으며, `TextFit.spare_height`는 부족한 만큼을 나타내는 음수가 되므로 `fit.fits`는 거짓입니다.
+텍스트는 [`Font`](#font)로 그립니다. OpenType 글꼴은 HarfRust로 셰이핑되며, 몇 번의 호출에서 쓰이든 캔버스마다 한 번만 서브셋으로 포함됩니다. `font`가 없으면 서유럽 텍스트는 Helvetica로, 그 밖의 텍스트는 해당 문자 체계를 위한 설치된 [글꼴 extra](getting-started.md#installation)로 그립니다. 텍스트는 채우거나, 선으로 그리거나, 둘 다 할 수 있습니다. `text`는 각 줄을 앞 줄보다 `line_height × size`만큼 아래에 놓으며, 기본값은 글꼴 자체의 줄 높이, 즉 어센더에서 디센더를 뺀 값입니다. `textbox`는 Unicode가 줄바꿈을 허용하는 위치에서 줄을 나누고 같은 간격으로 줄을 놓으며, 첫 기준선은 `rect` 위쪽에서 어센더 하나만큼 아래에 있습니다. 텍스트가 들어가지 않으면 아무것도 그리지 않으며, `TextFit.spare_height`는 부족한 만큼을 나타내는 음수가 되므로 `fit.fits`는 거짓입니다. [`Font.text_height`](#font)는 그리기 전에 textbox에 필요한 높이를 재므로, 텍스트를 둘러싸는 틀의 크기나 페이지 나누기를 정할 수 있습니다.
+
+```python
+font = pylopdf.Font.from_file("NotoSansJP-Bold.otf")
+height = font.text_height(note, 10.5, width=300)
+if y + height + 16 > page.rect.height - 40:
+    page = doc.pages.new()
+    y = 40
+with page.draw() as canvas:
+    canvas.rect((40, y, 356, y + height + 16), radius=4, stroke=navy)
+    canvas.textbox((48, y + 8, 348, y + 8 + height), note, font=font, size=10.5)
+```
 
 다음 네 가지 컨텍스트 관리자는 그 안에서 그린 모든 것에 적용되며, 중첩할 수 있습니다.
 
@@ -425,7 +436,7 @@ from pathlib import Path
 import pylopdf
 from pylopdf import Color, TagRole
 
-font = pylopdf.Font(fontfile="NotoSans-Regular.ttf")
+font = pylopdf.Font.from_file("NotoSans-Regular.ttf")
 builder = pylopdf.create(standard="pdf/ua-1", language="en", title="Annual report")
 with builder.page((595.28, 841.89)) as canvas:
     canvas.bookmark("Summary")
@@ -498,24 +509,26 @@ page.insert_textbox(rect, text, *, align=pylopdf.TEXT_ALIGN_LEFT,
 ### Font { #font }
 
 ```python
-pylopdf.Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None,
-             is_bold=False, is_italic=False, is_serif=False, weight=None,
-             fontindex=0, family=None, allow_regular_fallback=False)
+pylopdf.Font.standard(name)
+pylopdf.Font.from_file(path, /, *, index=0, weight=None, max_size=64 MiB)
+pylopdf.Font.from_bytes(data, /, *, index=0, weight=None, max_size=64 MiB)
+pylopdf.Font.installed(*, language=None, family=None, serif=False, weight=None, italic=False)
 ```
 
 | 예 | 불러오는 것 |
 |---|---|
-| `Font("helv")`, `Font("Times-Bold")` | Standard 14 글꼴 |
-| `Font(fontfile="NotoSans-Regular.ttf")` | OpenType 파일 |
-| `Font(fontfile="NotoSansCJKjp-VF.otf", weight=700)` | 가변 글꼴의 한 굵기 |
-| `Font(language="ja")`, `Font(family="Noto Sans JP")` | 설치된 extra의 글꼴. `is_serif=True`이면 세리프 |
-| `Font(language="he", is_bold=True)` | 설치된 가변 글꼴의 볼드 굵기 |
+| `Font.standard("Helvetica")`, `Font.standard("Times-Bold")` | PostScript 이름으로 지정하는 Standard 14 글꼴 |
+| `Font.from_file("NotoSansJP-Bold.otf")`, `Font.from_bytes(data)` | 파일이나 그 바이트에서 읽는 OpenType 글꼴 |
+| `Font.from_file("NotoSansCJKjp-VF.otf", weight=700)` | 가변 글꼴의 한 굵기 |
+| `Font.from_file("fonts.ttc", index=1)` | 글꼴 컬렉션의 한 글꼴 |
+| `Font.installed(language="ja")`, `Font.installed(family="Noto Sans JP")` | 설치된 extra의 글꼴. `serif=True`이면 그 언어의 세리프 글꼴 |
+| `Font.installed(language="he", weight=700)` | 설치된 가변 글꼴의 볼드 굵기 |
 
-메서드와 속성: `text_length(text, fontsize=11)`(커닝을 포함해 그렸을 때의 폭), `ascender`, `descender`, `has_glyph(chr)`, `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, `units_per_em`.
+글꼴은 [캔버스](#canvas)가 그리는 대로 텍스트를 잽니다. `text_width(text, size)`는 커닝과 합자를 포함한 한 줄의 폭입니다. `text_height(text, size, *, width, line_height=None)`는 텍스트를 `width`포인트 폭으로 줄바꿈했을 때 `canvas.textbox`에 필요한 높이이므로, 이 높이의 textbox에 텍스트가 정확히 들어갑니다. 속성은 `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, `units_per_em`, `ascender`, `descender`이고, `has_glyph(char)`는 글꼴에 그 문자의 글리프가 있는지 알려 줍니다. `typing.get_args(pylopdf.StandardFontName)`는 `Font.standard()`가 받는 14개의 이름을 나열합니다. Standard 14 글꼴은 포함되지 않으며 서유럽(WinAnsi) 문자만 쓸 수 있습니다.
 
 `weight` 없이 불러온 가변 글꼴은 기본 인스턴스를 사용하며, 기본 인스턴스가 항상 Regular 굵기인 것은 아닙니다. 가변 글꼴인 Noto Sans CJK JP의 기본값은 Thin입니다. Regular를 쓰려면 `weight=400`을 전달하세요. 그리기 메서드의 `fontfile`과 `fontbuffer` 인수도 기본 인스턴스를 사용합니다. 다른 굵기로 그리려면 `Font`를 `font=`로 전달하세요.
 
-아랍어, 히브리어, 힌디어, 태국어 extra는 가변 글꼴을 제공하므로 축 위의 어떤 굵기든 쓸 수 있습니다(100–900, Noto Naskh Arabic은 400–700). CJK extra는 스타일마다 Regular 글꼴 하나만 제공합니다. `Font(language="ja", is_bold=True)`는 `PdfError`를 발생시키므로, 대신 `fontfile=`로 볼드 파일을 불러오거나, `allow_regular_fallback=True`를 전달해 경고와 함께 Regular 글꼴을 받아들이세요. pylopdf는 글리프를 변형해 볼드나 이탤릭을 흉내 내지 않습니다.
+아랍어, 히브리어, 힌디어, 태국어 extra는 가변 글꼴을 제공하므로 축 위의 어떤 굵기든 쓸 수 있습니다(100–900, Noto Naskh Arabic은 400–700). CJK extra는 스타일마다 Regular 글꼴 하나만 제공합니다. `Font.installed(language="ja", weight=700)`는 `PdfError`를 발생시키므로, Noto Sans JP Bold 같은 볼드 글꼴을 `Font.from_file()`로 불러오세요. pylopdf는 글리프를 변형해 볼드나 이탤릭을 흉내 내지 않습니다.
 
 pylopdf는 시스템 글꼴 디렉터리를 검색하지 않고 전역 글꼴 레지스트리도 없으므로, 출력은 전달한 글꼴에만 의존합니다.
 
@@ -524,8 +537,8 @@ pylopdf는 시스템 글꼴 디렉터리를 검색하지 않고 전역 글꼴 �
 `page.new_shape()`는 여러 경로와 텍스트를 하나의 단위로 그리는 pymupdf의 도구인 `Shape`를 반환합니다.
 
 ```python
-regular = pylopdf.Font("helv")
-bold = pylopdf.Font("hebo")
+regular = pylopdf.Font.standard("Helvetica")
+bold = pylopdf.Font.standard("Helvetica-Bold")
 body = "Findings are listed below. " * 20
 
 with page.new_shape() as shape:
@@ -676,8 +689,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 | `OcrEngine` | 재사용 가능한 OCR 엔진. [오프라인 OCR](ocr.md) 참고 |
 | `Canvas`, `PathBuilder`, `TextFit` | [캔버스](#canvas) 참고 |
 | `create(...)`, `Builder`, `Standard`, `TagRole` | [새 문서](#create) 참고 |
-| `Font`, `Shape` | [Font](#font)와 [도형](#shapes) 참고 |
-| `Base14_fontnames`, `Base14_fontdict` | `fontname=`이 받는 Standard 14 글꼴 이름 |
+| `Font`, `StandardFontName`, `Shape` | [Font](#font)와 [도형](#shapes) 참고 |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [저수준 객체](#low-level-objects) |
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext` 등 내용 타입 | [페이지 내용](#content) |
 | `Colorspace` | [`Pixmap`](#pixmap)의 색 공간. `GRAY`와 `RGB` |

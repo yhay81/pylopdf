@@ -22,6 +22,10 @@ hits = page.search_for("brown")
 assert len(hits) == 1 and hits[0].width > 0
 words = [word[4] for word in page.get_text("words")]
 assert words[:2] == ["Chapter", "2"], words
+width = fitz.get_text_length("The quick brown fox", fontname="helv", fontsize=11)
+font = fitz.Font("helv")
+assert font.text_length("The quick brown fox", fontsize=11) == width
+assert 40 + width < page.rect.width, width
 
 doc.set_metadata({"title": "Report", "author": "Example"})
 reopened = fitz.open("pdf", doc.tobytes())

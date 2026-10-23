@@ -88,10 +88,10 @@ def test_fallback_font_changes_reset_retained_fonts() -> None:
     blank = doc.pages[0].pixmap(alpha=True).to_bytes()
     assert doc.pages[0].pixmap(alpha=True).to_bytes() == blank
 
-    doc.fallback_fonts = {"ja": pylopdf.FallbackFont(pylopdf.Font(fontfile=SANS))}
+    doc.fallback_fonts = {"ja": pylopdf.FallbackFont(pylopdf.Font.from_file(SANS))}
     with_font = doc.pages[0].pixmap(alpha=True).to_bytes()
     fresh = pylopdf.open(data)
-    fresh.fallback_fonts = {"ja": pylopdf.FallbackFont(pylopdf.Font(fontfile=SANS))}
+    fresh.fallback_fonts = {"ja": pylopdf.FallbackFont(pylopdf.Font.from_file(SANS))}
 
     assert with_font != blank
     assert with_font == fresh.pages[0].pixmap(alpha=True).to_bytes()

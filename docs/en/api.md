@@ -584,9 +584,26 @@ Text is drawn in a [`Font`](#font). An OpenType face is shaped with HarfRust
 and embedded as a subset, once per canvas however many calls use it. Without
 `font`, Western European text is drawn in Helvetica and other text in an
 installed [font extra](getting-started.md#installation) for its script. Text is
-filled, stroked, or both. `textbox` breaks lines at Unicode line-break
-opportunities; when the text does not fit, it draws nothing and
+filled, stroked, or both. `text` places each line `line_height × size` below
+the previous one, by default at the font's own line height, its ascender minus
+its descender. `textbox` breaks lines at Unicode line-break opportunities and
+spaces them the same way, with the first baseline one ascender below the top
+of `rect`; when the text does not fit, it draws nothing and
 `TextFit.spare_height` is the negative shortfall, so `fit.fits` is false.
+[`Font.text_height`](#font) measures the height that a textbox needs before
+anything is drawn, which sizes a frame around the text or decides a page
+break:
+
+```python
+font = pylopdf.Font.from_file("NotoSansJP-Bold.otf")
+height = font.text_height(note, 10.5, width=300)
+if y + height + 16 > page.rect.height - 40:
+    page = doc.pages.new()
+    y = 40
+with page.draw() as canvas:
+    canvas.rect((40, y, 356, y + height + 16), radius=4, stroke=navy)
+    canvas.textbox((48, y + 8, 348, y + 8 + height), note, font=font, size=10.5)
+```
 
 Four context managers apply to everything drawn inside them, and nest:
 
@@ -619,7 +636,7 @@ from pathlib import Path
 import pylopdf
 from pylopdf import Color, TagRole
 
-font = pylopdf.Font(fontfile="NotoSans-Regular.ttf")
+font = pylopdf.Font.from_file("NotoSans-Regular.ttf")
 builder = pylopdf.create(standard="pdf/ua-1", language="en", title="Annual report")
 with builder.page((595.28, 841.89)) as canvas:
     canvas.bookmark("Summary")
@@ -737,22 +754,31 @@ Devanagari runs, can extract slightly differently from the original text.
 ### Font { #font }
 
 ```python
-pylopdf.Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None,
-             is_bold=False, is_italic=False, is_serif=False, weight=None,
-             fontindex=0, family=None, allow_regular_fallback=False)
+pylopdf.Font.standard(name)
+pylopdf.Font.from_file(path, /, *, index=0, weight=None, max_size=64 MiB)
+pylopdf.Font.from_bytes(data, /, *, index=0, weight=None, max_size=64 MiB)
+pylopdf.Font.installed(*, language=None, family=None, serif=False, weight=None, italic=False)
 ```
 
 | Example | Loads |
 |---|---|
-| `Font("helv")`, `Font("Times-Bold")` | A Standard 14 font |
-| `Font(fontfile="NotoSans-Regular.ttf")` | An OpenType file |
-| `Font(fontfile="NotoSansCJKjp-VF.otf", weight=700)` | One weight of a variable font |
-| `Font(language="ja")`, `Font(family="Noto Sans JP")` | A font from an installed extra; `is_serif=True` picks the serif face |
-| `Font(language="he", is_bold=True)` | The bold weight of an installed variable font |
+| `Font.standard("Helvetica")`, `Font.standard("Times-Bold")` | A Standard 14 font, by its PostScript name |
+| `Font.from_file("NotoSansJP-Bold.otf")`, `Font.from_bytes(data)` | An OpenType font, from a file or its bytes |
+| `Font.from_file("NotoSansCJKjp-VF.otf", weight=700)` | One weight of a variable font |
+| `Font.from_file("fonts.ttc", index=1)` | One face of a font collection |
+| `Font.installed(language="ja")`, `Font.installed(family="Noto Sans JP")` | A font from an installed extra; `serif=True` picks a language's serif face |
+| `Font.installed(language="he", weight=700)` | The bold weight of an installed variable font |
 
-Methods and properties: `text_length(text, fontsize=11)` (the width as drawn,
-including kerning), `ascender`, `descender`, `has_glyph(chr)`, `name`,
-`family`, `weight`, `is_bold`, `is_italic`, `is_serif`, and `units_per_em`.
+A font measures text as the [canvas](#canvas) draws it. `text_width(text,
+size)` is the width of one line, kerning and ligatures included.
+`text_height(text, size, *, width, line_height=None)` is the height that
+`canvas.textbox` needs for the text wrapped `width` points wide, so a textbox
+of that height fits the text exactly. Properties: `name`, `family`, `weight`,
+`is_bold`, `is_italic`, `is_serif`, `units_per_em`, `ascender`, and
+`descender`; `has_glyph(char)` tells whether the face has a glyph for a
+character. `typing.get_args(pylopdf.StandardFontName)` lists the 14 names that
+`Font.standard()` takes. Standard 14 fonts are not embedded and cover Western
+European (WinAnsi) characters only.
 
 A variable font loaded without `weight` uses its default instance, which is
 not always the regular weight: the variable Noto Sans CJK JP defaults to Thin.
@@ -762,10 +788,10 @@ another weight.
 
 The Arabic, Hebrew, Hindi, and Thai extras ship variable fonts, so any weight
 on their axis works (100–900; 400–700 for Noto Naskh Arabic). The CJK extras
-ship one regular face per style: `Font(language="ja", is_bold=True)` raises
-`PdfError`, so load a bold file with `fontfile=` instead, or pass
-`allow_regular_fallback=True` to accept the regular face with a warning.
-pylopdf never imitates bold or italic by distorting glyphs.
+ship one regular face per style: `Font.installed(language="ja", weight=700)`
+raises `PdfError`, so load a bold face, such as Noto Sans JP Bold, with
+`Font.from_file()`. pylopdf never imitates bold or italic by distorting
+glyphs.
 
 pylopdf does not search system font directories and has no global font
 registry, so the output depends only on the fonts you pass in.
@@ -776,8 +802,8 @@ registry, so the output depends only on the fonts you pass in.
 and text runs as one unit:
 
 ```python
-regular = pylopdf.Font("helv")
-bold = pylopdf.Font("hebo")
+regular = pylopdf.Font.standard("Helvetica")
+bold = pylopdf.Font.standard("Helvetica-Bold")
 body = "Findings are listed below. " * 20
 
 with page.new_shape() as shape:
@@ -963,8 +989,7 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `OcrEngine` | A reusable OCR engine; see [Offline OCR](ocr.md) |
 | `Canvas`, `PathBuilder`, `TextFit` | See [Canvas](#canvas) |
 | `create(...)`, `Builder`, `Standard`, `TagRole` | See [New documents](#create) |
-| `Font`, `Shape` | See [Font](#font) and [Shapes](#shapes) |
-| `Base14_fontnames`, `Base14_fontdict` | The Standard 14 font names that `fontname=` accepts |
+| `Font`, `StandardFontName`, `Shape` | See [Font](#font) and [Shapes](#shapes) |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [Low-level objects](#low-level-objects) |
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |
 | `Colorspace` | The color spaces of a [`Pixmap`](#pixmap): `GRAY` and `RGB` |

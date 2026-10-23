@@ -51,7 +51,7 @@ def test_missing_font_and_image_files_raise_file_not_found(tmp_path: Path) -> No
     with pytest.raises(FileNotFoundError):
         page.insert_image((0, 0, 50, 50), filename=tmp_path / "missing.png")
     with pytest.raises(FileNotFoundError):
-        pylopdf.Font(fontfile=tmp_path / "missing.otf")
+        pylopdf.Font.from_file(tmp_path / "missing.otf")
 
 
 def test_empty_input_raises_malformed_pdf_error(tmp_path: Path) -> None:

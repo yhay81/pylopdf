@@ -22,7 +22,7 @@ import ast
 import inspect
 from dataclasses import dataclass
 from functools import cache
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, cast, get_args
 
 import libcst as cst
 
@@ -96,6 +96,32 @@ PAGE_BOX_MESSAGE = (
 ROTATION_MESSAGE = (
     "pylopdf extracts and inserts in display coordinates with the page rotation resolved; "
     "drop any rotation_matrix or derotation_matrix step, and map PDF user space with page.user_to_display."
+)
+#: pymupdf's short Standard 14 aliases and the PostScript name of each.
+STANDARD_FONT_ALIASES = {
+    "helv": "Helvetica",
+    "hebo": "Helvetica-Bold",
+    "heit": "Helvetica-Oblique",
+    "hebi": "Helvetica-BoldOblique",
+    "cour": "Courier",
+    "cobo": "Courier-Bold",
+    "coit": "Courier-Oblique",
+    "cobi": "Courier-BoldOblique",
+    "tiro": "Times-Roman",
+    "tibo": "Times-Bold",
+    "tiit": "Times-Italic",
+    "tibi": "Times-BoldItalic",
+    "symb": "Symbol",
+    "zadb": "ZapfDingbats",
+}
+FONT_MESSAGE = (
+    "Font.standard(name) takes a Standard 14 PostScript name, Font.from_file(path) and Font.from_bytes(data) "
+    "load an OpenType face, and Font.installed(language=..., family=...) selects the face of an installed font "
+    "extra; pymupdf's other built-in fonts, script=, ordering=, and embed= are not available."
+)
+HAS_GLYPH_MESSAGE = (
+    "Font.has_glyph(char) takes a one-character string and returns whether the face has a glyph for it, "
+    "not the glyph number."
 )
 
 
@@ -1257,6 +1283,46 @@ def _set_catalog_name(prop: str, names: Sequence[str]) -> Callable[[_Migrator, s
     return rule
 
 
+def _text_length(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``Font.text_length(text, fontsize=11)`` to ``text_width(text, size)``, whose size has no default."""
+    bound = args.bind(("text", "fontsize", "language", "script", "wmode", "small_caps", "max_text_size"))
+    if bound is None or "text" not in bound:
+        return None
+    defaults = {"language": ("None",), "script": ("0",), "wmode": ("0",), "small_caps": ("0", "False")}
+    if any(bound.get(key, values[0]) not in values for key, values in defaults.items()):
+        return None
+    arguments = [bound["text"], bound.get("fontsize", "11")]
+    if "max_text_size" in bound:
+        arguments.append(f"max_text_size={bound['max_text_size']}")
+    return f"{receiver}.text_width({', '.join(arguments)})"
+
+
+def _has_glyph(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``has_glyph(ord(char))`` and ``has_glyph(code)`` to take the character itself."""
+    bound = args.bind(("chr", "language", "script", "fallback", "small_caps"))
+    if bound is None or set(bound) != {"chr"}:
+        migrator.todo(HAS_GLYPH_MESSAGE)
+        return None
+    value = bound["chr"]
+    node = cst.parse_expression(value)
+    if (
+        isinstance(node, cst.Call)
+        and _code(node.func) == "ord"
+        and len(node.args) == 1
+        and node.args[0].keyword is None
+        and not node.args[0].star
+    ):
+        character = _code(node.args[0].value)
+    elif _int_literal(value) is not None:
+        character = f"chr({value})"
+    elif _string_literal(value) is not None:
+        return None
+    else:
+        migrator.todo(HAS_GLYPH_MESSAGE)
+        return None
+    return f"{receiver}.has_glyph({character})"
+
+
 #: Calls rewritten wherever they appear.
 CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "get_toc": _get_toc,
@@ -1322,6 +1388,8 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "annots": _annots,
     "add_highlight_annot": _add_highlight_annot,
     "has_annots": _no_arguments("any(page.annotations for page in {receiver}.pages)"),
+    "text_length": _text_length,
+    "has_glyph": _has_glyph,
 }
 
 
@@ -1561,11 +1629,129 @@ def _probe(migrator: _Migrator, prefix: str | None, function: str, args: _Argume
     return f"{name}({', '.join([str(source), *keywords])})"
 
 
+def _standard_font(text: str) -> str | None:
+    """Return the PostScript name of a string literal that names a Standard 14 font, or None."""
+    literal = _string_literal(text)
+    if literal is None:
+        return None
+    names = {name.lower(): name for name in get_args(pylopdf.StandardFontName)}
+    return STANDARD_FONT_ALIASES.get(literal.lower()) or names.get(literal.lower())
+
+
+#: pymupdf's ``Font`` parameters in order, then pylopdf 0.15's keyword-only ones.
+FONT_PARAMETERS = (
+    "fontname",
+    "fontfile",
+    "fontbuffer",
+    "script",
+    "language",
+    "ordering",
+    "is_bold",
+    "is_italic",
+    "is_serif",
+    "embed",
+    "weight",
+    "fontindex",
+    "family",
+    "allow_regular_fallback",
+    "max_font_size",
+)
+#: Font arguments whose value changes nothing.
+FONT_DEFAULTS = {
+    "script": frozenset({"0"}),
+    "ordering": frozenset({"-1"}),
+    "embed": frozenset({"1", "True"}),
+    "is_bold": _FALSE,
+    "is_italic": _FALSE,
+    "is_serif": _FALSE,
+    "fontindex": frozenset({"0"}),
+    "allow_regular_fallback": _FALSE,
+}
+#: Font loading arguments that pylopdf names otherwise.
+FONT_KEYWORDS = {"fontindex": "index", "weight": "weight", "max_font_size": "max_size"}
+#: The arguments that name a face, of which a Font call passes one.
+FONT_SOURCES = ("fontname", "fontfile", "fontbuffer", "language", "family")
+#: pymupdf's options for its own built-in fonts, which pylopdf does not have.
+UNSUPPORTED_FONT_OPTIONS = frozenset({"script", "ordering", "embed", "allow_regular_fallback"})
+
+
+def _font_options(args: _Arguments) -> dict[str, str] | None:
+    """Return the arguments of a ``Font`` call that change the face, or None when pylopdf cannot load it."""
+    bound = args.bind(FONT_PARAMETERS)
+    if bound is None:
+        return None
+    # None selects the default of every argument but max_font_size, whose None lifts the bound.
+    options = {
+        key: value
+        for key, value in bound.items()
+        if (value != "None" or key == "max_font_size") and value not in FONT_DEFAULTS.get(key, ())
+    }
+    if len([key for key in FONT_SOURCES if key in options]) != 1 or UNSUPPORTED_FONT_OPTIONS & set(options):
+        return None
+    return options
+
+
+def _installed_font(function: str, source: str, options: dict[str, str]) -> str | None:
+    """Rewrite pylopdf 0.15's ``Font(language=...)`` or ``Font(family=...)`` to ``Font.installed``."""
+    if set(options) - {source, "is_bold", "is_italic", "is_serif", "weight"}:
+        return None
+    if ("is_serif" in options and source == "family") or (
+        "is_bold" in options and ("weight" in options or options["is_bold"] not in _TRUE)
+    ):
+        return None
+    keywords = [f"{source}={options[source]}"]
+    if "is_serif" in options:
+        keywords.append(f"serif={options['is_serif']}")
+    weight = "700" if "is_bold" in options else options.get("weight")
+    if weight is not None:
+        keywords.append(f"weight={weight}")
+    if "is_italic" in options:
+        keywords.append(f"italic={options['is_italic']}")
+    return f"{function}.installed({', '.join(keywords)})"
+
+
+def _font(migrator: _Migrator, _: str | None, function: str, args: _Arguments) -> str | None:
+    """Rewrite pymupdf's and pylopdf 0.15's ``Font(...)`` to the factory that loads the same face."""
+    options = _font_options(args)
+    replacement = None
+    if options is not None:
+        source = next(key for key in FONT_SOURCES if key in options)
+        if source == "fontname":
+            name = _standard_font(options["fontname"])
+            if name is not None and set(options) == {"fontname"}:
+                replacement = f'{function}.standard("{name}")'
+        elif source in {"fontfile", "fontbuffer"}:
+            if not set(options) - {source, *FONT_KEYWORDS}:
+                keywords = [f"{FONT_KEYWORDS[key]}={options[key]}" for key in FONT_KEYWORDS if key in options]
+                method = "from_file" if source == "fontfile" else "from_bytes"
+                replacement = f"{function}.{method}({', '.join([options[source], *keywords])})"
+        elif not migrator.pymupdf():
+            # pymupdf's language= is a hint for shaping; pylopdf 0.15's selects an installed font extra.
+            replacement = _installed_font(function, source, options)
+    if replacement is None:
+        migrator.todo(FONT_MESSAGE)
+    return replacement
+
+
+def _get_text_length(migrator: _Migrator, prefix: str | None, _: str, args: _Arguments) -> str | None:
+    """Rewrite pymupdf's ``get_text_length(text, fontname, fontsize)`` to a Standard 14 font's ``text_width``."""
+    bound = args.bind(("text", "fontname", "fontsize", "encoding"))
+    if bound is None or "text" not in bound or bound.get("encoding", "0") != "0":
+        return None
+    name = _standard_font(bound.get("fontname", '"helv"'))
+    font = f"{prefix}Font" if prefix else migrator.class_name("Font")
+    if name is None or font is None:
+        return None
+    return f'{font}.standard("{name}").text_width({bound["text"]}, {bound.get("fontsize", "11")})'
+
+
 #: Module calls whose arguments changed, keyed by their name in the module.
 MODULE_CALL_RULES: dict[str, Callable[[_Migrator, str | None, str, _Arguments], str | None]] = {
     "open": _open_document,
     "Document": _open_document,
     "peek_metadata": _probe,
+    "Font": _font,
+    "get_text_length": _get_text_length,
 }
 
 
@@ -2370,12 +2556,14 @@ class _Migrator(cst.CSTTransformer):
         arguments = _Arguments.of(updated_node)
         prefix = f"{_code(function.value)}." if isinstance(function, cst.Attribute) else None
         rule = MODULE_CALL_RULES[member]
+        noted = len(self._todos[-1])
         replacement = None if arguments is None else rule(self, prefix, _code(function), arguments)
         if replacement is None:
-            self.todo(
-                migration_hint(member)
-                or f"pylopdf.{MODULE_RENAMES.get(member, member)} takes other arguments; see the API reference."
-            )
+            if len(self._todos[-1]) == noted:
+                self.todo(
+                    migration_hint(member)
+                    or f"pylopdf.{MODULE_RENAMES.get(member, member)} takes other arguments; see the API reference."
+                )
             return updated_node
         if _same_code(replacement, updated_node):
             return updated_node

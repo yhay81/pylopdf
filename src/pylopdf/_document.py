@@ -850,9 +850,9 @@ class Document:
         ``fontbuffer`` to subset-embed an arbitrary OpenType font, a variable
         font at its default instance. Pass a :class:`Font` with an OpenType
         face as ``font`` to draw with a face loaded once, such as the bold
-        instance that ``Font(fontfile=..., weight=700)`` selects on a variable
-        font's weight axis; text is fitted, aligned, and placed in comb
-        positions with the advances that :meth:`Font.text_length` returns.
+        instance that ``Font.from_file(path, weight=700)`` selects on a
+        variable font's weight axis; text is fitted, aligned, and placed in
+        comb positions with the advances that :meth:`Font.text_width` returns.
         ``font`` cannot be combined with ``fontfile``, ``fontbuffer``,
         ``fontindex``, or ``font_language``, and a Standard 14 :class:`Font`
         raises :class:`PdfError`. Locale font extras can supply Unicode

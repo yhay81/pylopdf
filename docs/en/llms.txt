@@ -91,6 +91,8 @@ replacement, and the migration hint):
 - Annot.rect -> Annotation.rect: Read annotation.rect.
 - Annot.type -> Annotation.type: annotation.type is an AnnotationType member; annotation.obj['Subtype'] holds the name and annotation.intent the intent.
 - Annot.xref -> Annotation.xref: Read annotation.xref.
+- Base14_fontdict -> Font.standard: Font.standard(name) takes the PostScript name of a Standard 14 font, such as "Helvetica" for pymupdf's "helv".
+- Base14_fontnames -> StandardFontName: typing.get_args(pylopdf.StandardFontName) lists the 14 PostScript names that Font.standard() takes.
 - CS_* -> Colorspace: CS_RGB and CS_GRAY are Colorspace.RGB and Colorspace.GRAY; CMYK is not rendered.
 - Colorspace -> Colorspace: Colorspace is an enum: Colorspace.RGB and Colorspace.GRAY replace Colorspace(CS_RGB) and Colorspace(CS_GRAY).
 - DisplayList -> Content: Use the Content that page.content() returns; it records the page's items once and can be read any number of times.
@@ -179,6 +181,7 @@ replacement, and the migration hint):
 - EmptyFileError -> MalformedPdfError: Catch MalformedPdfError, which empty input raises.
 - FileDataError -> MalformedPdfError: Catch MalformedPdfError, a PdfError and thus a ValueError, which empty input raises as well.
 - FileNotFoundError -> FileNotFoundError: Catch Python's built-in FileNotFoundError, which pylopdf raises for a missing file.
+- Font.text_length -> Font.text_width: font.text_width(text, size) measures one line with the shaping that drawing uses; size has no default, and a line break raises.
 - IRect.__setitem__ -> IRect: IRect values are immutable; build a new IRect instead.
 - IRect.include_point -> IRect.__or__: Use r | p, which returns a new IRect.
 - IRect.include_rect -> IRect.__or__: Use r | other, which returns a new IRect.
@@ -294,6 +297,7 @@ replacement, and the migration hint):
 - csGRAY -> Colorspace: Use pylopdf.Colorspace.GRAY.
 - csRGB -> Colorspace: Use pylopdf.Colorspace.RGB.
 - get_pdf_str -> String: Write a Python str into the object model, which encodes it as a PDF text string, or read String.text.
+- get_text_length -> Font.text_width: Font.standard("Helvetica").text_width(text, size) measures Standard 14 text; an OpenType face measures with its own Font.text_width.
 - linkDest -> Destination: link.target holds a URI string, Destination(page, point, zoom), RemoteDestination(file, page), Launch(file), or NamedAction(name).
 - set_log -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
 - set_messages -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
@@ -312,7 +316,7 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - Document.render_page -> Page.pixmap: Use doc.pages[i].pixmap(dpi=72 * scale, alpha=True).to_bytes() for the PNG.
 - Document.render_page_svg -> Page.svg: Use doc.pages[i].svg().
 - Document.render_pages -> Document.render: Use doc.render(pages, ...), which takes dpi or matrix, not both.
-- Document.set_fallback_font -> Document.fallback_fonts: Assign doc.fallback_fonts[language] = FallbackFont(Font(fontfile=path)), with fontbuffer= for bytes and serif= for the serif slot; doc.fallback_fonts = {} turns fallback off.
+- Document.set_fallback_font -> Document.fallback_fonts: Assign doc.fallback_fonts[language] = FallbackFont(Font.from_file(path)), with Font.from_bytes(data) for bytes and serif= for the serif slot; doc.fallback_fonts = {} turns fallback off.
 - Document.to_markdown -> Document.markdown: Call doc.markdown(...).
 - DocumentMetadata -> Metadata: doc.metadata returns a Metadata mapping of the entries present; doc.version and doc.encryption_method replace format and encryption.
 - DocumentMetadata.author -> Metadata: Read doc.metadata.get("author", "").

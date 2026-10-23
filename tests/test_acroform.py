@@ -594,7 +594,7 @@ def test_form_font_input_boundary_preserves_field() -> None:
 
 def test_form_font_parameter_draws_the_same_bytes_as_font_input() -> None:
     """A loaded Font draws text and comb appearances exactly as its file or bytes do."""
-    face = pylopdf.Font(fontfile=NOTO_SANS_JP)
+    face = pylopdf.Font.from_file(NOTO_SANS_JP)
     by_font, by_file, by_buffer = (pylopdf.open(_build_form_pdf()) for _ in range(3))
 
     for name, value in (("customer", "山田 太郎"), ("code", "日Á")):
@@ -613,7 +613,7 @@ def test_form_font_parameter_draws_the_same_bytes_as_font_input() -> None:
 
 def test_form_font_parameter_fills_buttons_and_empty_values() -> None:
     doc = pylopdf.open(_build_form_pdf())
-    face = pylopdf.Font(fontfile=NOTO_SANS_JP)
+    face = pylopdf.Font.from_file(NOTO_SANS_JP)
 
     doc.set_form_field("agree", True, font=face)
     doc.set_form_field("plan", "Pro", font=face)
@@ -627,7 +627,7 @@ def test_form_font_parameter_fills_buttons_and_empty_values() -> None:
 
 def test_form_font_parameter_failures_leave_the_document_unchanged() -> None:
     doc = pylopdf.open(_build_form_pdf())
-    face = pylopdf.Font(fontfile=NOTO_SANS_JP)
+    face = pylopdf.Font.from_file(NOTO_SANS_JP)
     doc.set_form_field("code", "A12", font=face)
     before = doc.to_bytes()
 
@@ -641,7 +641,7 @@ def test_form_font_parameter_failures_leave_the_document_unchanged() -> None:
 
 def test_form_font_parameter_rejects_other_font_sources() -> None:
     doc = pylopdf.open(_build_form_pdf())
-    face = pylopdf.Font(fontfile=NOTO_SANS_JP)
+    face = pylopdf.Font.from_file(NOTO_SANS_JP)
     before = doc.to_bytes()
 
     for extra in (
@@ -667,10 +667,10 @@ def test_form_font_parameter_refuses_standard_14_fonts() -> None:
 
     for name, value in (("customer", "x"), ("agree", True)):
         with pytest.raises(pylopdf.PdfError, match="not the Standard 14 font 'Times-Roman'"):
-            doc.set_form_field(name, value, font=pylopdf.Font("tiro"))
+            doc.set_form_field(name, value, font=pylopdf.Font.standard("Times-Roman"))
     # The core entry point refuses one as well.
     with pytest.raises(pylopdf.PdfError, match="not a Standard 14 font"):
-        doc._doc.set_form_field_font("customer", "x", pylopdf.Font("helv")._font)  # noqa: SLF001
+        doc._doc.set_form_field_font("customer", "x", pylopdf.Font.standard("Helvetica")._font)  # noqa: SLF001
 
     assert doc.to_bytes() == before
 

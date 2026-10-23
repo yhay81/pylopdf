@@ -34,7 +34,7 @@ PHOTO_JPEG = base64.b64decode(
 
 @pytest.fixture(scope="module")
 def regular() -> pylopdf.Font:
-    return pylopdf.Font(fontfile=NOTO_SANS_JP)
+    return pylopdf.Font.from_file(NOTO_SANS_JP)
 
 
 @pytest.fixture(scope="module")
@@ -47,7 +47,7 @@ def bold() -> pylopdf.Font:
         tag, _checksum, offset, _length = struct.unpack_from(">4sIII", data, 12 + 16 * index)
         if tag == b"OS/2":
             struct.pack_into(">H", data, offset + 4, 700)
-    return pylopdf.Font(fontbuffer=bytes(data))
+    return pylopdf.Font.from_bytes(bytes(data))
 
 
 def _new_page(width: float = 300, height: float = 200) -> tuple[pylopdf.Document, pylopdf.Page]:
@@ -456,7 +456,7 @@ def test_measured_width_equals_the_drawn_width(regular: pylopdf.Font) -> None:
         for span in line["spans"]
         for char in span["chars"]
     ]
-    assert chars[-1]["bbox"][2] - 20 == pytest.approx(regular.text_length(text, 18), abs=0.01)
+    assert chars[-1]["bbox"][2] - 20 == pytest.approx(regular.text_width(text, 18), abs=0.01)
 
 
 def test_page_drawing_methods_draw_one_finished_path_each() -> None:
@@ -583,7 +583,7 @@ def test_text_input_follows_page_insert_text_rules(regular: pylopdf.Font) -> Non
     _, page = _new_page()
     shape = page.new_shape()
     with pytest.raises(ValueError, match="WinAnsi"):
-        shape.insert_text((10, 10), "日本語", font=pylopdf.Font("helv"))
+        shape.insert_text((10, 10), "日本語", font=pylopdf.Font.standard("Helvetica"))
     with pytest.raises(ValueError, match="font cannot be combined"):
         shape.insert_text((10, 10), "x", font=regular, fontindex=1)
     with pytest.raises(pylopdf.LimitError) as error:
@@ -611,9 +611,9 @@ def test_weight_instances_of_one_variable_face_keep_their_names() -> None:
     pytest.importorskip("pylopdf_fonts_he")
     # Noto Sans Hebrew is variable, and its default instance is Thin.
     doc, page = _new_page(400, 300)
-    regular = pylopdf.Font(language="he")
-    bold = pylopdf.Font(language="he", is_bold=True)
-    thin = pylopdf.Font(language="he", weight=100)
+    regular = pylopdf.Font.installed(language="he")
+    bold = pylopdf.Font.installed(language="he", weight=700)
+    thin = pylopdf.Font.installed(language="he", weight=100)
     with page.new_shape() as shape:
         shape.draw_line((20, 20), (380, 20))
         shape.finish()
@@ -684,7 +684,7 @@ def test_report_pages_with_measured_labels_and_photo_marks(regular: pylopdf.Font
             shape.finish(color=None, fill=accent)
             title = f"現地調査報告書 {number + 1}"
             shape.insert_text((56, 80), title, font=bold, fontsize=18)
-            end = 56 + bold.text_length("項目", 12)
+            end = 56 + bold.text_width("項目", 12)
             shape.insert_text((56, 120), "項目", font=bold, fontsize=12)
             shape.insert_text((end, 120), "：外壁のひび割れ", font=regular, fontsize=12)
             spare = shape.insert_textbox(

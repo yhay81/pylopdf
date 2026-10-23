@@ -143,8 +143,8 @@ with pylopdf.open("input.pdf") as doc:
     page.insert_text((40, 70), "社外秘", fontsize=18)                          # pylopdf[jp]が必要
     page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")  # pylopdf[zh-cn]が必要
 
-    bold = pylopdf.Font(fontfile="NotoSansJP-Bold.otf")       # 任意のOpenTypeファイル
-    width = bold.text_length("見出し", fontsize=16)             # 描いたときの幅
+    bold = pylopdf.Font.from_file("NotoSansJP-Bold.otf")      # 任意のOpenTypeファイル
+    width = bold.text_width("見出し", 16)                       # 描いたときの幅
     page.insert_text((page.rect.width - 40 - width, 140), "見出し", font=bold, fontsize=16)
     doc.save("text.pdf")
 ```

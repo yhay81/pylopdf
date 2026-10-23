@@ -865,14 +865,14 @@ pub fn text_ops(
     out
 }
 
-/// Lay out Standard 14 text as `insert_textbox` does: wrapped with Adobe's
-/// canonical AFM widths, with lines placed by pymupdf's line metrics.
+/// Lay out Standard 14 text in a textbox: wrapped with Adobe's canonical AFM
+/// widths, with lines placed by `placement`.
 pub fn standard_textbox_layout(
     text: &str,
     box_size: (f64, f64),
     base_font: &str,
     font_size: f64,
-    lineheight: Option<f64>,
+    placement: LinePlacement,
     justify: bool,
     max_lines: Option<usize>,
 ) -> Result<TextBoxLayout, String> {
@@ -882,7 +882,7 @@ pub fn standard_textbox_layout(
         text,
         box_size,
         font_size,
-        LinePlacement::textbox(standard_line_metrics(font), lineheight),
+        placement,
         justify,
         max_lines,
         |line| standard_text_width(line, font, font_size),

@@ -257,13 +257,17 @@ pub(super) fn insert_page_textbox(
     validate_generated_text_line_count(text.split('\n').count(), max_text_size)?;
     validate_generated_text_input(std::iter::once(text.as_bytes()), max_text_size)?;
     let rect = [rect.0, rect.1, rect.2, rect.3];
+    let metrics = draw::base14_font(base_font)
+        .map(draw::standard_line_metrics)
+        .ok_or_else(|| PdfError::new_err(format!("unsupported Standard 14 font: {base_font}")))?;
+    let placement = crate::layout::LinePlacement::textbox(metrics, lineheight);
     let layout = py.detach(|| {
         draw::standard_textbox_layout(
             text,
             (rect[2] - rect[0], rect[3] - rect[1]),
             base_font,
             fontsize,
-            lineheight,
+            placement,
             align == 3,
             max_text_size.map(|_| crate::layout::MAX_GENERATED_TEXT_LINES),
         )

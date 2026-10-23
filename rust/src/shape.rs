@@ -33,7 +33,7 @@ use crate::document::{
 use crate::draw::{self, DeviceColor};
 use crate::font::{_Font, DrawFace};
 use crate::generate::{self, GenerationFace, GlyphRun};
-use crate::layout::{MAX_GENERATED_TEXT_LINES, TextBoxLayout};
+use crate::layout::{LinePlacement, MAX_GENERATED_TEXT_LINES, TextBoxLayout};
 
 /// Path points that one shape may hold until it is committed.
 const MAX_SHAPE_PATH_POINTS: usize = 1_048_576;
@@ -736,6 +736,7 @@ impl _Shape {
         let rect = [rect.0, rect.1, rect.2, rect.3];
         let max_lines = max_text_size.map(|_| MAX_GENERATED_TEXT_LINES);
         let face = font.get();
+        let placement = LinePlacement::textbox(face.line_metrics(), lineheight);
         match face.draw_face() {
             DrawFace::Embedded(face) => {
                 let size =
@@ -747,7 +748,7 @@ impl _Shape {
                             rect,
                             text,
                             fontsize,
-                            lineheight,
+                            placement,
                             align,
                             max_lines,
                         )
@@ -772,7 +773,7 @@ impl _Shape {
                             (rect[2] - rect[0], rect[3] - rect[1]),
                             name,
                             fontsize,
-                            lineheight,
+                            placement,
                             align == 3,
                             max_lines,
                         )
