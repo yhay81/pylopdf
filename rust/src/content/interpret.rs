@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 
-use hayro::kurbo::{Affine, BezPath, Point, Rect, Shape};
+use hayro::kurbo::{Affine, BezPath, PathEl, Point, Rect, Shape};
 use lopdf::content::Operation;
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 
@@ -690,8 +690,23 @@ impl<'a> Interpreter<'a, '_> {
         container: usize,
         state: &mut State,
     ) -> Result<(), ContentError> {
-        let Some(build) = self.path.take() else {
-            return Ok(());
+        let fills = matches!(operator, "f" | "F" | "f*" | "B" | "B*" | "b" | "b*");
+        let build = match self.path.take() {
+            Some(build) => build,
+            // hayro fills an empty path as a hairline at the origin of user
+            // space; a stroke of it paints nothing.
+            None if fills => {
+                let origin = state.ctm * Point::ORIGIN;
+                let mut path = BezPath::new();
+                path.move_to(origin);
+                PathBuild {
+                    start: index,
+                    path,
+                    current: Some(origin),
+                    clip: false,
+                }
+            }
+            None => return Ok(()),
         };
         let bbox = path_bbox(&build.path);
         if build.clip
@@ -1137,15 +1152,22 @@ pub(crate) fn transformed_rect(rect: Rect, transform: Affine) -> Rect {
 }
 
 /// The exact bounding box of a path's segments, as the content model
-/// computes it, or `None` for a path without segments.
+/// computes it, or of its points when it has no segments, or `None` for a
+/// path without points.
 fn path_bbox(path: &BezPath) -> Option<Rect> {
     let bbox = path
         .segments()
         .map(|segment| segment.bounding_box())
         .reduce(|bbox, segment| bbox.union(segment))
         .or_else(|| {
-            // A lone `m` paints nothing, but a clip still uses its point.
-            path.elements().first().map(|_| path.bounding_box())
+            // A lone `m` paints nothing, but a fill still marks its point
+            // and a clip still uses it.
+            let mut points = path.elements().iter().filter_map(|element| match element {
+                PathEl::MoveTo(point) | PathEl::LineTo(point) => Some(*point),
+                _ => None,
+            });
+            let first = points.next()?;
+            Some(points.fold(Rect::from_points(first, first), |rect, point| rect.union_pt(point)))
         })?;
     (bbox.x0.is_finite() && bbox.y0.is_finite() && bbox.x1.is_finite() && bbox.y1.is_finite())
         .then_some(bbox)
