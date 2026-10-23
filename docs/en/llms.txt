@@ -161,6 +161,7 @@ replacement, and the migration hint):
 - Document.get_page_numbers -> Pages.labeled: Use doc.pages.labeled(label).
 - Document.get_page_pixmap -> Page.pixmap: Use doc.pages[i].pixmap(...).
 - Document.get_page_text -> Page.text: Use doc.pages[i].text(), or words() and layout() for the other options.
+- Document.get_sigflags -> Form.signature_flags: doc.form.signature_flags is a SignatureFlags value, empty where pymupdf returns -1 for a document without a form.
 - Document.get_toc -> Document.outline: Use doc.outline.entries(): OutlineEntry records whose destination is a Destination with a zero-based page (entry.page); get_toc used one-based pages.
 - Document.get_xml_metadata -> Document.xmp: doc.xmp returns the XMP packet as text, or None without one where pymupdf returns an empty string.
 - Document.has_annots -> Page.annotations: any(page.annotations for page in doc.pages)
@@ -411,6 +412,7 @@ replacement, and the migration hint):
 - Shape.insert_text -> Canvas.text: canvas.text(text, at, font=..., size=..., fill=...) draws lines in call order with the paths, not on top of them; rotate= turns clockwise, where pymupdf turns anticlockwise.
 - Shape.insert_textbox -> Canvas.textbox: canvas.textbox(rect, text, font=..., size=..., align=...) returns a TextFit; Font.text_height measures the height the text needs, and rotate= turns clockwise, where pymupdf turns anticlockwise.
 - Shape.last_point -> PathBuilder.current_point: PathBuilder.current_point is the end of the last segment added.
+- SigFlag_* -> SignatureFlags: SignatureFlags.SIGNATURES_EXIST and SignatureFlags.APPEND_ONLY are the bits of doc.form.signature_flags.
 - TEXT_ALIGN_CENTER -> Canvas.textbox: canvas.textbox(rect, text, align="center") takes the alignment as a string.
 - TEXT_ALIGN_JUSTIFY -> Canvas.textbox: canvas.textbox(rect, text, align="justify") takes the alignment as a string.
 - TEXT_ALIGN_LEFT -> Canvas.textbox: canvas.textbox(rect, text, align="left") takes the alignment as a string.
@@ -430,6 +432,7 @@ replacement, and the migration hint):
 - Widget.field_type_string -> Field.type: Read doc.form[name].type, a FieldType member whose value is a lowercase name such as text.
 - Widget.field_value -> Field.value: Read or assign doc.form[name].value; assignment regenerates the appearances at once, so no update() follows.
 - Widget.fill_color -> Widget.background_color: widget.background_color is the /MK /BG Color or None, assignable and deletable.
+- Widget.is_signed -> Field.is_signed: widget.field.is_signed is True for a signature field whose /V is a signature dictionary, and False otherwise, where pymupdf returns None for other fields.
 - Widget.next -> Widgets: Iterate page.widgets.
 - Widget.on_state -> Widget.on_state: widget.on_state is the state that selects a check box or radio button.
 - Widget.rb_parent -> Widget.field: widget.field is the radio group's Field.

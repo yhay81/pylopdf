@@ -2282,6 +2282,12 @@ the concept and API overview.
   encoded data. Writes admit the complete mapping before mutation, and
   saved mappings revalidate their field's object epoch and closed state.
   pylopdf never runs scripts.
+- `field.is_signed` and `doc.form.signature_flags` read through the object
+  model in Python: a signature field is signed when the first `/V` along its
+  `/Parent` chain (at most 64 levels) is a dictionary, and `/SigFlags` keeps
+  only `SignatureFlags` bits. pylopdf neither signs nor verifies;
+  `tests/test_interop.py` has pyHanko sign a pylopdf `SignatureField` and
+  validate the result.
 - AcroForm filling writes `/V`, synchronizes button `/AS`, and regenerates
   widget `/AP /N`. Text and choice appearances auto-fit in widget-local
   coordinates, respect inherited `/Q` and multiline `/Ff`, and reuse the Core

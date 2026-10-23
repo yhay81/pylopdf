@@ -173,3 +173,36 @@ def test_pyhanko_signs_pylopdf_output_incrementally(tmp_path: Path) -> None:
     with pylopdf.open(signed) as reopened:
         assert len(reopened.pages) == 1
         assert reopened.metadata["title"] == "pylopdf interop test"
+
+
+def test_pyhanko_signs_a_pylopdf_signature_field(tmp_path: Path) -> None:
+    from pyhanko.keys import load_cert_from_pemder  # noqa: PLC0415
+    from pyhanko.pdf_utils.reader import PdfFileReader  # noqa: PLC0415
+    from pyhanko.sign.validation import validate_pdf_signature  # noqa: PLC0415
+    from pyhanko_certvalidator import ValidationContext  # noqa: PLC0415
+
+    doc = pylopdf.Document()
+    doc.pages.new((300, 200)).widgets.add(pylopdf.SignatureField("Approval", (20, 20, 200, 60), label="Approver"))
+    original = doc.to_bytes()
+
+    key_path, cert_path = _make_self_signed_cert(tmp_path)
+    signer = signers.SimpleSigner.load(str(key_path), str(cert_path))
+    assert signer is not None
+    signed = signers.sign_pdf(
+        IncrementalPdfFileWriter(io.BytesIO(original)),
+        signers.PdfSignatureMetadata(field_name="Approval"),
+        signer=signer,
+    ).getvalue()
+
+    (embedded,) = PdfFileReader(io.BytesIO(signed)).embedded_signatures
+    assert embedded.field_name == "Approval"
+    status = validate_pdf_signature(embedded, ValidationContext(trust_roots=[load_cert_from_pemder(str(cert_path))]))
+    assert status.intact
+    assert status.valid
+    with pylopdf.open(signed) as reopened:
+        field = reopened.form["Approval"]
+        assert field.is_signed is True
+        assert field.label == "Approver"
+        flags = reopened.form.signature_flags
+        assert flags == pylopdf.SignatureFlags.SIGNATURES_EXIST | pylopdf.SignatureFlags.APPEND_ONLY
+        assert reopened.pages[0].widgets[0].field == field

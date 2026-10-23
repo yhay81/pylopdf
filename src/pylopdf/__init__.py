@@ -104,6 +104,7 @@ from pylopdf._form import (
     Scripts,
     ScriptTrigger,
     SignatureField,
+    SignatureFlags,
     TextField,
 )
 from pylopdf._geometry import IRect, Matrix, Point, Quad, Rect
@@ -259,6 +260,7 @@ __all__ = [
     "ShadingPattern",
     "ShadingType",
     "SignatureField",
+    "SignatureFlags",
     "SoftMask",
     "SoftMaskType",
     "Span",

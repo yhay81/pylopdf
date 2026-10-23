@@ -84,6 +84,8 @@ MODULE_MEMBER_RENAMES = {
         f"PDF_BM_{''.join(part.capitalize() for part in member.name.split('_'))}": f"BlendMode.{member.name}"
         for member in pylopdf.BlendMode
     },
+    "SigFlag_SignaturesExist": "SignatureFlags.SIGNATURES_EXIST",
+    "SigFlag_AppendOnly": "SignatureFlags.APPEND_ONLY",
     "Identity": "Matrix.IDENTITY",
     "planish_line": "Matrix.planish",
     "FZ_MIN_INF_RECT": "Rect.INFINITE.x0",
