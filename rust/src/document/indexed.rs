@@ -342,6 +342,10 @@ impl ObjectSink for IndexedDocument {
 }
 
 impl FormImportTarget for IndexedDocument {
+    fn max_id(&self) -> u32 {
+        self.doc.max_id
+    }
+
     /// Insert renumbered objects, keeping the index while every ID is
     /// unused by the walk.
     fn insert_new_objects(&mut self, objects: Vec<(ObjectId, Object)>, max_id: u32) {
