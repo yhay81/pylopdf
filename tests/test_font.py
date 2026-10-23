@@ -510,3 +510,36 @@ def test_text_height_validates_its_input(regular: pylopdf.Font) -> None:
         regular.text_height("あ" * 5000, 10, width=10)
     assert exc_info.value.code == "text_line_count"
     assert regular.text_height("\n" * 4096, 10, width=100, max_text_size=None) > 0
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["Helvetica", "Times-Roman", "Times-Bold", "Courier-Bold", "Courier-BoldOblique"],
+)
+def test_standard_14_fonts_draw_under_their_postscript_names(name: StandardFontName) -> None:
+    doc = pylopdf.Document()
+    page = doc.pages.new()
+    font = pylopdf.Font.standard(name)
+
+    with page.draw() as canvas:
+        canvas.text("Named", (40, 60), font=font)
+        assert canvas.textbox((40, 100, 300, 160), "Boxed", font=font).fits
+
+    data = doc.to_bytes(compress=False)
+    assert f"/BaseFont/{name}".encode() in data
+    text = pylopdf.open(data).pages[0].text()
+    assert all(word in text for word in ("Named", "Boxed"))
+
+
+def test_symbol_fonts_draw_with_their_built_in_encoding() -> None:
+    doc = pylopdf.Document()
+    page = doc.pages.new()
+
+    with page.draw() as canvas:
+        assert canvas.textbox((40, 40, 300, 100), "abc", font=pylopdf.Font.standard("Symbol")).fits
+        canvas.text("abc", (40, 140), font=pylopdf.Font.standard("ZapfDingbats"))
+
+    data = doc.to_bytes(compress=False)
+    assert b"/BaseFont/Symbol" in data
+    assert b"/BaseFont/ZapfDingbats" in data
+    assert b"WinAnsiEncoding" not in data

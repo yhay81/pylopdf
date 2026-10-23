@@ -339,9 +339,7 @@ page.rotation = 90
 
 | Member | Purpose |
 |---|---|
-| `insert_image(rect, *, filename=, stream=, pixmap=, rotate=0, keep_proportion=True, overlay=True)` | Draw a JPEG, PNG, or `Pixmap`; returns its object number |
-| `show_pdf_page(rect, docsrc, pno=0, *, keep_proportion=True, overlay=True)` | Draw a page of another PDF, or of this one, as vectors |
-| `draw(*, underlay=False)` | A [canvas](#canvas) that draws text, lines, rectangles, and other paths, images, and pages in order; see [Writing text](#writing-text) |
+| `draw(*, underlay=False)` | A [canvas](#canvas) that draws text, lines, rectangles, and other paths, images, and pages of any document in order; see [Writing text](#writing-text) |
 | `replace_text(search, replacement, *, default_char=None)` | Replace text drawn in simple (single-byte) fonts |
 
 The same image or page drawn again is stored once in the file.
@@ -564,8 +562,8 @@ with page.draw() as canvas:
 | `line`, `rect(rect, *, radius=0)`, `circle`, `ellipse`, `polygon`, `bezier` | One path each, with the options of `path` |
 | `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None)` | Lines whose first baseline starts at `at` |
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` | Text wrapped inside `rect`; returns a `TextFit` |
-| `image(rect, source, *, keep_aspect=True, rotate=0)` | A JPEG or PNG path, encoded bytes, or a `Pixmap` |
-| `page(rect, source, *, keep_aspect=True)` | A page of any open document, this one included |
+| `image(rect, source, *, keep_aspect=True, rotate=0)` | A JPEG or PNG path, encoded bytes, or a `Pixmap`, turned clockwise by `rotate` |
+| `page(rect, source, *, keep_aspect=True)` | A page of any open document, this one included, as vectors |
 | `draw(item)` | A `Path` item that [`page.content()`](#content) returned |
 
 Paths take a `Color` fill and a stroke: a `Stroke` with width, cap, join,

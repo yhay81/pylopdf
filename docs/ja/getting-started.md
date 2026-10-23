@@ -122,10 +122,10 @@ with pylopdf.Document() as merged, pylopdf.open("a.pdf") as a, pylopdf.open("b.p
 ```python
 with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterhead:
     page = doc.pages[0]
-    page.insert_image((72, 72, 200, 200), filename="logo.png")
-    page.show_pdf_page(page.rect, letterhead)       # 別のPDFのページ0をベクタのまま
     rule = pylopdf.Stroke(paint=pylopdf.Color(0, 0, 0), width=0.5, dashes=(3, 2))
     with page.draw() as canvas:
+        canvas.image((72, 72, 200, 200), "logo.png")
+        canvas.page(page.rect, letterhead.pages[0])     # 別のPDFのページをベクタのまま
         canvas.line((36, 340), (400, 340), stroke=rule)
 
     hits = page.search("important")

@@ -89,7 +89,7 @@ limits = pylopdf.DocumentLimits(
 | `Page.content()` | 글리프, 경로와 클립의 세그먼트, 선의 대시 길이, 항목을 합쳐 262,144개 | `max_elements` |
 | `Canvas.text()`, `textbox()`, `Font.text_width()`, `text_height()` | 텍스트 1 MiB와 4,096줄 | `max_text_size` |
 | `Font.from_file()`, `from_bytes()`, 폼에 전달하는 글꼴 입력 | 글꼴당 64 MiB | `max_size`, `max_font_size` |
-| `Page.insert_image()` | 입력 64 MiB와 6,400만 픽셀 | `max_size`, `max_pixels` |
+| `Canvas.image()` | 입력 64 MiB와 6,400만 픽셀 | `max_size`, `max_pixels` |
 | `Page.replace_text()` | 페이지 콘텐츠 64 MiB | `max_size` |
 | 첨부 파일: `add()`, `read()`, `write()` | 파일당 64 MiB | `max_size` |
 | `Stream.read()` | 64 MiB | `max_size` |

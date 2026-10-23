@@ -35,7 +35,9 @@ with tempfile.TemporaryDirectory() as folder:
     path = os.path.join(folder, "page.png")
     pixmap.save(path)
     page = doc.pages.new((200, 200))
-    xref = page.insert_image(pylopdf.Rect(20, 20, 120, 120), filename=path)
+    with page.draw() as canvas:
+        canvas.image(pylopdf.Rect(20, 20, 120, 120), path)
+    xref = page.content(text_runs=False, paths=False, annotations=False).images[-1].xref
     assert [image.xref for image in page.resources.images] == [xref]
     assert (doc.images[xref].width, doc.images[xref].height) == (100, 100)
     assert doc.images[xref].extract().format == "png"

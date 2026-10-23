@@ -237,9 +237,7 @@ page.rotation = 90
 
 | 成员 | 用途 |
 |---|---|
-| `insert_image(rect, *, filename=, stream=, pixmap=, rotate=0, keep_proportion=True, overlay=True)` | 绘制JPEG、PNG或`Pixmap`；返回其对象编号 |
-| `show_pdf_page(rect, docsrc, pno=0, *, keep_proportion=True, overlay=True)` | 以矢量形式绘制另一个PDF（或本文档）的某一页 |
-| `draw(*, underlay=False)` | 按顺序绘制文本、直线和矩形等路径、图像以及页面的[画布](#canvas)；参见[写入文本](#writing-text) |
+| `draw(*, underlay=False)` | 按顺序绘制文本、直线和矩形等路径、图像以及任意文档页面的[画布](#canvas)；参见[写入文本](#writing-text) |
 | `replace_text(search, replacement, *, default_char=None)` | 替换以简单（单字节）字体绘制的文本 |
 
 同一图像或页面再次绘制时，在文件中只存储一份。
@@ -391,8 +389,8 @@ with page.draw() as canvas:
 | `line`、`rect(rect, *, radius=0)`、`circle`、`ellipse`、`polygon`、`bezier` | 各绘制一条路径，选项与`path`相同 |
 | `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None)` | 第一条基线从`at`开始的若干行文本 |
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` | 在`rect`内自动换行的文本；返回`TextFit` |
-| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEG或PNG文件路径、已编码的bytes，或`Pixmap` |
-| `page(rect, source, *, keep_aspect=True)` | 任意已打开文档（包括本文档）的某一页 |
+| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEG或PNG文件路径、已编码的bytes，或`Pixmap`；`rotate`按顺时针旋转 |
+| `page(rect, source, *, keep_aspect=True)` | 以矢量形式绘制任意已打开文档（包括本文档）的某一页 |
 | `draw(item)` | [`page.content()`](#content)返回的`Path`项 |
 
 路径接受`Color`填充和描边：描边可以是带有宽度、线帽、连接方式、斜接限制和虚线的`Stroke`，也可以是表示1点宽线条的`Color`。两者都未指定的路径以1点宽的黑线描边。颜色的`alpha`使相应的填充或描边半透明。`PathBuilder`用`move_to`、`line_to`、`curve_to`、`quad_to`和`close`构建几何形状，并用`rect`、`ellipse`、`circle`、`polygon`、`sector`、`zigzag`和`wave`添加完整的图形；每个方法都返回构建器本身，因此可以链式调用。

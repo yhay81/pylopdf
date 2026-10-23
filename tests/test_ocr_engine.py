@@ -250,7 +250,8 @@ def test_apply_ocr_adds_searchable_invisible_text(ocr_engine: pylopdf.OcrEngine)
 
     target = pylopdf.Document()
     target.pages.new((360, 120))
-    target.pages[0].insert_image(target.pages[0].rect, stream=raster.to_bytes())
+    with target.pages[0].draw() as canvas:
+        canvas.image(target.pages[0].rect, raster.to_bytes())
     before = bytes(target.pages[0].pixmap(background=(255, 255, 255), alpha=True))
 
     words = target.pages[0].apply_ocr(dpi=150, engine=ocr_engine, tile_size=512, overlap=64)
@@ -274,7 +275,8 @@ def test_apply_ocr_clip_handles_mixed_content(ocr_engine: pylopdf.OcrEngine) -> 
     target.pages.new((360, 220))
     with target.pages[0].draw() as canvas:
         canvas.text("Digital header", (20, 30), size=14)
-    target.pages[0].insert_image((0, 80, 360, 200), stream=raster.to_bytes())
+    with target.pages[0].draw() as canvas:
+        canvas.image((0, 80, 360, 200), raster.to_bytes())
     before = bytes(target.pages[0].pixmap(background=(255, 255, 255), alpha=True))
 
     words = target.pages[0].apply_ocr(
@@ -310,7 +312,8 @@ def test_apply_ocr_corrects_rotated_scan_without_rotating_page(
 
     target = pylopdf.Document()
     target.pages.new((360, 200))
-    target.pages[0].insert_image(target.pages[0].rect, stream=raster.to_bytes())
+    with target.pages[0].draw() as canvas:
+        canvas.image(target.pages[0].rect, raster.to_bytes())
     target.pages[0].rotation = page_rotation
     before = bytes(target.pages[0].pixmap(background=(255, 255, 255), alpha=True))
 

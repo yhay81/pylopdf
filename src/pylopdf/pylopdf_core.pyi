@@ -548,54 +548,6 @@ class _Document:
     ) -> Pixmap: ...
     def release_render_cache(self) -> None: ...
     def take_warnings(self) -> list[str]: ...
-    def insert_image(
-        self,
-        page_number: int,
-        rect: tuple[float, float, float, float],
-        data: bytes,
-        image_rotation: int,
-        keep_proportion: bool,
-        overlay: bool,
-        max_size: int | None = 67108864,
-        max_pixels: int | None = 64000000,
-    ) -> int: ...
-    def insert_image_file(
-        self,
-        page_number: int,
-        rect: tuple[float, float, float, float],
-        path: str,
-        image_rotation: int,
-        keep_proportion: bool,
-        overlay: bool,
-        max_size: int | None = 67108864,
-        max_pixels: int | None = 64000000,
-    ) -> int: ...
-    def insert_pixmap(
-        self,
-        page_number: int,
-        rect: tuple[float, float, float, float],
-        pixmap: Pixmap,
-        image_rotation: int,
-        keep_proportion: bool,
-        overlay: bool,
-    ) -> int: ...
-    def show_pdf_page(
-        self,
-        page_number: int,
-        rect: tuple[float, float, float, float],
-        other: _Document,
-        src_page_number: int,
-        keep_proportion: bool,
-        overlay: bool,
-    ) -> int: ...
-    def show_pdf_page_self(
-        self,
-        page_number: int,
-        rect: tuple[float, float, float, float],
-        src_page_number: int,
-        keep_proportion: bool,
-        overlay: bool,
-    ) -> int: ...
     def read_annotations(self, page_number: int) -> list[_Annotation]: ...
     def read_annotation(self, page_number: int, index: int, xref: int) -> _Annotation: ...
     def read_links(self, page_number: int) -> list[tuple[int, int, tuple[float, float, float, float], _Target]]: ...

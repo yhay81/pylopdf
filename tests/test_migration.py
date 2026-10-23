@@ -465,6 +465,46 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "with page.draw() as canvas:\n    spare = canvas.textbox(r, t, size=10).spare_height\n",
         ),
         (
+            "import fitz\npage.insert_image(r, filename='logo.png')\n",
+            "with page.draw() as canvas:\n    canvas.image(r, 'logo.png')\n",
+        ),
+        (
+            "import fitz\npage.insert_image(r, stream=data, keep_proportion=False, overlay=False)\n",
+            "with page.draw(underlay=True) as canvas:\n    canvas.image(r, data, keep_aspect=False)\n",
+        ),
+        # pymupdf turns images anticlockwise, the canvas and pylopdf 0.15 clockwise.
+        ("import fitz\npage.insert_image(r, pixmap=pix, rotate=90)\n", "    canvas.image(r, pix, rotate=270)"),
+        ("import fitz\npage.insert_image(r, pixmap=pix, rotate=angle)\n", "    canvas.image(r, pix, rotate=-angle)"),
+        (
+            "import pylopdf\npage.insert_image(r, stream=data, rotate=90, max_size=None)\n",
+            "canvas.image(r, data, rotate=90, max_size=None)",
+        ),
+        (
+            "import fitz\nxref = page.insert_image(r, filename='logo.png')\n",
+            "\nxref = page.content(text_runs=False, paths=False, annotations=False).images[-1].xref\n",
+        ),
+        (
+            "import fitz\nxref = page.insert_image(r, stream=data, overlay=False)\n",
+            "xref = page.content(text_runs=False, paths=False, annotations=False).images[0].xref\n",
+        ),
+        (
+            "import fitz\npage.show_pdf_page(r, src, 2)\n",
+            "with page.draw() as canvas:\n    canvas.page(r, src.pages[2])\n",
+        ),
+        (
+            "import fitz\npage.show_pdf_page(r, fitz.open(path), keep_proportion=False, overlay=False)\n",
+            "    canvas.page(r, pylopdf.open(path).pages[0], keep_aspect=False)\n",
+        ),
+        ("import pylopdf\npage.show_pdf_page(r, src=other, pno=-1)\n", "    canvas.page(r, other.pages[-1])"),
+        (
+            "import pylopdf\nwith page.draw() as canvas:\n    canvas.line(a, b)\npage.insert_image(r, stream=d)\n",
+            "with page.draw() as canvas:\n    canvas.line(a, b)\nwith page.draw() as canvas:\n    canvas.image(r, d)\n",
+        ),
+        (
+            "import pylopdf\nwith page.draw() as canvas:\n    page.insert_image(r, stream=d)\n",
+            "with page.draw() as canvas:\n    with page.draw() as page_canvas:\n        page_canvas.image(r, d)\n",
+        ),
+        (
             "import fitz\npage.insert_text(a, 'x')\npage.insert_text(b, 'y', color=(1, 0, 0))\n",
             "with page.draw() as canvas:\n    canvas.text('x', a)\n    canvas.text('y', b, fill=pylopdf.Color(1, ",
         ),
@@ -490,6 +530,12 @@ def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> N
         pytest.param("page.insert_text(a, 'x')\npage.insert_text(b, str(n))\n", 2, id="other-call"),
         pytest.param("page.insert_text(a, 'x')\npage.insert_text(b, ['y', 'z'])\n", 1, id="string-method"),
         pytest.param("page.draw_line(a, b)\npage.insert_text(a, 'x', color=(1, 0, 0))\n", 1, id="path-and-text"),
+        pytest.param("page.insert_text(a, 'x')\npage.insert_image(r, filename='a.png')\n", 1, id="text-and-image"),
+        # A placed page could be this one, whose earlier drawing a joined block would not show.
+        pytest.param("page.insert_text(a, 'x')\npage.show_pdf_page(r, doc, 0)\n", 2, id="placed-page"),
+        pytest.param("page.show_pdf_page(r, doc, 0)\npage.insert_text(a, 'x')\n", 1, id="page-then-text"),
+        # An assignment reads the page that its block alone leaves.
+        pytest.param("page.insert_text(a, 'x')\nxref = page.insert_image(r, stream=d)\n", 2, id="assigned-image"),
     ],
 )
 def test_codemod_joins_consecutive_canvas_blocks_of_one_page(migrate_source: Migrate, source: str, blocks: int) -> None:
@@ -836,6 +882,13 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import fitz\nwidth = font.text_length(text, wmode=1)\n", "Font.text_length is Font.text_width"),
         ("import fitz\nnames = fitz.Base14_fontnames\n", "typing.get_args(pylopdf.StandardFontName)"),
         ("import fitz\npage.draw_rect(r, radius=0.1)\n", "whose radius is in points"),
+        ("import fitz\npage.insert_image(r, filename=f, mask=m)\n", "Page.insert_image is Canvas.image"),
+        ("import fitz\npage.insert_image(r, xref=x)\n", "Page.insert_image is Canvas.image"),
+        ("import fitz\npage.insert_image(r, filename=f, stream=s)\n", "Page.insert_image is Canvas.image"),
+        ("import fitz\nxref = doc.new_page().insert_image(r, stream=d)\n", "Page.insert_image is Canvas.image"),
+        ("import fitz\npage.show_pdf_page(r, src, clip=c)\n", "Page.show_pdf_page is Canvas.page"),
+        ("import fitz\npage.show_pdf_page(r, src, rotate=90)\n", "Page.show_pdf_page is Canvas.page"),
+        ("import fitz\nform = page.show_pdf_page(r, src)\n", "Page.show_pdf_page is Canvas.page"),
         ("import fitz\npage.insert_text(p, t, render_mode=3)\n", "Page.insert_text is Canvas.text"),
         ("import fitz\npage.insert_text(p, t, rotate=90)\n", "Page.insert_text is Canvas.text"),
         ("import fitz\npage.insert_text(p, t, fontname='china-s')\n", "Page.insert_text is Canvas.text"),

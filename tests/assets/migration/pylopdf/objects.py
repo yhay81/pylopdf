@@ -5,7 +5,9 @@ import pylopdf
 doc = pylopdf.Document()
 page = doc.pages.new((100, 100))
 pixmap = page.pixmap(dpi=18)
-xref = page.insert_image(pylopdf.Rect(0, 0, 50, 50), pixmap=pixmap)
+with page.draw() as canvas:
+    canvas.image(pylopdf.Rect(0, 0, 50, 50), pixmap)
+xref = page.content(text_runs=False, paths=False, annotations=False).images[-1].xref
 
 catalog = doc.catalog.xref
 assert catalog > 0

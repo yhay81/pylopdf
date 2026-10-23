@@ -22,6 +22,8 @@ from conftest import (
     annotation_subtypes,
     build_pdf,
     build_raw_pdf,
+    draw_image,
+    draw_page,
     draw_text,
     draw_textbox,
     outline_entries,
@@ -137,9 +139,9 @@ EDITS: dict[str, tuple[Callable[[pylopdf.Document], object], list[int | str]]] =
         UNCHANGED,
     ),
     "textbox": (lambda doc: draw_textbox(doc.pages[1], (5, 5, 95, 60), "Box text"), UNCHANGED),
-    "insert_image": (lambda doc: doc.pages[2].insert_image((10, 10, 40, 40), stream=PNG), UNCHANGED),
-    "show_pdf_page": (lambda doc: doc.pages[2].show_pdf_page((0, 0, 50, 50), STAMP), UNCHANGED),
-    "show_pdf_page_self": (lambda doc: doc.pages[0].show_pdf_page((0, 0, 50, 50), doc, 3), UNCHANGED),
+    "image": (lambda doc: draw_image(doc.pages[2], (10, 10, 40, 40), PNG), UNCHANGED),
+    "placed_page": (lambda doc: draw_page(doc.pages[2], (0, 0, 50, 50), STAMP.pages[0]), UNCHANGED),
+    "placed_page_self": (lambda doc: draw_page(doc.pages[0], (0, 0, 50, 50), doc.pages[3]), UNCHANGED),
     "replace_text": (lambda doc: doc.pages[4].replace_text("Page", "Leaf"), UNCHANGED),
     "add_link_annot": (
         lambda doc: doc.pages[3].links.add((1, 1, 20, 20), "https://example.com/"),
@@ -422,8 +424,8 @@ def _aliased_snapshot(doc: pylopdf.Document) -> tuple[object, ...]:
 PAGE_EDITS: dict[str, Callable[[pylopdf.Page], object]] = {
     "text": lambda page: draw_text(page, (10, 20), "Stamp"),
     "textbox": lambda page: draw_textbox(page, (5, 5, 95, 60), "Box text"),
-    "insert_image": lambda page: page.insert_image((5, 5, 30, 30), stream=PNG),
-    "show_pdf_page": lambda page: page.show_pdf_page((0, 0, 40, 40), STAMP),
+    "image": lambda page: draw_image(page, (5, 5, 30, 30), PNG),
+    "placed_page": lambda page: draw_page(page, (0, 0, 40, 40), STAMP.pages[0]),
     "replace_text": lambda page: page.replace_text("Text", "Done"),
     "add_link_annot": lambda page: page.links.add((1, 1, 20, 20), "https://example.com/"),
     "add_highlight": lambda page: page.annotations.add(pylopdf.Highlight((5, 5, 40, 15))),
@@ -496,7 +498,8 @@ def test_an_import_into_a_missing_kid_number_matches_a_fresh_walk() -> None:
     source = pylopdf.open(build_raw_pdf(source_objects).replace(b"/Root 1 0 R", b"/Root 2 0 R"))
     assert len(target.pages) == 1
 
-    target.pages[0].show_pdf_page((0, 0, 50, 50), source)
+    with target.pages[0].draw() as canvas:
+        canvas.page((0, 0, 50, 50), source.pages[0])
 
     fresh = pylopdf.open(target.to_bytes())
     assert _snapshot(target) == _snapshot(fresh)
@@ -557,7 +560,7 @@ def test_editing_every_page_keeps_the_page_index(edit: str) -> None:
 
     Each edit used to drop the index, so every ``doc[i]`` after it walked the
     page tree again: about 4 s locally for each loop here, and 22 s for
-    ``show_pdf_page``, which also swept every object of the target. Each loop
+    placing a page, which also swept every object of the target. Each loop
     now takes 0.1 to 0.25 s; the generous bound only catches that regression.
     """
     doc = pylopdf.open(_flat_text_pdf(TIMED_PAGES))

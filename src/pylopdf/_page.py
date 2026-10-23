@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from pylopdf import _text
@@ -15,8 +14,6 @@ from pylopdf._geometry import Matrix, Rect
 from pylopdf._hints import hinted_getattr
 from pylopdf._images import Resources
 from pylopdf._limits import (
-    _DEFAULT_MAX_IMAGE_INPUT_SIZE,
-    _DEFAULT_MAX_IMAGE_PIXELS,
     _DEFAULT_MAX_MARKDOWN_SIZE,
     _DEFAULT_MAX_SVG_SIZE,
     _bounded_utf8_size,
@@ -31,15 +28,14 @@ from pylopdf._ocr import OcrEngine, OcrWord, _default_ocr_engine, _validate_ocr_
 from pylopdf._page_labels import _label, _read_page_labels
 from pylopdf._pixmap import Colorspace, _render_background, _render_gray, _render_scale, _validate_bool
 from pylopdf._tables import Table, build_tables
-from pylopdf.pylopdf_core import LimitError, Pixmap
 
 if TYPE_CHECKING:
-    import os
     from collections.abc import Iterable, Sequence
 
     from pylopdf._document import Document
     from pylopdf._text import Layout, Word
     from pylopdf._types import OcrRotation
+    from pylopdf.pylopdf_core import Pixmap
 
 
 _DEFAULT_MAX_TEXT_REPLACEMENT_SIZE = 64 * 1024 * 1024
@@ -54,34 +50,6 @@ _MAX_OCR_LAYER_TEXT_BYTES = 1024 * 1024
 #: The defaults of the recognition options of :meth:`Page.apply_ocr`, which ``words`` excludes.
 _DEFAULT_OCR_RECOGNITION = (300, 1408, 192, 0.5)
 _MAX_TEXT_REPLACEMENT_INPUT_BYTES = 4096
-
-
-def _image_input_limit_error(size: int, max_size: int) -> LimitError:
-    """Build the public error for an oversized encoded image source."""
-    return LimitError(
-        "image_input_size",
-        f"encoded image input is {size} bytes, exceeding the {max_size}-byte limit",
-    )
-
-
-def _resolve_image_source(
-    filename: str | os.PathLike[str] | None,
-    stream: bytes | None,
-    pixmap: Pixmap | None,
-) -> Path | bytes | Pixmap:
-    """Resolve exactly one encoded-image or rendered-Pixmap source."""
-    source_count = sum(source is not None for source in (filename, stream, pixmap))
-    if source_count != 1:
-        msg = "specify exactly one of filename, stream, or pixmap"
-        raise ValueError(msg)
-    if filename is not None:
-        return Path(filename)
-    if stream is not None:
-        return bytes(stream)
-    if not isinstance(pixmap, Pixmap):
-        msg = f"pixmap must be a Pixmap, not {type(pixmap).__name__}"
-        raise TypeError(msg)
-    return pixmap
 
 
 def _ocr_layer_words(words: Iterable[OcrWord]) -> list[OcrWord]:
@@ -108,17 +76,6 @@ def _ocr_layer_words(words: Iterable[OcrWord]) -> list[OcrWord]:
         text_bytes += encoded_bytes
         accepted.append(word)
     return accepted
-
-
-def _validate_image_rotation(rotate: int) -> int:
-    """Validate and normalize clockwise image rotation."""
-    if isinstance(rotate, bool) or not isinstance(rotate, int):
-        msg = f"rotate must be a multiple of 90: {rotate!r}"
-        raise TypeError(msg)
-    if rotate % 90 != 0:
-        msg = f"rotate must be a multiple of 90: {rotate!r}"
-        raise ValueError(msg)
-    return rotate % 360
 
 
 class Page:
@@ -522,139 +479,6 @@ class Page:
         )
         self._document._emit_warnings()
         return _content_from_core(raw)
-
-    def insert_image(  # noqa: PLR0913 - mirrors pymupdf's keyword-oriented drawing API
-        self,
-        rect: Sequence[float],
-        *,
-        filename: str | os.PathLike[str] | None = None,
-        stream: bytes | None = None,
-        pixmap: Pixmap | None = None,
-        rotate: int = 0,
-        keep_proportion: bool = True,
-        overlay: bool = True,
-        max_size: int | None = _DEFAULT_MAX_IMAGE_INPUT_SIZE,
-        max_pixels: int | None = _DEFAULT_MAX_IMAGE_PIXELS,
-    ) -> int:
-        """Draw an image into ``rect`` and return the image XObject's xref.
-
-        ``rect`` uses top-left-origin display coordinates.
-
-        Specify exactly one source. JPEG is embedded unchanged through DCTDecode
-        passthrough. PNG is decoded and embedded, preserving transparency as a
-        soft mask. ``pixmap=`` embeds a rendered :class:`Pixmap` directly from
-        its straight-alpha RGBA8 storage without a PNG encode/decode round trip.
-        Convert other encoded formats to JPEG or PNG with Pillow or a similar
-        library. ``rotate`` turns the image clockwise in multiples of 90 and is
-        normalized to 0–359. ``rect`` uses the same coordinate space as
-        :meth:`search_for` and :meth:`get_text`, so search results can be used
-        directly. ``keep_proportion`` centers the rotated image while preserving
-        its aspect ratio. ``overlay=False`` draws below existing content.
-        Existing page content is never rewritten. Encoded ``filename`` and
-        ``stream`` input defaults to a 64 MiB limit, and decoded PNG input
-        defaults to 64,000,000 pixels. ``None`` explicitly opts out of either
-        boundary for trusted workloads. Refusals raise :class:`LimitError` with
-        code ``image_input_size`` or ``image_pixel_count``. The limits do not
-        apply to an already bounded :class:`Pixmap`.
-
-        Input identical to an earlier placement in this document, encoded
-        bytes or Pixmap samples, places the image XObject and soft mask of that
-        placement again, whatever the rectangle and rotation, instead of
-        embedding another copy. :meth:`Document.rewrite_images`,
-        :meth:`replace_text`, :meth:`Document.set_form_field`, and saves
-        that compress a stream end this sharing, so the next placement embeds
-        the input again. A reopened document shares only its new placements.
-        The returned xref is that of the shared XObject when the input was
-        placed again, as pymupdf returns the xref of a reused image.
-        """
-        _validate_optional_positive_int("max_size", max_size)
-        _validate_optional_positive_int("max_pixels", max_pixels)
-        image_rotation = _validate_image_rotation(rotate)
-        source = _resolve_image_source(filename, stream, pixmap)
-        if isinstance(source, bytes) and max_size is not None and len(source) > max_size:
-            raise _image_input_limit_error(len(source), max_size)
-        x0, y0, x1, y1 = _validate_rect(rect)
-        if isinstance(source, Pixmap):
-            return self._document._doc.insert_pixmap(
-                self._page_number(),
-                (x0, y0, x1, y1),
-                source,
-                image_rotation,
-                keep_proportion,
-                overlay,
-            )
-        if isinstance(source, Path):
-            return self._document._doc.insert_image_file(
-                self._page_number(),
-                (x0, y0, x1, y1),
-                str(source),
-                image_rotation,
-                keep_proportion,
-                overlay,
-                max_size,
-                max_pixels,
-            )
-        return self._document._doc.insert_image(
-            self._page_number(),
-            (x0, y0, x1, y1),
-            source,
-            image_rotation,
-            keep_proportion,
-            overlay,
-            max_size,
-            max_pixels,
-        )
-
-    def show_pdf_page(
-        self,
-        rect: Sequence[float],
-        docsrc: Document,
-        pno: int = 0,
-        *,
-        keep_proportion: bool = True,
-        overlay: bool = True,
-    ) -> int:
-        """Overlay page ``pno`` from ``docsrc`` into ``rect`` and return the Form xref.
-
-        The source page becomes a Form XObject drawn as vector content, and the
-        return value is its xref, as in pymupdf.
-
-        ``pno`` is zero-based and may be negative. This is the pymupdf-style
-        primitive for watermarks, stamps, and letterheads. The source page is
-        embedded as a Form XObject, preserving text, vectors, and embedded
-        fonts. Overlaying a one-page typst PDF enables CJK watermarks, headers,
-        and footers; see the README ecosystem recipe. Source rotation and
-        CropBox are resolved visually to fit ``rect``. ``docsrc`` may be the
-        same document; pylopdf imports from a pre-edit snapshot so the source
-        page, including the target page itself, remains stable during
-        placement.
-
-        Placing a page of ``docsrc`` again places the Form XObject of the
-        earlier placement, with its fonts and images, instead of importing
-        another copy, as long as ``docsrc`` has not been edited since; any
-        edit of ``docsrc`` makes the next placement import the page again.
-        Edits that end image sharing, as described in :meth:`insert_image`,
-        end this sharing too. A same-document source page stays shared across
-        consecutive placements on other pages.
-        """
-        x0, y0, x1, y1 = _validate_rect(rect)
-        src_number = docsrc.pages[pno]._page_number()
-        if docsrc is self._document:
-            return self._document._doc.show_pdf_page_self(
-                self._page_number(),
-                (x0, y0, x1, y1),
-                src_number,
-                keep_proportion,
-                overlay,
-            )
-        return self._document._doc.show_pdf_page(
-            self._page_number(),
-            (x0, y0, x1, y1),
-            docsrc._doc,
-            src_number,
-            keep_proportion,
-            overlay,
-        )
 
     def draw(self, *, underlay: bool = False) -> Canvas:
         """Return a :class:`Canvas` that draws on this page.

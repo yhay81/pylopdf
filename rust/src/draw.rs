@@ -356,11 +356,6 @@ pub fn add_image_streams(doc: &mut impl ObjectSink, streams: ImageStreams) -> Ob
     doc.add_object(image)
 }
 
-/// Add an Image XObject and optional SMask, returning its ObjectId.
-pub fn add_image_xobject(doc: &mut impl ObjectSink, parts: ImageParts) -> Result<ObjectId, String> {
-    Ok(add_image_streams(doc, image_streams(parts)?))
-}
-
 /// Width of hayro-syntax's default A4 page in points.
 pub(crate) const A4_WIDTH: f64 = 210.0 * 72.0 / 25.4;
 /// Height of hayro-syntax's default A4 page in points.

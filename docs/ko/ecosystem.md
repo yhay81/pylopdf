@@ -32,7 +32,7 @@ pylopdf.open(pdf_a).pdfa_claim   # PdfaClaim(part=2, conformance='B')
 
 ## typst로 디자인한 워터마크와 머리글 { #cjk-watermarks }
 
-단순한 텍스트라면 `canvas.text()`로 충분합니다. `pylopdf[jp]`(또는 `[ko]`, `[zh-cn]`, `[zh-tw]`)를 설치하면 CJK 텍스트도 씁니다. 스탬프에 제대로 된 레이아웃이 필요하다면 typst에서 한 페이지로 디자인하고, `show_pdf_page()`로 문서의 모든 페이지에 그 페이지를 그리세요.
+단순한 텍스트라면 `canvas.text()`로 충분합니다. `pylopdf[jp]`(또는 `[ko]`, `[zh-cn]`, `[zh-tw]`)를 설치하면 CJK 텍스트도 씁니다. 스탬프에 제대로 된 레이아웃이 필요하다면 typst에서 한 페이지로 디자인하고, `canvas.page()`로 문서의 모든 페이지에 그 페이지를 그리세요.
 
 ```python
 from pylopdf_fonts_jp import sans_path  # pip install pylopdf[jp]
@@ -44,7 +44,8 @@ stamp_typ = """
 """
 stamp = pylopdf.open(typst.compile(stamp_typ.encode(), font_paths=[str(sans_path().parent)]))
 for page in doc.pages:
-    page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
+    with page.draw() as canvas:
+        canvas.page(page.rect, stamp.pages[0])
 ```
 
 스탬프는 실제 텍스트로 남으므로, 그 뒤에도 `page.text()`가 `社外秘`를 찾습니다.

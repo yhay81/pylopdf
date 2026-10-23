@@ -14,7 +14,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf, build_raw_pdf, draw_text, ocr_words, outline_entries
+from conftest import build_pdf, build_raw_pdf, draw_image, draw_page, draw_text, ocr_words, outline_entries
 
 import pylopdf
 
@@ -93,13 +93,13 @@ def test_reference_above_max_id_cannot_repeat_a_stamp() -> None:
 
 _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
     "insert_pdf": lambda doc: doc.pages.extend(pylopdf.open(build_pdf(["Source"])).pages),
-    "show_pdf_page": lambda doc: doc.pages[0].show_pdf_page((0, 0, 100, 100), pylopdf.open(build_pdf(["Source"])), 0),
+    "placed_page": lambda doc: draw_page(doc.pages[0], (0, 0, 100, 100), pylopdf.open(build_pdf(["Source"])).pages[0]),
     "text": lambda doc: draw_text(doc.pages[0], (20, 40), "Stamp"),
     "text_embedded_font": lambda doc: draw_text(
         doc.pages[0], (20, 40), "Stamp", font=pylopdf.Font.from_file(NOTO_SANS_JP)
     ),
-    "insert_image": lambda doc: doc.pages[0].insert_image(
-        (10, 10, 50, 50), pixmap=doc.pages[0].pixmap(matrix=pylopdf.Matrix(0.05, 0.05), alpha=True)
+    "image": lambda doc: draw_image(
+        doc.pages[0], (10, 10, 50, 50), doc.pages[0].pixmap(matrix=pylopdf.Matrix(0.05, 0.05), alpha=True)
     ),
     "add_highlight": lambda doc: doc.pages[0].annotations.add(pylopdf.Highlight([(10, 10, 100, 30)])),
     "add_link_annot": lambda doc: doc.pages[0].links.add((10, 10, 100, 30), "https://example.com/"),

@@ -39,7 +39,8 @@ def _timed_extract_pair(data: bytes, *, parallel: bool) -> tuple[float, tuple[st
 def _compress_jpeg(data: bytes) -> tuple[pylopdf.ImageCompressionResult, tuple[int, int], bytes]:
     doc = pylopdf.Document()
     page = doc.pages.new((100, 100))
-    page.insert_image((0, 0, 72, 72), stream=data)
+    with page.draw() as canvas:
+        canvas.image((0, 0, 72, 72), data)
     result = doc.rewrite_images(dpi_threshold=150, dpi_target=100, quality=65)
     image = drawn_images(page)[0]
     return result, (image["width"], image["height"]), image["image"]

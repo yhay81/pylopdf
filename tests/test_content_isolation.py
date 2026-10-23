@@ -132,7 +132,7 @@ def test_textbox_starts_from_the_initial_graphics_state(contents: tuple[bytes, .
 @pytest.mark.parametrize("rotation", ROTATIONS)
 @pytest.mark.parametrize("overlay", [True, False], ids=["overlay", "underlay"])
 @pytest.mark.parametrize("contents", CONTENTS)
-def test_insert_image_starts_from_the_initial_graphics_state(
+def test_an_image_starts_from_the_initial_graphics_state(
     contents: tuple[bytes, ...],
     rotation: int,
     *,
@@ -140,7 +140,8 @@ def test_insert_image_starts_from_the_initial_graphics_state(
 ) -> None:
     page = _page(*contents, rotation=rotation).pages[0]
 
-    page.insert_image((20, 30, 60, 70), stream=_png(2, 2, (255, 0, 0)), keep_proportion=False, overlay=overlay)
+    with page.draw(underlay=not overlay) as canvas:
+        canvas.image((20, 30, 60, 70), _png(2, 2, (255, 0, 0)), keep_aspect=False)
 
     assert _inserted_image_bbox(page) == pytest.approx((20, 30, 60, 70), abs=0.5)
 
@@ -160,14 +161,15 @@ def test_canvas_starts_from_the_initial_graphics_state(contents: tuple[bytes, ..
 
 @pytest.mark.parametrize("rotation", ROTATIONS)
 @pytest.mark.parametrize("contents", CONTENTS)
-def test_show_pdf_page_starts_from_the_initial_graphics_state(contents: tuple[bytes, ...], rotation: int) -> None:
+def test_a_placed_page_starts_from_the_initial_graphics_state(contents: tuple[bytes, ...], rotation: int) -> None:
     source = pylopdf.Document()
     source.pages.new((100, 100))
     with source.pages[0].draw() as canvas:
         canvas.rect((0, 0, 100, 100), fill=pylopdf.Color(*RED))
     page = _page(*contents, rotation=rotation).pages[0]
 
-    page.show_pdf_page((20, 30, 60, 70), source, 0)
+    with page.draw() as canvas:
+        canvas.page((20, 30, 60, 70), source.pages[0])
 
     assert _red_rects(page) == [pytest.approx((20, 30, 60, 70), abs=0.01)]
 
@@ -198,7 +200,8 @@ def test_drawing_counts_graphics_states_as_hayro_parses_them(contents: tuple[byt
 
     with page.draw() as page_canvas:
         page_canvas.text("Probe", (20, 40), size=10)
-    page.insert_image((120, 30, 160, 70), stream=_png(2, 2, (255, 0, 0)), keep_proportion=False)
+    with page.draw() as canvas:
+        canvas.image((120, 30, 160, 70), _png(2, 2, (255, 0, 0)), keep_aspect=False)
 
     _assert_text_at(page, "Probe", (20, 40))
     assert _inserted_image_bbox(page) == pytest.approx((120, 30, 160, 70), abs=0.5)

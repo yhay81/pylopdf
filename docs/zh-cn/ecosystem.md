@@ -32,7 +32,7 @@ pylopdf.open(pdf_a).pdfa_claim   # PdfaClaim(part=2, conformance='B')
 
 ## 用typst设计水印和页眉 { #cjk-watermarks }
 
-对于简单的文字，`canvas.text()`就足够了；安装`pylopdf[jp]`（或`[ko]`、`[zh-cn]`、`[zh-tw]`）后，它也能写入CJK文字。当印章需要真正的版面设计时，可以在typst中将其设计为一个页面，再用`show_pdf_page()`把该页面绘制到文档的每一页上：
+对于简单的文字，`canvas.text()`就足够了；安装`pylopdf[jp]`（或`[ko]`、`[zh-cn]`、`[zh-tw]`）后，它也能写入CJK文字。当印章需要真正的版面设计时，可以在typst中将其设计为一个页面，再用`canvas.page()`把该页面绘制到文档的每一页上：
 
 ```python
 from pylopdf_fonts_jp import sans_path  # pip install pylopdf[jp]
@@ -44,7 +44,8 @@ stamp_typ = """
 """
 stamp = pylopdf.open(typst.compile(stamp_typ.encode(), font_paths=[str(sans_path().parent)]))
 for page in doc.pages:
-    page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
+    with page.draw() as canvas:
+        canvas.page(page.rect, stamp.pages[0])
 ```
 
 印章仍然是真实的文本：之后`page.text()`能够找到`社外秘`。

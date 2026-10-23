@@ -89,7 +89,7 @@ limits = pylopdf.DocumentLimits(
 | `Page.content()` | 字形、路径与裁剪的线段、描边的虚线长度以及项合计262,144个 | `max_elements` |
 | `Canvas.text()`、`textbox()`、`Font.text_width()`、`text_height()` | 文本1 MiB、4,096行 | `max_text_size` |
 | `Font.from_file()`、`from_bytes()`以及传给表单的字体 | 每个字体64 MiB | `max_size`、`max_font_size` |
-| `Page.insert_image()` | 输入64 MiB、6,400万像素 | `max_size`、`max_pixels` |
+| `Canvas.image()` | 输入64 MiB、6,400万像素 | `max_size`、`max_pixels` |
 | `Page.replace_text()` | 页面内容64 MiB | `max_size` |
 | 附件：`add()`、`read()`、`write()` | 每个文件64 MiB | `max_size` |
 | `Stream.read()` | 64 MiB | `max_size` |

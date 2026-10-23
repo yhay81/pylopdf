@@ -237,9 +237,7 @@ page.rotation = 90
 
 | メンバ | 用途 |
 |---|---|
-| `insert_image(rect, *, filename=, stream=, pixmap=, rotate=0, keep_proportion=True, overlay=True)` | JPEG、PNG、`Pixmap`を描き、そのオブジェクト番号を返します |
-| `show_pdf_page(rect, docsrc, pno=0, *, keep_proportion=True, overlay=True)` | 別のPDF（または同じPDF）のページをベクタのまま描きます |
-| `draw(*, underlay=False)` | テキスト、線や四角形などのパス、画像、ページを順に描く[キャンバス](#canvas)。[テキストを書く](#writing-text)を参照 |
+| `draw(*, underlay=False)` | テキスト、線や四角形などのパス、画像、任意の文書のページを順に描く[キャンバス](#canvas)。[テキストを書く](#writing-text)を参照 |
 | `replace_text(search, replacement, *, default_char=None)` | 単純な（1バイトの）フォントで描かれたテキストを置換 |
 
 同じ画像やページを再び描いても、ファイルには1回だけ格納されます。
@@ -391,8 +389,8 @@ with page.draw() as canvas:
 | `line`, `rect(rect, *, radius=0)`, `circle`, `ellipse`, `polygon`, `bezier` | それぞれパスを1つ。オプションは`path`と同じです |
 | `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None)` | 最初のベースラインが`at`から始まる行 |
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` | `rect`の中で折り返したテキスト。`TextFit`を返します |
-| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEGまたはPNGのパス、エンコード済みのbytes、`Pixmap`のいずれか |
-| `page(rect, source, *, keep_aspect=True)` | 開いている任意の文書（この文書も含む）のページ |
+| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEGまたはPNGのパス、エンコード済みのbytes、`Pixmap`のいずれか。`rotate`で時計回りに回します |
+| `page(rect, source, *, keep_aspect=True)` | 開いている任意の文書（この文書も含む）のページをベクタのまま |
 | `draw(item)` | [`page.content()`](#content)が返した`Path`項目 |
 
 パスは`Color`の塗りと線を取ります。線は、幅、線端、角の形、マイター限界、破線を持つ`Stroke`か、1ポイントの線を表す`Color`です。どちらも指定しないパスは1ポイントの黒い線で描かれます。色の`alpha`は、その塗りや線を半透明にします。`PathBuilder`は`move_to`、`line_to`、`curve_to`、`quad_to`、`close`で形状を組み立て、`rect`、`ellipse`、`circle`、`polygon`、`sector`、`zigzag`、`wave`で図形をまるごと追加します。どのメソッドもビルダー自身を返すので、呼び出しを連鎖できます。

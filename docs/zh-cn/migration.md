@@ -104,8 +104,8 @@ python -m pylopdf.migrate src/
 | `font.text_length(text, fontsize)`、`pymupdf.get_text_length(text, fontname, fontsize)` | `font.text_width(text, size)` | `size`没有默认值；`font.text_height(text, size, width=...)`按`canvas.textbox`的绘制方式测量换行后的文本 |
 | `font.has_glyph(ord(c))` | `font.has_glyph(c)` | 接受字符本身，返回布尔值而不是字形编号 |
 | `pymupdf.Base14_fontnames`、`Base14_fontdict` | `typing.get_args(pylopdf.StandardFontName)` | `Font.standard()`接受的14个PostScript名称 |
-| `page.insert_image(rect, filename=/stream=/pixmap=)` | 相同 | JPEG、PNG或`Pixmap`；其他格式请用Pillow转换。同一图像插入两次只存储一份，因此不需要`xref=` |
-| `page.show_pdf_page(rect, docsrc, pno)` | 相同 | 源文档可以是同一个文档 |
+| `page.insert_image(rect, filename=/stream=/pixmap=)` | `canvas.image(rect, source)` | 在`with page.draw() as canvas:`中调用。source为路径、JPEG或PNG的bytes，或`Pixmap`，`keep_proportion=`变为`keep_aspect=`；`rotate=`按顺时针旋转，而pymupdf按逆时针旋转。同一图像绘制两次只存储一份，因此不需要`xref=`，每次放置的`xref`可从`page.content().images`得到 |
+| `page.show_pdf_page(rect, docsrc, pno)` | `canvas.page(rect, docsrc.pages[pno])` | 页面可以属于同一文档；尚不支持`clip=`和`rotate=` |
 | `page.new_shape()`、`shape.draw_*`、`finish()`、`insert_text()`、`commit()` | `with page.draw() as canvas:` | 画布按调用顺序绘制路径和文本，并在代码块结束时写入；`finish()`的样式变为每次调用的`fill=`和`stroke=`；参见[画布](api.md#canvas) |
 | `page.draw_line()`、`draw_rect()`、`draw_circle()`、`draw_oval()`、`draw_polyline()`、`draw_bezier()` | `canvas.line()`、`rect()`、`circle()`、`ellipse()`、`polygon(close=False)`、`bezier()` | `color=`、`width=`、`dashes=`、`lineCap=`和`lineJoin=`变为`stroke=Stroke(paint=Color(...), ...)`，`fill=`变为`Color`，不透明度变为`Color`的alpha；`rect(radius=)`以点为单位，而pymupdf的是短边的比例 |
 | `page.draw_quad()`、`draw_sector()`、`draw_curve()`、`draw_squiggle()`、`draw_zigzag()` | `canvas.polygon()`、`canvas.path(PathBuilder().sector(...))`、`canvas.bezier()`、`PathBuilder().wave()`、`PathBuilder().zigzag()` | 用`PathBuilder`构建几何形状；扇形角度为从x轴起顺时针的度数 |

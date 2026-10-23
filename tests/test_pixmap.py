@@ -275,7 +275,9 @@ def test_inserted_gray_and_alpha_pixmaps_keep_their_layout(
     doc = pylopdf.Document()
     page = doc.pages.new((40, 30))
 
-    xref = page.insert_image(page.rect, pixmap=pix)
+    with page.draw() as canvas:
+        canvas.image(page.rect, pix)
+    xref = page.content(text_runs=False, paths=False, annotations=False).images[-1].xref
 
     image = doc.images[xref]
     assert (image.width, image.height, image.colorspace) == (4, 3, colorspace)

@@ -161,7 +161,8 @@ def test_image_extraction_streams_rgb_alpha_without_changing_pixels() -> None:
 
     target = pylopdf.Document()
     target.pages.new((2, 1))
-    target.pages[0].insert_image((0, 0, 2, 1), pixmap=pixmap)
+    with target.pages[0].draw() as canvas:
+        canvas.image((0, 0, 2, 1), pixmap)
     extracted = drawn_images(target.pages[0])
 
     assert len(extracted) == 1

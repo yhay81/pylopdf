@@ -41,7 +41,7 @@ check that an existing PDF really conforms, use
 For simple text, `canvas.text()` is enough; with `pylopdf[jp]` (or `[ko]`,
 `[zh-cn]`, `[zh-tw]`) installed it writes CJK text too. When a stamp needs
 real layout, design it as a page in typst and draw that page onto every page
-of the document with `show_pdf_page()`:
+of the document with `canvas.page()`:
 
 ```python
 from pylopdf_fonts_jp import sans_path  # pip install pylopdf[jp]
@@ -53,7 +53,8 @@ stamp_typ = """
 """
 stamp = pylopdf.open(typst.compile(stamp_typ.encode(), font_paths=[str(sans_path().parent)]))
 for page in doc.pages:
-    page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
+    with page.draw() as canvas:
+        canvas.page(page.rect, stamp.pages[0])
 ```
 
 The stamp stays real text: `page.text()` finds `社外秘` afterwards.

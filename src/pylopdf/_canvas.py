@@ -37,7 +37,7 @@ from pylopdf._limits import (
     _FLOAT32_MAX,
     _validate_optional_positive_int,
 )
-from pylopdf.pylopdf_core import Pixmap, _Canvas, _Font
+from pylopdf.pylopdf_core import LimitError, Pixmap, _Canvas, _Font
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
@@ -226,6 +226,11 @@ def _canvas_font(text: str, font: Font | None) -> _Font:
     if core_font.standard_name is not None:
         _require_winansi(text)
     return core_font
+
+
+def _image_input_limit(size: int, max_size: int) -> LimitError:
+    """Build the error for encoded image input over its limit, worded as the core words it."""
+    return LimitError("image_input_size", f"encoded image input is {size} bytes, exceeding the {max_size}-byte limit")
 
 
 def _size(value: object) -> float:
@@ -902,8 +907,11 @@ class Canvas:
         if isinstance(source, Pixmap):
             self._record.add_pixmap(target, source, box, keep, rotation)
         elif isinstance(source, (bytes, bytearray, memoryview)):
-            data = bytes(source)
-            self._record.add_image(target, data, box, keep, rotation, max_size, max_pixels)
+            # Refuse oversized input before copying it for the core, which checks again.
+            size = source.nbytes if isinstance(source, memoryview) else len(source)
+            if max_size is not None and size > max_size:
+                raise _image_input_limit(size, max_size)
+            self._record.add_image(target, bytes(source), box, keep, rotation, max_size, max_pixels)
         elif isinstance(source, (str, os.PathLike)):
             self._record.add_image_file(target, os.fspath(source), box, keep, rotation, max_size, max_pixels)
         else:

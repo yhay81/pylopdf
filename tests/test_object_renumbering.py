@@ -144,7 +144,8 @@ def test_imports_the_page_the_source_reports_when_a_missing_kid_shares_a_new_num
     assert inserted.complexity["object_count"] == stamped.complexity["object_count"] == 7
 
     inserted.pages.extend(source.pages)
-    stamped.pages[0].show_pdf_page((0, 0, 100, 100), source, 0)
+    with stamped.pages[0].draw() as canvas:
+        canvas.page((0, 0, 100, 100), source.pages[0])
 
     assert len(inserted.pages) == 3
     assert "Reported page" in pylopdf.open(inserted.to_bytes()).pages[2].text()
@@ -171,7 +172,7 @@ def test_missing_source_reference_cannot_draw_a_target_page(*, free_entry: bool)
         assert "TARGET PAGE TWO" in doc.pages[1].text()
 
 
-@pytest.mark.parametrize("operation", ["insert_pdf", "show_pdf_page"])
+@pytest.mark.parametrize("operation", ["insert_pdf", "canvas_page"])
 def test_missing_source_resource_cannot_name_a_target_xobject(operation: str) -> None:
     """A missing XObject resource stays missing instead of naming target object 6."""
     content = "BT /F1 20 Tf 20 100 Td (Source text) Tj ET /X Do"
@@ -194,7 +195,8 @@ def test_missing_source_resource_cannot_name_a_target_xobject(operation: str) ->
         target.pages.extend(source.pages)
         texts = {0: ["TARGET", "FORM"], 1: ["Source", "text"]}
     else:
-        target.pages[0].show_pdf_page(target.pages[0].rect, source, 0)
+        with target.pages[0].draw() as canvas:
+            canvas.page(target.pages[0].rect, source.pages[0])
         texts = {0: ["TARGET", "FORM", "Source", "text"]}
 
     for doc in (target, pylopdf.open(target.to_bytes())):
@@ -212,7 +214,8 @@ def test_missing_source_reference_cannot_name_an_object_added_later() -> None:
     target.pages.extend(_missing_content_source(16).pages)
 
     stamp = pylopdf.open(build_pdf(["Stamp"]))
-    target.pages[0].show_pdf_page(pylopdf.Rect(0, 396, 612, 792), stamp, 0)
+    with target.pages[0].draw() as canvas:
+        canvas.page(pylopdf.Rect(0, 396, 612, 792), stamp.pages[0])
 
     for doc in (target, pylopdf.open(target.to_bytes())):
         assert doc.pages[0].text().split() == ["Target", "Stamp"]
@@ -235,10 +238,11 @@ def test_imports_from_a_source_with_tens_of_thousands_of_objects_stay_fast() -> 
 
     start = time.perf_counter()
     doc.pages.extend(source.pages[page_count - 1])
-    doc.pages[0].show_pdf_page((0, 0, 100, 100), source, 0)
+    with doc.pages[0].draw() as canvas:
+        canvas.page((0, 0, 100, 100), source.pages[0])
     elapsed = time.perf_counter() - start
 
-    assert elapsed < 2.0, f"pages.extend and show_pdf_page took {elapsed:.2f}s"
+    assert elapsed < 2.0, f"pages.extend and canvas.page took {elapsed:.2f}s"
     assert len(doc.pages) == 2
     assert "P0" in doc.pages[0].text()
     assert f"P{page_count - 1}" in doc.pages[1].text()

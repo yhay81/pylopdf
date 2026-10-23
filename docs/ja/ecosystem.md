@@ -32,7 +32,7 @@ pylopdf.open(pdf_a).pdfa_claim   # PdfaClaim(part=2, conformance='B')
 
 ## typstでデザインした透かしやヘッダー { #cjk-watermarks }
 
-単純なテキストなら`canvas.text()`で十分です。`pylopdf[jp]`（または`[ko]`、`[zh-cn]`、`[zh-tw]`）をインストールしていれば、CJKのテキストも書けます。スタンプに本格的なレイアウトが必要なときは、typstでページとしてデザインし、そのページを`show_pdf_page()`で文書の全ページに描きます。
+単純なテキストなら`canvas.text()`で十分です。`pylopdf[jp]`（または`[ko]`、`[zh-cn]`、`[zh-tw]`）をインストールしていれば、CJKのテキストも書けます。スタンプに本格的なレイアウトが必要なときは、typstでページとしてデザインし、そのページを`canvas.page()`で文書の全ページに描きます。
 
 ```python
 from pylopdf_fonts_jp import sans_path  # pip install pylopdf[jp]
@@ -44,7 +44,8 @@ stamp_typ = """
 """
 stamp = pylopdf.open(typst.compile(stamp_typ.encode(), font_paths=[str(sans_path().parent)]))
 for page in doc.pages:
-    page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
+    with page.draw() as canvas:
+        canvas.page(page.rect, stamp.pages[0])
 ```
 
 スタンプは本物のテキストのままなので、後から`page.text()`で`社外秘`が見つかります。

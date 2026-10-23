@@ -324,8 +324,9 @@ def test_rewrite_images_rolls_back_all_candidates_on_decode_error() -> None:
     jpeg, _, _ = source_jpeg()
     doc = pylopdf.Document()
     page = doc.pages.new((200, 100))
-    page.insert_image((0, 0, 72, 72), stream=jpeg)
-    page.insert_image((100, 0, 172, 72), stream=jpeg[:-20])
+    with page.draw() as canvas:
+        canvas.image((0, 0, 72, 72), jpeg)
+        canvas.image((100, 0, 172, 72), jpeg[:-20])
     original = drawn_images(page)
 
     with pytest.raises(pylopdf.PdfError, match="failed to decode JPEG"):
