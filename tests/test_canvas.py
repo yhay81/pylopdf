@@ -287,6 +287,179 @@ def test_textbox_alignment() -> None:
         canvas.textbox((0, 0, 100, 100), "x", align="middle")  # ty: ignore[invalid-argument-type]
 
 
+_TURNS = {0: (1, 0), 90: (0, 1), 180: (-1, 0), 270: (0, -1)}
+
+
+def _direction(glyph: pylopdf.Glyph) -> tuple[float, float]:
+    """Return the unit baseline direction of a glyph in display space."""
+    a, b = glyph.matrix.a, glyph.matrix.b
+    length = math.hypot(a, b)
+    return a / length, b / length
+
+
+def _ink(page: pylopdf.Page) -> tuple[int, int, int, int]:
+    """Return the pixel box of everything darker than white."""
+    pixmap = page.pixmap()
+    data = bytes(pixmap)
+    xs: list[int] = []
+    ys: list[int] = []
+    for y in range(pixmap.height):
+        row = data[y * pixmap.stride : y * pixmap.stride + pixmap.width * 3]
+        dark = [x for x in range(pixmap.width) if min(row[x * 3 : x * 3 + 3]) < 128]
+        if dark:
+            xs.extend((dark[0], dark[-1]))
+            ys.append(y)
+    return min(xs), min(ys), max(xs) + 1, max(ys) + 1
+
+
+@pytest.mark.parametrize("embedded", [False, True])
+@pytest.mark.parametrize("rotate", [0, 90, 180, 270, -90, 450])
+def test_text_turns_clockwise_about_its_origin(rotate: int, embedded: bool, regular: pylopdf.Font) -> None:  # noqa: FBT001 - parametrized.
+    _doc, page = _new_page(300, 300)
+    font = regular if embedded else None
+    with page.draw() as canvas:
+        canvas.text("Turned\nsecond", (150, 150), font=font, size=12, line_height=2, rotate=rotate)
+    first, second = page.content().text_runs
+    cos, sin = _TURNS[rotate % 360]
+    origin = first.glyphs[0].origin
+    assert (origin.x, origin.y) == pytest.approx((150, 150), abs=0.01)
+    for glyph in (*first.glyphs, *second.glyphs):
+        assert _direction(glyph) == pytest.approx((cos, sin), abs=1e-6)
+        assert glyph.size == pytest.approx(12, abs=0.01)
+    # The second line is 24 points further along the turned downward axis.
+    below = second.glyphs[0].origin
+    assert (below.x, below.y) == pytest.approx((150 - 24 * sin, 150 + 24 * cos), abs=0.01)
+    assert page.text() == "Turned\nsecond\n"
+
+
+@pytest.mark.parametrize("embedded", [False, True])
+@pytest.mark.parametrize("rotate", [0, 90, 180, 270])
+def test_turned_text_renders_along_its_direction(rotate: int, embedded: bool, regular: pylopdf.Font) -> None:  # noqa: FBT001 - parametrized.
+    _doc, page = _new_page(200, 200)
+    font = regular if embedded else None
+    with page.draw() as canvas:
+        canvas.text("MMMMMM", (100, 100), font=font, size=20, rotate=rotate)
+    x0, y0, x1, y1 = _ink(page)
+    cos, sin = _TURNS[rotate]
+    # The ink runs away from the origin along the baseline, and the glyphs
+    # stand on the side opposite the turned downward axis.
+    if cos:
+        assert x1 - x0 > 2 * (y1 - y0)
+        assert (x0 >= 99) if cos > 0 else (x1 <= 101)
+        assert (y1 <= 101) if cos > 0 else (y0 >= 99)
+    else:
+        assert y1 - y0 > 2 * (x1 - x0)
+        assert (y0 >= 99) if sin > 0 else (y1 <= 101)
+        assert (x0 >= 99) if sin > 0 else (x1 <= 101)
+
+
+@pytest.mark.parametrize("embedded", [False, True])
+@pytest.mark.parametrize("rotate", [90, 180, 270])
+def test_turned_textbox_matches_an_upright_box_of_the_turned_size(
+    rotate: int,
+    embedded: bool,  # noqa: FBT001 - parametrized.
+    regular: pylopdf.Font,
+) -> None:
+    text = "A paragraph long enough to wrap onto several lines of a narrow box."
+    font = regular if embedded else None
+    rect = (40, 20, 100, 180)
+    width, height = (60, 160) if rotate == 180 else (160, 60)
+    _doc, upright = _new_page(300, 300)
+    with upright.draw() as canvas:
+        expected = canvas.textbox((0, 0, width, height), text, font=font, size=10, align="center")
+    _doc, page = _new_page(300, 300)
+    with page.draw() as canvas:
+        fit = canvas.textbox(rect, text, font=font, size=10, align="center", rotate=rotate)
+    assert fit.spare_height == pytest.approx(expected.spare_height)
+    assert fit.fits
+    # Each glyph is the upright box's glyph, moved by the turn that maps
+    # the upright box onto ``rect``.
+    x0, y0, x1, y1 = rect
+    a, b, c, d, e, f = {
+        90: (0, 1, -1, 0, x1, y0),
+        180: (-1, 0, 0, -1, x1, y1),
+        270: (0, -1, 1, 0, x0, y1),
+    }[rotate]
+    upright_glyphs = [glyph for run in upright.content().text_runs for glyph in run.glyphs]
+    glyphs = [glyph for run in page.content().text_runs for glyph in run.glyphs]
+    assert len(glyphs) == len(upright_glyphs) > 0
+    for glyph, source in zip(glyphs, upright_glyphs, strict=True):
+        x, y = source.origin
+        assert (glyph.origin.x, glyph.origin.y) == pytest.approx((a * x + c * y + e, b * x + d * y + f), abs=0.01)
+        assert _direction(glyph) == pytest.approx((a, b), abs=1e-6)
+    for run in page.content().text_runs:
+        assert run.bbox.x0 >= x0 - 0.5
+        assert run.bbox.x1 <= x1 + 0.5
+        assert run.bbox.y0 >= y0 - 0.5
+        assert run.bbox.y1 <= y1 + 0.5
+    assert page.text().split() == text.split()
+
+
+def test_turned_textbox_overflow_and_empty_text_measure_across_the_lines() -> None:
+    _doc, page = _new_page()
+    with page.draw() as canvas:
+        text = "Far too much text for this turned box, which wraps onto lines"
+        overflow = canvas.textbox((10, 10, 25, 190), text, size=10, rotate=90)
+        empty = canvas.textbox((10, 10, 40, 190), "", rotate=270)
+    assert not overflow.fits
+    assert empty == TextFit(spare_height=30)
+    assert _items(page) == []
+
+
+def test_turned_text_survives_a_save(regular: pylopdf.Font) -> None:
+    doc, page = _new_page(300, 300)
+    with page.draw() as canvas:
+        canvas.text("down", (150, 20), font=regular, size=12, rotate=90)
+        canvas.textbox((20, 20, 60, 280), "up the box", size=10, rotate=270)
+    before = [(run.text, run.glyphs[0].origin, _direction(run.glyphs[0])) for run in page.content().text_runs]
+    reopened = pylopdf.open(doc.to_bytes()).pages[0]
+    after = [(run.text, run.glyphs[0].origin, _direction(run.glyphs[0])) for run in reopened.content().text_runs]
+    assert after == before
+    assert reopened.text() == page.text()
+
+
+def test_turned_text_needs_no_scope() -> None:
+    _doc, page = _new_page()
+    with page.draw() as canvas:
+        scopes = [canvas.transform(Matrix(1, 0, 0, 1, 1, 0)) for _ in range(16)]
+        for scope in scopes:
+            scope.__enter__()
+        canvas.text("deep", (10, 40), rotate=90)
+        canvas.textbox((50, 10, 80, 190), "deep box", rotate=270)
+        for scope in reversed(scopes):
+            scope.__exit__(None, None, None)
+    upright, boxed = page.content().text_runs
+    assert _direction(upright.glyphs[0]) == pytest.approx((0, 1), abs=1e-6)
+    assert upright.glyphs[0].origin.x == pytest.approx(26, abs=0.01)
+    assert _direction(boxed.glyphs[0]) == pytest.approx((0, -1), abs=1e-6)
+
+
+def test_turned_text_in_a_new_document(regular: pylopdf.Font) -> None:
+    builder = pylopdf.create()
+    with builder.page((200, 200)) as canvas:
+        canvas.text("Turned", (100, 100), font=regular, size=12, rotate=90)
+        canvas.textbox((20, 20, 60, 180), "Boxed lines", font=regular, size=10, rotate=270)
+    page = builder.finish().pages[0]
+    turned, boxed = page.content().text_runs
+    assert (turned.glyphs[0].origin.x, turned.glyphs[0].origin.y) == pytest.approx((100, 100), abs=0.01)
+    assert _direction(turned.glyphs[0]) == pytest.approx((0, 1), abs=1e-6)
+    assert _direction(boxed.glyphs[0]) == pytest.approx((0, -1), abs=1e-6)
+    assert boxed.bbox.x0 >= 20
+    assert boxed.bbox.x1 <= 60
+    assert page.text() == "Turned\nBoxed lines\n"
+
+
+@pytest.mark.parametrize("rotate", [45, 1, True, 90.0, "90"])
+def test_text_turns_only_by_right_angles(rotate: object) -> None:
+    _doc, page = _new_page()
+    with page.draw() as canvas:
+        with pytest.raises(ValueError, match="multiple of 90"):
+            canvas.text("x", (10, 10), rotate=rotate)  # ty: ignore[invalid-argument-type]
+        with pytest.raises(ValueError, match="multiple of 90"):
+            canvas.textbox((10, 10, 50, 50), "x", rotate=rotate)  # ty: ignore[invalid-argument-type]
+    assert _items(page) == []
+
+
 def test_transform_scopes_compose_inner_first() -> None:
     _doc, page = _new_page()
     with page.draw() as canvas:

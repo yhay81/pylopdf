@@ -729,6 +729,8 @@ def _rotated_canvas_results(font: bytes) -> dict[str, Any]:
         canvas.text("spaced\nlines", (120, 50), size=8, line_height=2)
         canvas.text(_JAPANESE + "\n" + _JAPANESE, (120, 80), font=face, size=8, line_height=1.5)
         fit = canvas.textbox((30, 180, 170, 260), _JAPANESE * 6, font=face, size=10)
+        canvas.text("turned", (190, 20), size=8, rotate=90)
+        turned = canvas.textbox((175, 120, 198, 260), _JAPANESE, font=face, size=8, rotate=270)
     paths = page.content().paths
     _require(len(paths) == 4, "a canvas did not draw one path per call")  # noqa: PLR2004 - four paths.
     data = document.to_bytes()
@@ -737,6 +739,10 @@ def _rotated_canvas_results(font: bytes) -> dict[str, Any]:
     return {
         "drawing": [[_path_paints(path), [round(value, 2) for value in path.bbox]] for path in paths],
         "spare": round(fit.spare_height, 4),
+        "turned_spare": round(turned.spare_height, 4),
+        "turned_directions": [
+            [round(run.glyphs[0].matrix.a, 4), round(run.glyphs[0].matrix.b, 4)] for run in page.content().text_runs
+        ][-2:],
         "words": words,
     }
 

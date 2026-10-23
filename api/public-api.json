@@ -1385,6 +1385,12 @@
                 "name": "line_height"
               },
               {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "rotate"
+              },
+              {
                 "annotation": "int | None",
                 "default": 1048576,
                 "kind": "keyword_only",
@@ -1449,6 +1455,12 @@
                 "default": null,
                 "kind": "keyword_only",
                 "name": "stroke"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "rotate"
               },
               {
                 "annotation": "int | None",

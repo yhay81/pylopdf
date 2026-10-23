@@ -559,8 +559,8 @@ with page.draw() as canvas:
 |---|---|
 | `path(path, *, fill=None, stroke=None, fill_rule=FillRule.NONZERO)` | A `PathBuilder`, a `Path` item's geometry, or a list of segments |
 | `line`, `rect(rect, *, radius=0)`, `circle`, `ellipse`, `polygon`, `bezier` | One path each, with the options of `path` |
-| `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None)` | Lines whose first baseline starts at `at` |
-| `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` | Text wrapped inside `rect`; returns a `TextFit` |
+| `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None, rotate=0)` | Lines whose first baseline starts at `at`, turned clockwise about `at` by `rotate` |
+| `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, rotate=0, ...)` | Text wrapped inside `rect`, turned clockwise by `rotate`; returns a `TextFit` |
 | `image(rect, source, *, keep_aspect=True, rotate=0)` | A JPEG or PNG path, encoded bytes, or a `Pixmap`, turned clockwise by `rotate` |
 | `page(rect, source, *, keep_aspect=True)` | A page of any open document, this one included, as vectors |
 | `draw(item)` | A `Path` item that [`page.content()`](#content) returned |
@@ -583,6 +583,11 @@ its descender. `textbox` breaks lines at Unicode line-break opportunities and
 spaces them the same way, with the first baseline one ascender below the top
 of `rect`; when the text does not fit, it draws nothing and
 `TextFit.spare_height` is the negative shortfall, so `fit.fits` is false.
+`rotate` turns text clockwise by 0, 90, 180, or 270 degrees: `text` turns
+its lines about `at`, and `textbox` turns them inside `rect`, so that at 90
+they run down the box, wrap at its height, and stack from its right edge
+leftward, and at 270 they run up from its left edge. A `transform` scope turns
+text by any other angle.
 [`Font.text_height`](#font) measures the height that a textbox needs before
 anything is drawn, which sizes a frame around the text or decides a page
 break:

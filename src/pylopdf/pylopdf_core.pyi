@@ -173,6 +173,7 @@ class _Canvas:
         fill: _Rgba | None,
         stroke: _CanvasStroke | None,
         max_text_size: int | None = 1048576,
+        rotation: int = 0,
     ) -> None: ...
     def add_textbox(
         self,
@@ -185,6 +186,7 @@ class _Canvas:
         fill: _Rgba | None,
         stroke: _CanvasStroke | None,
         max_text_size: int | None = 1048576,
+        rotation: int = 0,
     ) -> float: ...
     def add_image(
         self,

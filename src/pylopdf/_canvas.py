@@ -228,6 +228,14 @@ def _canvas_font(text: str, font: Font | None) -> _Font:
     return core_font
 
 
+def _quarter_turn(rotate: object) -> int:
+    """Return a clockwise right-angle turn normalized to 0 through 270 degrees."""
+    if isinstance(rotate, bool) or not isinstance(rotate, int) or rotate % 90 != 0:
+        msg = f"rotate must be a multiple of 90: {rotate!r}"
+        raise ValueError(msg)
+    return rotate % 360
+
+
 def _image_input_limit(size: int, max_size: int) -> LimitError:
     """Build the error for encoded image input over its limit, worded as the core words it."""
     return LimitError("image_input_size", f"encoded image input is {size} bytes, exceeding the {max_size}-byte limit")
@@ -315,8 +323,8 @@ class TextFit:
     """How text fits a :meth:`Canvas.textbox`."""
 
     spare_height: float
-    """The height left below the last line, or, when negative, the height
-    that the text lacks."""
+    """The height left below the last line, measured across the lines as
+    they run, or, when negative, the height that the text lacks."""
 
     @property
     def fits(self) -> bool:
@@ -784,23 +792,27 @@ class Canvas:
         fill: Color | None = _BLACK,
         stroke: Stroke | Color | None = None,
         line_height: float | None = None,
+        rotate: int = 0,
         max_text_size: int | None = _DEFAULT_MAX_GENERATED_TEXT_SIZE,
     ) -> None:
         """Draw text whose first baseline starts at ``at``.
 
         Lines are split with :meth:`str.splitlines` and placed ``line_height``
         times ``size`` apart, by default at the font's own line height.
-        ``font`` defaults to Helvetica for WinAnsi text and otherwise to the
-        face of an installed font extra for the text's script. Text is
-        filled, stroked, or both; at least one is needed. The text is limited
-        to 1 MiB of UTF-8 by default (``max_text_size``, ``None`` for
-        trusted input), refused with :class:`LimitError` code
-        ``text_input_size``.
+        ``rotate`` turns the text clockwise about ``at`` by 0, 90, 180, or
+        270 degrees, so that at 90 the lines run down the page and stack
+        leftward; :meth:`transform` turns it by any other angle. ``font``
+        defaults to Helvetica for WinAnsi text and otherwise to the face of
+        an installed font extra for the text's script. Text is filled,
+        stroked, or both; at least one is needed. The text is limited to
+        1 MiB of UTF-8 by default (``max_text_size``, ``None`` for trusted
+        input), refused with :class:`LimitError` code ``text_input_size``.
         """
         self._check_open()
         if not isinstance(text, str):
             msg = f"text must be a string: {text!r}"
             raise TypeError(msg)
+        rotation = _quarter_turn(rotate)
         _validate_optional_positive_int("max_text_size", max_text_size)
         if max_text_size is not None and len(text) > max_text_size:
             # Each character takes at least one UTF-8 byte; the core counts exactly.
@@ -821,6 +833,7 @@ class Canvas:
             filled,
             stroked,
             max_text_size,
+            rotation,
         )
 
     def textbox(  # noqa: PLR0913 - the text style options.
@@ -834,6 +847,7 @@ class Canvas:
         line_height: float | None = None,
         fill: Color | None = _BLACK,
         stroke: Stroke | Color | None = None,
+        rotate: int = 0,
         max_text_size: int | None = _DEFAULT_MAX_GENERATED_TEXT_SIZE,
     ) -> TextFit:
         """Wrap text inside ``rect`` and report how it fits.
@@ -847,17 +861,23 @@ class Canvas:
         does. When the text does not fit, nothing is drawn and
         :attr:`TextFit.spare_height` is the negative shortfall;
         :meth:`Font.text_height` measures the height that the text needs
-        without drawing it. Tabs become single spaces. The font, paint, and
-        size options follow :meth:`text`.
+        without drawing it. Tabs become single spaces. ``rotate`` turns the
+        text clockwise inside ``rect`` by 0, 90, 180, or 270 degrees: at 90
+        lines run down the box and stack from its right edge leftward, so
+        they wrap at the box's height and fill its width, and at 270 they run
+        up and stack from the left edge. The font, paint, and size options
+        follow :meth:`text`.
         """
         self._check_open()
         box = _rect(rect, "rect")
+        rotation = _quarter_turn(rotate)
         normalized = _textbox_text(text, max_text_size)
         if align not in _ALIGNMENTS:
             msg = f"align must be one of {', '.join(_ALIGNMENTS)}: {align!r}"
             raise ValueError(msg)
         if not normalized:
-            return TextFit(spare_height=box.y1 - box.y0)
+            across = box.y1 - box.y0 if rotation in (0, 180) else box.x1 - box.x0
+            return TextFit(spare_height=across)
         font_size = _size(size)
         filled, stroked = _text_paint(fill, stroke)
         core_font = _canvas_font(normalized, font)
@@ -871,6 +891,7 @@ class Canvas:
             filled,
             stroked,
             max_text_size,
+            rotation,
         )
         return TextFit(spare_height=spare)
 
@@ -896,10 +917,7 @@ class Canvas:
         """
         self._check_open()
         box = tuple(_rect(rect, "rect"))
-        if isinstance(rotate, bool) or not isinstance(rotate, int) or rotate % 90 != 0:
-            msg = f"rotate must be a multiple of 90: {rotate!r}"
-            raise ValueError(msg)
-        rotation = rotate % 360
+        rotation = _quarter_turn(rotate)
         _validate_optional_positive_int("max_size", max_size)
         _validate_optional_positive_int("max_pixels", max_pixels)
         target = self._target()

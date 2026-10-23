@@ -471,6 +471,15 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "import fitz\npage.insert_text(p, t, lineheight=1.5, overlay=False)\n",
             "with page.draw(underlay=True) as canvas:\n    canvas.text(t, p, line_height=1.5)\n",
         ),
+        # pymupdf turns text anticlockwise, the canvas clockwise.
+        ("import fitz\npage.insert_text(p, t, rotate=90)\n", "    canvas.text(t, p, rotate=270)"),
+        ("import fitz\npage.insert_text(p, t, rotate=-90, fontsize=8)\n", "    canvas.text(t, p, size=8, rotate=90)"),
+        ("import fitz\npage.insert_text(p, t, rotate=0)\n", "    canvas.text(t, p)\n"),
+        ("import fitz\npage.insert_textbox(r, t, rotate=angle)\n", "    canvas.textbox(r, t, rotate=-angle)"),
+        (
+            "import fitz\npage.insert_textbox(r, t, rotate=270, lineheight=2)\n",
+            "    canvas.textbox(r, t, line_height=2, rotate=90)",
+        ),
         (
             "import fitz\npage.insert_textbox(r, t, align=fitz.TEXT_ALIGN_CENTER)\n",
             '    canvas.textbox(r, t, align="center")',
@@ -915,7 +924,6 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import fitz\npage.show_pdf_page(r, src, rotate=90)\n", "Page.show_pdf_page is Canvas.page"),
         ("import fitz\nform = page.show_pdf_page(r, src)\n", "Page.show_pdf_page is Canvas.page"),
         ("import fitz\npage.insert_text(p, t, render_mode=3)\n", "Page.insert_text is Canvas.text"),
-        ("import fitz\npage.insert_text(p, t, rotate=90)\n", "Page.insert_text is Canvas.text"),
         ("import fitz\npage.insert_text(p, t, fontname='china-s')\n", "Page.insert_text is Canvas.text"),
         ("import fitz\nlines = page.insert_text(p, t)\n", "Page.insert_text is Canvas.text"),
         ("import fitz\npage.insert_textbox(r, t, align=align)\n", "Page.insert_textbox is Canvas.textbox"),

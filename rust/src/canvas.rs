@@ -714,6 +714,59 @@ fn matrix_number(value: f64) -> String {
     }
 }
 
+/// Return the cosine and sine of a clockwise right-angle turn in display
+/// space, or refuse any other angle.
+fn quarter_turn(rotation: i64) -> PyResult<(f64, f64)> {
+    match rotation {
+        0 => Ok((1.0, 0.0)),
+        90 => Ok((0.0, 1.0)),
+        180 => Ok((-1.0, 0.0)),
+        270 => Ok((0.0, -1.0)),
+        _ => Err(PdfError::new_err("rotate must be 0, 90, 180, or 270")),
+    }
+}
+
+/// The transform that turns display space clockwise by `rotation` about
+/// `(x, y)`, or `None` for no turn.
+fn turn_about(rotation: i64, (x, y): (f64, f64)) -> PyResult<Option<[f64; 6]>> {
+    let (cos, sin) = quarter_turn(rotation)?;
+    Ok((rotation != 0).then(|| {
+        [
+            cos,
+            sin,
+            -sin,
+            cos,
+            x - (cos * x - sin * y),
+            y - (sin * x + cos * y),
+        ]
+    }))
+}
+
+/// The box in which a textbox turned clockwise by `rotation` lays out its
+/// lines, and the transform from that box to display space: the box itself
+/// without a turn, else a box at the origin whose sides follow the turned
+/// text, mapped onto `rect`.
+fn turned_box(rotation: i64, rect: [f64; 4]) -> PyResult<([f64; 4], Option<[f64; 6]>)> {
+    quarter_turn(rotation)?;
+    let [x0, y0, x1, y1] = rect;
+    let (width, height) = (x1 - x0, y1 - y0);
+    Ok(match rotation {
+        90 => (
+            [0.0, 0.0, height, width],
+            Some([0.0, 1.0, -1.0, 0.0, x1, y0]),
+        ),
+        180 => (
+            [0.0, 0.0, width, height],
+            Some([-1.0, 0.0, 0.0, -1.0, x1, y1]),
+        ),
+        270 => (
+            [0.0, 0.0, height, width],
+            Some([0.0, -1.0, 1.0, 0.0, x0, y1]),
+        ),
+        _ => (rect, None),
+    })
+}
+
 /// Refuse a font size or line height that is not a positive number.
 fn text_metrics(size: f64, line_height: Option<f64>) -> PyResult<()> {
     if !(size.is_finite() && size > 0.0) {
@@ -1464,11 +1517,29 @@ impl _Canvas {
         Ok(())
     }
 
-    fn push_text(&mut self, text: TextItem) -> PyResult<()> {
-        grow(&mut self.recording.texts, "text")?;
+    /// Record a text item, inside a transform of its own when `turn` is
+    /// given. That transform is no scope of the caller's, so it neither
+    /// counts toward the scope depth nor changes the current transform.
+    fn push_text(&mut self, text: TextItem, turn: Option<[f64; 6]>) -> PyResult<()> {
+        let ops = if turn.is_some() { 3 } else { 1 };
+        self.recording
+            .ops
+            .try_reserve(ops)
+            .and_then(|()| self.recording.texts.try_reserve(1))
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to grow the canvas's text: {error}"))
+            })?;
         self.recording.texts.push(text);
         let index = self.recording.texts.len() - 1;
-        self.push_op(Op::Text(index))
+        match turn {
+            Some(matrix) => {
+                self.recording.ops.push(Op::Push(Scope::Transform(matrix)));
+                self.recording.ops.push(Op::Text(index));
+                self.recording.ops.push(Op::Pop);
+            }
+            None => self.recording.ops.push(Op::Text(index)),
+        }
+        Ok(())
     }
 
     /// Return the slot of an embedded face, adding it on first use.
@@ -1537,9 +1608,7 @@ impl _Canvas {
         rotation: i64,
         py: Python<'_>,
     ) -> PyResult<()> {
-        if !matches!(rotation, 0 | 90 | 180 | 270) {
-            return Err(PdfError::new_err("rotate must be 0, 90, 180, or 270"));
-        }
+        quarter_turn(rotation)?;
         let digest = py.detach(|| input.digest());
         let known = self
             .recording
@@ -1800,7 +1869,8 @@ impl _Canvas {
     }
 
     /// Record lines whose first baseline starts at `at`, `line_height` em
-    /// apart or at the face's default line height.
+    /// apart or at the face's default line height, turned clockwise about
+    /// `at` by `rotation` degrees.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
         at,
@@ -1810,7 +1880,8 @@ impl _Canvas {
         line_height,
         fill,
         stroke,
-        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
+        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE),
+        rotation=0
     ))]
     fn add_text(
         &mut self,
@@ -1823,11 +1894,13 @@ impl _Canvas {
         fill: Option<(f64, f64, f64, f64)>,
         stroke: Option<StrokeArgs>,
         max_text_size: Option<usize>,
+        rotation: i64,
     ) -> PyResult<()> {
         validate_generated_text_line_count(lines.len(), max_text_size)?;
         validate_generated_text_input(lines.iter().map(String::as_bytes), max_text_size)?;
         coordinate(at.0)?;
         coordinate(at.1)?;
+        let turn = turn_about(rotation, at)?;
         let fill = fill.map(Rgba::new).transpose()?;
         let stroke = stroke.map(StrokeStyle::new).transpose()?;
         if fill.is_none() && stroke.is_none() {
@@ -1846,13 +1919,16 @@ impl _Canvas {
                     .detach(|| generate::text_runs(face.shaping_font(), at, &lines, leading))
                     .map_err(PdfError::new_err)?;
                 let slot = self.face_slot(face)?;
-                self.push_text(TextItem::Embedded {
-                    face: slot,
-                    size,
-                    fill,
-                    stroke,
-                    runs,
-                })
+                self.push_text(
+                    TextItem::Embedded {
+                        face: slot,
+                        size,
+                        fill,
+                        stroke,
+                        runs,
+                    },
+                    turn,
+                )
             }
             DrawFace::Standard(name) => {
                 let slot = self.standard_slot(name)?;
@@ -1874,14 +1950,15 @@ impl _Canvas {
                     leading,
                     fill.map_or(DeviceColor::Gray(0.0), Rgba::device),
                 );
-                self.push_text(TextItem::Standard { ops, fill, stroke })
+                self.push_text(TextItem::Standard { ops, fill, stroke }, turn)
             }
         }
     }
 
     /// Lay out text inside a display rectangle and return the spare height.
     /// Nothing is recorded when the text does not fit, and the spare height
-    /// is then negative.
+    /// is then negative. With a `rotation` of 90 or 270 degrees, lines run
+    /// along the rectangle's height and stack across its width.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
         rect,
@@ -1892,7 +1969,8 @@ impl _Canvas {
         align,
         fill,
         stroke,
-        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
+        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE),
+        rotation=0
     ))]
     fn add_textbox(
         &mut self,
@@ -1906,10 +1984,11 @@ impl _Canvas {
         fill: Option<(f64, f64, f64, f64)>,
         stroke: Option<StrokeArgs>,
         max_text_size: Option<usize>,
+        rotation: i64,
     ) -> PyResult<f64> {
         validate_generated_text_line_count(text.split('\n').count(), max_text_size)?;
         validate_generated_text_input(std::iter::once(text.as_bytes()), max_text_size)?;
-        let rect = rect_array(rect)?;
+        let (rect, turn) = turned_box(rotation, rect_array(rect)?)?;
         if align > 3 {
             return Err(PdfError::new_err("unknown text alignment"));
         }
@@ -1941,13 +2020,16 @@ impl _Canvas {
                     .map_err(generated_text_err)?;
                 if let Some(runs) = runs {
                     let slot = self.face_slot(face)?;
-                    self.push_text(TextItem::Embedded {
-                        face: slot,
-                        size: font_size,
-                        fill,
-                        stroke,
-                        runs,
-                    })?;
+                    self.push_text(
+                        TextItem::Embedded {
+                            face: slot,
+                            size: font_size,
+                            fill,
+                            stroke,
+                            runs,
+                        },
+                        turn,
+                    )?;
                 }
                 Ok(spare_height)
             }
@@ -1979,7 +2061,7 @@ impl _Canvas {
                         fill.map_or(DeviceColor::Gray(0.0), Rgba::device),
                     )
                     .map_err(PdfError::new_err)?;
-                    self.push_text(TextItem::Standard { ops, fill, stroke })?;
+                    self.push_text(TextItem::Standard { ops, fill, stroke }, turn)?;
                 }
                 Ok(layout.spare_height)
             }
