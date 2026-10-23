@@ -66,6 +66,8 @@ def test_documents_point_old_syntax_at_pages() -> None:
         _ = doc[0]  # ty: ignore[not-subscriptable]
     with pytest.raises(TypeError, match=r"iterate over doc\.pages"):
         list(doc)  # ty: ignore[invalid-argument-type]
+    with pytest.raises(TypeError, match=r"use del doc\.pages\[index\]"):
+        del doc[0]  # ty: ignore[not-subscriptable]
     with pytest.raises(TypeError):
         len(doc)  # ty: ignore[invalid-argument-type]
     with pytest.raises(AttributeError, match=r"len\(doc\.pages\)"):

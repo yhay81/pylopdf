@@ -202,6 +202,11 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "from fitz import PDF_PERM_PRINT\nfrom fitz import Permissions\nallowed = PDF_PERM_PRINT\n",
             "from pylopdf import Permissions\nallowed = Permissions.PRINT",
         ),
+        (
+            "from fitz import PDF_PAGE_LABEL_ROMAN_LC\nstyle = PDF_PAGE_LABEL_ROMAN_LC\n",
+            "from pylopdf import PageLabelStyle\nstyle = PageLabelStyle.LOWER_ROMAN",
+        ),
+        ("import fitz\ndoc = fitz.open()\ndel doc[3]\n", "del doc.pages[3]"),
         ("import fitz\nlocked = doc.needs_pass\n", "locked = doc.needs_password"),
         ("import fitz\npage = doc.load_page(3)\n", "page = doc.pages[3]"),
         ("import fitz\npage = doc.new_page(0, width=200, height=300)\n", "page = doc.pages.new((200, 300), index=0)"),

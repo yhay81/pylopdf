@@ -75,8 +75,9 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `doc.tobytes(...)`, `doc.write(...)` | `doc.to_bytes(...)` | The options of `save()` |
 | `doc.save(use_objstms=True)` | `doc.save(object_streams=True)` | |
 | `doc.select(indexes)` | `doc.pages.select(indexes)` | Also removes form fields and tagged-PDF structure of the pages left out |
-| `doc.delete_page(i)`, `delete_pages(a, b)` | `del doc.pages[i]`, `del doc.pages[a:b + 1]` | Keep the other pages of a list with `doc.pages.select(...)` |
+| `doc.delete_page(i)`, `delete_pages(a, b)`, `del doc[i]` | `del doc.pages[i]`, `del doc.pages[a:b + 1]` | Keep the other pages of a list with `doc.pages.select(...)` |
 | `doc.new_page(pno, width=, height=)` | `doc.pages.new((width, height), index=pno)` | Appended unless `index` is given |
+| `doc.insert_page(pno, text, ...)` | `doc.pages.new(size, index=pno)`, then `page.draw()` and `canvas.text(...)` | |
 | `doc.copy_page(pno, to)`, `fullcopy_page(pno, to)` | `doc.pages.insert(to, doc.pages[pno])` | pylopdf never shares one page object between two pages |
 | `doc.move_page(pno, to)` | `doc.pages.move(pno, index)` | `index` is where the page ends up; pymupdf inserted before page `to` |
 | `doc.insert_pdf(docsrc, from_page=a, to_page=b, start_at=i)` | `doc.pages.insert(i, docsrc.pages[a:b + 1])`, `doc.pages.extend(docsrc.pages)` | Imported form fields whose names clash are renamed `name+N`; no `widgets=` or `join_duplicates=` |
@@ -84,12 +85,15 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `doc.outline`, `item.next`, `item.down` | `doc.outline`, `item.children`, `doc.outline.walk()` | `doc.outline` is the sequence of top-level `OutlineItem` handles instead of the first item |
 | `doc.set_toc_item(i, ...)`, `del_toc_item(i)` | Assign `title`, `destination`, `color`, `bold`, `italic`, or `is_open` on an `OutlineItem` | `del_toc_item` grayed the item out and removed its target |
 | `doc.get_page_labels()`, `set_page_labels(rules)`, `page.get_label()` | `doc.page_labels`, `page.label` | `PageLabelRange(start, style, prefix, first)` records instead of dictionaries |
+| `PDF_PAGE_LABEL_DECIMAL`, `PDF_PAGE_LABEL_ROMAN_LC`, ... | `PageLabelStyle.DECIMAL`, `PageLabelStyle.LOWER_ROMAN`, ... | `PDF_PAGE_LABEL_NONE` is `style=None` |
+| `doc.get_outline_xrefs()` | `[item.xref for item in doc.outline.walk()]` | |
 | `doc.get_page_numbers(label)` | `doc.pages.labeled(label)` | |
 | `page.set_rotation(deg)` | `page.rotation = deg` | |
 | `page.mediabox`, `set_mediabox(r)` | `page.boxes.media`, `page.boxes.media = r` | |
-| `page.cropbox`, `artbox`, `bleedbox`, `trimbox`, `set_cropbox(r)`, `set_artbox(r)`, ... | `page.boxes.crop`, `.art`, `.bleed`, `.trim`, each assignable | PDF user space as stored, where pymupdf flips y against the top of the MediaBox |
+| `page.cropbox`, `artbox`, `bleedbox`, `trimbox`, `set_cropbox(r)`, `set_artbox(r)`, ..., `doc.page_cropbox(pno)` | `page.boxes.crop`, `.art`, `.bleed`, `.trim`, each assignable | PDF user space as stored, where pymupdf flips y against the top of the MediaBox |
 | `page.transformation_matrix`, `rotation_matrix`, `derotation_matrix` | `page.user_to_display` | Maps PDF user space to display space, the rotation included |
 | `doc.embfile_add/names/get/del/upd/info/count` | `doc.attachments` | A mapping: `add(name, data, description=…)`, `list(…)`, `[name].read()`, `del …[name]`, `[name].write(data)`, `len(…)`; `desc=` is `description=` |
+| `doc.stream` | The bytes passed to `pylopdf.open`, or `doc.to_bytes()` | pylopdf does not keep the input bytes |
 | `doc.xref_*`, `pdf_catalog()`, `pdf_trailer()` | `doc.objects`, `doc.catalog`, `doc.trailer` | Typed Python values instead of PDF syntax; see [Low-level objects](api.md#low-level-objects) |
 
 ### Text, rendering, and images { #mapping-text }
