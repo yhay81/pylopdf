@@ -44,7 +44,7 @@ def test_hints_module_matches_the_manifest() -> None:
     [
         (pylopdf.Document, "get_toc", "is Document.outline in pylopdf. Use doc.outline.entries()"),
         (pylopdf.Document, "embfile_add", "Use doc.attachments.add(name, data"),
-        (pylopdf.Document().pages.new, "get_textpage", "Page.get_textpage in the Reading milestone"),
+        (pylopdf.Document().pages.new, "write_text", "Page.write_text in the Writing milestone"),
         (lambda: pylopdf.Rect(0, 0, 1, 1), "include_rect", "Use r | other"),
         (lambda: pylopdf.IRect(0, 0, 1, 1), "intersect", "Use r & other, which returns a new IRect."),
         (pylopdf.Matrix, "prerotate", "pylopdf.Matrix(deg) * m"),
@@ -1108,13 +1108,13 @@ def test_codemod_moves_drawings_and_image_info_to_the_content_model(
 
 
 def test_codemod_places_hints_inside_compound_statements(migrate_source: Migrate) -> None:
-    source = "import fitz\n\ndef run(page):\n    if page.rotation_matrix:\n        page.get_textpage()\n"
+    source = "import fitz\n\ndef run(page):\n    if page.rotation_matrix:\n        page.write_text()\n"
 
     code = migrate_source(source).code
 
     assert code.splitlines()[3].lstrip().startswith("# TODO(pylopdf): pylopdf extracts and inserts")
     planned = code.splitlines()[5].lstrip()
-    assert planned.startswith("# TODO(pylopdf): pylopdf plans the capability of pymupdf's Page.get_textpage")
+    assert planned.startswith("# TODO(pylopdf): pylopdf plans the capability of pymupdf's Page.write_text")
 
 
 def test_migrate_command_writes_checks_and_diffs(tmp_path: Path) -> None:

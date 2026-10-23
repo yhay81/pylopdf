@@ -275,19 +275,42 @@ interpret the page separately and agree with it on the bundled corpus.
 
 ## 6. Reading
 
+Confirmed for the [Reading](../ROADMAP.md#reading) milestone on 2026-10-24.
+
 | API | Notes |
 | --- | --- |
 | `page.content(*, text_runs=True, paths=True, images=True, clip=None, annotations=True)` → `Content` | The graphics model of section 3; the three kinds select the items to build. |
-| `page.text(*, clip=None, ...)` → `str` | Reading order. |
+| `page.text(*, clip=None, ...)` → `str` | Reading order. With `clip`, the text inside a rectangle (pymupdf's `get_textbox`). |
 | `page.words(*, clip=None, ...)` → `list[Word]` | `Word(text, bbox, block, line, index)`. |
-| `page.layout(*, clip=None, chars=False, ...)` → `Layout` | `Block`, `Line`, `Span`, and, with `chars=True`, `Char` records with provenance; `to_dict()` serializes it in pymupdf's dictionary shape. |
-| `page.search(text, *, clip=None, quads=False, max_hits=4096)` → `list[Rect] \| list[Quad]` | |
+| `page.layout(*, clip=None, chars=False, ...)` → `Layout` | `Block`, `Line`, `Span`, and, with `chars=True`, `Char` records with provenance. `to_dict()` serializes it in pymupdf's dictionary shape, which `json.dumps` writes as JSON; `to_html()` and `to_xml()` write the positioned HTML and the character-level XML. |
+| `page.selection(start, end, *, clip=None)` → `str` | The text in reading order from the character nearest `start` to the one nearest `end`, as a viewer selects it. |
+| `page.search(text, *, clip=None, quads=False, max_hits=4096, ...)` → `list[Rect] \| list[Quad]` | Quads follow the baseline of rotated text. |
 | `page.tables(*, strategy="lines", clip=None, ...)` → `list[Table]` | `Table` has `bbox`, `rows`, `cells`, `diagnostics`, `markdown()`, and `to_pandas()`. |
-| `page.markdown(...)`, `doc.markdown(pages=None, *, chunks=False, ...)` | With `chunks=True`, a list of chunks, each with its page and display-space boxes. |
-| `doc.text(pages=None)` | Batched plain text that shares one interpreter cache. |
+| `page.markdown(...)`, `doc.markdown(pages=None, *, chunks=False, ...)` | With `chunks=True`, a list of chunks, each with its page and display-space boxes. Markdown is also the semantic form that pymupdf's `"xhtml"` output gives. |
+| `doc.text(pages=None, ...)` | Batched plain text that shares one interpreter cache. |
 | `page.ocr(*, engine=None, dpi=300, clip=None, rotation=0, ...)` → `list[OcrWord]` | Recognizes without editing. |
 | `page.apply_ocr(*, engine=None, words=None, ...)` | Adds an invisible text layer, from pylopdf's engine or from `words` that another engine recognized; skips pages that already have text unless told otherwise. |
 | `OcrEngine(...)`, `engine.recognize(pixmap)` | |
+| `page.resources.fonts`, `page.resources.forms` | The fonts and Form XObjects that the page's resources reach, once each, as `FontObject` and `FormObject` handles, as `page.resources.images` lists `ImageObject` handles. |
+| `doc.fonts` | A mapping of `FontObject` handles by `xref`, as `doc.images` is. A handle has `xref`, `obj`, `name`, `subtype`, `encoding`, `is_embedded`, `widths`, and `extract()` for the embedded program as a `FontProgram(format, data)`. |
+
+The text views share keyword-only options: `clip`; `ligatures`, which keeps a
+ligature glyph's text or expands it to its letters; `whitespace`, which keeps
+whitespace characters or makes each a space; `dehyphenate`, which joins a word
+that a hyphen splits at a line end; `unmapped`, which skips a glyph without
+Unicode or stands U+FFFD or its glyph ID in for it; clipping to the page and
+to clip paths; and exact glyph boxes from outlines in place of boxes from the
+advance, the ascender, and the descender. There is no text-page object:
+pylopdf caches each page's interpretation and every view reads the cache, so
+pymupdf's `TextPage`, `get_textpage`, and `extend_textpage` have no
+counterpart, and the defaults of the options replace `TEXTFLAGS_*`.
+
+`Span` carries `color` (a `Color` whose `alpha` is the opacity, or `None` for
+a pattern paint), `render_mode` (the `TextRenderMode` of section 12),
+`is_clipped` (a clip path cuts the glyph), and `ascender` and `descender` in
+em, besides its font, size, and style flags. With `chars=True`, a line's
+inferred spaces are `Char` records with `is_synthetic` set, as MuPDF reports
+them; every other `Char` is one glyph.
 
 ## 7. Rendering
 

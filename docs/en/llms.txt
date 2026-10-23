@@ -193,6 +193,7 @@ replacement, and the migration hint):
 - Document.reload_page -> Pages.__getitem__: Fetch the page again with doc.pages[page.index].
 - Document.resolve_link -> Document.destinations: For a named destination, doc.destinations[name]; for '#page=N', Destination(N - 1); links and the outline already read their targets resolved.
 - Document.resolve_names -> Document.destinations: doc.destinations maps each named destination to its Destination(page, point, zoom), or None when it names no page.
+- Document.search_page_for -> Page.search: Call doc.pages[i].search(text).
 - Document.select -> Pages.select: Use doc.pages.select(indexes).
 - Document.set_language -> Document.language: Assign doc.language = tag, or del doc.language to remove it; pylopdf keeps the complete BCP 47 tag, such as zh-TW, where pymupdf keeps at most three letters.
 - Document.set_markinfo -> Document.mark_info: Assign doc.mark_info = MarkInfo(marked=..., user_properties=..., suspects=...); flags left out are written false, as in pymupdf.
@@ -426,6 +427,22 @@ replacement, and the migration hint):
 - TEXT_ALIGN_JUSTIFY -> Canvas.textbox: canvas.textbox(rect, text, align="justify") takes the alignment as a string.
 - TEXT_ALIGN_LEFT -> Canvas.textbox: canvas.textbox(rect, text, align="left") takes the alignment as a string.
 - TEXT_ALIGN_RIGHT -> Canvas.textbox: canvas.textbox(rect, text, align="right") takes the alignment as a string.
+- TEXT_COLLECT_VECTORS -> Page.content: Read page.content(text_runs=False, images=False).paths for the vector graphics that pymupdf adds to its text output.
+- TEXT_FUZZY_VECTORS -> Page.content: Read page.content(text_runs=False, images=False).paths for the vector graphics that pymupdf adds to its text output.
+- TEXT_LAZY_VECTORS -> Page.content: Read page.content(text_runs=False, images=False).paths for the vector graphics that pymupdf adds to its text output.
+- TEXT_PRESERVE_IMAGES -> Page.content: Read page.content(text_runs=False, paths=False).images for the images that pymupdf adds to its text output.
+- TextPage.extractBLOCKS -> Page.layout: Read page.layout().blocks, Block records with text, bbox, and lines.
+- TextPage.extractDICT -> Layout.to_dict: Call page.layout().to_dict(), which returns the dictionary shape of pymupdf's "dict" output.
+- TextPage.extractIMGINFO -> Page.content: Read page.content(text_runs=False, paths=False).images, the Image records of the page's drawn images.
+- TextPage.extractJSON -> Layout.to_dict: Write json.dumps(page.layout().to_dict()); the dictionary has the shape of pymupdf's "json" output.
+- TextPage.extractRAWDICT -> Layout.to_dict: Call page.layout(chars=True).to_dict(), which returns the dictionary shape of pymupdf's "rawdict" output.
+- TextPage.extractRAWJSON -> Layout.to_dict: Write json.dumps(page.layout(chars=True).to_dict()); the dictionary has the shape of pymupdf's "rawjson" output.
+- TextPage.extractTEXT -> Page.text: Call page.text().
+- TextPage.extractText -> Page.text: Call page.text().
+- TextPage.extractWORDS -> Page.words: Call page.words(), which returns Word records with text, bbox, block, line, and index.
+- TextPage.extractXHTML -> Page.markdown: Call page.markdown(), which gives the page's headings, paragraphs, lists, and tables in semantic form.
+- TextPage.rect -> Page.rect: Read page.rect.
+- TextPage.search -> Page.search: Call page.search(text), which returns one Rect per match.
 - Widget.border_color -> Widget.border_color: widget.border_color is a Color or None, assignable and deletable.
 - Widget.border_dashes -> Widget.border: widget.border.dashes; assign widget.border = Border(width, dashes=...).
 - Widget.border_style -> Widget.border: widget.border.style is a BorderStyle member.
