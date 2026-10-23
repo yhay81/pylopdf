@@ -58,6 +58,7 @@ MILESTONES = {
     "content": "Content model",
     "canvas": "Canvas",
     "reset": "API reset",
+    "verification": "Verification",
     "reading": "Reading",
     "rendering": "Rendering",
     "writing": "Writing",
@@ -65,7 +66,9 @@ MILESTONES = {
     "rewriting": "Rewriting",
     "structure": "Structure",
     "persistence": "Persistence",
+    "conformance": "Conformance",
     "understanding": "Understanding",
+    "completion": "Specification completion",
 }
 REQUIRED_FIELDS = ("kind", "status", "relation", "pylopdf", "milestone")
 OPTIONAL_FIELDS = ("hint", "note")

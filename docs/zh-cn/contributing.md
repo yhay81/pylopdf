@@ -49,4 +49,4 @@ uv run zensical serve -f mkdocs.yml
 
 pylopdf以[MIT许可证](https://github.com/yhay81/pylopdf/blob/main/LICENSE)发布。
 
-它基于以下项目构建：用于读取和编辑PDF的[lopdf](https://github.com/J-F-Liu/lopdf)，用于渲染和文本提取的[hayro](https://github.com/LaurenzV/hayro)，用于写入文本的[krilla](https://github.com/LaurenzV/krilla)和[HarfRust](https://github.com/harfbuzz/harfrust)，以及用于OCR的[RTen](https://github.com/robertknight/rten)。它的目标是用自己的API覆盖[pymupdf](https://pymupdf.readthedocs.io/)对PDF文件能做的一切。[NOTICE.md](https://github.com/yhay81/pylopdf/blob/main/NOTICE.md)列出了所有内置第三方代码的许可证。可选的字体包包含采用SIL Open Font License的Noto字体，OCR模型包包含采用Apache License 2.0的PP-OCRv6模型。
+它基于以下项目构建：用于读取和编辑PDF的[lopdf](https://github.com/J-F-Liu/lopdf)，用于渲染和文本提取的[hayro](https://github.com/LaurenzV/hayro)，用于写入文本的[krilla](https://github.com/LaurenzV/krilla)和[HarfRust](https://github.com/harfbuzz/harfrust)，以及用于OCR的[RTen](https://github.com/robertknight/rten)。它的目标是让程序能够完全控制ISO 32000-2定义的PDF全部功能，并用自己的API至少覆盖[pymupdf](https://pymupdf.readthedocs.io/)对PDF文件能做的一切。[NOTICE.md](https://github.com/yhay81/pylopdf/blob/main/NOTICE.md)列出了所有内置第三方代码的许可证。可选的字体包包含采用SIL Open Font License的Noto字体，OCR模型包包含采用Apache License 2.0的PP-OCRv6模型。

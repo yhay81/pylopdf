@@ -7,8 +7,10 @@
 
 **Edit, render, extract, and create PDFs in Python.**
 
-pylopdf aims to do everything that [pymupdf](https://pymupdf.readthedocs.io/)
-does with PDF files through a smaller API of its own. It is built on the Rust
+pylopdf aims to give Python programs complete control of PDF: every feature
+of the PDF 2.0 specification read, interpreted, created, edited, and
+preserved, including everything that [pymupdf](https://pymupdf.readthedocs.io/)
+does with PDF files, through a smaller API of its own. It is built on the Rust
 PDF engines [lopdf](https://github.com/J-F-Liu/lopdf),
 [hayro](https://github.com/LaurenzV/hayro), and
 [krilla](https://github.com/LaurenzV/krilla), released under the MIT license,
@@ -21,7 +23,9 @@ and installs as a single wheel with no required Python dependencies.
 
 > **Status:** pylopdf is pre-1.0, and the next release redesigns its API, as
 > the [roadmap](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)
-> describes. The [stability policy](https://pylopdf.haya.works/stability/)
+> describes. Complete control is the goal, not yet the state: the roadmap's
+> [assessment](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#assessment-2026-10-23)
+> lists the gaps. The [stability policy](https://pylopdf.haya.works/stability/)
 > explains what may change.
 
 ## Install
