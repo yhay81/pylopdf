@@ -501,7 +501,7 @@ engine's maintainer.
 | hayro, vello_cpu | Gray and CMYK output and anti-aliasing levels | gray converted from the RGB raster in `raster_samples`; no CMYK |
 | hayro-svg | Text kept as text, and a transform | `svg()` takes neither `text_as_path` nor `matrix` |
 | lopdf | A public object parser and serializer | pylopdf's own value conversion |
-| lopdf | Recovery reports through the API instead of the `log` crate; a requested rebuild of the cross-reference table; rebuilding when the catalog or page tree is unreadable, and for damaged cross-reference streams and truncated files | the log capture in `recovery.rs`, the forced rebuild, and inputs rejected today |
+| lopdf | A requested rebuild of the cross-reference table; rebuilding when the catalog or page tree is unreadable, or when a corrected offset misses later objects, and for truncated files | the forced rebuild in `recovery.rs`, and inputs rejected today |
 | lopdf | A linear scan for unterminated streams during recovery | the `recovery_scan_size` pre-scan |
 | lopdf | Linear graph traversal in pruning, renumbering, and deletion | `prune.rs` and `renumber.rs` |
 | lopdf | Checked object-number allocation | most of `unallocated.rs` |

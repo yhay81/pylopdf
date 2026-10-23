@@ -559,7 +559,7 @@ def test_repeated_xref_keywords_fail_without_quadratic_scanning() -> None:
 
 
 def test_recovery_reports_stay_with_their_own_load() -> None:
-    """Attribute lopdf's per-thread recovery records to the matching document."""
+    """Keep each concurrent load's recovery report with its own document."""
     clean = (ASSETS / "pdf20-simple.pdf").read_bytes()
     damaged = _startxref_keyword_corrupted("pdf20-simple.pdf", clean)
     inputs = [damaged if index % 2 else clean for index in range(64)]

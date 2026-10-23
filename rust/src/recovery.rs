@@ -3,29 +3,23 @@
 //! lopdf 0.46 recovers damaged cross-reference data while loading leniently:
 //! it moves a slightly miswritten `startxref`, `/Prev`, or `/XRefStm` offset
 //! to a nearby cross-reference section, and rebuilds the table by scanning
-//! object headers when standard resolution fails. It reports both only as
-//! `log` warnings, emitted on the loading thread before object parsing moves
-//! to the rayon pool, so one thread-local capture scope attributes them to a
-//! single load. lopdf trusts any table that it resolves, so a load that leaves
-//! the page tree unreachable, or that moved an offset onto a section whose
-//! later entries miss their objects, is repeated with the rebuild forced.
-
-use std::cell::Cell;
-use std::sync::Once;
+//! object headers when standard resolution fails. It reports which in
+//! `Document::xref_recovery` and `PdfMetadata::xref_recovery`
+//! (J-F-Liu/lopdf#612). lopdf trusts any table that it resolves, so a load
+//! that leaves the page tree unreachable, or that moved an offset onto a
+//! section whose later entries miss their objects, is repeated with the
+//! rebuild forced.
 
 use lopdf::xref::XrefEntry;
 use lopdf::{Document, LoadOptions, Object, PdfMetadata};
-
-/// lopdf's reader module, which resolves and rebuilds cross-reference data.
-const LOPDF_READER_TARGET: &str = "lopdf::reader";
 
 /// Bytes inspected per input byte allowed for lopdf's reconstruction scan.
 const RECOVERY_SCAN_WORK_FACTOR: u64 = 64;
 /// Fixed reconstruction-scan allowance added to the per-byte budget.
 const RECOVERY_SCAN_WORK_SLACK: u64 = 64 * 1024 * 1024;
 
-/// Cross-reference recovery performed by lopdf, ordered by severity.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+/// Cross-reference recovery performed by lopdf.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum XrefRecovery {
     /// A cross-reference offset was moved to a nearby cross-reference section.
     OffsetCorrected,
@@ -34,6 +28,14 @@ pub enum XrefRecovery {
 }
 
 impl XrefRecovery {
+    /// Map lopdf's report, reading any future kind as the stronger repair.
+    fn from_lopdf(recovery: Option<lopdf::xref::XrefRecovery>) -> Option<Self> {
+        recovery.map(|recovery| match recovery {
+            lopdf::xref::XrefRecovery::OffsetCorrected => Self::OffsetCorrected,
+            _ => Self::Reconstructed,
+        })
+    }
+
     /// Return the `PylopdfWarning` text for this recovery.
     pub fn warning(self) -> &'static str {
         match self {
@@ -57,66 +59,6 @@ pub enum LoadError {
         work: u64,
         budget: u64,
     },
-}
-
-thread_local! {
-    /// `None` outside a capture scope; otherwise the strongest recovery seen.
-    static CAPTURE: Cell<Option<Option<XrefRecovery>>> = const { Cell::new(None) };
-}
-
-/// Forward lopdf recovery warnings to the active capture scope on this thread.
-struct RecoveryLog;
-
-static RECOVERY_LOG: RecoveryLog = RecoveryLog;
-static INSTALL_RECOVERY_LOG: Once = Once::new();
-
-impl log::Log for RecoveryLog {
-    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
-        metadata.level() == log::Level::Warn && metadata.target() == LOPDF_READER_TARGET
-    }
-
-    fn log(&self, record: &log::Record<'_>) {
-        if !self.enabled(record.metadata()) {
-            return;
-        }
-        CAPTURE.with(|capture| {
-            let Some(seen) = capture.get() else {
-                return;
-            };
-            let message = record.args().to_string();
-            let recovery = if message.contains("by scanning for indirect objects") {
-                XrefRecovery::Reconstructed
-            } else if message.contains("using nearby offset") {
-                XrefRecovery::OffsetCorrected
-            } else {
-                return;
-            };
-            capture.set(Some(seen.max(Some(recovery))));
-        });
-    }
-
-    fn flush(&self) {}
-}
-
-/// Restore the enclosing capture state even if lopdf unwinds.
-struct CaptureScope(Option<Option<XrefRecovery>>);
-
-impl Drop for CaptureScope {
-    fn drop(&mut self) {
-        CAPTURE.with(|capture| capture.set(self.0));
-    }
-}
-
-/// Run one lopdf load and return the strongest cross-reference recovery it logged.
-fn capture_recovery<T>(load: impl FnOnce() -> T) -> (T, Option<XrefRecovery>) {
-    INSTALL_RECOVERY_LOG.call_once(|| {
-        if log::set_logger(&RECOVERY_LOG).is_ok() {
-            log::set_max_level(log::LevelFilter::Warn);
-        }
-    });
-    let _scope = CaptureScope(CAPTURE.with(|capture| capture.replace(Some(None))));
-    let value = load();
-    (value, CAPTURE.with(Cell::get).flatten())
 }
 
 fn find(data: &[u8], needle: &[u8]) -> Option<usize> {
@@ -237,9 +179,9 @@ pub fn load_document(
     options: LoadOptions,
 ) -> Result<(Document, Option<XrefRecovery>), LoadError> {
     check_recovery_scan_work(data)?;
-    let (result, mut recovery) =
-        capture_recovery(|| Document::load_mem_with_options(data, options.clone()));
-    let mut document = result.map_err(LoadError::Pdf)?;
+    let mut document =
+        Document::load_mem_with_options(data, options.clone()).map_err(LoadError::Pdf)?;
+    let mut recovery = XrefRecovery::from_lopdf(document.xref_recovery);
     let reachable = page_tree_reachable(&document);
     let partial = recovery == Some(XrefRecovery::OffsetCorrected) && misses_entries(&document);
     if recovery != Some(XrefRecovery::Reconstructed)
@@ -247,17 +189,13 @@ pub fn load_document(
         && !document.was_encrypted()
         && (!reachable || partial)
         && let Some(input) = rebuild_input(data)
+        && let Ok(rebuilt) = Document::load_mem_with_options(&input, options)
+        && rebuilt.xref_recovery == Some(lopdf::xref::XrefRecovery::Reconstructed)
+        && page_tree_reachable(&rebuilt)
+        && (!reachable || rebuilt.objects.len() > document.objects.len())
     {
-        let (rebuilt, retried) =
-            capture_recovery(|| Document::load_mem_with_options(&input, options));
-        if let Ok(rebuilt) = rebuilt
-            && retried == Some(XrefRecovery::Reconstructed)
-            && page_tree_reachable(&rebuilt)
-            && (!reachable || rebuilt.objects.len() > document.objects.len())
-        {
-            document = rebuilt;
-            recovery = retried;
-        }
+        document = rebuilt;
+        recovery = Some(XrefRecovery::Reconstructed);
     }
     if recovery == Some(XrefRecovery::Reconstructed) {
         // lopdf keeps the newest scanned trailer verbatim, including offsets
@@ -280,26 +218,21 @@ pub fn load_metadata(
     password: Option<&str>,
 ) -> Result<(PdfMetadata, Option<XrefRecovery>), LoadError> {
     check_recovery_scan_work(data)?;
-    let probe = |input: &[u8]| {
-        capture_recovery(|| match password {
-            Some(password) => Document::load_metadata_mem_with_password(input, password),
-            None => Document::load_metadata_mem(input),
-        })
+    let probe = |input: &[u8]| match password {
+        Some(password) => Document::load_metadata_mem_with_password(input, password),
+        None => Document::load_metadata_mem(input),
     };
-    let (result, recovery) = probe(data);
-    let metadata = result.map_err(LoadError::Pdf)?;
+    let metadata = probe(data).map_err(LoadError::Pdf)?;
+    let recovery = XrefRecovery::from_lopdf(metadata.xref_recovery);
     if recovery != Some(XrefRecovery::Reconstructed)
         && !metadata.encrypted
         && metadata.page_count == 0
         && let Some(input) = rebuild_input(data)
+        && let Ok(rebuilt) = probe(&input)
+        && rebuilt.xref_recovery == Some(lopdf::xref::XrefRecovery::Reconstructed)
+        && rebuilt.page_count > 0
     {
-        let (rebuilt, retried) = probe(&input);
-        if let Ok(rebuilt) = rebuilt
-            && retried == Some(XrefRecovery::Reconstructed)
-            && rebuilt.page_count > 0
-        {
-            return Ok((rebuilt, retried));
-        }
+        return Ok((rebuilt, Some(XrefRecovery::Reconstructed)));
     }
     Ok((metadata, recovery))
 }
