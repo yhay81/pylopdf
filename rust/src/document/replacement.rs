@@ -25,6 +25,8 @@ pub(super) type ContentGlyphTuple = (
     (u32, usize, usize, usize, usize),
     (bool, bool),
     u32,
+    (f64, f64, f64, f64),
+    Option<f32>,
 );
 
 /// Implements [`_Document::content_glyphs`].
@@ -34,43 +36,28 @@ pub(super) fn content_glyphs(
     page_number: u32,
 ) -> PyResult<Vec<ContentGlyphTuple>> {
     let page_id = this.page_id(page_number)?;
-    let rotation = this.resolve_page_rotation(page_id)?;
-    let page_box = |key: &str| -> Option<[f64; 4]> {
-        let (x0, y0, x1, y1) = this.resolve_page_box(page_id, key).ok()??;
-        Some([x0, y0, x1, y1])
-    };
-    let display =
-        crate::content::display_transform(page_box("MediaBox"), page_box("CropBox"), rotation);
+    let display = page_display(this, page_id)?;
     let resources = this.resolve_page_attr(page_id, b"Resources")?;
     let resources = match &resources {
         Some(Object::Dictionary(dict)) => Some(dict),
         _ => None,
     };
     let doc: &Document = &this.doc;
-    let glyphs = py.detach(|| -> PyResult<_> {
-        let content = page_content(doc, page_id)?;
-        let page = doc.get_dictionary(page_id).map_err(to_py_err)?;
-        crate::content::interpret_page(doc, page, &content, resources, &interpreted_stream)
-            .map_err(content_error)
-    })?;
+    let interpretation = py.detach(|| interpret(doc, page_id, resources))?;
     let mut out = Vec::new();
-    out.try_reserve_exact(glyphs.len())
+    out.try_reserve_exact(interpretation.glyphs.len())
         .map_err(|error| PdfError::new_err(format!("failed to allocate glyph list: {error}")))?;
-    for glyph in glyphs {
+    let containers = &interpretation.containers;
+    for glyph in &interpretation.glyphs {
         let origin = display * glyph.origin();
-        let (x, y) = (origin.x, origin.y);
         let source = glyph.source;
-        let container = match source.container {
-            crate::content::Container::Page => 0,
-            crate::content::Container::Form((number, _)) => number,
-        };
         out.push((
-            (x, y),
+            (origin.x, origin.y),
             glyph.code,
             glyph.advance,
             glyph.render_mode,
             (
-                container,
+                container_number(containers, source.container),
                 source.operation,
                 source.operand,
                 source.offset,
@@ -78,9 +65,166 @@ pub(super) fn content_glyphs(
             ),
             (glyph.approximate, glyph.fallback),
             glyph.annotation.map_or(0, |(number, _)| number),
+            display_bbox(display, glyph.bbox()),
+            glyph.compensation,
         ));
     }
     Ok(out)
+}
+
+/// Interpret one page with the content engine.
+pub(super) fn interpret(
+    doc: &Document,
+    page_id: ObjectId,
+    resources: Option<&Dictionary>,
+) -> PyResult<crate::content::Interpretation> {
+    let content = page_content(doc, page_id)?;
+    let page = doc.get_dictionary(page_id).map_err(to_py_err)?;
+    crate::content::interpret_page(doc, page, &content, resources, &interpreted_stream)
+        .map_err(content_error)
+}
+
+/// The object number of a container's stream, or 0 for page content.
+fn container_number(containers: &[crate::content::ContainerInfo], index: usize) -> u32 {
+    match containers[index].stream {
+        crate::content::Container::Page => 0,
+        crate::content::Container::Form((number, _)) => number,
+    }
+}
+
+/// A rectangle in display space as `(x0, y0, x1, y1)`.
+fn display_bbox(display: Affine, rect: hayro::kurbo::Rect) -> (f64, f64, f64, f64) {
+    let rect = crate::content::transformed_rect(rect, display);
+    (rect.x0, rect.y0, rect.x1, rect.y1)
+}
+
+/// One path as the content-items hook reports it: container object number,
+/// first and painting operation, geometry and painted boxes in display
+/// space, and whether it fills, strokes, and clips.
+pub(super) type ContentPathTuple = (
+    u32,
+    usize,
+    usize,
+    (f64, f64, f64, f64),
+    (f64, f64, f64, f64),
+    (bool, bool, bool),
+);
+/// One image placement: container, operation, image object number or 0 for
+/// an inline image, display-space box, and display-space clip box.
+pub(super) type ContentImageTuple = (
+    u32,
+    usize,
+    u32,
+    (f64, f64, f64, f64),
+    Option<(f64, f64, f64, f64)>,
+);
+/// One container: its stream's object number or 0, the index of the
+/// container and operation that drew it, and the annotation's object
+/// number or 0.
+pub(super) type ContentContainerTuple = (u32, Option<(usize, usize)>, u32);
+/// One shading: container, operation, and the display-space clip box.
+pub(super) type ContentShadingTuple = (u32, usize, Option<(f64, f64, f64, f64)>);
+
+/// Everything that the content-items hook reports for one page.
+pub(super) type ContentItems = (
+    Vec<ContentPathTuple>,
+    Vec<ContentImageTuple>,
+    Vec<ContentShadingTuple>,
+    Vec<(u32, usize, Option<usize>)>,
+    Vec<ContentContainerTuple>,
+);
+
+/// Implements [`_Document::content_items`].
+pub(super) fn content_items(
+    this: &_Document,
+    py: Python<'_>,
+    page_number: u32,
+) -> PyResult<ContentItems> {
+    let page_id = this.page_id(page_number)?;
+    let display = page_display(this, page_id)?;
+    let resources = this.resolve_page_attr(page_id, b"Resources")?;
+    let resources = match &resources {
+        Some(Object::Dictionary(dict)) => Some(dict),
+        _ => None,
+    };
+    let doc: &Document = &this.doc;
+    let interpretation = py.detach(|| interpret(doc, page_id, resources))?;
+    let containers = &interpretation.containers;
+    let paths = interpretation
+        .paths
+        .iter()
+        .map(|path| {
+            (
+                container_number(containers, path.container),
+                path.start,
+                path.paint,
+                display_bbox(display, path.bbox),
+                display_bbox(display, path.painted),
+                (path.fill, path.stroke, path.clip),
+            )
+        })
+        .collect();
+    let images = interpretation
+        .images
+        .iter()
+        .map(|image| {
+            (
+                container_number(containers, image.container),
+                image.operation,
+                image.xobject.map_or(0, |(number, _)| number),
+                display_bbox(display, image.bbox()),
+                image.clip.map(|clip| display_bbox(display, clip)),
+            )
+        })
+        .collect();
+    let shadings = interpretation
+        .shadings
+        .iter()
+        .map(|shading| {
+            (
+                container_number(containers, shading.container),
+                shading.operation,
+                shading.clip.map(|clip| display_bbox(display, clip)),
+            )
+        })
+        .collect();
+    let marked = interpretation
+        .marked
+        .iter()
+        .map(|marked| {
+            (
+                container_number(containers, marked.container),
+                marked.begin,
+                marked.end,
+            )
+        })
+        .collect();
+    let containers = containers
+        .iter()
+        .enumerate()
+        .map(|(index, info)| {
+            (
+                container_number(containers, index),
+                info.parent,
+                info.annotation.map_or(0, |(number, _)| number),
+            )
+        })
+        .collect();
+    Ok((paths, images, shadings, marked, containers))
+}
+
+/// The transform from default user space to the page's display space.
+pub(super) fn page_display(this: &_Document, page_id: ObjectId) -> PyResult<Affine> {
+    let rotation = this.resolve_page_rotation(page_id)?;
+    let page_box = |key: &str| -> Option<[f64; 4]> {
+        let (x0, y0, x1, y1) = this.resolve_page_box(page_id, key).ok()??;
+        Some([x0, y0, x1, y1])
+    };
+    Ok(crate::content::display_transform(
+        page_box("MediaBox"),
+        page_box("CropBox"),
+        rotation,
+    ))
 }
 
 fn interpreted_stream(stream: &Stream) -> Result<Vec<u8>, crate::content::ContentError> {
