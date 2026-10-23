@@ -437,6 +437,10 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ),
         ("import fitz\npage.add_caret_annot(p)\n", "page.annotations.add(pylopdf.Caret(p))"),
         (
+            "import fitz\npage.add_file_annot(p, data, 'a.txt', desc='notes')\n",
+            "page.annotations.add(pylopdf.FileAttachment(p, data, filename='a.txt', description='notes'))",
+        ),
+        (
             "import fitz\nending = fitz.PDF_ANNOT_LE_R_CLOSED_ARROW\n",
             "ending = pylopdf.LineEnding.REVERSED_CLOSED_ARROW",
         ),

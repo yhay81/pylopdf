@@ -1192,11 +1192,13 @@ def _annotation_results() -> dict[str, Any]:
     """Create annotations with appearances, reopen them, and render them."""
     import pylopdf  # noqa: PLC0415
     from pylopdf import (  # noqa: PLC0415
+        AttachmentIcon,
         BlendMode,
         Border,
         Circle,
         Color,
         Document,
+        FileAttachment,
         FreeText,
         Ink,
         LineAnnotation,
@@ -1226,6 +1228,7 @@ def _annotation_results() -> dict[str, Any]:
         note.is_open = True
         page.annotations.add(FreeText((110, 120, 190, 160), "Free", callout=[(150, 190), (150, 160)]))
         page.annotations.add(Stamp((100, 200, 195, 240), icon=StampIcon.TOP_SECRET))
+        page.annotations.add(FileAttachment((170, 60), b"attached", filename="a.txt", icon=AttachmentIcon.TAG))
         data = document.to_bytes()
     with pylopdf.open(data) as reopened:
         page = reopened.pages[0]
@@ -1250,6 +1253,9 @@ def _annotation_results() -> dict[str, Any]:
                 "popup_rect": None if annotation.popup_rect is None else list(annotation.popup_rect),
                 "is_open": annotation.is_open,
                 "rotation": annotation.rotation,
+                "file": None
+                if annotation.file is None
+                else [annotation.file.filename, annotation.file.read().decode()],
             }
             for annotation in page.annotations
         ]
@@ -1258,7 +1264,7 @@ def _annotation_results() -> dict[str, Any]:
         inside = list(samples[(25 * pixmap.width + 35) * 3 : (25 * pixmap.width + 35) * 3 + 3])
     _require(
         [entry["type"] for entry in annotations]
-        == ["SQUARE", "CIRCLE", "LINE", "INK", "SQUIGGLY", "TEXT", "FREE_TEXT", "STAMP"],
+        == ["SQUARE", "CIRCLE", "LINE", "INK", "SQUIGGLY", "TEXT", "FREE_TEXT", "STAMP", "FILE_ATTACHMENT"],
         "annotation types changed",
     )
     _require(inside == [255, 255, 0], "the square's appearance did not render")

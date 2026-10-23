@@ -766,6 +766,16 @@ pub(super) struct AnnotationSpec {
     /// The `/LE` ending at the shown point of a callout line.
     #[pyo3(default)]
     callout_ending: Option<String>,
+    /// The file that a file attachment embeds, its name and description,
+    /// and the bound on its size, 64 MiB unless the caller passes another.
+    #[pyo3(default)]
+    data: Option<Vec<u8>>,
+    #[pyo3(default)]
+    filename: Option<String>,
+    #[pyo3(default)]
+    description: Option<String>,
+    #[pyo3(default = Some(DEFAULT_MAX_EMBEDDED_FILE_SIZE))]
+    max_size: Option<usize>,
     #[pyo3(default)]
     color: Option<(f64, f64, f64)>,
     #[pyo3(default)]
@@ -793,9 +803,13 @@ const NOTE_ICONS: [&str; 7] = [
     "Paragraph",
 ];
 
+/// The icons of a file attachment, `/Name` (ISO 32000-2 §12.5.6.15).
+const FILE_ICONS: [&str; 4] = ["Graph", "PushPin", "Paperclip", "Tag"];
+
 /// The subtypes that `add_annotation` creates.
-const CREATED_SUBTYPES: [&str; 14] = [
+const CREATED_SUBTYPES: [&str; 15] = [
     "Text",
+    "FileAttachment",
     "FreeText",
     "Stamp",
     "Caret",
@@ -910,7 +924,7 @@ fn annotation_dictionary(
         bounds
     } else if matches!(
         subtype,
-        "Square" | "Circle" | "Text" | "FreeText" | "Stamp" | "Caret"
+        "Square" | "Circle" | "Text" | "FreeText" | "Stamp" | "Caret" | "FileAttachment"
     ) {
         let Some((x0, y0, x1, y1)) = spec.rect.filter(|_| spec.points.is_none()) else {
             return Err(PdfError::new_err(format!(
@@ -1120,15 +1134,53 @@ fn annotation_dictionary(
     // Display turns are clockwise; /Rotate turns counterclockwise in user
     // space, which the page then turns clockwise by its own rotation.
     let user_turn = (rotation - turn).rem_euclid(360);
-    // A caret points up as the page is displayed.
-    if matches!(subtype, "FreeText" | "Stamp" | "Caret") && user_turn != 0 {
+    // A caret or file icon points up as the page is displayed.
+    if matches!(subtype, "FreeText" | "Stamp" | "Caret" | "FileAttachment") && user_turn != 0 {
         dict.set("Rotate", user_turn);
     }
     if subtype == "FreeText" {
         free_text_entries(spec, (crop, rotation), &mut dict)?;
     }
+    if (spec.data.is_some() || spec.filename.is_some() || spec.description.is_some())
+        != (subtype == "FileAttachment")
+    {
+        return Err(PdfError::new_err(format!(
+            "a file attachment embeds data with a file name, not a {subtype} annotation"
+        )));
+    }
+    if subtype == "FileAttachment" {
+        let (Some(data), Some(filename)) = (&spec.data, &spec.filename) else {
+            return Err(PdfError::new_err(
+                "a file attachment embeds data with a file name",
+            ));
+        };
+        validate_embedded_file_input_text(filename, None, spec.description.as_deref())?;
+        if spec.max_size == Some(0) {
+            return Err(PdfError::new_err(
+                "max_size must be a positive integer or None",
+            ));
+        }
+        if let Some(limit) = spec.max_size
+            && data.len() > limit
+        {
+            return Err(limit_err(
+                "embedded_file_size",
+                format!(
+                    "attachment input is {} bytes, exceeding the {limit}-byte limit",
+                    data.len()
+                ),
+            ));
+        }
+        let icon = spec.icon.as_deref().unwrap_or("PushPin");
+        if !FILE_ICONS.contains(&icon) {
+            return Err(PdfError::new_err(format!(
+                "unknown file attachment icon {icon:?}"
+            )));
+        }
+        dict.set("Name", Object::Name(icon.as_bytes().to_vec()));
+    }
     if spec.open.is_some() && subtype != "Text"
-        || spec.icon.is_some() && !matches!(subtype, "Text" | "Stamp")
+        || spec.icon.is_some() && !matches!(subtype, "Text" | "Stamp" | "FileAttachment")
     {
         return Err(PdfError::new_err(format!(
             "an icon belongs to a note or a stamp, and an open state to a note, not a {subtype} annotation"
@@ -1327,6 +1379,28 @@ pub(super) fn add_annotation(
         "AP",
         dictionary! { "N" => Object::Reference(committed.form_id) },
     );
+    if let (Some(data), Some(filename)) = (spec.data, spec.filename) {
+        let size = i64::try_from(data.len()).unwrap_or(i64::MAX);
+        let mut params = dictionary! { "Size" => size };
+        if let Some(created) = &spec.created {
+            params.set("CreationDate", Object::string_literal(created.as_bytes()));
+            params.set("ModDate", Object::string_literal(created.as_bytes()));
+        }
+        let stream = this.doc.add_object(Stream::new(
+            dictionary! { "Type" => "EmbeddedFile", "Params" => params },
+            data,
+        ));
+        let mut filespec = dictionary! {
+            "Type" => "Filespec",
+            "F" => Object::string_literal(filename.clone()),
+            "UF" => text_string(&filename),
+            "EF" => dictionary! { "F" => stream, "UF" => stream },
+        };
+        if let Some(description) = &spec.description {
+            filespec.set("Desc", text_string(description));
+        }
+        dict.set("FS", this.doc.add_object(filespec));
+    }
     this.remember_canvas_placements(committed, Some(page_number));
     let annotation_id = this.doc.add_object(dict);
     this.commit_page_annotation_append(page_id, annotation_append, annotation_id)?;
@@ -1563,6 +1637,147 @@ pub(super) fn set_link(
         link.remove(b"A");
         if let Some((key, value)) = entry {
             link.set(key, value);
+        }
+    }
+    Ok(id.0)
+}
+
+/// The FileSpec dictionary of a file attachment, or `None` for another
+/// annotation or one without a usable `/FS`.
+fn annotation_filespec<'a>(
+    doc: &'a Document,
+    annotation: &'a Dictionary,
+) -> Option<&'a Dictionary> {
+    if !matches!(
+        annotation.get(b"Subtype").and_then(Object::as_name),
+        Ok(b"FileAttachment")
+    ) {
+        return None;
+    }
+    annotation
+        .get(b"FS")
+        .ok()
+        .and_then(|filespec| deref_dict_ref(doc, filespec))
+}
+
+/// Implements [`_Document::annotation_file_info`].
+pub(super) fn annotation_file_info(
+    this: &_Document,
+    py: Python<'_>,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+) -> PyResult<Option<EmbeddedFileInfo>> {
+    py.detach(|| {
+        let page_id = this.page_id(page_number)?;
+        let (_, annotation) = this.annotation_at(page_id, index, xref)?;
+        annotation_filespec(&this.doc, annotation)
+            .map(|filespec| filespec_info(&this.doc, filespec))
+            .transpose()
+    })
+}
+
+/// Implements [`_Document::annotation_file_read`].
+pub(super) fn annotation_file_read(
+    this: &_Document,
+    py: Python<'_>,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+    max_size: Option<usize>,
+) -> PyResult<Vec<u8>> {
+    py.detach(|| {
+        let page_id = this.page_id(page_number)?;
+        let (_, annotation) = this.annotation_at(page_id, index, xref)?;
+        let filespec = annotation_filespec(&this.doc, annotation)
+            .ok_or_else(|| PdfError::new_err("the annotation embeds no file"))?;
+        let stream = this
+            .doc
+            .get_object(embedded_stream_id(&this.doc, filespec)?)
+            .and_then(Object::as_stream)
+            .map_err(to_py_err)?;
+        decoded_stream_content(stream, max_size, "embedded_file_size", "the attached file")
+    })
+}
+
+/// Implements [`_Document::annotation_file_write`]: replace the attached
+/// file's data with a new stream that keeps the old stream's entries other
+/// than its filters and length, as `embfile_upd` does.
+pub(super) fn annotation_file_write(
+    this: &mut _Document,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+    data: Vec<u8>,
+    max_size: Option<usize>,
+) -> PyResult<u32> {
+    if max_size == Some(0) {
+        return Err(PdfError::new_err(
+            "max_size must be a positive integer or None",
+        ));
+    }
+    if let Some(limit) = max_size
+        && data.len() > limit
+    {
+        return Err(limit_err(
+            "embedded_file_size",
+            format!(
+                "attachment input is {} bytes, exceeding the {limit}-byte limit",
+                data.len()
+            ),
+        ));
+    }
+    let page_id = this.page_id(page_number)?;
+    let (_, annotation) = this.annotation_at(page_id, index, xref)?;
+    let filespec = annotation_filespec(&this.doc, annotation)
+        .ok_or_else(|| PdfError::new_err("the annotation embeds no file"))?;
+    let filespec_id = match annotation.get(b"FS") {
+        Ok(Object::Reference(id)) => Some(*id),
+        _ => None,
+    };
+    let mut stream_dict = embedded_stream_id(&this.doc, filespec)
+        .ok()
+        .and_then(|id| this.doc.get_object(id).ok())
+        .and_then(|object| object.as_stream().ok())
+        .map(|stream| stream.dict.clone())
+        .unwrap_or_else(|| dictionary! { "Type" => "EmbeddedFile" });
+    for key in [
+        &b"Filter"[..],
+        b"DecodeParms",
+        b"DL",
+        b"Length",
+        b"F",
+        b"FFilter",
+        b"FDecodeParms",
+    ] {
+        stream_dict.remove(key);
+    }
+    let mut params = match stream_dict.get(b"Params") {
+        Ok(Object::Dictionary(params)) => params.clone(),
+        Ok(Object::Reference(id)) => this
+            .doc
+            .get_object(*id)
+            .and_then(Object::as_dict)
+            .cloned()
+            .unwrap_or_default(),
+        _ => Dictionary::new(),
+    };
+    params.remove(b"CheckSum");
+    params.set("Size", i64::try_from(data.len()).unwrap_or(i64::MAX));
+    stream_dict.set("Params", params);
+    let (_, id) = edited_annotation(this, page_id, index, xref)?;
+    let stream = this.doc.add_object(Stream::new(stream_dict, data));
+    let ef = dictionary! { "F" => stream, "UF" => stream };
+    let target = filespec_id.unwrap_or(id);
+    if let Ok(object) = this
+        .doc
+        .get_object_mut(target)
+        .and_then(Object::as_dict_mut)
+    {
+        if filespec_id.is_some() {
+            object.set("EF", ef);
+        } else if let Ok(Object::Dictionary(filespec)) = object.get_mut(b"FS") {
+            filespec.set("EF", ef);
         }
     }
     Ok(id.0)
