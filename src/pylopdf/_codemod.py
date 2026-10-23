@@ -1324,6 +1324,19 @@ def _add_highlight_annot(migrator: _Migrator, receiver: str, args: _Arguments) -
     return f"{receiver}.annotations.add({highlight}({', '.join(arguments)}))"
 
 
+def _add_shape_annot(specification: str) -> Callable[[_Migrator, str, _Arguments], str | None]:
+    """Rewrite ``add_rect_annot(rect)`` or ``add_circle_annot(rect)`` to ``annotations.add(...)``."""
+
+    def rule(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+        bound = args.bind(("rect",))
+        name = migrator.class_name(specification)
+        if bound is None or set(bound) != {"rect"} or name is None:
+            return None
+        return f"{receiver}.annotations.add({name}({bound['rect']}))"
+
+    return rule
+
+
 def _delete_annot(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     """Rewrite ``delete_annot(annot)`` as a statement to ``del`` of its index."""
     bound = args.bind(("annot",))
@@ -1606,6 +1619,8 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "has_links": _no_arguments("any(page.links for page in {receiver}.pages)"),
     "annots": _annots,
     "add_highlight_annot": _add_highlight_annot,
+    "add_rect_annot": _add_shape_annot("Square"),
+    "add_circle_annot": _add_shape_annot("Circle"),
     "has_annots": _no_arguments("any(page.annotations for page in {receiver}.pages)"),
     "text_length": _text_length,
     "has_glyph": _has_glyph,

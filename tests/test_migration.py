@@ -411,6 +411,8 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "import fitz\nannot = page.add_highlight_annot(hits)\n",
             "annot = page.annotations.add(pylopdf.Highlight(hits))",
         ),
+        ("import fitz\nannot = page.add_rect_annot(r)\n", "annot = page.annotations.add(pylopdf.Square(r))"),
+        ("import fitz\nannot = page.add_circle_annot(rect=r)\n", "annot = page.annotations.add(pylopdf.Circle(r))"),
         ("import fitz\npage.delete_annot(annot)\n", "del page.annotations[page.annotations.index(annot)]"),
         ("import fitz\ndef f(annot: fitz.Annot) -> None: ...\n", "def f(annot: pylopdf.Annotation) -> None: ..."),
         ("import fitz\nfont = fitz.Font('helv')\n", 'font = pylopdf.Font.standard("Helvetica")'),

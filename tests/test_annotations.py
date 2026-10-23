@@ -208,7 +208,7 @@ def test_highlight_bounds_contents_before_reading_rectangles() -> None:
 def test_add_takes_specifications_only() -> None:
     page = pylopdf.open(build_pdf(["x"])).pages[0]
 
-    with pytest.raises(TypeError, match="takes a Highlight specification"):
+    with pytest.raises(TypeError, match="takes an annotation specification"):
         page.annotations.add((10, 10, 20, 20))  # ty: ignore[invalid-argument-type]
     assert not hasattr(page, "annots")
     assert not hasattr(page, "add_highlight_annot")

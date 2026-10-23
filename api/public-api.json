@@ -4,6 +4,7 @@
     "Access",
     "Annotation",
     "AnnotationFlags",
+    "AnnotationSpecification",
     "AnnotationType",
     "Annotations",
     "Array",
@@ -11,9 +12,12 @@
     "Attachments",
     "BlendMode",
     "Block",
+    "Border",
+    "BorderStyle",
     "Builder",
     "Canvas",
     "Char",
+    "Circle",
     "CjkFontLanguage",
     "Clip",
     "ClosePath",
@@ -105,6 +109,7 @@
     "SoftMask",
     "SoftMaskType",
     "Span",
+    "Square",
     "StaleObjectError",
     "StalePageError",
     "Standard",
@@ -142,6 +147,14 @@
         "author": {
           "kind": "property",
           "returns": "str | None"
+        },
+        "blend_mode": {
+          "kind": "property",
+          "returns": "BlendMode | None"
+        },
+        "border": {
+          "kind": "property",
+          "returns": "Border | None"
         },
         "color": {
           "kind": "property",
@@ -243,6 +256,10 @@
         "READ_ONLY": 64,
         "TOGGLE_NO_VIEW": 256
       }
+    },
+    "AnnotationSpecification": {
+      "kind": "type-alias",
+      "target": "pylopdf.Highlight | pylopdf.Square | pylopdf.Circle"
     },
     "AnnotationType": {
       "kind": "enum",
@@ -348,7 +365,7 @@
                 "name": "self"
               },
               {
-                "annotation": "Highlight",
+                "annotation": "AnnotationSpecification",
                 "kind": "positional_or_keyword",
                 "name": "specification"
               }
@@ -752,6 +769,63 @@
           }
         ],
         "returns": "None"
+      }
+    },
+    "Border": {
+      "annotations": {
+        "dashes": "tuple[float, ...]",
+        "style": "BorderStyle",
+        "width": "float"
+      },
+      "dataclass_fields": [
+        "width",
+        "style",
+        "dashes"
+      ],
+      "kind": "class",
+      "members": {
+        "dashes": {
+          "kind": "property"
+        },
+        "style": {
+          "kind": "property"
+        },
+        "width": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "float",
+            "default": 1.0,
+            "kind": "positional_or_keyword",
+            "name": "width"
+          },
+          {
+            "annotation": "BorderStyle | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "style"
+          },
+          {
+            "annotation": "Sequence[float]",
+            "default": [],
+            "kind": "keyword_only",
+            "name": "dashes"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "BorderStyle": {
+      "kind": "enum",
+      "members": {
+        "BEVELED": "beveled",
+        "DASHED": "dashed",
+        "INSET": "inset",
+        "SOLID": "solid",
+        "UNDERLINE": "underline"
       }
     },
     "Builder": {
@@ -1579,6 +1653,100 @@
             "annotation": "Point",
             "kind": "keyword_only",
             "name": "origin"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "Circle": {
+      "annotations": {
+        "blend_mode": "BlendMode | None",
+        "border": "Border",
+        "color": "Color | None",
+        "contents": "str | None",
+        "interior_color": "Color | None",
+        "opacity": "float",
+        "rect": "Rect"
+      },
+      "dataclass_fields": [
+        "rect",
+        "color",
+        "interior_color",
+        "border",
+        "opacity",
+        "blend_mode",
+        "contents"
+      ],
+      "kind": "class",
+      "members": {
+        "blend_mode": {
+          "kind": "property"
+        },
+        "border": {
+          "kind": "property"
+        },
+        "color": {
+          "kind": "property"
+        },
+        "contents": {
+          "kind": "property"
+        },
+        "interior_color": {
+          "kind": "property"
+        },
+        "opacity": {
+          "kind": "property"
+        },
+        "rect": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Sequence[float]",
+            "kind": "positional_or_keyword",
+            "name": "rect"
+          },
+          {
+            "annotation": "Color | None",
+            "default": {
+              "repr": "Color(red=1.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "color"
+          },
+          {
+            "annotation": "Color | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "interior_color"
+          },
+          {
+            "annotation": "Border",
+            "default": {
+              "repr": "Border(width=1.0, style=<BorderStyle.SOLID: 'solid'>, dashes=())"
+            },
+            "kind": "keyword_only",
+            "name": "border"
+          },
+          {
+            "annotation": "float",
+            "default": 1.0,
+            "kind": "keyword_only",
+            "name": "opacity"
+          },
+          {
+            "annotation": "BlendMode | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "blend_mode"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "contents"
           }
         ],
         "returns": "None"
@@ -8516,6 +8684,100 @@
             "annotation": "tuple[Char, ...]",
             "kind": "keyword_only",
             "name": "chars"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "Square": {
+      "annotations": {
+        "blend_mode": "BlendMode | None",
+        "border": "Border",
+        "color": "Color | None",
+        "contents": "str | None",
+        "interior_color": "Color | None",
+        "opacity": "float",
+        "rect": "Rect"
+      },
+      "dataclass_fields": [
+        "rect",
+        "color",
+        "interior_color",
+        "border",
+        "opacity",
+        "blend_mode",
+        "contents"
+      ],
+      "kind": "class",
+      "members": {
+        "blend_mode": {
+          "kind": "property"
+        },
+        "border": {
+          "kind": "property"
+        },
+        "color": {
+          "kind": "property"
+        },
+        "contents": {
+          "kind": "property"
+        },
+        "interior_color": {
+          "kind": "property"
+        },
+        "opacity": {
+          "kind": "property"
+        },
+        "rect": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Sequence[float]",
+            "kind": "positional_or_keyword",
+            "name": "rect"
+          },
+          {
+            "annotation": "Color | None",
+            "default": {
+              "repr": "Color(red=1.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "color"
+          },
+          {
+            "annotation": "Color | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "interior_color"
+          },
+          {
+            "annotation": "Border",
+            "default": {
+              "repr": "Border(width=1.0, style=<BorderStyle.SOLID: 'solid'>, dashes=())"
+            },
+            "kind": "keyword_only",
+            "name": "border"
+          },
+          {
+            "annotation": "float",
+            "default": 1.0,
+            "kind": "keyword_only",
+            "name": "opacity"
+          },
+          {
+            "annotation": "BlendMode | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "blend_mode"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "contents"
           }
         ],
         "returns": "None"

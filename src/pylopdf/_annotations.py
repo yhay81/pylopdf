@@ -6,9 +6,10 @@ import enum
 import math
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, cast, overload
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, TypeAlias, cast, overload
 
-from pylopdf._content import Color
+from pylopdf._content import BlendMode, Color
 from pylopdf._errors import StalePageError
 from pylopdf._geometry import Quad, Rect
 from pylopdf._hints import hinted_getattr
@@ -28,6 +29,8 @@ if TYPE_CHECKING:
 _MAX_ANNOTATION_INPUT_TEXT_SIZE = 1024 * 1024
 _MAX_HIGHLIGHT_RECTS = 4096
 _RECT_COORDINATE_COUNT = 4
+#: The most dash lengths that a border pattern holds.
+_MAX_BORDER_DASHES = 32
 
 
 class AnnotationType(enum.IntEnum):
@@ -110,6 +113,94 @@ class AnnotationFlags(enum.IntFlag):
     LOCKED = 1 << 7
     TOGGLE_NO_VIEW = 1 << 8
     LOCKED_CONTENTS = 1 << 9
+
+
+class BorderStyle(enum.StrEnum):
+    """The style of an annotation's border, ``/BS /S`` (ISO 32000-2 Table 168)."""
+
+    SOLID = "solid"
+    DASHED = "dashed"
+    BEVELED = "beveled"
+    """Embossed, as a widget's border; other annotations draw it solid."""
+    INSET = "inset"
+    """Engraved, as a widget's border; other annotations draw it solid."""
+    UNDERLINE = "underline"
+    """Only the bottom edge, as a widget's border; other annotations draw it solid."""
+
+
+#: The ``/S`` name of each border style.
+_BORDER_STYLE_NAMES = {
+    BorderStyle.SOLID: "S",
+    BorderStyle.DASHED: "D",
+    BorderStyle.BEVELED: "B",
+    BorderStyle.INSET: "I",
+    BorderStyle.UNDERLINE: "U",
+}
+_BORDER_STYLES = {name: style for style, name in _BORDER_STYLE_NAMES.items()}
+
+
+def _number(value: object, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        msg = f"{name} must be a number: {value!r}"
+        raise TypeError(msg)
+    if not math.isfinite(value):
+        msg = f"{name} must be finite: {value!r}"
+        raise ValueError(msg)
+    return float(value)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Border:
+    """The border of an annotation: its line width, style, and dash pattern.
+
+    ``dashes`` lists 1 to 32 dash and gap lengths in points, which a
+    :attr:`BorderStyle.DASHED` border needs and no other style takes; giving
+    ``dashes`` without a style selects the dashed style. A width of 0 draws
+    no border.
+    """
+
+    width: float
+    style: BorderStyle
+    dashes: tuple[float, ...]
+
+    def __init__(
+        self,
+        width: float = 1.0,
+        *,
+        style: BorderStyle | None = None,
+        dashes: Sequence[float] = (),
+    ) -> None:
+        """Validate the border."""
+        width = _number(width, "a border width")
+        if width < 0:
+            msg = f"a border width is not negative: {width!r}"
+            raise ValueError(msg)
+        if isinstance(dashes, (str, bytes)) or not isinstance(dashes, Sequence):
+            msg = f"dashes must be a sequence of numbers: {dashes!r}"
+            raise TypeError(msg)
+        if len(dashes) > _MAX_BORDER_DASHES:
+            msg = f"a border has at most {_MAX_BORDER_DASHES} dash lengths"
+            raise ValueError(msg)
+        lengths = tuple(_number(dash, "a dash length") for dash in dashes)
+        if any(dash < 0 for dash in lengths) or (lengths and sum(lengths) <= 0):
+            msg = f"dash lengths are not negative and do not sum to 0: {lengths!r}"
+            raise ValueError(msg)
+        if style is None:
+            style = BorderStyle.DASHED if lengths else BorderStyle.SOLID
+        style = BorderStyle(style)
+        if (style is BorderStyle.DASHED) != bool(lengths):
+            msg = "a dashed border needs dash lengths, and only a dashed border takes them"
+            raise ValueError(msg)
+        object.__setattr__(self, "width", width)
+        object.__setattr__(self, "style", style)
+        object.__setattr__(self, "dashes", lengths)
+
+
+#: The PDF name of each blend mode, such as ``ColorDodge``.
+_BLEND_MODE_NAMES: dict[BlendMode, str] = {
+    mode: "".join(part.capitalize() for part in mode.value.split("_")) for mode in BlendMode
+}
+_BLEND_MODES: dict[str, BlendMode] = {name: mode for mode, name in _BLEND_MODE_NAMES.items()}
 
 
 #: The positions of the text entries in the core's annotation tuple.
@@ -250,6 +341,21 @@ class Annotation:
         """Return the ``/F`` flags."""
         return AnnotationFlags(self._read()[4] & 0x3FF)
 
+    @property
+    def border(self) -> Border | None:
+        """Return the border that ``/BS``, else ``/Border``, describes, or ``None`` without either."""
+        border = self._read()[9]
+        if border is None:
+            return None
+        width, style, dashes = border
+        return Border(width, style=_BORDER_STYLES[style], dashes=dashes)
+
+    @property
+    def blend_mode(self) -> BlendMode | None:
+        """Return the blend mode that the appearance is drawn with, ``/BM``, or ``None`` without one."""
+        name = self._read()[10]
+        return None if name is None else _BLEND_MODES[name]
+
     def __eq__(self, other: object) -> bool:
         """Compare the page and the annotation: its object number, or its index for a direct dictionary."""
         if not isinstance(other, Annotation):
@@ -304,9 +410,9 @@ def _validate_highlight_rects(rects: object) -> tuple[Rect, ...]:
     return tuple(validated)
 
 
-def _opaque_color(value: object) -> Color:
+def _opaque_color(value: object, name: str = "color") -> Color:
     if not isinstance(value, Color):
-        msg = f"color must be a Color: {value!r}"
+        msg = f"{name} must be a Color: {value!r}"
         raise TypeError(msg)
     components = (value.red, value.green, value.blue)
     if value.alpha != 1 or not all(math.isfinite(c) and 0 <= c <= 1 for c in components):
@@ -363,6 +469,156 @@ class Highlight:
         object.__setattr__(self, "contents", contents)
 
 
+def _optional_color(value: object, name: str) -> Color | None:
+    return None if value is None else _opaque_color(value, name)
+
+
+def _opacity(value: object) -> float:
+    opacity = _number(value, "opacity")
+    if not 0.0 < opacity <= 1.0:
+        msg = f"opacity must be greater than 0 and at most 1: {opacity!r}"
+        raise ValueError(msg)
+    return opacity
+
+
+def _contents(value: object) -> str | None:
+    if value is not None and not isinstance(value, str):
+        msg = f"contents must be a str or None: {type(value).__name__}"
+        raise TypeError(msg)
+    return value
+
+
+def _now() -> str:
+    """Return the current time as a PDF date string in UTC."""
+    return datetime.now(UTC).strftime("D:%Y%m%d%H%M%SZ")
+
+
+class _Shape:
+    """The fields that square and circle specifications share."""
+
+    __slots__ = ()
+
+    rect: Rect
+    color: Color | None
+    interior_color: Color | None
+    border: Border
+    opacity: float
+    blend_mode: BlendMode | None
+    contents: str | None
+
+    def _init(  # noqa: PLR0913, PLR0917 - the shared fields, as each __init__ received them.
+        self,
+        rect: Sequence[float],
+        color: object,
+        interior_color: object,
+        border: object,
+        opacity: object,
+        blend_mode: object,
+        contents: object,
+    ) -> None:
+        contents = _contents(contents)
+        _validate_cumulative_utf8_input(
+            (type(self).__name__, "" if contents is None else contents),
+            _MAX_ANNOTATION_INPUT_TEXT_SIZE,
+            limit_code="annotation_input_size",
+            input_label="annotation subtype and contents input",
+        )
+        if not isinstance(border, Border):
+            msg = f"border must be a Border: {border!r}"
+            raise TypeError(msg)
+        object.__setattr__(self, "rect", Rect(*_validate_rect(rect)))
+        object.__setattr__(self, "color", _optional_color(color, "color"))
+        object.__setattr__(self, "interior_color", _optional_color(interior_color, "interior_color"))
+        object.__setattr__(self, "border", border)
+        object.__setattr__(self, "opacity", _opacity(opacity))
+        object.__setattr__(self, "blend_mode", None if blend_mode is None else BlendMode(blend_mode))
+        object.__setattr__(self, "contents", contents)
+
+    def _spec(self, subtype: str) -> dict[str, Any]:
+        border = self.border
+        return {
+            "subtype": subtype,
+            "rect": tuple(self.rect),
+            "color": None if self.color is None else self.color.rgb,
+            "interior_color": None if self.interior_color is None else self.interior_color.rgb,
+            "border": (border.width, _BORDER_STYLE_NAMES[border.style], list(border.dashes)),
+            "opacity": self.opacity,
+            "blend_mode": None if self.blend_mode is None else _BLEND_MODE_NAMES[self.blend_mode],
+            "contents": self.contents,
+            "created": _now(),
+        }
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Square(_Shape):
+    """A rectangle, as ``page.annotations.add`` takes it.
+
+    ``rect`` is in display coordinates. ``color`` strokes the border and
+    ``interior_color`` fills the inside; either may be ``None``. The border
+    lies inside ``rect``. ``opacity`` and ``blend_mode`` apply to both
+    paints, and ``contents`` is the text of the annotation's note. The
+    annotation is written with its appearance, so every viewer draws it
+    alike.
+    """
+
+    rect: Rect
+    color: Color | None
+    interior_color: Color | None
+    border: Border
+    opacity: float
+    blend_mode: BlendMode | None
+    contents: str | None
+
+    def __init__(  # noqa: PLR0913 - the annotation's style options.
+        self,
+        rect: Sequence[float],
+        *,
+        color: Color | None = Color(1.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        interior_color: Color | None = None,
+        border: Border = Border(),  # noqa: B008 - Border is immutable.
+        opacity: float = 1.0,
+        blend_mode: BlendMode | None = None,
+        contents: str | None = None,
+    ) -> None:
+        """Validate the specification."""
+        self._init(rect, color, interior_color, border, opacity, blend_mode, contents)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Circle(_Shape):
+    """An ellipse inscribed in a rectangle, as ``page.annotations.add`` takes it.
+
+    The fields are those of :class:`Square`; the ellipse and its border lie
+    inside ``rect``.
+    """
+
+    rect: Rect
+    color: Color | None
+    interior_color: Color | None
+    border: Border
+    opacity: float
+    blend_mode: BlendMode | None
+    contents: str | None
+
+    def __init__(  # noqa: PLR0913 - the annotation's style options.
+        self,
+        rect: Sequence[float],
+        *,
+        color: Color | None = Color(1.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        interior_color: Color | None = None,
+        border: Border = Border(),  # noqa: B008 - Border is immutable.
+        opacity: float = 1.0,
+        blend_mode: BlendMode | None = None,
+        contents: str | None = None,
+    ) -> None:
+        """Validate the specification."""
+        self._init(rect, color, interior_color, border, opacity, blend_mode, contents)
+
+
+#: The specifications that ``page.annotations.add`` takes.
+AnnotationSpecification: TypeAlias = Highlight | Square | Circle
+
+
 class Annotations(Sequence[Annotation]):
     """The annotations of a page other than links and form widgets, as ``page.annotations`` returns them.
 
@@ -412,12 +668,17 @@ class Annotations(Sequence[Annotation]):
         handles = [(annotation._index, annotation._xref) for annotation in annotations]
         page._document._doc.remove_annotations(page._page_number(), handles)
 
-    def add(self, specification: Highlight) -> Annotation:
-        """Add the annotation that ``specification`` describes and return it."""
-        if not isinstance(specification, Highlight):
-            msg = f"page.annotations.add takes a Highlight specification: {type(specification).__name__}"
-            raise TypeError(msg)
+    def add(self, specification: AnnotationSpecification) -> Annotation:
+        """Add the annotation that ``specification`` describes, with its appearance, and return it."""
         page = self._page
+        if isinstance(specification, (Square, Circle)):
+            xref = page._document._doc.add_annotation(
+                page._page_number(), specification._spec(type(specification).__name__)
+            )
+            return Annotation(page, xref, 0)
+        if not isinstance(specification, Highlight):
+            msg = f"page.annotations.add takes an annotation specification: {type(specification).__name__}"
+            raise TypeError(msg)
         xref = page._document._doc.add_highlight_annotation(
             page._page_number(),
             [(rect.x0, rect.y0, rect.x1, rect.y1) for rect in specification.rects],
@@ -434,5 +695,15 @@ class Annotations(Sequence[Annotation]):
 
 
 # The package re-exports these names; reprs, pickles, and documentation name them.
-for _public in (Annotation, Annotations, AnnotationType, AnnotationFlags, Highlight):
+for _public in (
+    Annotation,
+    Annotations,
+    AnnotationType,
+    AnnotationFlags,
+    Border,
+    BorderStyle,
+    Circle,
+    Highlight,
+    Square,
+):
     _public.__module__ = "pylopdf"

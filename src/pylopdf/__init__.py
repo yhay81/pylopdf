@@ -17,13 +17,17 @@ from typing import (
     TypeAlias,
 )
 
-from pylopdf import _content, _types
+from pylopdf import _annotations, _content, _types
 from pylopdf._annotations import (
     Annotation,
     AnnotationFlags,
     Annotations,
     AnnotationType,
+    Border,
+    BorderStyle,
+    Circle,
     Highlight,
+    Square,
 )
 from pylopdf._attachments import Attachment, Attachments
 from pylopdf._boxes import PageBoxes
@@ -98,6 +102,7 @@ __all__ = [
     "Access",
     "Annotation",
     "AnnotationFlags",
+    "AnnotationSpecification",
     "AnnotationType",
     "Annotations",
     "Array",
@@ -105,9 +110,12 @@ __all__ = [
     "Attachments",
     "BlendMode",
     "Block",
+    "Border",
+    "BorderStyle",
     "Builder",
     "Canvas",
     "Char",
+    "Circle",
     "CjkFontLanguage",
     "Clip",
     "ClosePath",
@@ -197,6 +205,7 @@ __all__ = [
     "SoftMask",
     "SoftMaskType",
     "Span",
+    "Square",
     "StaleObjectError",
     "StalePageError",
     "Standard",
@@ -231,6 +240,7 @@ StandardFontName: TypeAlias = _types.StandardFontName
 ContentItem: TypeAlias = _content.ContentItem
 Paint: TypeAlias = _content.Paint
 Segment: TypeAlias = _content.Segment
+AnnotationSpecification: TypeAlias = _annotations.AnnotationSpecification
 
 
 if not TYPE_CHECKING:

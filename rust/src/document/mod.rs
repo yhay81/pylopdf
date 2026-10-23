@@ -36,6 +36,7 @@ use pyo3::prelude::*;
 use rayon::prelude::*;
 
 use crate::acroform_import::{AcroFormImport, FormPagePrune};
+use crate::annotation_appearance;
 use crate::bundled_font_cache::{FontBytes, PackageFace, load_package_font};
 use crate::canvas::{self, _Canvas, CanvasRecording};
 use crate::content_guard::{ContentGuard, PageSelection};
@@ -1287,6 +1288,17 @@ impl _Document {
         content: Option<String>,
     ) -> PyResult<u32> {
         annotations::add_highlight_annotation(self, py, page_number, rects, color, opacity, content)
+    }
+
+    /// Add the annotation that a specification describes to a one-based
+    /// page, with its appearance, and return its object number.
+    fn add_annotation(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        spec: annotations::AnnotationSpec,
+    ) -> PyResult<u32> {
+        annotations::add_annotation(self, py, page_number, spec)
     }
 
     /// Add a link annotation over display `rect` on a one-based page and
