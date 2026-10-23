@@ -115,6 +115,7 @@ from pylopdf._links import Destinations, Link, Links
 from pylopdf._metadata import MarkInfo, Metadata, PageLayout, PageMode, PdfaClaim
 from pylopdf._objects import Array, Dictionary, Name, Objects, Stream, String
 from pylopdf._ocr import OcrEngine, OcrWord
+from pylopdf._operations import InlineImage, Operation, Operations
 from pylopdf._outline import Outline, OutlineEntry, OutlineItem
 from pylopdf._page import Page
 from pylopdf._page_labels import PageLabelRange, PageLabelStyle
@@ -198,6 +199,7 @@ __all__ = [
     "ImageObject",
     "Images",
     "Ink",
+    "InlineImage",
     "Launch",
     "Layout",
     "LimitError",
@@ -226,6 +228,8 @@ __all__ = [
     "OcrError",
     "OcrRotation",
     "OcrWord",
+    "Operation",
+    "Operations",
     "Outline",
     "OutlineEntry",
     "OutlineItem",

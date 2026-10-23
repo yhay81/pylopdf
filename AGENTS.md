@@ -130,7 +130,7 @@ the concept and API overview.
     `document/{forms,annotations,flattening}.rs`; `src/pylopdf/_annotations.py`,
     `_form.py`, and `_links.py`.
   - Rewriting: `content/`, `text_replace.rs`, `image_compression.rs`;
-    `document/replacement.rs`.
+    `document/replacement.rs`; `src/pylopdf/_operations.py`.
   - Shared: `lib.rs`, `document/mod.rs`,
     `document/{errors,input,objects,indexed}.rs`; and in `src/pylopdf/`,
     the re-export surface `__init__.py` plus `_document.py`, `_page.py`,
@@ -1711,9 +1711,7 @@ the concept and API overview.
   interprets: strings, comments, and inline image data hold no operators, a
   `q` or `Q` with stray operands still counts, and counting ends where hayro
   stops interpreting, which then never reaches the appended content either.
-  The content engine in `rust/src/content/` reads lopdf's strict parse instead,
-  which redaction must edit but which rejects some content that hayro reads;
-  the count only reads and must neither disagree with hayro nor fail.
+  The count only reads and must neither disagree with hayro nor fail.
   The opening stream holds one `q` more than the content's `Q` that find no
   `q`, and the closing stream a newline and one `Q` more than the `q` that the
   content leaves open, so the page balances and appended content starts from
@@ -1869,10 +1867,19 @@ the concept and API overview.
   no-match and failure paths must preserve document bytes and caches. A
   successful replacement materializes inherited page attributes and clears
   the drawing isolation marker for that page.
-- The content engine (`rust/src/content/`) interprets content
-  over lopdf's `Content::decode_strict`, which redaction can edit and
-  serialize, and places glyphs as hayro-interpret 0.8 does, so that hayro's
-  extraction is its oracle and hayro re-interpretation can verify an edit.
+- The content engine (`rust/src/content/`) interprets content tokenized by
+  hayro-syntax's `UntypedIter` (`content/syntax.rs`), so its operations are
+  the ones that hayro reads, and places glyphs as hayro-interpret 0.8 does,
+  so that hayro's extraction is its oracle and hayro re-interpretation can
+  verify an edit. `Instructions` keeps each operation's bytes, from the end of
+  the previous operation to the end of its operator (to the end of `EI` for
+  an inline image, whose data pointer hayro borrows from the stream), and the
+  bytes after the last operation as the tail, so concatenating them
+  reproduces the stream. An operator written with a `#` escape decodes to an
+  owned copy that has no place in the stream and is refused. Operands
+  convert to lopdf values for the interpreter (`to_lopdf`; arrays through
+  hayro's typed iteration, which stops at an element that does not read) and
+  to tagged Python values for `Page.operations`.
   Mirror hayro, not the specification, wherever they differ: the text state is
   saved by `q`; every content stream and Form runs inside a saved state that
   is restored afterwards; fixed-arity operators take their last operands;
@@ -1896,7 +1903,11 @@ the concept and API overview.
   holds is marked approximate rather than guessed. Interpretation stops at
   16,777,216 operations counting Form repetitions (`content_operation_count`)
   or 1,048,576 glyphs (`content_glyph_count`) and returns no partial result;
-  content that the strict parse rejects is refused. `_Document.content_glyphs`
+  it reads nothing after the point where hayro stops tokenizing, such as an
+  eleventh operand. A page's content is joined as `Page::page_stream` joins it
+  (`replacement::page_content`): a single stream as it decodes, or each
+  stream of an array followed by one space up to the first entry that is no
+  stream, skipping streams that do not decode. `_Document.content_glyphs`
   is the private test hook, and `tests/test_content_interpreter.py` checks it
   against hayro's extraction on the bundled corpus. Glyph origins agree with
   hayro's within 0.0001 pt for all 375,334 glyphs of the bundled corpus, and
@@ -1906,9 +1917,25 @@ the concept and API overview.
   program (4 files); two streams without a usable `/Length`, which
   `object_recovery` now loads as hayro reads them (`issue1293r.pdf` and
   `operator-in-TJ-array.pdf`); and one stream that lopdf cannot decode.
-  Content that lopdf's strict parse rejects (13 files) or cannot decode (5)
-  is refused. Re-run this pdf.js-corpus sweep after any change to the
-  interpreter or to hayro.
+  Content that lopdf's strict parse rejected (13 files) reads since the
+  engine tokenizes as hayro does. Re-run this pdf.js-corpus sweep after any
+  change to the interpreter or to hayro.
+- `Page.operations` (`src/pylopdf/_operations.py`) is operator-level content:
+  an immutable `Operations` sequence of `Operation(operator, operands)` and
+  `InlineImage(dictionary, data)` values and a `tail` of the bytes after the
+  last operation that hayro reads. Each parsed item keeps its bytes in the
+  non-init `_source` slot, which `dataclasses.replace` does not copy, so
+  `to_bytes()` writes unchanged items as they were and serializes only new
+  ones, inserting a newline where two regular tokens would run together or
+  where no white space follows an inline image's `EI`. An inline image's
+  data leaves out the white-space byte before `EI`, which hayro's data
+  holds. The core's `page_operations` and `_parse_operations` return tagged
+  items; `set_page_content` writes one new Flate stream as the page's
+  `/Contents` (the page owns it, so pages that shared the old streams keep
+  them), drops the page from `isolated_content_pages`, and keeps
+  placements. Reads stop at 1,048,576 operations (`content_operation_count`)
+  and 64 MiB of joined content (`content_stream_size`); writes at 64 MiB
+  (`content_input_size`).
 - Embedded-font text generation lives in `rust/src/generate.rs`. krilla is
   pinned to 0.8.2 with all default features disabled; HarfRust 0.15 supplies
   shaping without krilla's unmaintained rustybuzz/ttf-parser path. Raster and

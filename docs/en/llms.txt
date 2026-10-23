@@ -340,6 +340,7 @@ replacement, and the migration hint):
 - Page.first_widget -> Page.widgets: page.widgets[0], or iterate page.widgets.
 - Page.get_bboxlog -> Page.content: Call page.content(); every item has a bbox and a kind, and its context lists the clips around it.
 - Page.get_cdrawings -> Page.content: Read page.content().paths, whose segments, paints, and strokes are immutable values.
+- Page.get_contents -> Page.obj: page.obj["Contents"] is the content stream or the array of streams; .xref on each gives its object number.
 - Page.get_displaylist -> Page.content: Call page.content(), which returns the page's painted items as an immutable Content sequence.
 - Page.get_drawings -> Page.content: Read page.content(text_runs=False, images=False).paths: Path records with segments, fill, fill_rule, stroke, and bbox, in paint order; a path with both a fill and a stroke is pymupdf's fs type, and each path's context holds what extended=True listed.
 - Page.get_image_bbox -> Page.content: Keep the items of page.content().images whose xref is the image's object number, and read their bbox and matrix.
@@ -368,6 +369,7 @@ replacement, and the migration hint):
 - Page.new_shape -> Page.draw: with page.draw() as canvas: draws paths and text in the order of the calls and writes them when the block ends, as Shape.commit() did.
 - Page.number -> Page.index: Read page.index.
 - Page.parent -> Page.document: Read page.document.
+- Page.read_contents -> Page.operations: page.operations.to_bytes() returns the page content as the renderer joins its streams; page.obj["Contents"] holds the streams themselves.
 - Page.refresh -> Page: pylopdf has no refresh(): a Page view reads the current document on every access, so remove the call.
 - Page.repair_flat_rbgs -> Form.repair_radio_groups: doc.form.repair_radio_groups() gathers top-level radio buttons that share a name under one radio field and returns how many groups it made.
 - Page.rotation_matrix -> Page.user_to_display: pylopdf reads and writes in display space with the rotation resolved; drop the step, and map PDF user space with page.user_to_display.
@@ -375,6 +377,7 @@ replacement, and the migration hint):
 - Page.search_for -> Page.search: Use page.search(text), which returns one Rect per match.
 - Page.set_artbox -> Page.boxes: Assign page.boxes.art = rect, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Page.set_bleedbox -> Page.boxes: Assign page.boxes.bleed = rect, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
+- Page.set_contents -> Page.operations: Assign page.operations = Operations.parse(data) to replace the page content with one new stream; to point /Contents at an existing stream, assign page.obj["Contents"] = doc.objects[xref].
 - Page.set_cropbox -> Page.boxes: Assign page.boxes.crop = rect, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Page.set_mediabox -> Page.boxes: Assign page.boxes.media = rect; as in pymupdf, the other boxes are removed.
 - Page.set_rotation -> Page.rotation: Assign page.rotation = angle, a multiple of 90; another angle raises ValueError, where pymupdf sets 0.
@@ -384,6 +387,7 @@ replacement, and the migration hint):
 - Page.trimbox -> Page.boxes: Read page.boxes.trim, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Page.update_link -> Link.target: Assign link.rect and link.target on a handle from page.links.
 - Page.widgets -> Page.widgets: page.widgets is a sequence of Widget handles; filter by widget.field.type for pymupdf's types=.
+- Page.wrap_contents -> Page.operations: page.draw() isolates unbalanced content in q and Q by itself; to wrap explicitly, assign page.operations = [Operation("q"), *page.operations, Operation("Q")].
 - Pixmap.n -> Pixmap.channels: Read pix.channels.
 - Pixmap.samples -> Pixmap: bytes(pix) copies the pixels; memoryview(pix) and numpy.asarray(pix) read them without a copy, shaped (height, width, channels).
 - Pixmap.samples_mv -> Pixmap: Use memoryview(pix), shaped (height, width, channels).

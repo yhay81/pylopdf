@@ -1,8 +1,8 @@
 //! Bounded interpretation of content streams in the lopdf graph.
 //!
 //! Redaction must rewrite the operators that produce what a reader sees, so
-//! it interprets content over lopdf's strict parse, which it can edit and
-//! serialize, rather than through hayro, which it cannot. Glyph positions
+//! it interprets content tokenized as hayro tokenizes it (`syntax`), keeping
+//! every operation's bytes so that an edit rewrites only what it changes. Glyph positions
 //! follow hayro-interpret 0.8's text model so that they agree with the
 //! glyphs hayro extracts and renders; after an edit, re-interpreting the
 //! result with hayro verifies it. Nothing here is public API before the
@@ -10,6 +10,7 @@
 
 mod fonts;
 mod interpret;
+pub(crate) mod syntax;
 
 pub(crate) use interpret::{Container, interpret_page};
 

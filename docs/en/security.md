@@ -107,13 +107,16 @@ a default that is safe for most uses. Raise it with the keyword shown, or pass
 | `Font.from_file()`, `from_bytes()`, and font input to forms | 64 MiB per font | `max_size`, `max_font_size` |
 | `Canvas.image()` | 64 MiB of input and 64 million pixels | `max_size`, `max_pixels` |
 | `Page.replace_text()` | 64 MiB of page content | `max_size` |
+| `Operations.parse()` | 64 MiB of content and 1,048,576 operations | `max_size`, `max_operations` |
 | Attachments: `add()`, `read()`, `write()` | 64 MiB per file | `max_size` |
 | `Stream.read()` | 64 MiB | `max_size` |
 | `Document.xmp`, `pdfa_claim` | 1 MiB of XMP metadata | `Stream.read(max_size=)` on `doc.catalog["Metadata"]` |
 | `OcrEngine()` | 64 MiB of model files | `max_model_size` |
 
 A few limits are fixed. Rendering is capped at 64 million pixels per page.
-Passwords stop at 127 UTF-8 bytes, the PDF 2.0 maximum. Lists of pages passed to
+Passwords stop at 127 UTF-8 bytes, the PDF 2.0 maximum. `Page.operations`
+reads and writes at most 64 MiB of content and reads at most 1,048,576
+operations. Lists of pages passed to
 `doc.pages.select()`, `insert()`, and `extend()`, `doc.text()`,
 `doc.markdown()`, and `doc.render()` may hold up to the page count or 4,096
 entries, whichever is larger. Outlines, page labels, form fields, annotations, and attachment lists
@@ -135,6 +138,7 @@ change.
 | `decompressed_size`, `page_content_size`, `total_decompressed_size`, `decompression_unverifiable`, `stream_filter_count` | A stream decodes to more than allowed, or uses filters whose output cannot be bounded (including more than 16 chained filters) |
 | `text_size`, `text_glyph_count`, `interpretation_size` | Extraction or rendering would read more than the policy allows |
 | `content_element_count` | A page paints more glyphs, segments, dash lengths, and items than `max_elements` |
+| `content_operation_count`, `content_stream_size`, `content_input_size` | Content holds more operations than allowed, or a page's content, read or written, is larger than 64 MiB |
 | `content_nesting_depth`, `resource_nesting_depth` | A page is built so deeply nested that interpreting it is unsafe; see [below](#built-in-protections) |
 | `pdf_output_size`, `render_output_size`, `markdown_output_size`, `svg_output_size`, `pixmap_output_size`, `replacement_output_size` | Output would exceed `max_size` |
 | `search_input_size`, `search_hit_count` | The search text is over 4,096 bytes, or there are more results than `max_hits` |

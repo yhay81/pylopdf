@@ -1,7 +1,7 @@
 """The redaction engine's content interpreter places glyphs where hayro does.
 
-`_Document.content_glyphs` is a private hook: it interprets a page over
-lopdf's strict content parse and reports, per glyph, the display-space origin,
+`_Document.content_glyphs` is a private hook: it interprets a page tokenized
+as hayro tokenizes it and reports, per glyph, the display-space origin,
 the character code, the advance in glyph space, the text rendering mode, the
 code's location in its content stream, and whether the metrics were
 approximate or the font a Helvetica fallback. Text extraction, which hayro
@@ -318,8 +318,8 @@ def test_forms_that_draw_themselves_twice_hit_the_operation_bound() -> None:
     assert error.value.code == "content_operation_count"
 
 
-def test_content_that_lopdf_cannot_parse_strictly_is_refused() -> None:
-    doc = pylopdf.open(_page("BT /F1 10 Tf (unterminated Tj ET"))
+def test_content_stops_where_hayro_stops_reading() -> None:
+    # hayro cannot read the unterminated string and reads nothing after it.
+    doc = pylopdf.open(_page("BT /F1 10 Tf 72 700 Td (A) Tj (unterminated Tj ET"))
 
-    with pytest.raises(pylopdf.PdfError, match="content stream does not parse"):
-        _glyphs(doc)
+    assert [glyph[1] for glyph in _glyphs(doc)] == [ord("A")]
