@@ -435,7 +435,7 @@ HINTS: dict[str, str] = {
     "PDF_ANNOT_LE_*": "PDF_ANNOT_LE_* is LineEnding in pylopdf. Line endings such as PDF_ANNOT_LE_ClosedArrow are LineEnding members such as LineEnding.CLOSED_ARROW.",
     "PDF_ANNOT_Q_*": "PDF_ANNOT_Q_* is FreeText in pylopdf. Free-text alignments are FreeText(align='left' | 'center' | 'right') strings.",
     "PDF_BM_*": "PDF_BM_* is BlendMode in pylopdf. Blend modes such as PDF_BM_Multiply are BlendMode members such as BlendMode.MULTIPLY; annotation specifications take blend_mode=.",
-    "PDF_BORDER_*": "pylopdf plans the capability of pymupdf's PDF_BORDER_* in the Interaction milestone of ROADMAP.md.",
+    "PDF_BORDER_*": "PDF_BORDER_* is BorderStyle in pylopdf. PDF_BORDER_STYLE_* are BorderStyle members, which the codemod rewrites; PDF_BORDER_EFFECT_CLOUDY is the clouds intensity (0 to 2) of Square, Circle, and Polygon, read and set as annotation.clouds.",
     "PDF_BTN_FIELD_IS_*": "PDF_BTN_FIELD_IS_* is FieldFlags in pylopdf. Button field flags such as PDF_BTN_FIELD_IS_RADIO and PDF_BTN_FIELD_IS_PUSHBUTTON are FieldFlags members such as FieldFlags.RADIO and PUSHBUTTON.",
     "PDF_CH_FIELD_IS_*": "PDF_CH_FIELD_IS_* is FieldFlags in pylopdf. Choice field flags such as PDF_CH_FIELD_IS_COMBO and PDF_CH_FIELD_IS_MULTI_SELECT are FieldFlags members such as FieldFlags.COMBO and MULTI_SELECT.",
     "PDF_CID_FONT_RESOURCE": "pylopdf does not provide pymupdf's PDF_CID_FONT_RESOURCE.",

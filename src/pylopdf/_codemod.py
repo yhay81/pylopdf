@@ -84,6 +84,7 @@ MODULE_MEMBER_RENAMES = {
         f"PDF_BM_{''.join(part.capitalize() for part in member.name.split('_'))}": f"BlendMode.{member.name}"
         for member in pylopdf.BlendMode
     },
+    **{f"PDF_BORDER_STYLE_{member.name}": f"BorderStyle.{member.name}" for member in pylopdf.BorderStyle},
     "SigFlag_SignaturesExist": "SignatureFlags.SIGNATURES_EXIST",
     "SigFlag_AppendOnly": "SignatureFlags.APPEND_ONLY",
     "Identity": "Matrix.IDENTITY",
@@ -1312,6 +1313,8 @@ def _set_border(migrator: _Migrator, receiver: str, args: _Arguments) -> str | N
     """Rewrite an annotation's ``set_border(width=..., dashes=...)`` to a ``Border``."""
     bound = args.bind(("border", "width", "dashes", "style", "clouds"))
     border = migrator.class_name("Border")
+    if bound is not None and set(bound) == {"clouds"}:
+        return f"{receiver}.clouds = {bound['clouds']}"
     if bound is None or not bound or set(bound) - {"width", "dashes"} or border is None:
         return None
     arguments = [bound["width"]] if "width" in bound else []

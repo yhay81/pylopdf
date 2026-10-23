@@ -380,10 +380,10 @@ time of their creation in `created` and `modified`.
 | `Caret(at, *, color=Color(0, 0, 1), opacity=1.0, contents=None)` | A caret in a 20-point square whose top-left corner is `at`, pointing up as the page is displayed |
 | `FileAttachment(at, data, *, filename, description=None, icon=AttachmentIcon.PUSH_PIN, color=Color(1, 1, 0), opacity=1.0, contents=None, max_size=64 MiB)` | A file embedded in the page behind a 20-point `AttachmentIcon` (`GRAPH`, `PUSH_PIN`, `PAPERCLIP`, `TAG`) |
 | `Redaction(rects, *, color=Color(1, 0, 0), fill=Color(0, 0, 0), overlay_text=None, font=None, size=11, text_color=Color(0, 0, 0), align="left", contents=None)` | Areas marked for removal, outlined and crossed out in `color` until applied; applying them (`page.redact`, which comes with the Rewriting milestone) fills them with `fill` and writes `overlay_text` in a Standard 14 `font` |
-| `Square(rect, *, color=Color(1, 0, 0), interior_color=None, border=Border(), opacity=1.0, blend_mode=None, contents=None)` | A rectangle whose border `color` strokes and `interior_color` fills; either may be `None` |
+| `Square(rect, *, color=Color(1, 0, 0), interior_color=None, border=Border(), clouds=0, opacity=1.0, blend_mode=None, contents=None)` | A rectangle whose border `color` strokes and `interior_color` fills; either may be `None` |
 | `Circle(rect, *, ...)` | The ellipse inscribed in `rect`, with the fields of `Square` |
 | `LineAnnotation(start, end, *, color=Color(1, 0, 0), interior_color=None, border=Border(), line_endings=(LineEnding.NONE, LineEnding.NONE), opacity=1.0, blend_mode=None, contents=None)` | A straight line with a shape at each end, whose closed shapes `interior_color` fills |
-| `Polygon(vertices, *, color=..., interior_color=None, border=..., opacity=..., blend_mode=..., contents=...)` | A closed polygon through two or more points |
+| `Polygon(vertices, *, color=..., interior_color=None, border=..., clouds=0, opacity=..., blend_mode=..., contents=...)` | A closed polygon through two or more points |
 | `PolyLine(vertices, *, ..., line_endings=...)` | An open line through two or more points, with the fields of `LineAnnotation` |
 | `Ink(strokes, *, color=..., border=..., opacity=..., blend_mode=..., contents=...)` | Freehand strokes, each a sequence of one or more points, drawn with round caps and joins |
 
@@ -392,7 +392,9 @@ width in points, a `BorderStyle` (`SOLID`, `DASHED`, `BEVELED`, `INSET`, or
 `UNDERLINE`), and for a dashed border 1 to 32 dash and gap lengths; dashes
 without a style select `DASHED`. The border of a square or circle lies inside
 its rectangle, and widgets draw the beveled, inset, and underline styles that
-other annotations draw solid. `opacity` and `blend_mode` apply to every paint
+other annotations draw solid. `clouds`, from 0 to 2, draws the border of a
+square, circle, or polygon as a cloud whose bumps grow with it, inside the
+rectangle of a square or circle; `annotation.clouds` reads and sets it. `opacity` and `blend_mode` apply to every paint
 of the appearance. Points are `Point` values or pairs in display
 coordinates; the rectangle of a line, polygon, polyline, or ink annotation is
 the bounds of its points widened for the stroke and the line endings, and one
