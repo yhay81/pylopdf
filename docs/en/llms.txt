@@ -310,6 +310,7 @@ replacement, and the migration hint):
 - PDF_OC_* -> Layer.is_visible: Assign layer.is_visible = True or False; toggle with layer.is_visible = not layer.is_visible.
 - PDF_PAGE_LABEL_* -> PageLabelStyle: PageLabelStyle members name the label styles, such as PageLabelStyle.LOWER_ROMAN for PDF_PAGE_LABEL_ROMAN_LC; PageLabelRange(style=None) labels with the prefix only, for PDF_PAGE_LABEL_NONE.
 - PDF_PERM_* -> Permissions: PDF_PERM_PRINT is Permissions.PRINT, and so on.
+- PDF_REDACT_* -> Page.redact: Page.redact takes strings: images="pixels", "remove", or "keep"; graphics="touched", "covered", or "keep"; text="remove" or "keep".
 - PDF_TX_FIELD_IS_* -> FieldFlags: Text field flags such as PDF_TX_FIELD_IS_MULTILINE and PDF_TX_FIELD_IS_COMB are FieldFlags members such as FieldFlags.MULTILINE and COMB.
 - PDF_WIDGET_TX_FORMAT_* -> Field.scripts: Text formats are Acrobat scripts: set field.scripts[ScriptTrigger.FORMAT] and [ScriptTrigger.KEYSTROKE], for example to AFDate_FormatEx("yyyy-mm-dd").
 - PDF_WIDGET_TYPE_* -> FieldType: doc.form[name].type is a FieldType member: TEXT, CHECKBOX, RADIO, PUSHBUTTON, COMBOBOX, LISTBOX, SIGNATURE, or UNKNOWN.
@@ -333,6 +334,7 @@ replacement, and the migration hint):
 - Page.annot_names -> Annotation.name: [annotation.name for annotation in page.annotations]
 - Page.annot_xrefs -> Annotation.xref: [(annotation.xref, annotation.type) for annotation in page.annotations]
 - Page.annots -> Page.annotations: page.annotations lists Annotation handles other than links and widgets; filter on annotation.type instead of passing types.
+- Page.apply_redactions -> Page.redact: page.redact() applies the page's Redaction annotations and returns a RedactionReport; page.redact(areas, fill=...) redacts areas without annotations.
 - Page.artbox -> Page.boxes: Read page.boxes.art, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Page.bleedbox -> Page.boxes: Read page.boxes.bleed, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Page.bound -> Page.rect: Read page.rect.

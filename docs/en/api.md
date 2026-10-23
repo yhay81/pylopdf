@@ -426,6 +426,7 @@ page.rotation = 90
 | `draw(*, underlay=False)` | A [canvas](#canvas) that draws text, lines, rectangles, and other paths, images, and pages of any document in order; see [Writing text](#writing-text) |
 | `replace_text(search, replacement, *, default_char=None)` | Replace text drawn in simple (single-byte) fonts |
 | `operations` | The page's content as [operations](#operations); assignable |
+| `redact(areas=None, *, text="remove", images="pixels", graphics="touched", fill=Color(0, 0, 0))` | Remove what redaction annotations or areas cover; see [Redaction](#redaction) |
 
 The same image or page drawn again is stored once in the file.
 
@@ -465,7 +466,7 @@ time of their creation in `created` and `modified`.
 | `Stamp(rect, *, icon=StampIcon.APPROVED, color=None, opacity=1.0, rotate=0, contents=None)` | A rubber stamp: its label as large as fits, centred in a rounded frame, in `color` or the stamp's own colour (green for approval, red for restriction, blue for the rest), turned clockwise by `rotate` as displayed |
 | `Caret(at, *, color=Color(0, 0, 1), opacity=1.0, contents=None)` | A caret in a 20-point square whose top-left corner is `at`, pointing up as the page is displayed |
 | `FileAttachment(at, data, *, filename, description=None, icon=AttachmentIcon.PUSH_PIN, color=Color(1, 1, 0), opacity=1.0, contents=None, max_size=64 MiB)` | A file embedded in the page behind a 20-point `AttachmentIcon` (`GRAPH`, `PUSH_PIN`, `PAPERCLIP`, `TAG`) |
-| `Redaction(rects, *, color=Color(1, 0, 0), fill=Color(0, 0, 0), overlay_text=None, font=None, size=11, text_color=Color(0, 0, 0), align="left", contents=None)` | Areas marked for removal, outlined and crossed out in `color` until applied; applying them (`page.redact`, which comes with the Rewriting milestone) fills them with `fill` and writes `overlay_text` in a Standard 14 `font` |
+| `Redaction(rects, *, color=Color(1, 0, 0), fill=Color(0, 0, 0), overlay_text=None, font=None, size=11, text_color=Color(0, 0, 0), align="left", contents=None)` | Areas marked for removal, outlined and crossed out in `color` until applied; applying them with [`page.redact()`](#redaction) removes what they cover, fills them with `fill`, and writes `overlay_text` in a Standard 14 `font` |
 | `Square(rect, *, color=Color(1, 0, 0), interior_color=None, border=Border(), clouds=0, opacity=1.0, blend_mode=None, contents=None)` | A rectangle whose border `color` strokes and `interior_color` fills; either may be `None` |
 | `Circle(rect, *, ...)` | The ellipse inscribed in `rect`, with the fields of `Square` |
 | `LineAnnotation(start, end, *, color=Color(1, 0, 0), interior_color=None, border=Border(), line_endings=(LineEnding.NONE, LineEnding.NONE), opacity=1.0, blend_mode=None, contents=None)` | A straight line with a shape at each end, whose closed shapes `interior_color` fills |
@@ -705,6 +706,65 @@ components of a color, layer names and the other marked-content properties,
 the font dictionary behind a `FontRef`, and the object of an image mask. They
 are listed as
 [engine work](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#engine-work).
+
+## Redaction { #redaction }
+
+`page.redact()` removes what the page's `Redaction` annotations cover and
+returns a `RedactionReport`. The content goes from the file, not only from
+view: text, images, and vector graphics in the areas are taken out of the
+content streams, and the annotations become their fills.
+
+```python
+from pylopdf import Color, Rect, Redaction
+
+page = doc.pages[0]
+for word in page.search("Confidential"):
+    page.annotations.add(Redaction(word, fill=Color(0, 0, 0), overlay_text="REDACTED"))
+report = page.redact()
+print(report.glyphs, report.images, report.paths, report.annotations)
+
+# Areas without annotations, in display coordinates.
+page.redact([Rect(72, 100, 300, 140)], images="remove", fill=None)
+doc.save("redacted.pdf")   # a full save; see below
+```
+
+| Option | Values |
+|---|---|
+| `text` | `"remove"` (default) removes every glyph whose box meets an area; `"keep"` leaves text |
+| `images` | `"pixels"` (default) blanks the covered pixels in a copy of the image; `"remove"` removes the placements an area touches; `"keep"` |
+| `graphics` | `"touched"` (default) removes paths and shadings that meet an area; `"covered"` only those inside one; `"keep"` |
+| `fill` | The color that fills areas given directly, or `None`; annotations use their own fill and overlay text |
+
+- A glyph's box spans its advance and the font's ascent and descent. Glyphs
+  are removed in every font (simple, CID, and Type 3), in both writing
+  modes, and in every rendering mode, so invisible OCR text goes as well. The
+  glyphs after a removed one keep their positions through `TJ` adjustments,
+  and the `/ActualText`, `/Alt`, and `/E` of the marked content around it go
+  with it.
+- A blanked image is a new image that only that placement uses, its covered
+  pixels opaque black and its masks merged into its alpha; a stencil mask
+  stays a stencil mask. Inline images are blanked or removed in the same way.
+- A Form XObject placement that loses something is replaced by a copy, so
+  other placements and other pages keep the original. A path that also clips
+  keeps clipping.
+- Annotations and form widgets that overlap an area are removed, with their
+  popups; a field goes with its last widget.
+- After the edit hayro interprets the page again, and whatever it still
+  paints or extracts inside an area is removed in another pass. A page where
+  that does not converge raises `PdfError` and stays as it was.
+- The bytes the document was opened from still hold the removed content, so
+  a redacted document can no longer be saved with `incremental=True`; save it
+  in full. Metadata, attachments, bookmarks, and the structure tree can hold
+  the same text elsewhere in the file.
+
+| `RedactionReport` field | Counts |
+|---|---|
+| `areas` | The applied areas, in display space |
+| `glyphs` | Glyphs removed |
+| `images`, `blanked_images` | Image placements removed, and placements blanked |
+| `paths`, `shadings` | Vector graphics removed |
+| `annotations` | Annotations and widgets that overlapped an area, the applied redaction annotations not included |
+| `forms` | Form XObject placements copied |
 
 ## Content operations { #operations }
 
@@ -1361,6 +1421,8 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `create(...)`, `Builder`, `Standard`, `TagRole`, `TableHeaderScope`, `ListNumbering` | See [New documents](#create) |
 | `Font`, `StandardFontName` | See [Font](#font) |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [Low-level objects](#low-level-objects) |
+| `Operations`, `Operation`, `InlineImage` | [Content operations](#operations) |
+| `RedactionReport` | [Redaction](#redaction) |
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |
 | `Colorspace` | The color spaces of a [`Pixmap`](#pixmap): `GRAY` and `RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [Outline and page labels](#outline) |

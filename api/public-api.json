@@ -130,6 +130,7 @@
     "RadioButton",
     "Rect",
     "Redaction",
+    "RedactionReport",
     "RemoteDestination",
     "Resources",
     "ScriptTrigger",
@@ -8313,6 +8314,50 @@
           "kind": "property",
           "returns": "Rect"
         },
+        "redact": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float] | Quad | Iterable[Sequence[float] | Quad] | None",
+                "default": null,
+                "kind": "positional_or_keyword",
+                "name": "areas"
+              },
+              {
+                "annotation": "Literal['remove', 'keep']",
+                "default": "remove",
+                "kind": "keyword_only",
+                "name": "text"
+              },
+              {
+                "annotation": "Literal['pixels', 'remove', 'keep']",
+                "default": "pixels",
+                "kind": "keyword_only",
+                "name": "images"
+              },
+              {
+                "annotation": "Literal['touched', 'covered', 'keep']",
+                "default": "touched",
+                "kind": "keyword_only",
+                "name": "graphics"
+              },
+              {
+                "annotation": "Color | None",
+                "default": {
+                  "repr": "Color(red=0.0, green=0.0, blue=0.0, alpha=1.0)"
+                },
+                "kind": "keyword_only",
+                "name": "fill"
+              }
+            ],
+            "returns": "RedactionReport"
+          }
+        },
         "replace_text": {
           "kind": "method",
           "signature": {
@@ -11018,6 +11063,100 @@
             "default": null,
             "kind": "keyword_only",
             "name": "contents"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "RedactionReport": {
+      "annotations": {
+        "annotations": "int",
+        "areas": "tuple[Rect, ...]",
+        "blanked_images": "int",
+        "forms": "int",
+        "glyphs": "int",
+        "images": "int",
+        "paths": "int",
+        "shadings": "int"
+      },
+      "dataclass_fields": [
+        "areas",
+        "glyphs",
+        "images",
+        "blanked_images",
+        "paths",
+        "shadings",
+        "annotations",
+        "forms"
+      ],
+      "kind": "class",
+      "members": {
+        "annotations": {
+          "kind": "property"
+        },
+        "areas": {
+          "kind": "property"
+        },
+        "blanked_images": {
+          "kind": "property"
+        },
+        "forms": {
+          "kind": "property"
+        },
+        "glyphs": {
+          "kind": "property"
+        },
+        "images": {
+          "kind": "property"
+        },
+        "paths": {
+          "kind": "property"
+        },
+        "shadings": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "tuple[Rect, ...]",
+            "kind": "keyword_only",
+            "name": "areas"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "glyphs"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "images"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "blanked_images"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "paths"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "shadings"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "annotations"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "forms"
           }
         ],
         "returns": "None"

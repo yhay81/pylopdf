@@ -122,6 +122,7 @@ from pylopdf._page import Page
 from pylopdf._page_labels import PageLabelRange, PageLabelStyle
 from pylopdf._pages import Pages
 from pylopdf._pixmap import Colorspace
+from pylopdf._redaction import RedactionReport
 from pylopdf._tables import Table, TableDiagnostics
 from pylopdf._targets import Destination, Launch, NamedAction, RemoteDestination, Target
 from pylopdf._text import Block, Char, Layout, Line, Span, Word
@@ -263,6 +264,7 @@ __all__ = [
     "RadioButton",
     "Rect",
     "Redaction",
+    "RedactionReport",
     "RemoteDestination",
     "Resources",
     "ScriptTrigger",

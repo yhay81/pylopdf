@@ -89,6 +89,8 @@ mod navigation;
 mod objects;
 mod outline;
 mod page_tree;
+mod redaction;
+mod redaction_images;
 mod rendering;
 mod replacement;
 mod saving;
@@ -2002,6 +2004,22 @@ impl _Document {
         page_number: u32,
     ) -> PyResult<replacement::ContentItems> {
         replacement::content_items(self, py, page_number)
+    }
+
+    /// Redact a one-based page: remove what the areas cover, or the areas
+    /// of the page's redaction annotations when `areas` is `None`, verify
+    /// the result with hayro, draw the fills, and report what went.
+    #[pyo3(signature = (page_number, areas, text, images, graphics))]
+    fn redact_page(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        areas: Option<redaction::AreaInput>,
+        text: bool,
+        images: &str,
+        graphics: &str,
+    ) -> PyResult<redaction::RedactionTuple> {
+        redaction::redact_page(self, py, page_number, areas, text, images, graphics)
     }
 
     /// Tokenize a one-based page's joined content as hayro reads it and

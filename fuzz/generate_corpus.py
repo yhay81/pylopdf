@@ -148,6 +148,11 @@ def generate(output: Path) -> None:
         "inline-image-resume.pdf": _one_page(inline_image_resume),
         "inline-image-search.pdf": _one_page(inline_image_search),
         "many-pages.pdf": _many_pages(250),
+        # Redaction rewrites kerned TJ arrays, marked content, inline images, and clipping paths.
+        "redaction-content.pdf": _one_page(
+            b"/Span << /ActualText (x) >> BDC BT /F1 12 Tf 10 10 Td [(A) -120 (B) 50 (C)] TJ (D) ' ET EMC"
+            b" q 0 0 50 50 re W n 20 0 0 20 5 5 cm BI /W 2 /H 1 /BPC 8 /CS /G ID \xff\x00 EI Q"
+        ),
         # Content operations keep their bytes through an eleventh operand, a filtered inline image, and comments.
         "operations-tail.pdf": _one_page(
             b'% c\nq BI /W 1 /H 1 /BPC 8 /CS /G /F /A85 ID 8;Z]"!!~>\nEI Q 1 2 3 4 5 6 7 8 9 10 11 sc (T#j) Tj'
