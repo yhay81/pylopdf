@@ -1464,17 +1464,21 @@ the concept and API overview.
   allocated and stay untouched, so documents without higher references keep
   their objects and save unchanged; readers treat such a missing object as
   null, as described below. Never raise `max_id` to a referenced
-  number instead: numbers need u32 headroom, and once new objects take such
-  numbers, lopdf's cross-reference writer loops over every number up to the
-  highest object.
-- lopdf increments `max_id` without an overflow check in `add_object`,
-  `new_object_id`, `Document::encrypt`, and its object-stream writer, and its
-  cross-reference writer visits every number up to the highest object on each
-  save. A file whose objects or in-use cross-reference entries reached past
-  8,388,607, the ISO 32000-1 indirect-object limit, could therefore leave no
-  headroom: near u32::MAX, release builds wrapped new objects onto object 0 and
-  then object 1, often the catalog, and a file of a few hundred bytes took about
-  19 seconds per save. When `max_id` exceeds the limit,
+  number instead: numbers need headroom, as the next bullet describes.
+- lopdf numbers every new object `max_id + 1`. lopdf 0.45 did so without an
+  overflow check in `add_object`, `new_object_id`, `Document::encrypt`, and its
+  object-stream writer, and its cross-reference writer visited every number up
+  to the highest object on each save, so a file whose objects or in-use
+  cross-reference entries reached past 8,388,607, the ISO 32000-1
+  indirect-object limit, could leave no headroom: near u32::MAX, release builds
+  wrapped new objects onto object 0 and then object 1, often the catalog, and a
+  file of a few hundred bytes took about 19 seconds per save. lopdf 0.46 builds
+  cross-reference sections from the entries, and its writers and `encrypt`
+  return `Error::ObjectIdOverflow` instead of wrapping (J-F-Liu/lopdf#614), but
+  `add_object` and `new_object_id` panic at u32::MAX, and pylopdf allocates
+  through them in every editing path; hayro also reads object numbers as i32.
+  So the headroom stays pylopdf's responsibility: when `max_id` exceeds the
+  limit,
   `normalize_object_numbers` moves every object above it to consecutive numbers
   after the highest object at or below it, in ascending ID order with
   generations kept, and ends `max_id` at the last of them. The same traversal
@@ -2831,10 +2835,10 @@ the concept and API overview.
   the original bytes through the table instead, so `object_recovery` drops
   such objects when nothing reaches them and otherwise renders from lopdf's
   graph.
-- lopdf allocates object numbers with unchecked `max_id += 1`, so `max_id`
-  must keep its headroom. Loading renumbers objects above 8,388,607 for that
-  reason; never set `max_id` from untrusted input elsewhere. Checked
-  allocation upstream is listed under Engine work in ROADMAP.md.
+- lopdf 0.46's `add_object` and `new_object_id` panic once `max_id` reaches
+  u32::MAX, so `max_id` must keep its headroom. Loading renumbers objects
+  above 8,388,607 for that reason, and because hayro reads object numbers as
+  i32; never set `max_id` from untrusted input elsewhere.
 - hayro's typed array iteration ends at the first element that does not
   resolve to the requested type, so `/Contents` stops at a missing, null, or
   mistyped entry. hayro 0.7 ended `/Kids` there as well; hayro 0.8 skips such
