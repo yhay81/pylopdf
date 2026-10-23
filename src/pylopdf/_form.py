@@ -616,6 +616,20 @@ class Form(Mapping[str, Field]):
         self._document._ensure_open()
         self._document._form_font = font
 
+    def repair_radio_groups(self) -> int:
+        """Gather top-level radio buttons that share a name under one field, and return how many groups it made.
+
+        Some producers write each button of a radio group as a field of its
+        own with the group's name, so the form lists only one of them and
+        selecting a button does not clear the others. Each such set becomes
+        the widgets of one new radio field of that name, which takes the
+        group's value.
+        """
+        self._document._ensure_open()
+        count = self._document._doc.repair_radio_groups()
+        self._document._emit_warnings()
+        return count
+
     @property
     def signature_flags(self) -> SignatureFlags:
         """Return the AcroForm's ``/SigFlags``, without undefined bits; a document without a form reads none."""

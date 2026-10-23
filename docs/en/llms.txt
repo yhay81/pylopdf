@@ -368,6 +368,8 @@ replacement, and the migration hint):
 - Page.new_shape -> Page.draw: with page.draw() as canvas: draws paths and text in the order of the calls and writes them when the block ends, as Shape.commit() did.
 - Page.number -> Page.index: Read page.index.
 - Page.parent -> Page.document: Read page.document.
+- Page.refresh -> Page: pylopdf has no refresh(): a Page view reads the current document on every access, so remove the call.
+- Page.repair_flat_rbgs -> Form.repair_radio_groups: doc.form.repair_radio_groups() gathers top-level radio buttons that share a name under one radio field and returns how many groups it made.
 - Page.rotation_matrix -> Page.user_to_display: pylopdf reads and writes in display space with the rotation resolved; drop the step, and map PDF user space with page.user_to_display.
 - Page.run -> Page.content: Call page.content() for the items that the page paints; pylopdf has no device protocol.
 - Page.search_for -> Page.search: Use page.search(text), which returns one Rect per match.

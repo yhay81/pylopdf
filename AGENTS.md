@@ -2288,6 +2288,14 @@ the concept and API overview.
   only `SignatureFlags` bits. pylopdf neither signs nor verifies;
   `tests/test_interop.py` has pyHanko sign a pylopdf `SignatureField` and
   validate the result.
+- `doc.form.repair_radio_groups()` (`repair_radio_groups` in
+  `document/forms.rs`) groups the top-level `/Fields` entries that are radio
+  buttons merged with their widgets, have no `/Kids`, and share a `/T`; each
+  group of two or more gets a new parent field with `/FT /Btn`, the first
+  member's `/Ff`, `/TU`, `/TM`, and `/DV`, and the first non-null `/V`,
+  which takes the first member's place in `/Fields`, while the members lose
+  their field keys (`RADIO_FIELD_KEYS`) and gain `/Parent`. It reads at most
+  `MAX_FORM_FIELD_TREE_EDGES` entries and restores the document on error.
 - `doc.flatten` (`rust/src/document/flattening.rs`) plans every page's
   `/Annots` first: links and entries that are no dictionaries stay,
   popups go with annotations, and a selected entry is drawn unless it is
