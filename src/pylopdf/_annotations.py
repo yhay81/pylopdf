@@ -15,7 +15,7 @@ from pylopdf._errors import StalePageError
 from pylopdf._fonts import Font
 from pylopdf._geometry import Point, Quad, Rect
 from pylopdf._hints import hinted_getattr
-from pylopdf._limits import _validate_cumulative_utf8_input, _validate_rect
+from pylopdf._limits import _validate_cumulative_utf8_input, _validate_optional_positive_int, _validate_rect
 from pylopdf.pylopdf_core import LimitError, StaleObjectError
 
 if TYPE_CHECKING:
@@ -278,6 +278,95 @@ class StampIcon(enum.StrEnum):
 _STAMP_NAMES = {icon: "".join(part.capitalize() for part in icon.value.split("_")) for icon in StampIcon}
 
 
+class AttachmentIcon(enum.StrEnum):
+    """The icon of a file attachment, ``/Name`` (ISO 32000-2 §12.5.6.15)."""
+
+    GRAPH = "graph"
+    PUSH_PIN = "push_pin"
+    PAPERCLIP = "paperclip"
+    TAG = "tag"
+
+
+#: The ``/Name`` of each file attachment icon.
+_ATTACHMENT_ICON_NAMES = {icon: "".join(part.capitalize() for part in icon.value.split("_")) for icon in AttachmentIcon}
+
+#: Attached files stop at 64 MiB unless the caller passes another bound.
+_DEFAULT_MAX_FILE_SIZE = 64 * 1024 * 1024
+
+
+class AnnotationFile:
+    """The file that a file attachment annotation embeds, as :attr:`Annotation.file` returns it.
+
+    It reads the document on every access, as :class:`Attachment` does for
+    the document's own attachments.
+    """
+
+    __slots__ = ("_annotation",)
+
+    def __init__(self, annotation: Annotation) -> None:
+        """Wrap an annotation; :attr:`Annotation.file` does this."""
+        self._annotation = annotation
+
+    def _info(self) -> tuple[str, str, int, str, str]:
+        info = self._annotation._file_info()
+        if info is None:
+            msg = "the annotation no longer embeds a file"
+            raise StaleObjectError(msg)
+        return info
+
+    @property
+    def filename(self) -> str:
+        """Return the viewer-facing file name (``/UF``, else ``/F``), or ``""``."""
+        return self._info()[0]
+
+    @property
+    def description(self) -> str:
+        """Return the description (``/Desc``), or ``""``."""
+        return self._info()[1]
+
+    @property
+    def size(self) -> int:
+        """Return the uncompressed size that the file declares, or -1."""
+        return self._info()[2]
+
+    def read(self, *, max_size: int | None = _DEFAULT_MAX_FILE_SIZE) -> bytes:
+        """Return the file's contents; ``max_size`` bounds every decoding layer (``embedded_file_size``)."""
+        self._info()
+        _validate_optional_positive_int("max_size", max_size)
+        annotation = self._annotation
+        page = annotation._page
+        return page._document._doc.annotation_file_read(
+            page._page_number(), annotation._index, annotation._xref, max_size
+        )
+
+    def write(self, data: bytes | bytearray | memoryview, /, *, max_size: int | None = _DEFAULT_MAX_FILE_SIZE) -> None:
+        """Replace the file's contents; the name and description stay, and ``size`` becomes the new length."""
+        self._info()
+        payload = _attached_data(data, max_size)
+        self._annotation._edit("annotation_file_write", payload, max_size)
+
+    def __repr__(self) -> str:
+        """Return ``AnnotationFile('name')``."""
+        try:
+            return f"AnnotationFile({self.filename!r})"
+        except (StaleObjectError, StalePageError):
+            return "<stale AnnotationFile>"
+
+
+def _attached_data(data: object, max_size: int | None) -> bytes:
+    """Check attached data against ``max_size`` before copying it."""
+    _validate_optional_positive_int("max_size", max_size)
+    if not isinstance(data, (bytes, bytearray, memoryview)):
+        msg = f"data must be bytes: {type(data).__name__}"
+        raise TypeError(msg)
+    size = data.nbytes if isinstance(data, memoryview) else len(data)
+    if max_size is not None and size > max_size:
+        code = "embedded_file_size"
+        msg = f"attachment input is {size} bytes, exceeding the {max_size}-byte limit"
+        raise LimitError(code, msg)
+    return bytes(data)
+
+
 #: The PDF name of each blend mode, such as ``ColorDodge``.
 _BLEND_MODE_NAMES: dict[BlendMode, str] = {
     mode: "".join(part.capitalize() for part in mode.value.split("_")) for mode in BlendMode
@@ -484,6 +573,16 @@ class Annotation:
         stored = self.obj.get("Rotate")
         turn = stored if isinstance(stored, int) and not isinstance(stored, bool) and stored % 90 == 0 else 0
         return (self._page.rotation - turn) % 360
+
+    def _file_info(self) -> tuple[str, str, int, str, str] | None:
+        page = self._page
+        self._read()
+        return page._document._doc.annotation_file_info(page._page_number(), self._index, self._xref)
+
+    @property
+    def file(self) -> AnnotationFile | None:
+        """Return the file that a file attachment embeds, or ``None`` for another annotation."""
+        return None if self._file_info() is None else AnnotationFile(self)
 
     def _edit(self, method: str, *args: object) -> None:
         page = self._page
@@ -1100,6 +1199,83 @@ class Caret:
         }
 
 
+@dataclass(frozen=True, slots=True, init=False)
+class FileAttachment:
+    """A file embedded in the page behind an icon, as ``page.annotations.add`` takes it.
+
+    ``at`` is the display point of the top-left corner of the 20-point icon,
+    ``data`` the file and ``filename`` its name, which with ``description``
+    stops at 1 MiB (``embedded_file_input_size``); ``max_size`` bounds
+    ``data`` before it is copied and defaults to 64 MiB
+    (``embedded_file_size``). Read the file back through
+    :attr:`Annotation.file`.
+    """
+
+    at: Point
+    data: bytes
+    filename: str
+    description: str | None
+    icon: AttachmentIcon
+    color: Color
+    opacity: float
+    contents: str | None
+
+    def __init__(  # noqa: PLR0913 - the attachment's options.
+        self,
+        at: Point | Sequence[float],
+        data: bytes | bytearray | memoryview,
+        *,
+        filename: str,
+        description: str | None = None,
+        icon: AttachmentIcon = AttachmentIcon.PUSH_PIN,
+        color: Color = Color(1.0, 1.0, 0.0),  # noqa: B008 - Color is immutable.
+        opacity: float = 1.0,
+        contents: str | None = None,
+        max_size: int | None = _DEFAULT_MAX_FILE_SIZE,
+    ) -> None:
+        """Validate the specification; texts and data are bounded before they are copied."""
+        contents = _contents(contents)
+        if not isinstance(filename, str) or (description is not None and not isinstance(description, str)):
+            msg = "filename must be a str and description a str or None"
+            raise TypeError(msg)
+        _validate_cumulative_utf8_input(
+            (filename, "" if description is None else description),
+            _MAX_ANNOTATION_INPUT_TEXT_SIZE,
+            limit_code="embedded_file_input_size",
+            input_label="attached file name and description",
+        )
+        _validate_cumulative_utf8_input(
+            ("FileAttachment", "" if contents is None else contents, _DATE_PLACEHOLDER, _DATE_PLACEHOLDER),
+            _MAX_ANNOTATION_INPUT_TEXT_SIZE,
+            limit_code="annotation_input_size",
+            input_label="annotation subtype and contents input",
+        )
+        object.__setattr__(self, "at", Point(*_point(at)))
+        object.__setattr__(self, "data", _attached_data(data, max_size))
+        object.__setattr__(self, "filename", filename)
+        object.__setattr__(self, "description", description)
+        object.__setattr__(self, "icon", AttachmentIcon(icon))
+        object.__setattr__(self, "color", _opaque_color(color))
+        object.__setattr__(self, "opacity", _opacity(opacity))
+        object.__setattr__(self, "contents", contents)
+
+    def _payload(self) -> dict[str, Any]:
+        x, y = self.at
+        return {
+            "subtype": "FileAttachment",
+            "rect": (x, y, x + _NOTE_SIZE, y + _NOTE_SIZE),
+            "data": self.data,
+            "filename": self.filename,
+            "description": self.description,
+            "icon": _ATTACHMENT_ICON_NAMES[self.icon],
+            "color": self.color.rgb,
+            "opacity": self.opacity,
+            "contents": self.contents,
+            "created": _now(),
+            "max_size": None,
+        }
+
+
 #: The ``/Q`` code of each free-text alignment.
 _FREE_TEXT_ALIGNMENTS = ("left", "center", "right")
 
@@ -1463,6 +1639,7 @@ AnnotationSpecification: TypeAlias = (
     | FreeText
     | Stamp
     | Caret
+    | FileAttachment
     | Square
     | Circle
     | LineAnnotation
@@ -1479,6 +1656,7 @@ _SPECIFICATIONS = (
     FreeText,
     Stamp,
     Caret,
+    FileAttachment,
     Square,
     Circle,
     LineAnnotation,
@@ -1555,6 +1733,9 @@ class Annotations(Sequence[Annotation]):
 # The package re-exports these names; reprs, pickles, and documentation name them.
 for _public in (
     Annotation,
+    AnnotationFile,
+    AttachmentIcon,
+    FileAttachment,
     Annotations,
     AnnotationType,
     AnnotationFlags,

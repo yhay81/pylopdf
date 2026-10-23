@@ -1446,6 +1446,18 @@ def _add_stamp_annot(migrator: _Migrator, receiver: str, args: _Arguments) -> st
     return f"{receiver}.annotations.add({stamp}({', '.join(arguments)}))"
 
 
+def _add_file_annot(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``add_file_annot(point, buffer, filename, desc=...)`` to ``annotations.add(FileAttachment(...))``."""
+    bound = args.bind(("point", "buffer_", "filename", "ufilename", "desc"))
+    attachment = migrator.class_name("FileAttachment")
+    if bound is None or not {"point", "buffer_", "filename"} <= set(bound) or attachment is None:
+        return None
+    arguments = [bound["point"], bound["buffer_"], f"filename={bound.get('ufilename', bound['filename'])}"]
+    if "desc" in bound:
+        arguments.append(f"description={bound['desc']}")
+    return f"{receiver}.annotations.add({attachment}({', '.join(arguments)}))"
+
+
 def _delete_annot(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     """Rewrite ``delete_annot(annot)`` as a statement to ``del`` of its index."""
     bound = args.bind(("annot",))
@@ -1732,6 +1744,7 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "add_strikeout_annot": _add_text_markup_annot("StrikeOut"),
     "add_squiggly_annot": _add_text_markup_annot("Squiggly"),
     "add_text_annot": _add_text_annot,
+    "add_file_annot": _add_file_annot,
     "add_stamp_annot": _add_stamp_annot,
     "add_caret_annot": _add_shape_annot("Caret", ("point",)),
     "add_freetext_annot": _add_freetext_annot,

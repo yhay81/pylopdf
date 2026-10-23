@@ -3,12 +3,14 @@
   "exports": [
     "Access",
     "Annotation",
+    "AnnotationFile",
     "AnnotationFlags",
     "AnnotationSpecification",
     "AnnotationType",
     "Annotations",
     "Array",
     "Attachment",
+    "AttachmentIcon",
     "Attachments",
     "BlendMode",
     "Block",
@@ -42,6 +44,7 @@
     "FieldChoice",
     "FieldFlags",
     "FieldType",
+    "FileAttachment",
     "FillRule",
     "Font",
     "FontLanguage",
@@ -182,6 +185,10 @@
           "kind": "property",
           "returns": "str | None"
         },
+        "file": {
+          "kind": "property",
+          "returns": "AnnotationFile | None"
+        },
         "flags": {
           "kind": "property",
           "returns": "AnnotationFlags"
@@ -288,6 +295,74 @@
         "returns": "None"
       }
     },
+    "AnnotationFile": {
+      "kind": "class",
+      "members": {
+        "description": {
+          "kind": "property",
+          "returns": "str"
+        },
+        "filename": {
+          "kind": "property",
+          "returns": "str"
+        },
+        "read": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              }
+            ],
+            "returns": "bytes"
+          }
+        },
+        "size": {
+          "kind": "property",
+          "returns": "int"
+        },
+        "write": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "self"
+              },
+              {
+                "annotation": "bytes | bytearray | memoryview",
+                "kind": "positional_only",
+                "name": "data"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              }
+            ],
+            "returns": "None"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Annotation",
+            "kind": "positional_or_keyword",
+            "name": "annotation"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "AnnotationFlags": {
       "kind": "enum",
       "members": {
@@ -305,7 +380,7 @@
     },
     "AnnotationSpecification": {
       "kind": "type-alias",
-      "target": "pylopdf.Highlight | pylopdf.Underline | pylopdf.StrikeOut | pylopdf.Squiggly | pylopdf.Note | pylopdf.FreeText | pylopdf.Stamp | pylopdf.Caret | pylopdf.Square | pylopdf.Circle | pylopdf.LineAnnotation | pylopdf.Polygon | pylopdf.PolyLine | pylopdf.Ink"
+      "target": "pylopdf.Highlight | pylopdf.Underline | pylopdf.StrikeOut | pylopdf.Squiggly | pylopdf.Note | pylopdf.FreeText | pylopdf.Stamp | pylopdf.Caret | pylopdf.FileAttachment | pylopdf.Square | pylopdf.Circle | pylopdf.LineAnnotation | pylopdf.Polygon | pylopdf.PolyLine | pylopdf.Ink"
     },
     "AnnotationType": {
       "kind": "enum",
@@ -620,6 +695,15 @@
           }
         ],
         "returns": "None"
+      }
+    },
+    "AttachmentIcon": {
+      "kind": "enum",
+      "members": {
+        "GRAPH": "graph",
+        "PAPERCLIP": "paperclip",
+        "PUSH_PIN": "push_pin",
+        "TAG": "tag"
       }
     },
     "Attachments": {
@@ -3298,6 +3382,113 @@
         "SIGNATURE": "signature",
         "TEXT": "text",
         "UNKNOWN": "unknown"
+      }
+    },
+    "FileAttachment": {
+      "annotations": {
+        "at": "Point",
+        "color": "Color",
+        "contents": "str | None",
+        "data": "bytes",
+        "description": "str | None",
+        "filename": "str",
+        "icon": "AttachmentIcon",
+        "opacity": "float"
+      },
+      "dataclass_fields": [
+        "at",
+        "data",
+        "filename",
+        "description",
+        "icon",
+        "color",
+        "opacity",
+        "contents"
+      ],
+      "kind": "class",
+      "members": {
+        "at": {
+          "kind": "property"
+        },
+        "color": {
+          "kind": "property"
+        },
+        "contents": {
+          "kind": "property"
+        },
+        "data": {
+          "kind": "property"
+        },
+        "description": {
+          "kind": "property"
+        },
+        "filename": {
+          "kind": "property"
+        },
+        "icon": {
+          "kind": "property"
+        },
+        "opacity": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Point | Sequence[float]",
+            "kind": "positional_or_keyword",
+            "name": "at"
+          },
+          {
+            "annotation": "bytes | bytearray | memoryview",
+            "kind": "positional_or_keyword",
+            "name": "data"
+          },
+          {
+            "annotation": "str",
+            "kind": "keyword_only",
+            "name": "filename"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "description"
+          },
+          {
+            "annotation": "AttachmentIcon",
+            "default": "push_pin",
+            "kind": "keyword_only",
+            "name": "icon"
+          },
+          {
+            "annotation": "Color",
+            "default": {
+              "repr": "Color(red=1.0, green=1.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "color"
+          },
+          {
+            "annotation": "float",
+            "default": 1.0,
+            "kind": "keyword_only",
+            "name": "opacity"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "contents"
+          },
+          {
+            "annotation": "int | None",
+            "default": 67108864,
+            "kind": "keyword_only",
+            "name": "max_size"
+          }
+        ],
+        "returns": "None"
       }
     },
     "FillRule": {

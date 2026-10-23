@@ -1287,6 +1287,45 @@ impl _Document {
         annotations::set_annotation_reply(self, page_number, index, xref, target)
     }
 
+    /// Return the metadata of the file that one file attachment of a
+    /// one-based page embeds, or `None` for another annotation.
+    fn annotation_file_info(
+        &self,
+        py: Python<'_>,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+    ) -> PyResult<Option<attachments::EmbeddedFileInfo>> {
+        annotations::annotation_file_info(self, py, page_number, index, xref)
+    }
+
+    /// Return the data of the file that one file attachment embeds.
+    #[pyo3(signature = (page_number, index, xref, max_size=Some(DEFAULT_MAX_EMBEDDED_FILE_SIZE)))]
+    fn annotation_file_read(
+        &self,
+        py: Python<'_>,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+        max_size: Option<usize>,
+    ) -> PyResult<Vec<u8>> {
+        annotations::annotation_file_read(self, py, page_number, index, xref, max_size)
+    }
+
+    /// Replace the data of the file that one file attachment embeds and
+    /// return the annotation's object number.
+    #[pyo3(signature = (page_number, index, xref, data, max_size=Some(DEFAULT_MAX_EMBEDDED_FILE_SIZE)))]
+    fn annotation_file_write(
+        &mut self,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+        data: Vec<u8>,
+        max_size: Option<usize>,
+    ) -> PyResult<u32> {
+        annotations::annotation_file_write(self, page_number, index, xref, data, max_size)
+    }
+
     /// Read the display points and line endings of one annotation of a
     /// one-based page, found as `read_annotation` finds it.
     fn read_annotation_geometry(

@@ -52,7 +52,10 @@ pub(crate) fn draws(subtype: &[u8]) -> bool {
         subtype,
         b"Square" | b"Circle" | b"Line" | b"Polygon" | b"PolyLine" | b"Ink"
     ) || is_text_markup(subtype)
-        || matches!(subtype, b"Text" | b"FreeText" | b"Stamp" | b"Caret")
+        || matches!(
+            subtype,
+            b"Text" | b"FreeText" | b"Stamp" | b"Caret" | b"FileAttachment"
+        )
 }
 
 /// Whether `subtype` is text markup, which `/QuadPoints` place.
@@ -252,7 +255,9 @@ pub(crate) fn appearance_with(
         return Ok(None);
     }
     let points = match subtype {
-        b"Square" | b"Circle" | b"Text" | b"FreeText" | b"Stamp" | b"Caret" => Vec::new(),
+        b"Square" | b"Circle" | b"Text" | b"FreeText" | b"Stamp" | b"Caret" | b"FileAttachment" => {
+            Vec::new()
+        }
         _ => match point_lists(doc, dict, subtype) {
             Some(points) => points,
             None => return Ok(None),
@@ -285,8 +290,9 @@ pub(crate) fn appearance_with(
     if !(x1 >= x0 && y1 >= y0) {
         return Ok(None);
     }
-    // A stamp or caret turns counterclockwise by /Rotate inside /Rect.
-    let turn = if matches!(subtype, b"Stamp" | b"Caret") {
+    // A stamp, caret, or file attachment turns counterclockwise by /Rotate
+    // inside /Rect.
+    let turn = if matches!(subtype, b"Stamp" | b"Caret" | b"FileAttachment") {
         rotation(doc, dict)
     } else {
         0
@@ -393,6 +399,12 @@ pub(crate) fn appearance_with(
         }
         b"FreeText" => {
             fits = draw_free_text(&mut canvas, &mut drawn, doc, dict, &paint, rect, font)?;
+        }
+        b"FileAttachment" => {
+            let icon = entry(doc, dict, b"Name")
+                .and_then(|value| value.as_name().ok())
+                .unwrap_or(b"PushPin");
+            draw_file_icon(&mut canvas, &mut drawn, &paint, icon, size)?;
         }
         b"Text" => {
             let icon = entry(doc, dict, b"Name")
@@ -925,6 +937,112 @@ pub(crate) fn rotation(doc: &Document, dict: &Dictionary) -> i64 {
         Some(Object::Integer(value)) if value % 90 == 0 => value.rem_euclid(360),
         _ => 0,
     }
+}
+
+/// Draw the icon of a file attachment, `/Name`, in a 20-unit square scaled
+/// to `size`, as a note's icon is drawn: Graph, Paperclip, Tag, or PushPin
+/// for any other name.
+fn draw_file_icon(
+    canvas: &mut _Canvas,
+    drawn: &mut usize,
+    paint: &Paint,
+    icon: &[u8],
+    size: (f64, f64),
+) -> PyResult<()> {
+    let (sx, sy) = (size.0 / 20.0, size.1 / 20.0);
+    let scale = |coordinates: &[f64]| -> Vec<f64> {
+        coordinates
+            .iter()
+            .enumerate()
+            .map(|(index, value)| value * if index % 2 == 0 { sx } else { sy })
+            .collect()
+    };
+    let fill = paint
+        .stroke
+        .map(|(red, green, blue)| ((red, green, blue, paint.alpha), false));
+    let outline = |width: f64| -> StrokeArgs {
+        (
+            (0.0, 0.0, 0.0, paint.alpha),
+            width * sx.min(sy),
+            1,
+            1,
+            10.0,
+            Vec::new(),
+            0.0,
+        )
+    };
+    let mut shape = |canvas: &mut _Canvas,
+                     operators: &str,
+                     coordinates: &[f64],
+                     fill: Option<((f64, f64, f64, f64), bool)>,
+                     stroke: Option<StrokeArgs>|
+     -> PyResult<()> {
+        add_path(canvas, drawn, operators, scale(coordinates), fill, stroke)
+    };
+    match icon {
+        b"Graph" => {
+            for (x0, top) in [(3.0, 11.0), (8.5, 5.0), (14.0, 8.0)] {
+                shape(
+                    canvas,
+                    "mlllh",
+                    &[x0, 18.0, x0 + 3.5, 18.0, x0 + 3.5, top, x0, top],
+                    fill,
+                    Some(outline(1.0)),
+                )?;
+            }
+            shape(
+                canvas,
+                "ml",
+                &[1.5, 18.5, 18.5, 18.5],
+                None,
+                Some(outline(1.0)),
+            )?;
+        }
+        b"Paperclip" => {
+            shape(
+                canvas,
+                "mlclclcl",
+                &[
+                    7.0, 6.0, 7.0, 15.0, 7.0, 18.5, 13.0, 18.5, 13.0, 15.0, 13.0, 4.0, 13.0, 1.5,
+                    9.5, 1.5, 9.5, 4.0, 9.5, 14.0, 9.5, 15.5, 10.5, 15.5, 10.5, 14.0, 10.5, 6.0,
+                ],
+                None,
+                Some(outline(1.5)),
+            )?;
+        }
+        b"Tag" => {
+            shape(
+                canvas,
+                "mlllllh",
+                &[
+                    2.0, 6.0, 12.0, 6.0, 18.0, 10.0, 12.0, 14.0, 2.0, 14.0, 2.0, 6.0,
+                ],
+                fill,
+                Some(outline(1.0)),
+            )?;
+            let (operators, coordinates) = ellipse(11.0, 9.0, 13.0, 11.0);
+            shape(
+                canvas,
+                &operators,
+                &coordinates,
+                Some(((0.0, 0.0, 0.0, paint.alpha), false)),
+                None,
+            )?;
+        }
+        // PushPin, and any other name.
+        _ => {
+            let (operators, coordinates) = ellipse(7.0, 1.5, 17.0, 11.5);
+            shape(canvas, &operators, &coordinates, fill, Some(outline(1.0)))?;
+            shape(
+                canvas,
+                "ml",
+                &[10.0, 9.5, 2.5, 18.0],
+                None,
+                Some(outline(1.5)),
+            )?;
+        }
+    }
+    Ok(())
 }
 
 /// Draw the icon of a note, `/Name`, in a 20-unit square scaled to `size`:

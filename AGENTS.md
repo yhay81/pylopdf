@@ -2434,6 +2434,14 @@ the concept and API overview.
   through the appearance `/Matrix` (`turned_matrix`, the canvas sized for
   the turned box), and creation writes `/Rotate` as for free text, so they
   are upright on a turned page.
+  A file attachment draws a Graph, PushPin, Paperclip, or Tag icon and turns
+  by `/Rotate` as a caret does; creation embeds the data in an
+  `/EmbeddedFile` stream behind a `/Filespec` (`/F`, `/UF`, `/Desc`, and
+  `/Params` with the size and dates) under the attachment bounds, and
+  `annotation_file_info`, `annotation_file_read`, and
+  `annotation_file_write` reuse `attachments.rs`'s `filespec_info`,
+  `embedded_stream_id`, and the `embfile_upd` stream rules for the
+  annotation's `/FS`, direct or indirect.
   `popup_rect`, `is_open`, and `in_reply_to` edit through
   `set_annotation_popup`, `set_annotation_open`, and `set_annotation_reply`,
   which validate first, then find the annotation with `edited_annotation`

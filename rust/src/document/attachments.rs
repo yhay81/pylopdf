@@ -608,7 +608,10 @@ pub(super) fn embfile_del(this: &mut _Document, py: Python<'_>, name: &str) -> P
 pub(super) type EmbeddedFileInfo = (String, String, i64, String, String);
 
 /// Resolve a FileSpec value of the name tree to its dictionary.
-fn filespec_dict<'a>(doc: &'a Document, filespec: &'a Object) -> PyResult<&'a Dictionary> {
+pub(super) fn filespec_dict<'a>(
+    doc: &'a Document,
+    filespec: &'a Object,
+) -> PyResult<&'a Dictionary> {
     match filespec {
         Object::Reference(id) => doc
             .get_object(*id)
@@ -620,7 +623,7 @@ fn filespec_dict<'a>(doc: &'a Document, filespec: &'a Object) -> PyResult<&'a Di
 }
 
 /// Return the embedded-file stream ID that a FileSpec's `/EF` names.
-fn embedded_stream_id(doc: &Document, filespec: &Dictionary) -> PyResult<ObjectId> {
+pub(super) fn embedded_stream_id(doc: &Document, filespec: &Dictionary) -> PyResult<ObjectId> {
     let ef = match filespec.get(b"EF").map_err(to_py_err)? {
         Object::Reference(id) => doc
             .get_object(*id)
@@ -636,7 +639,7 @@ fn embedded_stream_id(doc: &Document, filespec: &Dictionary) -> PyResult<ObjectI
 }
 
 /// Decode one optional text entry, charging its encoded bytes to `budget`.
-fn info_text(
+pub(super) fn info_text(
     doc: &Document,
     dict: &Dictionary,
     key: &[u8],
@@ -674,37 +677,40 @@ pub(super) fn embfile_info(
         else {
             return Ok(None);
         };
-        let doc = &this.doc;
-        let filespec = filespec_dict(doc, filespec_obj)?;
-        let mut budget = MAX_EMBEDDED_FILE_DIRECT_BYTES;
-        let mut filename = info_text(doc, filespec, b"UF", &mut budget)?;
-        if filename.is_empty() {
-            filename = info_text(doc, filespec, b"F", &mut budget)?;
-        }
-        let description = info_text(doc, filespec, b"Desc", &mut budget)?;
-        let params = embedded_stream_id(doc, filespec)
-            .ok()
-            .and_then(|id| doc.get_object(id).ok())
-            .and_then(|object| object.as_stream().ok())
-            .and_then(|stream| stream.dict.get(b"Params").ok())
-            .and_then(|params| non_null_value(doc, params).ok().flatten())
-            .and_then(|params| params.as_dict().ok());
-        let (size, creation_date, mod_date) = match params {
-            Some(params) => (
-                params
-                    .get(b"Size")
-                    .ok()
-                    .and_then(|size| non_null_value(doc, size).ok().flatten())
-                    .and_then(|size| size.as_i64().ok())
-                    .filter(|size| *size >= 0)
-                    .unwrap_or(-1),
-                info_text(doc, params, b"CreationDate", &mut budget)?,
-                info_text(doc, params, b"ModDate", &mut budget)?,
-            ),
-            None => (-1, String::new(), String::new()),
-        };
-        Ok(Some((filename, description, size, creation_date, mod_date)))
+        filespec_info(&this.doc, filespec_dict(&this.doc, filespec_obj)?).map(Some)
     })
+}
+
+/// The metadata of a FileSpec, as `embfile_info` reports it.
+pub(super) fn filespec_info(doc: &Document, filespec: &Dictionary) -> PyResult<EmbeddedFileInfo> {
+    let mut budget = MAX_EMBEDDED_FILE_DIRECT_BYTES;
+    let mut filename = info_text(doc, filespec, b"UF", &mut budget)?;
+    if filename.is_empty() {
+        filename = info_text(doc, filespec, b"F", &mut budget)?;
+    }
+    let description = info_text(doc, filespec, b"Desc", &mut budget)?;
+    let params = embedded_stream_id(doc, filespec)
+        .ok()
+        .and_then(|id| doc.get_object(id).ok())
+        .and_then(|object| object.as_stream().ok())
+        .and_then(|stream| stream.dict.get(b"Params").ok())
+        .and_then(|params| non_null_value(doc, params).ok().flatten())
+        .and_then(|params| params.as_dict().ok());
+    let (size, creation_date, mod_date) = match params {
+        Some(params) => (
+            params
+                .get(b"Size")
+                .ok()
+                .and_then(|size| non_null_value(doc, size).ok().flatten())
+                .and_then(|size| size.as_i64().ok())
+                .filter(|size| *size >= 0)
+                .unwrap_or(-1),
+            info_text(doc, params, b"CreationDate", &mut budget)?,
+            info_text(doc, params, b"ModDate", &mut budget)?,
+        ),
+        None => (-1, String::new(), String::new()),
+    };
+    Ok((filename, description, size, creation_date, mod_date))
 }
 
 /// Implements [`_Document::embfile_upd`].

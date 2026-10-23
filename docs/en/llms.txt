@@ -83,7 +83,9 @@ replacement, and the migration hint):
 - Annot.border -> Annotation.border: annotation.border is a Border(width, style=BorderStyle..., dashes=...) record, or None when the annotation has none.
 - Annot.colors -> Annotation.color: Read annotation.color and annotation.interior_color, Color records or None.
 - Annot.delete_responses -> Annotation.replies: for reply in annotation.replies: del page.annotations[page.annotations.index(reply)] removes the replies with their popups; del annotation.popup_rect removes the popup.
+- Annot.file_info -> Annotation.file: annotation.file.filename, .description, and .size describe the embedded file; annotation.file is None for other annotations.
 - Annot.flags -> Annotation.flags: annotation.flags is an AnnotationFlags value.
+- Annot.get_file -> AnnotationFile.read: annotation.file.read(max_size=...) returns the embedded file's data.
 - Annot.has_popup -> Annotation.popup_rect: annotation.popup_rect is not None tells whether the annotation has a popup.
 - Annot.info -> Annotation.contents: Read annotation.contents, author, subject, created, modified, name, and icon.
 - Annot.irt_xref -> Annotation.in_reply_to: annotation.in_reply_to is the Annotation that this one replies to, or None; its xref is in_reply_to.xref.
@@ -100,6 +102,7 @@ replacement, and the migration hint):
 - Annot.set_open -> Annotation.is_open: Assign annotation.is_open = True or False.
 - Annot.set_popup -> Annotation.popup_rect: Assign annotation.popup_rect = rect to add or move the popup; del annotation.popup_rect removes it.
 - Annot.type -> Annotation.type: annotation.type is an AnnotationType member; annotation.obj['Subtype'] holds the name and annotation.intent the intent.
+- Annot.update_file -> AnnotationFile.write: annotation.file.write(data) replaces the embedded file's data; its name and description stay.
 - Annot.vertices -> Annotation.vertices: annotation.vertices lists the display Points of a line, polygon, or polyline; an ink annotation's points are annotation.strokes, one tuple of Points per stroke.
 - Annot.xref -> Annotation.xref: Read annotation.xref.
 - Base14_fontdict -> Font.standard: Font.standard(name) takes the PostScript name of a Standard 14 font, such as "Helvetica" for pymupdf's "helv".
@@ -259,6 +262,7 @@ replacement, and the migration hint):
 - PDF_WIDGET_TYPE_* -> FieldType: doc.form[name].type is a FieldType member: TEXT, CHECKBOX, RADIO, PUSHBUTTON, COMBOBOX, LISTBOX, SIGNATURE, or UNKNOWN.
 - Page.add_caret_annot -> Annotations.add: page.annotations.add(Caret(point)) adds a caret in a 20-point square and returns its Annotation.
 - Page.add_circle_annot -> Annotations.add: page.annotations.add(Circle(rect, color=..., interior_color=..., border=Border(...))) adds an ellipse with its appearance and returns its Annotation.
+- Page.add_file_annot -> Annotations.add: page.annotations.add(FileAttachment(point, data, filename=..., description=..., icon=AttachmentIcon.PUSH_PIN)) embeds a file behind an icon and returns its Annotation.
 - Page.add_freetext_annot -> Annotations.add: page.annotations.add(FreeText(rect, text, size=..., text_color=Color(...), color=fill, align='left', rotate=..., callout=[...])) adds free text with its appearance and returns its Annotation.
 - Page.add_highlight_annot -> Annotations.add: page.annotations.add(Highlight(quads)) adds a highlight and returns its Annotation; color is a Color and content becomes contents.
 - Page.add_ink_annot -> Annotations.add: page.annotations.add(Ink(handwriting, ...)) adds freehand strokes, a sequence of point sequences, with their appearance and returns its Annotation.

@@ -359,8 +359,8 @@ listed. A handle reads the document on every access and has `type`, an
 `interior_color` as `Color` records or `None`, `opacity`, `border`, a
 `Border` record or `None`, `blend_mode`, a `BlendMode` member or `None`,
 `flags`, an `AnnotationFlags` value, `vertices`, `strokes`, and
-`line_endings`, `popup_rect`, `is_open`, `in_reply_to`, `replies`, and
-`rotation`, and `xref`, `obj`, and `page`.
+`line_endings`, `popup_rect`, `is_open`, `in_reply_to`, `replies`,
+`rotation`, and `file`, and `xref`, `obj`, and `page`.
 
 `page.annotations.add(specification)` adds the annotation that a
 specification describes, with its appearance, so every viewer draws it
@@ -378,6 +378,7 @@ time of their creation in `created` and `modified`.
 | `FreeText(rect, text, *, font=None, size=11, text_color=Color(0, 0, 0), color=None, border=Border(0), align="left", rotate=0, callout=None, callout_ending=LineEnding.NONE, opacity=1.0)` | Text in a box, laid out as `Canvas.textbox` lays it out: `color` fills the box, `border` outlines it in the text colour, `rotate` turns the text clockwise as displayed, and `callout` draws a line from the point the text explains, through an optional knee, to the box |
 | `Stamp(rect, *, icon=StampIcon.APPROVED, color=None, opacity=1.0, rotate=0, contents=None)` | A rubber stamp: its label as large as fits, centred in a rounded frame, in `color` or the stamp's own colour (green for approval, red for restriction, blue for the rest), turned clockwise by `rotate` as displayed |
 | `Caret(at, *, color=Color(0, 0, 1), opacity=1.0, contents=None)` | A caret in a 20-point square whose top-left corner is `at`, pointing up as the page is displayed |
+| `FileAttachment(at, data, *, filename, description=None, icon=AttachmentIcon.PUSH_PIN, color=Color(1, 1, 0), opacity=1.0, contents=None, max_size=64 MiB)` | A file embedded in the page behind a 20-point `AttachmentIcon` (`GRAPH`, `PUSH_PIN`, `PAPERCLIP`, `TAG`) |
 | `Square(rect, *, color=Color(1, 0, 0), interior_color=None, border=Border(), opacity=1.0, blend_mode=None, contents=None)` | A rectangle whose border `color` strokes and `interior_color` fills; either may be `None` |
 | `Circle(rect, *, ...)` | The ellipse inscribed in `rect`, with the fields of `Square` |
 | `LineAnnotation(start, end, *, color=Color(1, 0, 0), interior_color=None, border=Border(), line_endings=(LineEnding.NONE, LineEnding.NONE), opacity=1.0, blend_mode=None, contents=None)` | A straight line with a shape at each end, whose closed shapes `interior_color` fills |
@@ -410,6 +411,14 @@ its box raises `PdfError` and adds nothing. `rotation` reads how far an
 annotation's content is turned clockwise as the page is displayed, 0 for
 free text and stamps written upright. `StampIcon` lists the fourteen stamps
 of ISO 32000-2 in the order of pymupdf's `STAMP_*` codes.
+
+A file attachment's `file` is an `AnnotationFile` with the `filename`,
+`description`, and `size` of the embedded file, `read(*, max_size=64 MiB)`,
+and `write(data, /, *, max_size=64 MiB)`, which replaces the data and keeps
+the name and description; `file` is `None` for other annotations. The file
+is not one of `doc.attachments`, and its data, name, and description are
+bounded as attachments' are (`embedded_file_size`,
+`embedded_file_input_size`).
 
 A handle's `popup_rect` is the display rectangle of its popup, the window
 that shows the annotation's text, or `None`: assigning a rectangle adds or
@@ -1060,7 +1069,7 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |
 | `Colorspace` | The color spaces of a [`Pixmap`](#pixmap): `GRAY` and `RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [Outline and page labels](#outline) |
-| `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `AnnotationSpecification`, `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Note`, `NoteIcon`, `FreeText`, `Stamp`, `StampIcon`, `Caret`, `Square`, `Circle`, `LineAnnotation`, `Polygon`, `PolyLine`, `Ink`, `Border`, `BorderStyle`, `LineEnding`, `Link`, `Links` | [Annotations and links](#page-annotations) |
+| `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `AnnotationSpecification`, `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Note`, `NoteIcon`, `FreeText`, `Stamp`, `StampIcon`, `Caret`, `FileAttachment`, `AttachmentIcon`, `AnnotationFile`, `Square`, `Circle`, `LineAnnotation`, `Polygon`, `PolyLine`, `Ink`, `Border`, `BorderStyle`, `LineEnding`, `Link`, `Links` | [Annotations and links](#page-annotations) |
 | `PageBoxes` | [Page geometry](#page-geometry) |
 | `Form`, `Field`, `FieldType`, `FieldFlags`, `FieldChoice` | [Forms](#forms) |
 | `FallbackFont`, `FallbackFonts` | [Rendering and images](#document-rendering) |
