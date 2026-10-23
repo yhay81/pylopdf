@@ -437,6 +437,14 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ),
         ("import fitz\npage.add_caret_annot(p)\n", "page.annotations.add(pylopdf.Caret(p))"),
         (
+            "import fitz\npage.add_redact_annot(q, text='gone')\n",
+            "page.annotations.add(pylopdf.Redaction(q, overlay_text='gone', fill=pylopdf.Color(1, 1, 1)))",
+        ),
+        (
+            "import fitz\npage.add_redact_annot(q, fill=(0, 0, 0))\n",
+            "page.annotations.add(pylopdf.Redaction(q, fill=pylopdf.Color(0, 0, 0)))",
+        ),
+        (
             "import fitz\npage.add_file_annot(p, data, 'a.txt', desc='notes')\n",
             "page.annotations.add(pylopdf.FileAttachment(p, data, filename='a.txt', description='notes'))",
         ),

@@ -54,7 +54,7 @@ pub(crate) fn draws(subtype: &[u8]) -> bool {
     ) || is_text_markup(subtype)
         || matches!(
             subtype,
-            b"Text" | b"FreeText" | b"Stamp" | b"Caret" | b"FileAttachment"
+            b"Text" | b"FreeText" | b"Stamp" | b"Caret" | b"FileAttachment" | b"Redact"
         )
 }
 
@@ -263,8 +263,9 @@ pub(crate) fn appearance_with(
             None => return Ok(None),
         },
     };
-    // Text markup covers its quadrilaterals, whatever /Rect says.
-    let rect = if is_text_markup(subtype) {
+    // Text markup covers its quadrilaterals, whatever /Rect says, and so
+    // does a redaction that has them.
+    let rect = if is_text_markup(subtype) || (subtype == b"Redact" && !points.is_empty()) {
         let mut bounds = [
             f64::INFINITY,
             f64::INFINITY,
@@ -411,6 +412,35 @@ pub(crate) fn appearance_with(
                 .and_then(|value| value.as_name().ok())
                 .unwrap_or(b"Note");
             draw_icon(&mut canvas, &mut drawn, &paint, icon, size)?;
+        }
+        b"Redact" => {
+            // Each area to remove is outlined and crossed out.
+            if let Some(stroke) = paint.stroke(0, 0) {
+                let (w, h) = size;
+                let areas: Vec<Vec<(f64, f64)>> = if points.is_empty() {
+                    vec![vec![(x0, y1), (x1, y1), (x0, y0), (x1, y0)]]
+                } else {
+                    points.clone()
+                };
+                let inset = paint.width / 2.0;
+                for quad in &areas {
+                    let corners = [quad[0], quad[1], quad[3], quad[2]].map(to_canvas);
+                    let clamp =
+                        |(x, y): (f64, f64)| (x.clamp(inset, w - inset), y.clamp(inset, h - inset));
+                    let [a, b, c, d] = corners.map(clamp);
+                    add_path(
+                        &mut canvas,
+                        &mut drawn,
+                        "mlllhmlml",
+                        vec![
+                            a.0, a.1, b.0, b.1, c.0, c.1, d.0, d.1, a.0, a.1, c.0, c.1, b.0, b.1,
+                            d.0, d.1,
+                        ],
+                        None,
+                        Some(stroke.clone()),
+                    )?;
+                }
+            }
         }
         b"Highlight" => {
             if let Some(fill) = paint
@@ -1469,27 +1499,29 @@ pub(crate) fn exceeds_points(doc: &Document, dict: &Dictionary, subtype: &[u8]) 
                 .fold(0usize, usize::saturating_add)
                 > MAX_ANNOTATION_POINTS
         }),
-        _ if is_text_markup(subtype) => array(b"QuadPoints").is_some_and(|items| {
-            if items.len() / 8 > MAX_QUADS {
-                return true;
-            }
-            subtype == b"Squiggly"
-                && items
-                    .as_chunks::<8>()
-                    .0
-                    .iter()
-                    .map(|quad| {
-                        let corner = |index: usize| number(doc, &quad[index]).unwrap_or(0.0);
-                        let length = (corner(6) - corner(4)).hypot(corner(7) - corner(5));
-                        if length.is_finite() {
-                            squiggly_segments(length).saturating_add(1)
-                        } else {
-                            0
-                        }
-                    })
-                    .fold(0usize, usize::saturating_add)
-                    > MAX_ANNOTATION_POINTS
-        }),
+        _ if is_text_markup(subtype) || subtype == b"Redact" => {
+            array(b"QuadPoints").is_some_and(|items| {
+                if items.len() / 8 > MAX_QUADS {
+                    return true;
+                }
+                subtype == b"Squiggly"
+                    && items
+                        .as_chunks::<8>()
+                        .0
+                        .iter()
+                        .map(|quad| {
+                            let corner = |index: usize| number(doc, &quad[index]).unwrap_or(0.0);
+                            let length = (corner(6) - corner(4)).hypot(corner(7) - corner(5));
+                            if length.is_finite() {
+                                squiggly_segments(length).saturating_add(1)
+                            } else {
+                                0
+                            }
+                        })
+                        .fold(0usize, usize::saturating_add)
+                        > MAX_ANNOTATION_POINTS
+            })
+        }
         _ => false,
     }
 }
@@ -1528,6 +1560,10 @@ pub(crate) fn point_lists(
             let items = entry(doc, dict, b"Vertices")?.as_array().ok()?;
             Some(vec![pairs(items, &mut total)?])
         }
+        b"Redact" => match entry(doc, dict, b"QuadPoints") {
+            None => Some(Vec::new()),
+            Some(_) => point_lists(doc, dict, b"Highlight"),
+        },
         b"Highlight" | b"Underline" | b"StrikeOut" | b"Squiggly" => {
             let items = entry(doc, dict, b"QuadPoints")?.as_array().ok()?;
             if items.is_empty() || !items.len().is_multiple_of(8) || items.len() / 8 > MAX_QUADS {

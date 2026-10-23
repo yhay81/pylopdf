@@ -379,6 +379,7 @@ time of their creation in `created` and `modified`.
 | `Stamp(rect, *, icon=StampIcon.APPROVED, color=None, opacity=1.0, rotate=0, contents=None)` | A rubber stamp: its label as large as fits, centred in a rounded frame, in `color` or the stamp's own colour (green for approval, red for restriction, blue for the rest), turned clockwise by `rotate` as displayed |
 | `Caret(at, *, color=Color(0, 0, 1), opacity=1.0, contents=None)` | A caret in a 20-point square whose top-left corner is `at`, pointing up as the page is displayed |
 | `FileAttachment(at, data, *, filename, description=None, icon=AttachmentIcon.PUSH_PIN, color=Color(1, 1, 0), opacity=1.0, contents=None, max_size=64 MiB)` | A file embedded in the page behind a 20-point `AttachmentIcon` (`GRAPH`, `PUSH_PIN`, `PAPERCLIP`, `TAG`) |
+| `Redaction(rects, *, color=Color(1, 0, 0), fill=Color(0, 0, 0), overlay_text=None, font=None, size=11, text_color=Color(0, 0, 0), align="left", contents=None)` | Areas marked for removal, outlined and crossed out in `color` until applied; applying them (`page.redact`, which comes with the Rewriting milestone) fills them with `fill` and writes `overlay_text` in a Standard 14 `font` |
 | `Square(rect, *, color=Color(1, 0, 0), interior_color=None, border=Border(), opacity=1.0, blend_mode=None, contents=None)` | A rectangle whose border `color` strokes and `interior_color` fills; either may be `None` |
 | `Circle(rect, *, ...)` | The ellipse inscribed in `rect`, with the fields of `Square` |
 | `LineAnnotation(start, end, *, color=Color(1, 0, 0), interior_color=None, border=Border(), line_endings=(LineEnding.NONE, LineEnding.NONE), opacity=1.0, blend_mode=None, contents=None)` | A straight line with a shape at each end, whose closed shapes `interior_color` fills |
@@ -1069,7 +1070,7 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |
 | `Colorspace` | The color spaces of a [`Pixmap`](#pixmap): `GRAY` and `RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [Outline and page labels](#outline) |
-| `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `AnnotationSpecification`, `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Note`, `NoteIcon`, `FreeText`, `Stamp`, `StampIcon`, `Caret`, `FileAttachment`, `AttachmentIcon`, `AnnotationFile`, `Square`, `Circle`, `LineAnnotation`, `Polygon`, `PolyLine`, `Ink`, `Border`, `BorderStyle`, `LineEnding`, `Link`, `Links` | [Annotations and links](#page-annotations) |
+| `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `AnnotationSpecification`, `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Note`, `NoteIcon`, `FreeText`, `Stamp`, `StampIcon`, `Caret`, `FileAttachment`, `AttachmentIcon`, `AnnotationFile`, `Redaction`, `Square`, `Circle`, `LineAnnotation`, `Polygon`, `PolyLine`, `Ink`, `Border`, `BorderStyle`, `LineEnding`, `Link`, `Links` | [Annotations and links](#page-annotations) |
 | `PageBoxes` | [Page geometry](#page-geometry) |
 | `Form`, `Field`, `FieldType`, `FieldFlags`, `FieldChoice` | [Forms](#forms) |
 | `FallbackFont`, `FallbackFonts` | [Rendering and images](#document-rendering) |

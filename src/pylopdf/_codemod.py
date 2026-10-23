@@ -1458,6 +1458,32 @@ def _add_file_annot(migrator: _Migrator, receiver: str, args: _Arguments) -> str
     return f"{receiver}.annotations.add({attachment}({', '.join(arguments)}))"
 
 
+def _add_redact_annot(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``add_redact_annot(quad, text=..., fill=..., text_color=...)`` to ``annotations.add(Redaction(...))``."""
+    bound = args.bind(("quad", "text", "fontname", "fontsize", "align", "fill", "text_color", "cross_out"))
+    redaction = migrator.class_name("Redaction")
+    if bound is None or "quad" not in bound or {"fontname", "align", "cross_out"} & set(bound) or redaction is None:
+        return None
+    arguments = [bound["quad"]]
+    if "text" in bound:
+        arguments.append(f"overlay_text={bound['text']}")
+    if "fontsize" in bound:
+        arguments.append(f"size={bound['fontsize']}")
+    for keyword in ("fill", "text_color"):
+        if keyword in bound:
+            if bound[keyword] in ("None", "False"):
+                arguments.append(f"{keyword}=None")
+                continue
+            color = _color_record(migrator, bound[keyword])
+            if color is None:
+                return None
+            arguments.append(f"{keyword}={color}")
+    if "fill" not in bound:
+        # pymupdf fills with white; Redaction fills with black by default.
+        arguments.append(f"fill={migrator.class_name('Color')}(1, 1, 1)")
+    return f"{receiver}.annotations.add({redaction}({', '.join(arguments)}))"
+
+
 def _delete_annot(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     """Rewrite ``delete_annot(annot)`` as a statement to ``del`` of its index."""
     bound = args.bind(("annot",))
@@ -1744,6 +1770,7 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "add_strikeout_annot": _add_text_markup_annot("StrikeOut"),
     "add_squiggly_annot": _add_text_markup_annot("Squiggly"),
     "add_text_annot": _add_text_annot,
+    "add_redact_annot": _add_redact_annot,
     "add_file_annot": _add_file_annot,
     "add_stamp_annot": _add_stamp_annot,
     "add_caret_annot": _add_shape_annot("Caret", ("point",)),

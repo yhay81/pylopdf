@@ -270,6 +270,7 @@ replacement, and the migration hint):
 - Page.add_polygon_annot -> Annotations.add: page.annotations.add(Polygon(points, ...)) adds a closed polygon with its appearance and returns its Annotation.
 - Page.add_polyline_annot -> Annotations.add: page.annotations.add(PolyLine(points, ...)) adds an open polyline with its appearance and returns its Annotation.
 - Page.add_rect_annot -> Annotations.add: page.annotations.add(Square(rect, color=..., interior_color=..., border=Border(...))) adds a rectangle with its appearance and returns its Annotation.
+- Page.add_redact_annot -> Annotations.add: page.annotations.add(Redaction(quads, fill=Color(...), overlay_text=..., text_color=..., align=...)) marks areas for removal; applying them is page.redact (Rewriting).
 - Page.add_squiggly_annot -> Annotations.add: page.annotations.add(Squiggly(quads)) adds a squiggly underline with its appearance and returns its Annotation; color is a Color and content becomes contents.
 - Page.add_stamp_annot -> Annotations.add: page.annotations.add(Stamp(rect, icon=StampIcon.APPROVED, rotate=...)) adds a stamp with its appearance and returns its Annotation.
 - Page.add_strikeout_annot -> Annotations.add: page.annotations.add(StrikeOut(quads)) adds a strikeout with its appearance and returns its Annotation; color is a Color and content becomes contents.

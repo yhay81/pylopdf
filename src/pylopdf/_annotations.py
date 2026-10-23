@@ -1276,6 +1276,94 @@ class FileAttachment:
         }
 
 
+@dataclass(frozen=True, slots=True, init=False)
+class Redaction:
+    """An area marked for removal, as ``page.annotations.add`` takes it.
+
+    ``rects`` is one rectangle or quad, or a sequence of them, as for
+    :class:`Highlight`. Until the redaction is applied, the areas are
+    outlined and crossed out in ``color``; applying it (``page.redact``,
+    the Rewriting milestone) removes what they cover and fills them with
+    ``fill``, writing ``overlay_text`` in ``font`` (a Standard 14 font,
+    Helvetica by default), ``size``, ``text_color``, and ``align``.
+    """
+
+    rects: tuple[Rect, ...]
+    color: Color
+    fill: Color | None
+    overlay_text: str | None
+    font: Font | None
+    size: float
+    text_color: Color
+    align: Literal["left", "center", "right"]
+    contents: str | None
+
+    def __init__(  # noqa: PLR0913 - the redaction's options.
+        self,
+        rects: Sequence[float] | Quad | Iterable[Sequence[float] | Quad],
+        *,
+        color: Color = Color(1.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        fill: Color | None = Color(0.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        overlay_text: str | None = None,
+        font: Font | None = None,
+        size: float = 11.0,
+        text_color: Color = Color(0.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+        align: Literal["left", "center", "right"] = "left",
+        contents: str | None = None,
+    ) -> None:
+        """Validate the specification; the texts are bounded before the rectangles are read."""
+        contents = _contents(contents)
+        if overlay_text is not None and not isinstance(overlay_text, str):
+            msg = f"overlay_text must be a str or None: {type(overlay_text).__name__}"
+            raise TypeError(msg)
+        _validate_cumulative_utf8_input(
+            (
+                "Redact",
+                "" if contents is None else contents,
+                "" if overlay_text is None else overlay_text,
+                _DATE_PLACEHOLDER,
+                _DATE_PLACEHOLDER,
+            ),
+            _MAX_ANNOTATION_INPUT_TEXT_SIZE,
+            limit_code="annotation_input_size",
+            input_label="annotation subtype, contents, and overlay text input",
+        )
+        if font is not None and (not isinstance(font, Font) or font._font.standard_name is None):
+            msg = "a redaction's overlay text uses a Standard 14 Font, such as Font.standard('Helvetica')"
+            raise TypeError(msg)
+        size = _number(size, "size")
+        if not 0 < size <= 10000:  # noqa: PLR2004 - the core's bound.
+            msg = f"size must be greater than 0 and at most 10000: {size!r}"
+            raise ValueError(msg)
+        if align not in _FREE_TEXT_ALIGNMENTS:
+            msg = f"align must be one of {', '.join(_FREE_TEXT_ALIGNMENTS)}: {align!r}"
+            raise ValueError(msg)
+        object.__setattr__(self, "rects", _validate_highlight_rects(rects))
+        object.__setattr__(self, "color", _opaque_color(color))
+        object.__setattr__(self, "fill", _optional_color(fill, "fill"))
+        object.__setattr__(self, "overlay_text", overlay_text)
+        object.__setattr__(self, "font", font)
+        object.__setattr__(self, "size", size)
+        object.__setattr__(self, "text_color", _opaque_color(text_color, "text_color"))
+        object.__setattr__(self, "align", align)
+        object.__setattr__(self, "contents", contents)
+
+    def _payload(self) -> dict[str, Any]:
+        return {
+            "subtype": "Redact",
+            "rects": [(rect.x0, rect.y0, rect.x1, rect.y1) for rect in self.rects],
+            "color": self.color.rgb,
+            "interior_color": None if self.fill is None else self.fill.rgb,
+            "overlay_text": self.overlay_text,
+            "font_name": "Helvetica" if self.font is None else self.font._font.standard_name,
+            "font_size": self.size,
+            "text_color": self.text_color.rgb,
+            "align": _FREE_TEXT_ALIGNMENTS.index(self.align),
+            "contents": self.contents,
+            "created": _now(),
+        }
+
+
 #: The ``/Q`` code of each free-text alignment.
 _FREE_TEXT_ALIGNMENTS = ("left", "center", "right")
 
@@ -1640,6 +1728,7 @@ AnnotationSpecification: TypeAlias = (
     | Stamp
     | Caret
     | FileAttachment
+    | Redaction
     | Square
     | Circle
     | LineAnnotation
@@ -1657,6 +1746,7 @@ _SPECIFICATIONS = (
     Stamp,
     Caret,
     FileAttachment,
+    Redaction,
     Square,
     Circle,
     LineAnnotation,
@@ -1752,6 +1842,7 @@ for _public in (
     NoteIcon,
     Polygon,
     PolyLine,
+    Redaction,
     Square,
     Squiggly,
     Stamp,
