@@ -1188,6 +1188,43 @@ def _rectangle_results() -> dict[str, Any]:  # noqa: PLR0915 - explicit compatib
     }
 
 
+def _annotation_results() -> dict[str, Any]:
+    """Create annotations with appearances, reopen them, and render them."""
+    import pylopdf  # noqa: PLC0415
+    from pylopdf import BlendMode, Border, Circle, Color, Document, Square  # noqa: PLC0415
+
+    with Document() as document:
+        page = document.pages.new((200, 100))
+        page.rotation = 90
+        page.annotations.add(Square((10, 10, 60, 40), color=Color(0, 0, 1), interior_color=Color(1, 1, 0)))
+        page.annotations.add(
+            Circle((10, 50, 90, 90), border=Border(2, dashes=(3, 1)), opacity=0.5, blend_mode=BlendMode.MULTIPLY)
+        )
+        data = document.to_bytes()
+    with pylopdf.open(data) as reopened:
+        page = reopened.pages[0]
+        annotations = [
+            {
+                "type": annotation.type.name,
+                "rect": [round(value, 3) for value in annotation.rect],
+                "color": None if annotation.color is None else list(annotation.color.rgb),
+                "interior_color": None if annotation.interior_color is None else list(annotation.interior_color.rgb),
+                "border": None
+                if annotation.border is None
+                else [annotation.border.width, annotation.border.style.value, list(annotation.border.dashes)],
+                "opacity": round(annotation.opacity, 3),
+                "blend_mode": None if annotation.blend_mode is None else annotation.blend_mode.value,
+            }
+            for annotation in page.annotations
+        ]
+        pixmap = page.pixmap(dpi=72)
+        samples = bytes(pixmap)
+        inside = list(samples[(25 * pixmap.width + 35) * 3 : (25 * pixmap.width + 35) * 3 + 3])
+    _require([entry["type"] for entry in annotations] == ["SQUARE", "CIRCLE"], "annotation types changed")
+    _require(inside == [255, 255, 0], "the square's appearance did not render")
+    return {"annotations": annotations, "square_inside": inside}
+
+
 def _content_isolation_results() -> dict[str, Any]:
     """Draw on content that leaves q and Q unbalanced, counted as hayro parses it."""
     import pylopdf  # noqa: PLC0415
@@ -1528,6 +1565,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "structure_page_deletion": _structure_page_deletion_results(),
         "save_options": _save_option_results(),
         "content_isolation": _content_isolation_results(),
+        "annotations": _annotation_results(),
         "ocr_layer": _ocr_layer_results(),
         "object_model": _object_model_results(),
         "document_properties": _document_property_results(root),

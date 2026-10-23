@@ -356,26 +356,49 @@ listed. A handle reads the document on every access and has `type`, an
 `AnnotationType` member, `rect` in display coordinates, the texts
 `contents`, `author`, `subject`, `name`, `icon`, and `intent`, the dates
 `created` and `modified` as the PDF date strings stored, `color` and
-`interior_color` as `Color` records or `None`, `opacity`, `flags`, an
-`AnnotationFlags` value, and `xref`, `obj`, and `page`.
-`page.annotations.add(Highlight(rects, *, color=Color(1, 1, 0), opacity=0.4,
-contents=None))` highlights one or more rectangles or quads, such as search
-results, and returns the new handle; `del page.annotations[i]` removes an
-annotation with its popup. The members of `AnnotationType` and
-`AnnotationFlags` keep the values of pymupdf's `PDF_ANNOT_*` and
-`PDF_ANNOT_IS_*` constants.
+`interior_color` as `Color` records or `None`, `opacity`, `border`, a
+`Border` record or `None`, `blend_mode`, a `BlendMode` member or `None`,
+`flags`, an `AnnotationFlags` value, and `xref`, `obj`, and `page`.
+
+`page.annotations.add(specification)` adds the annotation that a
+specification describes, with its appearance, so every viewer draws it
+alike, and returns the new handle; `del page.annotations[i]` removes an
+annotation with its popup. Created annotations are printable and record the
+time of their creation in `created` and `modified`.
+
+| Specification | Adds |
+|---|---|
+| `Highlight(rects, *, color=Color(1, 1, 0), opacity=0.4, contents=None)` | A highlight over one or more rectangles or quads, such as search results, drawn in multiply blending |
+| `Square(rect, *, color=Color(1, 0, 0), interior_color=None, border=Border(), opacity=1.0, blend_mode=None, contents=None)` | A rectangle whose border `color` strokes and `interior_color` fills; either may be `None` |
+| `Circle(rect, *, ...)` | The ellipse inscribed in `rect`, with the fields of `Square` |
+
+A `Border(width=1.0, *, style=None, dashes=())` describes a border: its
+width in points, a `BorderStyle` (`SOLID`, `DASHED`, `BEVELED`, `INSET`, or
+`UNDERLINE`), and for a dashed border 1 to 32 dash and gap lengths; dashes
+without a style select `DASHED`. The border of a square or circle lies inside
+its rectangle, and widgets draw the beveled, inset, and underline styles that
+other annotations draw solid. `opacity` and `blend_mode` apply to every paint
+of the appearance.
+
+The members of `AnnotationType` and `AnnotationFlags` keep the values of
+pymupdf's `PDF_ANNOT_*` and `PDF_ANNOT_IS_*` constants.
 
 ```python
-from pylopdf import AnnotationType, Color, Highlight
+from pylopdf import AnnotationType, Border, Color, Highlight, Square
 
 note = page.annotations.add(Highlight(page.search("total"), color=Color(1, 0.8, 0), contents="Check"))
+page.annotations.add(Square((72, 72, 288, 144), color=Color(0, 0, 1), border=Border(2, dashes=(4, 2))))
 for annotation in page.annotations:
     if annotation.type is AnnotationType.TEXT:
         print(annotation.author, annotation.contents)
 ```
 
+Rendering draws a square or circle that another producer wrote without an
+appearance from its dictionary, as it does a text-markup annotation from its
+quadrilaterals; neither changes the document.
+
 Annotation reads stop at 4,096 annotations and 1 MiB of text per page, and
-a highlight's contents stop at 1 MiB (`LimitError` code
+the contents of a specification stop at 1 MiB (`LimitError` code
 `annotation_input_size`).
 
 `page.links` is a sequence of `Link` handles: `page.links.add(rect, target)`
@@ -994,7 +1017,7 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |
 | `Colorspace` | The color spaces of a [`Pixmap`](#pixmap): `GRAY` and `RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [Outline and page labels](#outline) |
-| `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `Highlight`, `Link`, `Links` | [Annotations and links](#page-annotations) |
+| `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `AnnotationSpecification`, `Highlight`, `Square`, `Circle`, `Border`, `BorderStyle`, `Link`, `Links` | [Annotations and links](#page-annotations) |
 | `PageBoxes` | [Page geometry](#page-geometry) |
 | `Form`, `Field`, `FieldType`, `FieldFlags`, `FieldChoice` | [Forms](#forms) |
 | `FallbackFont`, `FallbackFonts` | [Rendering and images](#document-rendering) |

@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
 mod acroform_import;
+mod annotation_appearance;
 mod builder;
 mod bundled_font_cache;
 mod canvas;

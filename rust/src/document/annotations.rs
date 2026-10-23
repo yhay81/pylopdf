@@ -16,7 +16,8 @@ pub(super) const MAX_TEXT_MARKUP_SEGMENTS: usize = 65_536;
 /// `/Annots`, its xref (0 for a direct dictionary), its subtype (`None`
 /// without one), display rect, `/F` flags, the text entries `/Contents`,
 /// `/Name`, `/T`, `/CreationDate`, `/M`, `/Subj`, `/NM`, and `/IT`, the `/C`
-/// and `/IC` colours, and the `/CA` opacity.
+/// and `/IC` colours, the `/CA` opacity, the border's width, `/S` style, and
+/// dashes, and the `/BM` blend mode when it is one that ISO 32000-2 defines.
 pub(super) type AnnotationTuple = (
     u32,
     u32,
@@ -27,6 +28,8 @@ pub(super) type AnnotationTuple = (
     Vec<f64>,
     Vec<f64>,
     Option<f64>,
+    Option<(f64, String, Vec<f64>)>,
+    Option<&'static str>,
 );
 
 /// The annotation text entries that `AnnotationTuple` carries, in its order.
@@ -353,6 +356,97 @@ pub(super) fn synthesize_missing_text_markup_appearances_for_render(
         }
     }
     Ok(changed)
+}
+
+/// An annotation without a normal appearance that the rendering snapshot
+/// draws with the appearance engine.
+pub(super) struct DrawnAppearancePlan {
+    annotation_id: ObjectId,
+    form: CanvasForm,
+    matrix: [f64; 6],
+}
+
+/// The appearances that the rendering snapshot synthesizes.
+#[derive(Default)]
+pub(super) struct MissingAppearances {
+    text_markup: Vec<TextMarkupAppearancePlan>,
+    drawn: Vec<DrawnAppearancePlan>,
+}
+
+impl MissingAppearances {
+    pub(super) fn is_empty(&self) -> bool {
+        self.text_markup.is_empty() && self.drawn.is_empty()
+    }
+}
+
+/// Collect the appearances that annotations without one need in the
+/// rendering snapshot: text markup from `/QuadPoints`, and the annotation
+/// types that the appearance engine draws. More than 4,096 drawn ones are
+/// left undrawn rather than drawn in part.
+pub(super) fn missing_appearance_plans(doc: &Document) -> PyResult<MissingAppearances> {
+    let text_markup = missing_text_markup_appearance_plans(doc)?.unwrap_or_default();
+    let mut drawn = Vec::new();
+    for (&annotation_id, object) in &doc.objects {
+        let Ok(annotation) = object.as_dict() else {
+            continue;
+        };
+        if !annotation
+            .get(b"Subtype")
+            .ok()
+            .and_then(|subtype| deref_object(doc, subtype).as_name().ok())
+            .is_some_and(annotation_appearance::draws)
+            || annotation_has_normal_appearance(doc, annotation)
+        {
+            continue;
+        }
+        if drawn.len() >= MAX_PAGE_ANNOTATIONS {
+            drawn.clear();
+            break;
+        }
+        let Some(annotation_appearance::Appearance { mut canvas, matrix }) =
+            annotation_appearance::appearance(doc, annotation)?
+        else {
+            continue;
+        };
+        // An appearance that draws nothing needs no rendering copy.
+        let recording = canvas.take_recording()?;
+        if recording.is_empty() {
+            continue;
+        }
+        let form = prepare_vector_canvas_form(recording)?;
+        drawn.try_reserve(1).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to grow annotation appearance plans: {error}"
+            ))
+        })?;
+        drawn.push(DrawnAppearancePlan {
+            annotation_id,
+            form,
+            matrix,
+        });
+    }
+    Ok(MissingAppearances { text_markup, drawn })
+}
+
+/// Add the planned appearances to a rendering clone only.
+pub(super) fn synthesize_missing_appearances_for_render(
+    doc: &mut Document,
+    plans: MissingAppearances,
+) -> PyResult<()> {
+    synthesize_missing_text_markup_appearances_for_render(doc, plans.text_markup)?;
+    for plan in plans.drawn {
+        let committed = commit_canvas_form(doc, plan.form, Some(plan.matrix))?;
+        if let Ok(annotation) = doc
+            .get_object_mut(plan.annotation_id)
+            .and_then(Object::as_dict_mut)
+        {
+            annotation.set(
+                "AP",
+                dictionary! { "N" => Object::Reference(committed.form_id) },
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Add to one annotation metadata budget without overflow or partial output.
@@ -734,6 +828,23 @@ impl _Document {
             annotation_color(&self.doc, dict, b"C"),
             annotation_color(&self.doc, dict, b"IC"),
             opacity,
+            annotation_appearance::border(&self.doc, dict).map(|border| {
+                (
+                    border.width,
+                    String::from_utf8_lossy(&border.style).into_owned(),
+                    border.dashes,
+                )
+            }),
+            dict.get(b"BM")
+                .map(|value| deref_object(&self.doc, value))
+                .and_then(Object::as_name)
+                .ok()
+                .and_then(|name| {
+                    canvas::BLEND_MODES
+                        .iter()
+                        .find(|mode| mode.as_bytes() == name)
+                        .copied()
+                }),
         )))
     }
 }
@@ -902,6 +1013,185 @@ pub(super) fn add_highlight_annotation(
     let annot_id = this.doc.add_object(annot);
     this.commit_page_annotation_append(page_id, annotation_append, annot_id)?;
     Ok(annot_id.0)
+}
+
+/// An annotation to create, as `page.annotations.add` passes a
+/// specification: the PDF subtype, the display rectangle, and the entries
+/// that the subtype takes. Colours are RGB from 0 to 1, the border is its
+/// width, `/S` style name, and dash lengths, and the blend mode is a PDF
+/// name.
+#[derive(FromPyObject)]
+#[pyo3(from_item_all)]
+pub(super) struct AnnotationSpec {
+    subtype: String,
+    rect: (f64, f64, f64, f64),
+    #[pyo3(default)]
+    color: Option<(f64, f64, f64)>,
+    #[pyo3(default)]
+    interior_color: Option<(f64, f64, f64)>,
+    #[pyo3(default)]
+    border: Option<(f64, String, Vec<f64>)>,
+    #[pyo3(default)]
+    opacity: Option<f64>,
+    #[pyo3(default)]
+    blend_mode: Option<String>,
+    #[pyo3(default)]
+    contents: Option<String>,
+    #[pyo3(default)]
+    created: Option<String>,
+}
+
+/// The subtypes that `add_annotation` creates.
+const CREATED_SUBTYPES: [&str; 2] = ["Square", "Circle"];
+
+fn rgb_array(name: &str, (red, green, blue): (f64, f64, f64)) -> PyResult<Object> {
+    if ![red, green, blue]
+        .iter()
+        .all(|component| component.is_finite() && (0.0..=1.0).contains(component))
+    {
+        return Err(PdfError::new_err(format!(
+            "an annotation {name} has components from 0 to 1"
+        )));
+    }
+    Ok(Object::Array(vec![
+        Object::Real(red as f32),
+        Object::Real(green as f32),
+        Object::Real(blue as f32),
+    ]))
+}
+
+/// Return the annotation dictionary that `spec` describes on a page, without
+/// `/P` and `/AP`, after checking every entry.
+fn annotation_dictionary(
+    spec: &AnnotationSpec,
+    (crop, rotation): ([f64; 4], i64),
+) -> PyResult<Dictionary> {
+    if !CREATED_SUBTYPES.contains(&spec.subtype.as_str()) {
+        return Err(PdfError::new_err(format!(
+            "pylopdf does not create {} annotations",
+            spec.subtype
+        )));
+    }
+    validate_annotation_input(
+        [
+            spec.subtype.as_bytes(),
+            spec.contents.as_deref().unwrap_or_default().as_bytes(),
+            spec.created.as_deref().unwrap_or_default().as_bytes(),
+        ],
+        "subtype, contents, and date",
+    )?;
+    let (x0, y0, x1, y1) = spec.rect;
+    if ![x0, y0, x1, y1].iter().all(|value| value.is_finite()) {
+        return Err(PdfError::new_err("an annotation rectangle is finite"));
+    }
+    let quad = draw::display_rect_quad_pdf(crop, rotation, [x0, y0, x1, y1]);
+    let rect = draw::bounding_rect_iter(quad.iter().copied());
+    let mut dict = dictionary! {
+        "Type" => "Annot",
+        "Subtype" => Object::Name(spec.subtype.as_bytes().to_vec()),
+        "Rect" => Object::Array(rect.iter().map(|&value| Object::Real(value as f32)).collect()),
+        // Printable.
+        "F" => 4,
+    };
+    if let Some(color) = spec.color {
+        dict.set("C", rgb_array("colour", color)?);
+    }
+    if let Some(color) = spec.interior_color {
+        dict.set("IC", rgb_array("interior colour", color)?);
+    }
+    if let Some((width, style, dashes)) = &spec.border {
+        if !(width.is_finite() && *width >= 0.0) {
+            return Err(PdfError::new_err(
+                "an annotation border width is finite and not negative",
+            ));
+        }
+        if !matches!(style.as_str(), "S" | "D" | "B" | "I" | "U") {
+            return Err(PdfError::new_err(format!(
+                "unknown annotation border style {style:?}"
+            )));
+        }
+        if dashes.len() > annotation_appearance::MAX_BORDER_DASHES
+            || (!dashes.is_empty() && !annotation_appearance::valid_dashes(dashes))
+            || (style == "D") != !dashes.is_empty()
+        {
+            return Err(PdfError::new_err(format!(
+                "a dashed border has 1 to {} non-negative dash lengths, and only a dashed one",
+                annotation_appearance::MAX_BORDER_DASHES
+            )));
+        }
+        let mut border = dictionary! {
+            "W" => Object::Real(*width as f32),
+            "S" => Object::Name(style.as_bytes().to_vec()),
+        };
+        if !dashes.is_empty() {
+            border.set(
+                "D",
+                Object::Array(
+                    dashes
+                        .iter()
+                        .map(|&dash| Object::Real(dash as f32))
+                        .collect(),
+                ),
+            );
+        }
+        dict.set("BS", border);
+    }
+    if let Some(opacity) = spec.opacity {
+        if !(opacity.is_finite() && opacity > 0.0 && opacity <= 1.0) {
+            return Err(PdfError::new_err(
+                "an annotation opacity is greater than 0 and at most 1",
+            ));
+        }
+        if opacity < 1.0 {
+            dict.set("CA", Object::Real(opacity as f32));
+        }
+    }
+    if let Some(mode) = &spec.blend_mode {
+        if !canvas::BLEND_MODES.contains(&mode.as_str()) {
+            return Err(PdfError::new_err(format!("unknown blend mode {mode:?}")));
+        }
+        dict.set("BM", Object::Name(mode.as_bytes().to_vec()));
+    }
+    if let Some(contents) = &spec.contents {
+        dict.set("Contents", text_string(contents));
+    }
+    if let Some(created) = &spec.created {
+        if !created.starts_with("D:") || !created.is_ascii() {
+            return Err(PdfError::new_err("an annotation date is a PDF date string"));
+        }
+        dict.set("CreationDate", Object::string_literal(created.as_bytes()));
+        dict.set("M", Object::string_literal(created.as_bytes()));
+    }
+    Ok(dict)
+}
+
+/// Implements [`_Document::add_annotation`].
+pub(super) fn add_annotation(
+    this: &mut _Document,
+    py: Python<'_>,
+    page_number: u32,
+    spec: AnnotationSpec,
+) -> PyResult<u32> {
+    let geometry = this.page_display_geometry(page_number)?;
+    let mut dict = annotation_dictionary(&spec, geometry)?;
+    let page_id = this.page_id(page_number)?;
+    let annotation_append = this.prepare_page_annotation_append(page_id)?;
+    let annotation_appearance::Appearance { mut canvas, matrix } =
+        annotation_appearance::appearance(&this.doc, &dict)?
+            .ok_or_else(|| PdfError::new_err("the annotation has no appearance to draw"))?;
+    let appearance = this.prepare_canvas_form(py, canvas.take_recording()?)?;
+
+    this.invalidate_hayro_pdf_keeping_placements();
+    let committed = commit_canvas_form(&mut this.doc, appearance, Some(matrix))?;
+    dict.set("P", page_id);
+    dict.set(
+        "AP",
+        dictionary! { "N" => Object::Reference(committed.form_id) },
+    );
+    this.remember_canvas_placements(committed, Some(page_number));
+    let annotation_id = this.doc.add_object(dict);
+    this.commit_page_annotation_append(page_id, annotation_append, annotation_id)?;
+    Ok(annotation_id.0)
 }
 
 /// Charge the texts of a link's target to the annotation input budget.

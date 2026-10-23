@@ -119,7 +119,7 @@ the concept and API overview.
     `document/{drawing,images,text_insertion,geometry,fonts}.rs`;
     `src/pylopdf/_canvas.py`, `_create.py`, `_fonts.py`, and
     `_geometry.py`.
-  - Interaction: `form.rs`, `acroform_import.rs`;
+  - Interaction: `form.rs`, `acroform_import.rs`, `annotation_appearance.rs`;
     `document/{forms,annotations}.rs`; `src/pylopdf/_annotations.py`,
     `_form.py`, and `_links.py`.
   - Rewriting: `content/`, `text_replace.rs`, `image_compression.rs`;
@@ -2395,8 +2395,20 @@ the concept and API overview.
   (`/C` and `/IC` of one, three, or four components become a `Color`, CMYK
   converted naively). `remove_annotations` also removes the `/Popup` that
   an annotation names when the page lists it. `add(Highlight(...))` calls
-  `add_highlight_annotation`; the other specifications of api/DESIGN.md come
-  with the Interaction milestone. Creation must preflight the same page count,
+  `add_highlight_annotation`; the other specifications pass a dictionary that
+  the core's `add_annotation` extracts as an `AnnotationSpec`
+  (`from_item_all`, absent keys default), which builds the complete
+  annotation dictionary, checks every entry again, and draws its appearance
+  with `rust/src/annotation_appearance.rs` before any mutation. That engine
+  draws each type it supports (`annotation_appearance::draws`) from the
+  dictionary alone (`/Rect`, `/C`, `/IC`, `/BS` else `/Border`, `/CA`,
+  `/BM`, `/RD`, reading unusable entries as absent) on a canvas over `/Rect`
+  in user space, so creation, property edits, and the rendering snapshot
+  draw alike: `missing_appearance_plans` draws every annotation of a
+  supported type without `/AP /N` into the rendering clone through
+  `prepare_vector_canvas_form`, and leaves all of them undrawn above 4,096.
+  The other specifications of api/DESIGN.md come with the Interaction
+  milestone. Creation must preflight the same page count,
   1 MiB aggregate generated subtype plus Contents/URI input, and 4,096
   highlight rectangles before creating dependent objects or invalidating
   caches. Caller annotation text must stop before PyO3 copying with

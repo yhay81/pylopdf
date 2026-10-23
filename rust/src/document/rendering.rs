@@ -465,10 +465,8 @@ impl _Document {
     pub(super) fn hayro_view(&mut self) -> PyResult<&Arc<Pdf>> {
         if self.hayro_pdf.is_none() {
             let page_ids = self.doc.owned_page_ids()?;
-            let text_markup_appearances = missing_text_markup_appearance_plans(&self.doc)?;
-            let prepare_appearances = text_markup_appearances
-                .as_ref()
-                .is_some_and(|plans| !plans.is_empty());
+            let missing_appearances = missing_appearance_plans(&self.doc)?;
+            let prepare_appearances = !missing_appearances.is_empty();
             if !prepare_appearances {
                 match &self.hayro_source {
                     HayroSource::TooLarge { actual, limit } => {
@@ -515,7 +513,7 @@ impl _Document {
                 Some(pdf) => (pdf, Vec::new()),
                 None => {
                     let plain = if readable_roots {
-                        let (data, _) = self.render_snapshot(text_markup_appearances, None)?;
+                        let (data, _) = self.render_snapshot(Some(missing_appearances), None)?;
                         Pdf::new(data).ok()
                     } else {
                         None
@@ -530,10 +528,9 @@ impl _Document {
                             // trailer or catalog is nested that deeply. List
                             // only the walker's pages in a rendering copy and
                             // cut what hayro could not read.
-                            let text_markup_appearances =
-                                missing_text_markup_appearance_plans(&self.doc)?;
+                            let missing_appearances = missing_appearance_plans(&self.doc)?;
                             let (data, cut) =
-                                self.render_snapshot(text_markup_appearances, Some(&page_ids))?;
+                                self.render_snapshot(Some(missing_appearances), Some(&page_ids))?;
                             let pdf = Pdf::new(data).map_err(|e| {
                                 PdfError::new_err(format!(
                                     "failed to parse PDF for rendering: {e:?}"
@@ -652,11 +649,11 @@ impl _Document {
     /// changes the editable or saved document.
     pub(super) fn render_snapshot(
         &mut self,
-        text_markup_appearances: Option<Vec<TextMarkupAppearancePlan>>,
+        missing_appearances: Option<MissingAppearances>,
         flattened_pages: Option<&[ObjectId]>,
     ) -> PyResult<(Vec<u8>, Vec<usize>)> {
         let mut cut = Vec::new();
-        let normalize = text_markup_appearances
+        let normalize = missing_appearances
             .as_ref()
             .is_some_and(|plans| !plans.is_empty())
             || flattened_pages.is_some();
@@ -672,8 +669,8 @@ impl _Document {
             } else {
                 self.doc.clone()
             };
-            if let Some(plans) = text_markup_appearances {
-                synthesize_missing_text_markup_appearances_for_render(&mut doc, plans)?;
+            if let Some(plans) = missing_appearances {
+                synthesize_missing_appearances_for_render(&mut doc, plans)?;
             }
             if let Some(pages) = flattened_pages {
                 let pages_id = page_tree_root(&doc)?;

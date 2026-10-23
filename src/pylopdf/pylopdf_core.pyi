@@ -47,6 +47,8 @@ _Annotation: TypeAlias = tuple[
     list[float],
     list[float],
     float | None,
+    tuple[float, str, list[float]] | None,
+    str | None,
 ]
 _ObjectStep: TypeAlias = int | bytes
 
@@ -571,6 +573,7 @@ class _Document:
         opacity: float,
         content: str | None,
     ) -> int: ...
+    def add_annotation(self, page_number: int, spec: dict[str, Any]) -> int: ...
     def add_link(self, page_number: int, rect: tuple[float, float, float, float], target: _Target) -> int: ...
     def set_link(
         self,

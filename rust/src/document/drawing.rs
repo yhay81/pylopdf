@@ -1216,6 +1216,35 @@ pub(super) fn commit_canvas_form(
     })
 }
 
+/// Compose a canvas that draws only paths and Standard 14 text, which needs
+/// no document to prepare, as a Form XObject.
+pub(super) fn prepare_vector_canvas_form(recording: CanvasRecording) -> PyResult<CanvasForm> {
+    let plan = recording.plan_embedded()?;
+    if !plan.is_empty() || !recording.images.is_empty() || !recording.pages.is_empty() {
+        return Err(PdfError::new_err(
+            "a vector canvas draws no embedded text, images, or pages",
+        ));
+    }
+    let composed = recording.compose(
+        &plan,
+        &canvas::Placements {
+            images: Vec::new(),
+            pages: Vec::new(),
+        },
+    )?;
+    Ok(CanvasForm {
+        size: recording.size,
+        recording,
+        text_imports: Vec::new(),
+        images: Vec::new(),
+        pages: Vec::new(),
+        page_imports: Vec::new(),
+        composed,
+        reused_forms: Vec::new(),
+        target_revision: 0,
+    })
+}
+
 /// A canvas prepared as a Form XObject, which `commit_canvas_form` adds.
 pub(super) struct CanvasForm {
     /// The canvas's width and height, the Form's BBox.
