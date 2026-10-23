@@ -39,8 +39,8 @@ Every bundled document has a redistributable license.
   save outcome. `test_incorrect_startxref_value_recovers_exactly`
   checks every corpus file. Related regressions cover path probing, prefixed
   transport bytes, stale `/Prev` removal, later-revision precedence, document
-  limits, quadratic-scan refusal, and per-thread recovery reports. No
-  additional binary fixture is stored.
+  limits, linear recovery of unterminated streams, and per-thread recovery
+  reports. No additional binary fixture is stored.
 - **Text extraction from `pdf20-simple.pdf` returned nothing.** lopdf's content
   parser dropped every operation after a `%` comment followed by an indented
   line, reported upstream as

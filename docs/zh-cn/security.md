@@ -110,7 +110,6 @@ limits = pylopdf.DocumentLimits(
 | `decompressed_size`、`page_content_size`、`total_decompressed_size`、`decompression_unverifiable`、`stream_filter_count` | 流解码后超出允许的大小，或使用了输出大小无法限定的过滤器（包括串联超过16个过滤器） |
 | `text_size`、`text_glyph_count`、`interpretation_size` | 提取或渲染要读取的数据超出策略允许的范围 |
 | `content_element_count` | 页面绘制的字形、线段、虚线长度和项多于`max_elements` |
-| `recovery_scan_size` | 修复损坏文件所需的工作量过大 |
 | `content_nesting_depth`、`resource_nesting_depth` | 页面的嵌套过深，解析它并不安全；参见[下文](#built-in-protections) |
 | `pdf_output_size`、`render_output_size`、`markdown_output_size`、`svg_output_size`、`pixmap_output_size`、`replacement_output_size` | 输出会超过`max_size` |
 | `search_input_size`、`search_hit_count` | 搜索文本超过4,096字节，或结果数超过`max_hits` |

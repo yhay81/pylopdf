@@ -1648,13 +1648,11 @@ the concept and API overview.
   other corpus file opens differently; the `endobj-removed-2` damage in
   `test_damaged_corpus_outcome` and
   `test_unreachable_page_tree_rebuilds_the_xref_table` pin the behavior.
-  Before every lenient load, a linear pre-scan estimates lopdf's
-  reconstruction work: each `stream` keyword after the last `endstream`
-  repeats a scan to the end of the input and a backward `obj`/`/Length`
-  search. Input above 64 bytes per input byte plus 64 MiB fails with
-  `LimitError.code == "recovery_scan_size"` before lopdf runs; real damaged
-  files carry at most a truncated final stream there. `DocumentLimits` apply
-  to recovered documents unchanged.
+  lopdf 0.46 skips unterminated `stream` keywords during reconstruction in
+  one pass (J-F-Liu/lopdf#610), where 0.45 rescanned the rest of the input
+  for each, so pylopdf no longer pre-scans lenient input and no longer raises
+  `recovery_scan_size`; 64 MiB of such keywords rebuild in about 0.25 s.
+  `DocumentLimits` apply to recovered documents unchanged.
 - CJK fallback replaces hayro's `font_resolver`
   (`pick_cjk_fallback` in `rust/src/document/fonts.rs`). Detect CJK through
   `CIDSystemInfo` or the `BaseFont` name, route Adobe-Japan1, Korea1, GB1, and
@@ -2926,9 +2924,6 @@ the concept and API overview.
   `/Prev`, and its full writer emits trailer keys as-is. pylopdf removes
   `/Prev` and `/XRefStm` after reconstruction until a lopdf release includes
   J-F-Liu/lopdf#609, which removes them upstream.
-- lopdf's cross-reference reconstruction rescans the remaining input for every
-  unterminated `stream` keyword. Keep the `recovery_scan_size` pre-scan until
-  upstream makes that scan linear.
 - lopdf 0.46 rebuilds the cross-reference table only when standard resolution
   fails, and exposes no way to ask for a rebuild, so pylopdf forces one for a
   document whose page tree did not load by adding a `startxref` past the end
