@@ -13,7 +13,9 @@ pub(super) const MAX_ANNOTATION_METADATA_BYTES: usize = 1024 * 1024;
 /// without one), display rect, `/F` flags, the text entries `/Contents`,
 /// `/Name`, `/T`, `/CreationDate`, `/M`, `/Subj`, `/NM`, and `/IT`, the `/C`
 /// and `/IC` colours, the `/CA` opacity, the border's width, `/S` style, and
-/// dashes, and the `/BM` blend mode when it is one that ISO 32000-2 defines.
+/// dashes, the `/BM` blend mode when it is one that ISO 32000-2 defines, the
+/// object number of the annotation that `/IRT` names, the display rectangle
+/// of the `/Popup`, and whether the popup, or else the annotation, is open.
 pub(super) type AnnotationTuple = (
     u32,
     u32,
@@ -26,6 +28,7 @@ pub(super) type AnnotationTuple = (
     Option<f64>,
     Option<(f64, String, Vec<f64>)>,
     Option<&'static str>,
+    (Option<u32>, Option<(f64, f64, f64, f64)>, bool),
 );
 
 /// The annotation text entries that `AnnotationTuple` carries, in its order.
@@ -645,6 +648,10 @@ impl _Document {
                 )?
             };
         }
+        let popup = dict
+            .get(b"Popup")
+            .ok()
+            .and_then(|popup| deref_dict_ref(&self.doc, popup));
         let opacity = dict
             .get(b"CA")
             .map(|value| deref_object(&self.doc, value))
@@ -682,6 +689,24 @@ impl _Document {
                         .find(|mode| mode.as_bytes() == name)
                         .copied()
                 }),
+            (
+                match dict.get(b"IRT") {
+                    Ok(Object::Reference(id)) => Some(id.0),
+                    _ => None,
+                },
+                popup
+                    .and_then(|popup| resolve_box(&self.doc, popup, b"Rect"))
+                    .map(|rect| {
+                        let display = draw::pdf_rect_to_display(crop, rotation, rect);
+                        (display[0], display[1], display[2], display[3])
+                    }),
+                popup
+                    .unwrap_or(dict)
+                    .get(b"Open")
+                    .map(|value| deref_object(&self.doc, value))
+                    .and_then(Object::as_bool)
+                    .unwrap_or(false),
+            ),
         )))
     }
 }
@@ -708,6 +733,12 @@ pub(super) struct AnnotationSpec {
     /// The display rectangles that text markup covers.
     #[pyo3(default)]
     rects: Option<Vec<(f64, f64, f64, f64)>>,
+    /// The `/Name` icon of a note.
+    #[pyo3(default)]
+    icon: Option<String>,
+    /// Whether a note starts open, `/Open`.
+    #[pyo3(default)]
+    open: Option<bool>,
     #[pyo3(default)]
     color: Option<(f64, f64, f64)>,
     #[pyo3(default)]
@@ -724,8 +755,20 @@ pub(super) struct AnnotationSpec {
     created: Option<String>,
 }
 
+/// The icons of a note, `/Name` (ISO 32000-2 §12.5.6.4).
+const NOTE_ICONS: [&str; 7] = [
+    "Comment",
+    "Help",
+    "Insert",
+    "Key",
+    "NewParagraph",
+    "Note",
+    "Paragraph",
+];
+
 /// The subtypes that `add_annotation` creates.
-const CREATED_SUBTYPES: [&str; 10] = [
+const CREATED_SUBTYPES: [&str; 11] = [
+    "Text",
     "Square",
     "Circle",
     "Line",
@@ -835,7 +878,7 @@ fn annotation_dictionary(
         }
         geometry.set("QuadPoints", Object::Array(quad_points));
         bounds
-    } else if matches!(subtype, "Square" | "Circle") {
+    } else if matches!(subtype, "Square" | "Circle" | "Text") {
         let Some((x0, y0, x1, y1)) = spec.rect.filter(|_| spec.points.is_none()) else {
             return Err(PdfError::new_err(format!(
                 "a {subtype} annotation takes a rectangle"
@@ -1017,6 +1060,22 @@ fn annotation_dictionary(
     }
     if let Some(contents) = &spec.contents {
         dict.set("Contents", text_string(contents));
+    }
+    if (spec.icon.is_some() || spec.open.is_some()) && subtype != "Text" {
+        return Err(PdfError::new_err(format!(
+            "an icon and an open state belong to a note, not a {subtype} annotation"
+        )));
+    }
+    if subtype == "Text" {
+        let icon = spec.icon.as_deref().unwrap_or("Note");
+        if !NOTE_ICONS.contains(&icon) {
+            return Err(PdfError::new_err(format!("unknown note icon {icon:?}")));
+        }
+        dict.set("Name", Object::Name(icon.as_bytes().to_vec()));
+        dict.set("Open", spec.open.unwrap_or(false));
+        // A note's icon neither zooms nor turns with the page (ISO 32000-2
+        // §12.5.6.4); viewers that honour the flags keep it upright.
+        dict.set("F", 4 | 8 | 16);
     }
     if let Some(created) = &spec.created {
         if !created.starts_with("D:") || !created.is_ascii() || created.len() > 64 {
@@ -1288,6 +1347,184 @@ pub(super) fn set_link(
         link.remove(b"A");
         if let Some((key, value)) = entry {
             link.set(key, value);
+        }
+    }
+    Ok(id.0)
+}
+
+/// Find an annotation for an edit and return its object number, after
+/// storing the page's direct annotation dictionaries as objects when it is
+/// one, as `set_link` does. The caller has checked its input, and the caches
+/// are invalidated here.
+fn edited_annotation(
+    this: &mut _Document,
+    page_id: ObjectId,
+    index: u32,
+    xref: u32,
+) -> PyResult<(u32, ObjectId)> {
+    let (index, _) = this.annotation_at(page_id, index, xref)?;
+    this.invalidate_hayro_pdf_keeping_placements();
+    if xref == 0 {
+        this.indirect_page_annotations_mut(page_id)?;
+    }
+    match this
+        .page_annotation_items(page_id)?
+        .and_then(|items| items.get(index as usize))
+    {
+        Some(Object::Reference(id)) => Ok((index, *id)),
+        _ => Err(PdfError::new_err(
+            "the annotation changed while it was edited",
+        )),
+    }
+}
+
+/// The object number of the popup that an annotation names, when it is a
+/// dictionary object.
+fn popup_id(doc: &Document, annotation: &Dictionary) -> Option<ObjectId> {
+    match annotation.get(b"Popup") {
+        Ok(Object::Reference(id)) if doc.get_dictionary(*id).is_ok() => Some(*id),
+        _ => None,
+    }
+}
+
+/// Implements [`_Document::set_annotation_popup`]: move the annotation's
+/// popup to a display rectangle, adding one that the page lists after it,
+/// or remove the popup with `None`.
+pub(super) fn set_annotation_popup(
+    this: &mut _Document,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+    rect: Option<(f64, f64, f64, f64)>,
+) -> PyResult<u32> {
+    let page_id = this.page_id(page_number)?;
+    let (_, annotation) = this.annotation_at(page_id, index, xref)?;
+    if matches!(
+        annotation.get(b"Subtype").and_then(Object::as_name),
+        Ok(b"Popup" | b"Link" | b"Widget")
+    ) {
+        return Err(PdfError::new_err("only a markup annotation has a popup"));
+    }
+    let existing = popup_id(&this.doc, annotation);
+    let rect = rect
+        .map(|rect| link_rect(this, page_id, rect))
+        .transpose()?;
+    let append = match (&rect, existing) {
+        (Some(_), None) => Some(this.prepare_page_annotation_append(page_id)?),
+        _ => None,
+    };
+    let (_, id) = edited_annotation(this, page_id, index, xref)?;
+    match (rect, existing) {
+        (Some(rect), Some(popup)) => {
+            if let Ok(popup) = this.doc.get_object_mut(popup).and_then(Object::as_dict_mut) {
+                popup.set("Rect", rect);
+            }
+        }
+        (Some(rect), None) => {
+            let popup = this.doc.add_object(dictionary! {
+                "Type" => "Annot",
+                "Subtype" => "Popup",
+                "Rect" => rect,
+                "Parent" => id,
+                "P" => page_id,
+                "Open" => false,
+            });
+            if let Ok(annotation) = this.doc.get_object_mut(id).and_then(Object::as_dict_mut) {
+                annotation.set("Popup", popup);
+            }
+            if let Some(append) = append {
+                this.commit_page_annotation_append(page_id, append, popup)?;
+            }
+        }
+        (None, popup) => {
+            if let Ok(annotation) = this.doc.get_object_mut(id).and_then(Object::as_dict_mut) {
+                annotation.remove(b"Popup");
+            }
+            if let Some(popup) = popup {
+                let items = this.indirect_page_annotations_mut(page_id)?;
+                items.retain(|item| !matches!(item, Object::Reference(listed) if *listed == popup));
+            }
+        }
+    }
+    Ok(id.0)
+}
+
+/// Implements [`_Document::set_annotation_open`]: open or close the
+/// annotation's popup, and a note's own `/Open`.
+pub(super) fn set_annotation_open(
+    this: &mut _Document,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+    open: bool,
+) -> PyResult<u32> {
+    let page_id = this.page_id(page_number)?;
+    let (_, annotation) = this.annotation_at(page_id, index, xref)?;
+    let popup = popup_id(&this.doc, annotation);
+    let is_note = matches!(
+        annotation.get(b"Subtype").and_then(Object::as_name),
+        Ok(b"Text")
+    );
+    if popup.is_none() && !is_note {
+        return Err(PdfError::new_err(
+            "the annotation has no popup to open; set popup_rect first",
+        ));
+    }
+    let (_, id) = edited_annotation(this, page_id, index, xref)?;
+    if let Some(popup) = popup
+        && let Ok(popup) = this.doc.get_object_mut(popup).and_then(Object::as_dict_mut)
+    {
+        popup.set("Open", open);
+    }
+    if is_note && let Ok(annotation) = this.doc.get_object_mut(id).and_then(Object::as_dict_mut) {
+        annotation.set("Open", open);
+    }
+    Ok(id.0)
+}
+
+/// Implements [`_Document::set_annotation_reply`]: make the annotation a
+/// reply to another annotation that the page lists, `/IRT`, or no reply.
+pub(super) fn set_annotation_reply(
+    this: &mut _Document,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+    target: Option<u32>,
+) -> PyResult<u32> {
+    let page_id = this.page_id(page_number)?;
+    this.annotation_at(page_id, index, xref)?;
+    let target = match target {
+        Some(target) => {
+            let listed = this.page_annotation_items(page_id)?.is_some_and(|items| {
+                items
+                    .iter()
+                    .any(|item| matches!(item, Object::Reference(id) if id.0 == target))
+            });
+            if !listed || target == xref {
+                return Err(PdfError::new_err(
+                    "an annotation replies to another annotation of its page",
+                ));
+            }
+            let generation = this
+                .doc
+                .objects
+                .keys()
+                .filter(|id| id.0 == target)
+                .map(|id| id.1)
+                .max()
+                .unwrap_or(0);
+            Some((target, generation))
+        }
+        None => None,
+    };
+    let (_, id) = edited_annotation(this, page_id, index, xref)?;
+    if let Ok(annotation) = this.doc.get_object_mut(id).and_then(Object::as_dict_mut) {
+        match target {
+            Some(target) => annotation.set("IRT", Object::Reference(target)),
+            None => {
+                annotation.remove(b"IRT");
+                annotation.remove(b"RT");
+            }
         }
     }
     Ok(id.0)

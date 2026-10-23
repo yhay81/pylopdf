@@ -234,6 +234,25 @@ _LINE_ENDING_NAMES = {
 _LINE_ENDINGS = {name: ending for ending, name in _LINE_ENDING_NAMES.items()}
 
 
+class NoteIcon(enum.StrEnum):
+    """The icon of a note, ``/Name`` (ISO 32000-2 §12.5.6.4)."""
+
+    COMMENT = "comment"
+    HELP = "help"
+    INSERT = "insert"
+    KEY = "key"
+    NEW_PARAGRAPH = "new_paragraph"
+    NOTE = "note"
+    PARAGRAPH = "paragraph"
+
+
+#: The ``/Name`` of each note icon.
+_NOTE_ICON_NAMES = {icon: "".join(part.capitalize() for part in icon.value.split("_")) for icon in NoteIcon}
+
+#: The side of a note's icon in points.
+_NOTE_SIZE = 20.0
+
+
 #: The PDF name of each blend mode, such as ``ColorDodge``.
 _BLEND_MODE_NAMES: dict[BlendMode, str] = {
     mode: "".join(part.capitalize() for part in mode.value.split("_")) for mode in BlendMode
@@ -427,6 +446,84 @@ class Annotation:
             return None
         start, end = endings
         return _LINE_ENDINGS[start], _LINE_ENDINGS[end]
+
+    def _edit(self, method: str, *args: object) -> None:
+        page = self._page
+        self._read()
+        self._xref = getattr(page._document._doc, method)(page._page_number(), self._index, self._xref, *args)
+
+    @property
+    def popup_rect(self) -> Rect | None:
+        """Return or set the display rectangle of the annotation's popup, ``None`` without one.
+
+        Assigning a rectangle moves the popup, or adds one that the page
+        lists after the annotation; ``del`` removes it. Links, widgets, and
+        popups have none.
+        """
+        popup = self._read()[11][1]
+        return None if popup is None else Rect(*popup)
+
+    @popup_rect.setter
+    def popup_rect(self, rect: Sequence[float]) -> None:
+        self._edit("set_annotation_popup", _validate_rect(rect))
+
+    @popup_rect.deleter
+    def popup_rect(self) -> None:
+        self._edit("set_annotation_popup", None)
+
+    @property
+    def is_open(self) -> bool:
+        """Return or set whether the popup, or a note without one, opens when the page is shown.
+
+        Assigning needs a popup or a note.
+        """
+        return self._read()[11][2]
+
+    @is_open.setter
+    def is_open(self, value: bool) -> None:
+        if not isinstance(value, bool):
+            msg = f"is_open is a bool: {value!r}"
+            raise TypeError(msg)
+        self._edit("set_annotation_open", value)
+
+    @property
+    def in_reply_to(self) -> Annotation | None:
+        """Return or set the annotation that this one replies to, ``/IRT``, or ``None``.
+
+        The annotation replied to belongs to the same page; a reply to an
+        annotation that is not listed in ``page.annotations``, such as a
+        link, raises :class:`StaleObjectError` on use.
+        """
+        target = self._read()[11][0]
+        return None if target is None else Annotation(self._page, target, 0)
+
+    @in_reply_to.setter
+    def in_reply_to(self, annotation: Annotation | None) -> None:
+        if annotation is None:
+            self._edit("set_annotation_reply", None)
+            return
+        if not isinstance(annotation, Annotation):
+            msg = f"in_reply_to is an Annotation or None: {annotation!r}"
+            raise TypeError(msg)
+        if annotation._page != self._page:
+            msg = "an annotation replies to an annotation of its own page"
+            raise ValueError(msg)
+        self._edit("set_annotation_reply", annotation.xref)
+
+    @in_reply_to.deleter
+    def in_reply_to(self) -> None:
+        self._edit("set_annotation_reply", None)
+
+    @property
+    def replies(self) -> list[Annotation]:
+        """Return the annotations of the page that reply to this one, in ``/Annots`` order."""
+        xref = self.xref
+        page = self._page
+        return [
+            Annotation(page, entry[1], entry[0])
+            for entry in page._document._doc.read_annotations(page._page_number())
+            if xref and entry[11][0] == xref
+        ]
 
     def __eq__(self, other: object) -> bool:
         """Compare the page and the annotation: its object number, or its index for a direct dictionary."""
@@ -799,6 +896,66 @@ class Circle(_Shape):
         self._init(rect, color, interior_color, border, opacity, blend_mode, contents)
 
 
+@dataclass(frozen=True, slots=True, init=False)
+class Note:
+    """A note shown as an icon, as ``page.annotations.add`` takes it.
+
+    ``at`` is the display point of the icon's top-left corner; the icon is
+    20 points square and shows upright on a turned page. ``contents`` is the
+    note's text, ``icon`` its picture, ``color`` the icon's fill, and
+    ``is_open`` whether a viewer opens the note when it shows the page. Add a
+    popup by assigning :attr:`Annotation.popup_rect`.
+    """
+
+    at: Point
+    contents: str | None
+    icon: NoteIcon
+    color: Color
+    opacity: float
+    is_open: bool
+
+    def __init__(  # noqa: PLR0913 - the note's options.
+        self,
+        at: Point | Sequence[float],
+        *,
+        contents: str | None = None,
+        icon: NoteIcon = NoteIcon.NOTE,
+        color: Color = Color(1.0, 1.0, 0.0),  # noqa: B008 - Color is immutable.
+        opacity: float = 1.0,
+        is_open: bool = False,
+    ) -> None:
+        """Validate the specification."""
+        contents = _contents(contents)
+        _validate_cumulative_utf8_input(
+            ("Text", "" if contents is None else contents, _DATE_PLACEHOLDER, _DATE_PLACEHOLDER),
+            _MAX_ANNOTATION_INPUT_TEXT_SIZE,
+            limit_code="annotation_input_size",
+            input_label="annotation subtype and contents input",
+        )
+        if not isinstance(is_open, bool):
+            msg = f"is_open is a bool: {is_open!r}"
+            raise TypeError(msg)
+        object.__setattr__(self, "at", Point(*_point(at)))
+        object.__setattr__(self, "contents", contents)
+        object.__setattr__(self, "icon", NoteIcon(icon))
+        object.__setattr__(self, "color", _opaque_color(color))
+        object.__setattr__(self, "opacity", _opacity(opacity))
+        object.__setattr__(self, "is_open", is_open)
+
+    def _payload(self) -> dict[str, Any]:
+        x, y = self.at
+        return {
+            "subtype": "Text",
+            "rect": (x, y, x + _NOTE_SIZE, y + _NOTE_SIZE),
+            "color": self.color.rgb,
+            "opacity": self.opacity,
+            "contents": self.contents,
+            "created": _now(),
+            "icon": _NOTE_ICON_NAMES[self.icon],
+            "open": self.is_open,
+        }
+
+
 def _point(value: object) -> tuple[float, float]:
     if isinstance(value, (str, bytes)) or not isinstance(value, Sequence) or len(value) != 2:  # noqa: PLR2004
         msg = f"a point is a Point or a pair of numbers: {value!r}"
@@ -1032,9 +1189,21 @@ class Ink(_Drawn):
 
 #: The specifications that ``page.annotations.add`` takes.
 AnnotationSpecification: TypeAlias = (
-    Highlight | Underline | StrikeOut | Squiggly | Square | Circle | LineAnnotation | Polygon | PolyLine | Ink
+    Highlight | Underline | StrikeOut | Squiggly | Note | Square | Circle | LineAnnotation | Polygon | PolyLine | Ink
 )
-_SPECIFICATIONS = (Highlight, Underline, StrikeOut, Squiggly, Square, Circle, LineAnnotation, Polygon, PolyLine, Ink)
+_SPECIFICATIONS = (
+    Highlight,
+    Underline,
+    StrikeOut,
+    Squiggly,
+    Note,
+    Square,
+    Circle,
+    LineAnnotation,
+    Polygon,
+    PolyLine,
+    Ink,
+)
 
 
 class Annotations(Sequence[Annotation]):
@@ -1114,6 +1283,8 @@ for _public in (
     Ink,
     LineAnnotation,
     LineEnding,
+    Note,
+    NoteIcon,
     Polygon,
     PolyLine,
     Square,

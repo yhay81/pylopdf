@@ -48,6 +48,7 @@ pub(crate) fn draws(subtype: &[u8]) -> bool {
         subtype,
         b"Square" | b"Circle" | b"Line" | b"Polygon" | b"PolyLine" | b"Ink"
     ) || is_text_markup(subtype)
+        || subtype == b"Text"
 }
 
 /// Whether `subtype` is text markup, which `/QuadPoints` place.
@@ -237,7 +238,7 @@ pub(crate) fn appearance(doc: &Document, dict: &Dictionary) -> PyResult<Option<A
         return Ok(None);
     }
     let points = match subtype {
-        b"Square" | b"Circle" => Vec::new(),
+        b"Square" | b"Circle" | b"Text" => Vec::new(),
         _ => match point_lists(doc, dict, subtype) {
             Some(points) => points,
             None => return Ok(None),
@@ -330,6 +331,12 @@ pub(crate) fn appearance(doc: &Document, dict: &Dictionary) -> PyResult<Option<A
                     stroke,
                 )?;
             }
+        }
+        b"Text" => {
+            let icon = entry(doc, dict, b"Name")
+                .and_then(|value| value.as_name().ok())
+                .unwrap_or(b"Note");
+            draw_icon(&mut canvas, &mut drawn, &paint, icon, size)?;
         }
         b"Highlight" => {
             if let Some(fill) = paint
@@ -446,6 +453,152 @@ pub(crate) fn appearance(doc: &Document, dict: &Dictionary) -> PyResult<Option<A
         rect,
         points: drawn,
     }))
+}
+
+/// Draw the icon of a note, `/Name`, in a 20-unit square scaled to `size`:
+/// a shape filled with the annotation's colour and outlined in black.
+fn draw_icon(
+    canvas: &mut _Canvas,
+    drawn: &mut usize,
+    paint: &Paint,
+    icon: &[u8],
+    size: (f64, f64),
+) -> PyResult<()> {
+    let (sx, sy) = (size.0 / 20.0, size.1 / 20.0);
+    let scale = |coordinates: &[f64]| -> Vec<f64> {
+        coordinates
+            .iter()
+            .enumerate()
+            .map(|(index, value)| value * if index % 2 == 0 { sx } else { sy })
+            .collect()
+    };
+    let fill = paint
+        .stroke
+        .map(|(red, green, blue)| ((red, green, blue, paint.alpha), false));
+    let outline = |width: f64| -> StrokeArgs {
+        (
+            (0.0, 0.0, 0.0, paint.alpha),
+            width * sx.min(sy),
+            1,
+            1,
+            10.0,
+            Vec::new(),
+            0.0,
+        )
+    };
+    let mut shape = |canvas: &mut _Canvas,
+                     operators: &str,
+                     coordinates: &[f64],
+                     fill: Option<((f64, f64, f64, f64), bool)>,
+                     stroke: Option<StrokeArgs>|
+     -> PyResult<()> {
+        add_path(canvas, drawn, operators, scale(coordinates), fill, stroke)
+    };
+    match icon {
+        b"Comment" => {
+            shape(
+                canvas,
+                "mllllllh",
+                &[
+                    2.0, 2.0, 18.0, 2.0, 18.0, 14.0, 10.0, 14.0, 5.0, 18.5, 6.0, 14.0, 2.0, 14.0,
+                ],
+                fill,
+                Some(outline(1.0)),
+            )?;
+        }
+        b"Key" => {
+            let (operators, coordinates) = ellipse(2.0, 6.0, 10.0, 14.0);
+            shape(canvas, &operators, &coordinates, fill, Some(outline(1.0)))?;
+            shape(
+                canvas,
+                "mlmlml",
+                &[
+                    10.0, 10.0, 18.5, 10.0, 15.0, 10.0, 15.0, 13.5, 17.5, 10.0, 17.5, 13.5,
+                ],
+                None,
+                Some(outline(1.5)),
+            )?;
+        }
+        b"Help" => {
+            let (operators, coordinates) = ellipse(1.5, 1.5, 18.5, 18.5);
+            shape(canvas, &operators, &coordinates, fill, Some(outline(1.0)))?;
+            shape(
+                canvas,
+                "mcc",
+                &[
+                    7.0, 7.5, 7.0, 4.0, 13.0, 4.0, 13.0, 7.5, 13.0, 10.0, 10.0, 10.0, 10.0, 12.5,
+                ],
+                None,
+                Some(outline(1.5)),
+            )?;
+            let (operators, coordinates) = ellipse(9.0, 14.5, 11.0, 16.5);
+            shape(
+                canvas,
+                &operators,
+                &coordinates,
+                Some(((0.0, 0.0, 0.0, paint.alpha), false)),
+                None,
+            )?;
+        }
+        b"Insert" => {
+            shape(
+                canvas,
+                "mllh",
+                &[2.0, 18.0, 10.0, 3.0, 18.0, 18.0],
+                fill,
+                Some(outline(1.0)),
+            )?;
+        }
+        b"NewParagraph" => {
+            shape(
+                canvas,
+                "mllh",
+                &[10.0, 2.0, 4.0, 11.0, 16.0, 11.0],
+                fill,
+                Some(outline(1.0)),
+            )?;
+            shape(
+                canvas,
+                "ml",
+                &[10.0, 11.0, 10.0, 18.5],
+                None,
+                Some(outline(1.5)),
+            )?;
+        }
+        b"Paragraph" => {
+            let (operators, coordinates) = ellipse(4.0, 3.0, 12.0, 11.0);
+            shape(canvas, &operators, &coordinates, fill, Some(outline(1.0)))?;
+            shape(
+                canvas,
+                "mlmlml",
+                &[
+                    8.0, 3.0, 15.0, 3.0, 11.0, 3.0, 11.0, 18.0, 14.0, 3.0, 14.0, 18.0,
+                ],
+                None,
+                Some(outline(1.5)),
+            )?;
+        }
+        // Note, and any other name.
+        _ => {
+            shape(
+                canvas,
+                "mllllh",
+                &[3.0, 1.5, 13.0, 1.5, 17.0, 5.5, 17.0, 18.5, 3.0, 18.5],
+                fill,
+                Some(outline(1.0)),
+            )?;
+            shape(
+                canvas,
+                "mlmlml",
+                &[
+                    6.0, 8.0, 14.0, 8.0, 6.0, 11.5, 14.0, 11.5, 6.0, 15.0, 14.0, 15.0,
+                ],
+                None,
+                Some(outline(1.0)),
+            )?;
+        }
+    }
+    Ok(())
 }
 
 /// The canvas index of the Multiply blend mode.

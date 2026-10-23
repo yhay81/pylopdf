@@ -172,7 +172,7 @@ def test_the_core_repeats_the_checks() -> None:
     base: dict[str, Any] = {"subtype": "Square", "rect": (10, 10, 20, 20)}
 
     for spec, message in [
-        ({"subtype": "Text"}, "does not create Text annotations"),
+        ({"subtype": "Sound"}, "does not create Sound annotations"),
         ({"color": (2.0, 0.0, 0.0)}, "components from 0 to 1"),
         ({"border": (-1.0, "S", [])}, "not negative"),
         ({"border": (1.0, "X", [])}, "unknown annotation border style"),

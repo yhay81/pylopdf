@@ -49,6 +49,7 @@ _Annotation: TypeAlias = tuple[
     float | None,
     tuple[float, str, list[float]] | None,
     str | None,
+    tuple[int | None, tuple[float, float, float, float] | None, bool],
 ]
 _ObjectStep: TypeAlias = int | bytes
 
@@ -566,6 +567,11 @@ class _Document:
         self, page_number: int, index: int, xref: int
     ) -> tuple[int, int, tuple[float, float, float, float], _Target]: ...
     def add_annotation(self, page_number: int, spec: dict[str, Any]) -> int: ...
+    def set_annotation_popup(
+        self, page_number: int, index: int, xref: int, rect: tuple[float, float, float, float] | None
+    ) -> int: ...
+    def set_annotation_open(self, page_number: int, index: int, xref: int, is_open: bool) -> int: ...
+    def set_annotation_reply(self, page_number: int, index: int, xref: int, target: int | None) -> int: ...
     def read_annotation_geometry(
         self, page_number: int, index: int, xref: int
     ) -> tuple[list[list[tuple[float, float]]] | None, tuple[str, str] | None]: ...
