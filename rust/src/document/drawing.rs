@@ -991,15 +991,11 @@ impl _Document {
                 let font_id = self.doc.add_object(font_dict);
                 fonts.set(format!("PyloS{slot}"), Object::Reference(font_id));
             }
-            let mut states = Dictionary::new();
-            for (slot, state) in graphics_states.iter().enumerate() {
-                let state = state.dictionary();
-                let state_id = self.doc.add_object(state);
-                states.set(format!("PyloG{slot}"), Object::Reference(state_id));
-            }
             // The groups and the composed Form share one resource
-            // dictionary, which lists the groups, so the dictionary and the
-            // groups take the next numbers and are inserted together.
+            // dictionary, which lists the groups and the graphics states,
+            // and a soft mask's state names its group, so the dictionary,
+            // the groups, and the states take the next numbers and are
+            // inserted together.
             let base = self.doc.max_id;
             let resources_id = (
                 base.checked_add(1)
@@ -1008,34 +1004,57 @@ impl _Document {
             );
             let mut shared = Vec::new();
             shared
-                .try_reserve_exact(groups.len() + 1)
+                .try_reserve_exact(groups.len() + graphics_states.len() + 1)
                 .map_err(|error| {
                     PdfError::new_err(format!("failed to allocate canvas groups: {error}"))
                 })?;
+            let mut group_ids = Vec::new();
+            group_ids.try_reserve_exact(groups.len()).map_err(|error| {
+                PdfError::new_err(format!("failed to allocate canvas groups: {error}"))
+            })?;
             let mut next_id = resources_id.0;
-            for (index, (bbox, content)) in groups.into_iter().enumerate() {
+            for (index, group) in groups.into_iter().enumerate() {
                 next_id = next_id
                     .checked_add(1)
                     .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
+                xobjects.set(format!("PyloO{index}"), Object::Reference((next_id, 0)));
+                group_ids.push((next_id, 0));
+                // A soft mask's group names the colour space that a
+                // luminosity mask reads, and hayro reads a soft mask of
+                // either kind only when its group names one.
+                let mut transparency = dictionary! {
+                    "Type" => "Group",
+                    "S" => "Transparency",
+                };
+                if group.mask.is_some() {
+                    transparency.set("CS", "DeviceRGB");
+                }
                 let form = Stream::new(
                     dictionary! {
                         "Type" => "XObject",
                         "Subtype" => "Form",
                         "FormType" => 1,
                         "BBox" => Object::Array(
-                            bbox.iter().map(|&value| Object::Real(value as f32)).collect(),
+                            group.bbox.iter().map(|&value| Object::Real(value as f32)).collect(),
                         ),
-                        "Group" => dictionary! {
-                            "Type" => "Group",
-                            "S" => "Transparency",
-                        },
+                        "Group" => transparency,
                         "Resources" => Object::Reference(resources_id),
                     },
-                    content,
+                    group.content,
                 )
                 .with_compression(false);
-                xobjects.set(format!("PyloO{index}"), Object::Reference((next_id, 0)));
                 shared.push(((next_id, 0), Object::Stream(form)));
+            }
+            let mut states = Dictionary::new();
+            for (slot, state) in graphics_states.iter().enumerate() {
+                next_id = next_id
+                    .checked_add(1)
+                    .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
+                states.set(format!("PyloG{slot}"), Object::Reference((next_id, 0)));
+                shared.push((
+                    (next_id, 0),
+                    Object::Dictionary(state.dictionary(&group_ids)),
+                ));
             }
             let mut resources = Dictionary::new();
             if !xobjects.is_empty() {

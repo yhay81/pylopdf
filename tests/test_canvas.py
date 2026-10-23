@@ -26,6 +26,7 @@ from pylopdf import (
     Matrix,
     MoveTo,
     PathBuilder,
+    SoftMaskType,
     Stroke,
     TextFit,
     TextRenderMode,
@@ -532,6 +533,116 @@ def test_blend_scope_and_alpha_inside_it() -> None:
     assert after.blend_mode is BlendMode.NORMAL
     with page.draw() as canvas, pytest.raises(ValueError, match="BlendMode"):
         canvas.blend("burn")
+
+
+def _rgb(page: pylopdf.Page, x: float, y: float) -> tuple[int, int, int]:
+    return _pixel(page, x, y)
+
+
+def _near(actual: tuple[int, int, int], expected: tuple[int, int, int], tolerance: int = 3) -> bool:
+    return all(abs(a - b) <= tolerance for a, b in zip(actual, expected, strict=True))
+
+
+def test_a_luminosity_mask_shows_drawing_where_the_mask_is_light() -> None:
+    _doc, page = _new_page(300, 100)
+    with page.draw() as canvas, canvas.mask() as mask:
+        canvas.rect((0, 0, 300, 100), fill=RED)
+        mask.rect((0, 0, 100, 100), fill=WHITE)
+        mask.rect((100, 0, 200, 100), fill=Color(0.5, 0.5, 0.5))
+    (red,) = page.content().paths
+    _assert_color(red.fill, RED)
+    assert red.soft_mask is not None
+    assert red.soft_mask.subtype is SoftMaskType.LUMINOSITY
+    assert _near(_rgb(page, 50, 50), (255, 0, 0))
+    assert _near(_rgb(page, 150, 50), (255, 128, 128), tolerance=6)
+    # Nothing shows outside the mask's drawing.
+    assert _near(_rgb(page, 250, 50), (255, 255, 255))
+
+
+def test_an_alpha_mask_reads_the_opacity_of_its_drawing() -> None:
+    _doc, page = _new_page(300, 100)
+    with page.draw() as canvas, canvas.mask(subtype=SoftMaskType.ALPHA) as mask:
+        mask.rect((0, 0, 100, 100), fill=BLACK)
+        mask.rect((100, 0, 200, 100), fill=Color(0, 0, 0, 0.25))
+        canvas.rect((0, 0, 300, 100), fill=BLUE)
+    (blue,) = page.content().paths
+    assert blue.soft_mask is not None
+    assert blue.soft_mask.subtype is SoftMaskType.ALPHA
+    assert _near(_rgb(page, 50, 50), (0, 0, 255))
+    assert _near(_rgb(page, 150, 50), (191, 191, 255), tolerance=6)
+    assert _near(_rgb(page, 250, 50), (255, 255, 255))
+    with page.draw() as canvas, pytest.raises(ValueError, match="SoftMaskType"):
+        canvas.mask(subtype="gray")  # ty: ignore[invalid-argument-type]
+
+
+def test_a_mask_uses_the_user_space_where_its_block_starts(regular: pylopdf.Font) -> None:
+    _doc, page = _new_page(300, 200)
+    with page.draw() as canvas:
+        with canvas.transform(Matrix(1, 0, 0, 1, 100, 0)), canvas.mask() as mask:
+            # Scopes of the page's canvas do not move the mask, and the mask
+            # canvas has scopes of its own.
+            with canvas.transform(Matrix(1, 0, 0, 1, 0, 100)):
+                canvas.rect((0, 0, 100, 100), fill=RED)
+                mask.rect((0, 100, 50, 200), fill=WHITE)
+            with mask.transform(Matrix(1, 0, 0, 1, 0, 0)), mask.opacity(0.5):
+                mask.rect((50, 100, 100, 200), fill=WHITE)
+            mask.text("Mask", (0, 50), font=regular, size=10, fill=WHITE)
+            mask.text("Mask", (0, 80), size=10, fill=WHITE)
+        canvas.rect((0, 0, 10, 10), fill=BLUE)
+    assert _near(_rgb(page, 125, 150), (255, 0, 0))
+    assert _near(_rgb(page, 175, 150), (255, 128, 128), tolerance=6)
+    assert _near(_rgb(page, 5, 5), (0, 0, 255))
+    # The mask's text masks too, but is no text of the page.
+    assert page.text() == ""
+
+
+def test_a_mask_canvas_draws_only_inside_its_block() -> None:
+    _doc, page = _new_page()
+    with page.draw() as canvas:
+        with canvas.mask() as mask:
+            with pytest.raises(ValueError, match="another mask"):
+                mask.mask()
+            with pytest.raises(TypeError, match="written with the canvas"), mask:
+                pass
+            mask.rect((0, 0, 10, 10), fill=WHITE)
+        with pytest.raises(ValueError, match="only inside its mask"):
+            mask.rect((0, 0, 10, 10), fill=WHITE)
+        canvas.rect((0, 0, 10, 10), fill=RED)
+    # An empty mask hides everything that its block draws.
+    with page.draw() as canvas, canvas.mask():
+        canvas.rect((100, 100, 200, 150), fill=RED)
+    assert _near(_rgb(page, 150, 125), (255, 255, 255))
+    assert _near(_rgb(page, 5, 5), (255, 0, 0))
+
+
+def test_a_masked_drawing_survives_a_save() -> None:
+    doc, page = _new_page(200, 100)
+    with page.draw() as canvas, canvas.mask() as mask:
+        mask.circle((100, 50), 40, fill=WHITE)
+        canvas.rect((0, 0, 200, 100), fill=RED)
+    reopened = pylopdf.open(doc.to_bytes()).pages[0]
+    assert bytes(reopened.pixmap()) == bytes(page.pixmap())
+    assert _near(_rgb(reopened, 100, 50), (255, 0, 0))
+    assert _near(_rgb(reopened, 10, 10), (255, 255, 255))
+
+
+def test_a_mask_in_a_new_document(regular: pylopdf.Font) -> None:
+    builder = pylopdf.create(tagged=True)
+    figure = pylopdf.TagRole.FIGURE
+    with builder.page((300, 100)) as canvas, canvas.tag(figure, alt="A masked rectangle"), canvas.mask() as mask:
+        mask.rect((0, 0, 100, 100), fill=WHITE)
+        mask.text("x", (150, 50), font=regular, size=10, fill=WHITE)
+        with pytest.raises(ValueError, match="tag scopes"):
+            mask.tag(pylopdf.TagRole.PARAGRAPH)
+        with pytest.raises(ValueError, match="bookmarks belong"):
+            mask.bookmark("No")
+        canvas.rect((0, 0, 300, 100), fill=RED)
+    page = builder.finish().pages[0]
+    assert _near(_rgb(page, 50, 50), (255, 0, 0))
+    assert _near(_rgb(page, 250, 50), (255, 255, 255))
+    (red,) = page.content().paths
+    # krilla draws the masked content as a transparency group with the mask.
+    assert any(group.soft_mask is not None for group in red.context.groups)
 
 
 def _png(width: int = 4, height: int = 2) -> bytes:

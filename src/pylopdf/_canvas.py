@@ -24,6 +24,7 @@ from pylopdf._content import (
     MoveTo,
     Path,
     Segment,
+    SoftMaskType,
     Stroke,
 )
 from pylopdf._fonts import Font, _regular_instance, _require_winansi, _resolve_generation_font, _textbox_text
@@ -607,8 +608,8 @@ class Canvas:
     face is shaped with HarfRust and embedded as a subset by krilla, once per
     canvas however many calls use it, and a Standard 14 font is written as
     text operators. The scopes :meth:`clip`, :meth:`transform`,
-    :meth:`opacity`, and :meth:`blend` are context managers that apply to
-    everything drawn inside them.
+    :meth:`opacity`, :meth:`blend`, and :meth:`mask` are context managers
+    that apply to everything drawn inside them.
 
     A canvas holds at most 1,048,576 path points, of paths and clips
     together, and nests at most 16 scopes; more raise :class:`LimitError`
@@ -630,7 +631,8 @@ class Canvas:
         self._page: Page | None = page
         self._builder: Builder | None = None
         self._overlay = not underlay
-        self._record = _Canvas(width, height)
+        self._core = _Canvas(width, height)
+        self._target_id = 0
         self._closed = False
 
     @classmethod
@@ -640,9 +642,16 @@ class Canvas:
         canvas._page = None
         canvas._builder = builder
         canvas._overlay = True
-        canvas._record = _Canvas(width, height, new_document=True)
+        canvas._core = _Canvas(width, height, new_document=True)
+        canvas._target_id = 0
         canvas._closed = False
         return canvas
+
+    @property
+    def _record(self) -> _Canvas:
+        """Return the recording, set to record what this canvas draws."""
+        self._core.set_target(self._target_id)
+        return self._core
 
     def _target(self) -> _Document | None:
         """Return the core document of a page canvas, or ``None`` for a new document's page."""
@@ -664,26 +673,26 @@ class Canvas:
             return
         self._closed = True
         if exc_type is not None:
-            self._record.clear()
+            self._core.clear()
             return
         if self._builder is not None:
             try:
-                self._builder._core.add_page(self._record)
+                self._builder._core.add_page(self._core)
             finally:
-                self._record.clear()
+                self._core.clear()
             return
         page = cast("Page", self._page)
         document = page.document
         try:
-            document._doc.commit_canvas(page._page_number(), self._record, self._overlay)
+            document._doc.commit_canvas(page._page_number(), self._core, self._overlay)
         finally:
-            self._record.clear()
+            self._core.clear()
         document._emit_warnings()
 
     def __del__(self) -> None:
         """Warn when drawing is discarded without being written."""
         try:
-            pending = not self._record.is_empty()
+            pending = not self._core.is_empty() and not isinstance(self, _MaskCanvas)
         except AttributeError:
             return
         if pending:
@@ -1016,6 +1025,28 @@ class Canvas:
         code = list(BlendMode).index(blend_mode)
         return _CanvasScope(self._record, lambda: self._record.push_blend(code))
 
+    def mask(self, *, subtype: SoftMaskType = SoftMaskType.LUMINOSITY) -> AbstractContextManager[Canvas]:
+        """Mask what the block draws with what it draws on the mask canvas.
+
+        Entering the block returns a canvas for the mask: what the block
+        draws on this canvas shows where the mask canvas's drawing is light,
+        by its luminosity, or opaque, by its alpha with
+        :attr:`SoftMaskType.ALPHA`, and nowhere outside that drawing, as the
+        :class:`SoftMask` of :meth:`Page.content` items describes it. Both
+        canvases draw in the user space where the block starts, so scopes of
+        this canvas inside the block do not move the mask; the mask canvas
+        has scopes of its own, draws everything but masks, tags, and
+        bookmarks, and draws only inside the block. A mask scope counts
+        toward the canvas's scope depth.
+        """
+        self._check_open()
+        try:
+            mask_subtype = SoftMaskType(subtype)
+        except ValueError as exc:
+            msg = f"subtype must be a SoftMaskType: {subtype!r}"
+            raise ValueError(msg) from exc
+        return _MaskScope(self, alpha=mask_subtype is SoftMaskType.ALPHA)
+
     def bookmark(self, title: str, *, level: int = 1, at: Sequence[float] = (0, 0)) -> None:
         """Add an outline entry of a new document that shows ``at`` on this page.
 
@@ -1125,6 +1156,89 @@ class Canvas:
         finally:
             for scope in reversed(entered):
                 scope.__exit__(None, None, None)
+
+
+class _MaskScope(AbstractContextManager["Canvas"]):
+    """A mask scope, whose block draws its mask on the canvas it returns."""
+
+    __slots__ = ("_alpha", "_canvas", "_depth")
+
+    def __init__(self, canvas: Canvas, *, alpha: bool) -> None:
+        self._canvas = canvas
+        self._alpha = alpha
+        self._depth: int | None = None
+
+    def __enter__(self) -> Canvas:
+        if self._depth is not None:
+            msg = "a canvas scope can be entered once"
+            raise ValueError(msg)
+        self._depth, target = self._canvas._record.push_mask(self._alpha)
+        return _MaskCanvas._open(self._canvas, target)
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        if self._depth is not None:
+            self._canvas._core.pop(self._depth)
+
+
+class _MaskCanvas(Canvas):
+    """The canvas of a mask scope: what it draws is the mask, not the page."""
+
+    _parent: Canvas
+
+    @classmethod
+    def _open(cls, parent: Canvas, target: int) -> _MaskCanvas:
+        canvas = cls.__new__(cls)
+        canvas._page = parent._page
+        canvas._builder = parent._builder
+        canvas._overlay = parent._overlay
+        canvas._core = parent._core
+        canvas._target_id = target
+        canvas._closed = False
+        canvas._parent = parent
+        return canvas
+
+    def _check_open(self) -> None:
+        self._parent._check_open()
+
+    def __enter__(self) -> Self:
+        msg = "a mask canvas is written with the canvas whose mask() block returned it"
+        raise TypeError(msg)
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return
+
+    def mask(self, *, subtype: SoftMaskType = SoftMaskType.LUMINOSITY) -> AbstractContextManager[Canvas]:  # noqa: ARG002 - the signature of Canvas.mask.
+        """Refuse a mask inside a mask."""
+        msg = "a mask canvas cannot open another mask"
+        raise ValueError(msg)
+
+    def tag(
+        self,
+        role: TagRole | str,  # noqa: ARG002
+        *,
+        alt: str | None = None,  # noqa: ARG002
+        lang: str | None = None,  # noqa: ARG002
+        title: str | None = None,  # noqa: ARG002
+        actual_text: str | None = None,  # noqa: ARG002
+    ) -> AbstractContextManager[None]:
+        """Refuse a tag scope, since a mask is no content of the structure tree."""
+        msg = "a mask canvas cannot open tag scopes"
+        raise ValueError(msg)
+
+    def bookmark(self, title: str, *, level: int = 1, at: Sequence[float] = (0, 0)) -> None:  # noqa: ARG002 - the signature of Canvas.bookmark.
+        """Refuse a bookmark, which belongs to the page's canvas."""
+        msg = "bookmarks belong to the page's canvas, not to a mask canvas"
+        raise ValueError(msg)
 
 
 # The package re-exports these classes; reprs, pickles, and documentation name them.

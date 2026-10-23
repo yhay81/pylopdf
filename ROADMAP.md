@@ -315,12 +315,14 @@ Workstream Writing.
   geometry, `rect`, `line`, `circle`, `ellipse`, `polygon`, and `bezier`;
   `text` and `textbox` with shaping, wrapping, alignment, and subset-embedded
   fonts; `image`; `page`, which places another page; the scoped states
-  `clip`, `transform`, `opacity`, and `blend` (all done), then `mask`,
-  `layer`, and `tag`; and `draw(item)`, which paints a content item again
-  (done for paths). `textbox` places lines as `text` does, and
-  `Font.text_height` measures the height it needs before drawing, and
-  `rotate` turns text clockwise in right angles, and `page` takes a `clip`
-  and a `rotate` (all done).
+  `clip`, `transform`, `opacity`, `blend`, and `mask` (all done), then
+  `layer`, and `tag` on pages of open documents, which need the
+  optional-content groups and the structure-tree maintenance of
+  [Structure](#structure); and `draw(item)`, which paints a content item
+  again (done for paths). `textbox` places lines as `text` does,
+  `Font.text_height` measures the height it needs before drawing, `rotate`
+  turns text clockwise in right angles, and `page` takes a `clip` and a
+  `rotate` (all done).
 - One commit places one Form XObject whose content pylopdf composes in
   display space (done). Paths, clips, transforms, and blend modes are
   operators; an opacity scope is a transparency group Form; text in an

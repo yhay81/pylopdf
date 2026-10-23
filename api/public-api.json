@@ -1126,6 +1126,24 @@
             "returns": "None"
           }
         },
+        "mask": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "SoftMaskType",
+                "default": "luminosity",
+                "kind": "keyword_only",
+                "name": "subtype"
+              }
+            ],
+            "returns": "AbstractContextManager[Canvas]"
+          }
+        },
         "opacity": {
           "kind": "method",
           "signature": {
