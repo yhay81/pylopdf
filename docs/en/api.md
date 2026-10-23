@@ -603,7 +603,7 @@ with page.draw() as canvas:
     canvas.textbox((48, y + 8, 348, y + 8 + height), note, font=font, size=10.5)
 ```
 
-Four context managers apply to everything drawn inside them, and nest:
+Five context managers apply to everything drawn inside them, and nest:
 
 | Scope | Effect |
 |---|---|
@@ -611,6 +611,19 @@ Four context managers apply to everything drawn inside them, and nest:
 | `transform(matrix)` | Transforms the drawing; nested transforms apply innermost first |
 | `opacity(alpha)` | Composites the drawing as one group, then paints it at `alpha` |
 | `blend(mode)` | Blends the drawing with what is below it, with a `BlendMode` |
+| `mask(*, subtype=SoftMaskType.LUMINOSITY)` | Returns a canvas for the mask: the drawing shows where the mask's drawing is light, or, with `SoftMaskType.ALPHA`, opaque |
+
+```python
+with page.draw() as canvas, canvas.mask() as mask:
+    mask.rect(page.rect, fill=Color(1, 1, 1))           # white shows the drawing
+    mask.circle((300, 400), 120, fill=Color(0, 0, 0))   # black hides it
+    canvas.image(page.rect, "photo.jpg")
+```
+
+The mask canvas draws in the user space where the `mask()` block starts, has
+scopes of its own, and draws only inside the block; scopes of the page's
+canvas inside the block do not move the mask. Nothing shows outside the
+mask's drawing, so an empty mask hides the block's drawing.
 
 `page.draw(underlay=True)` writes below the page's existing content. An image
 or page that a canvas draws several times, or that the document placed

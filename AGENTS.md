@@ -2070,7 +2070,16 @@ the concept and API overview.
   toward the scope depth, turning clockwise about the first baseline's start,
   or, for a textbox, mapping a box at the origin whose sides follow the
   turned lines onto the rectangle; both backends draw that transform as any
-  other. A placed page is drawn in display space through `page_placement`:
+  other. A mask scope (`Canvas.mask`) records a `Push(Mask)` and gives the
+  mask its own target: every operation carries the target it draws into, 0
+  for the page or the mask's number, and the Python mask canvas sets its
+  target before each call. `compose` keeps one sink per target, each with
+  its open opacity groups and transform, and runs of embedded text never
+  cross targets; the mask's sink becomes a group Form with `/CS
+  /DeviceRGB`, which hayro needs to read a soft mask of either subtype, that
+  the scope's ExtGState names as `/SMask`, and `draw_on` replays the mask's
+  operations onto a krilla stream builder for `push_mask`. A placed page is
+  drawn in display space through `page_placement`:
   the Form's PDF space maps to the source page's display space, the shown
   part (`clip` cut to the page at recording, or the whole page) turns
   clockwise about its centre and scales into `rect`, and a clip adds a

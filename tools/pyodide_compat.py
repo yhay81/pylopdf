@@ -1419,7 +1419,18 @@ def _canvas_results(root: Path) -> dict[str, Any]:
         fit = canvas.textbox((10, 140, 140, 190), "Wrapped text " * 20, size=8)
         height = font.text_height(_JAPANESE * 3, 10, width=60)
         exact = canvas.textbox((150, 100, 210, 100 + height), _JAPANESE * 3, font=font, size=10)
+        with canvas.mask() as mask:
+            mask.rect((250, 0, 275, 50), fill=Color(1, 1, 1))
+            canvas.rect((250, 0, 300, 50), fill=Color(0, 0, 1))
     _require(not fit.fits, "the overflowing textbox drew")
+    pixmap = page.pixmap()
+    samples = bytes(pixmap)
+
+    def blue(x: int, y: int) -> bool:
+        offset = y * pixmap.stride + x * 3
+        return samples[offset : offset + 3] == b"\x00\x00\xff"
+
+    _require(blue(262, 25) and not blue(287, 25), "a mask scope did not mask its drawing")
     _require(exact.spare_height == 0, "a textbox of the measured height did not fit exactly")
     content = page.content()
     return {
@@ -1430,6 +1441,7 @@ def _canvas_results(root: Path) -> dict[str, Any]:
         "text": _digest(page.text()),
         "spare_height": round(fit.spare_height, 2),
         "text_height": round(height, 3),
+        "mask": [str(item.soft_mask.subtype) for item in content.paths if item.soft_mask is not None],
     }
 
 
