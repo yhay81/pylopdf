@@ -52,7 +52,7 @@ pub(crate) fn draws(subtype: &[u8]) -> bool {
         subtype,
         b"Square" | b"Circle" | b"Line" | b"Polygon" | b"PolyLine" | b"Ink"
     ) || is_text_markup(subtype)
-        || matches!(subtype, b"Text" | b"FreeText")
+        || matches!(subtype, b"Text" | b"FreeText" | b"Stamp" | b"Caret")
 }
 
 /// Whether `subtype` is text markup, which `/QuadPoints` place.
@@ -252,7 +252,7 @@ pub(crate) fn appearance_with(
         return Ok(None);
     }
     let points = match subtype {
-        b"Square" | b"Circle" | b"Text" | b"FreeText" => Vec::new(),
+        b"Square" | b"Circle" | b"Text" | b"FreeText" | b"Stamp" | b"Caret" => Vec::new(),
         _ => match point_lists(doc, dict, subtype) {
             Some(points) => points,
             None => return Ok(None),
@@ -285,7 +285,17 @@ pub(crate) fn appearance_with(
     if !(x1 >= x0 && y1 >= y0) {
         return Ok(None);
     }
-    let size = (x1 - x0, y1 - y0);
+    // A stamp or caret turns counterclockwise by /Rotate inside /Rect.
+    let turn = if matches!(subtype, b"Stamp" | b"Caret") {
+        rotation(doc, dict)
+    } else {
+        0
+    };
+    let size = if turn % 180 == 0 {
+        (x1 - x0, y1 - y0)
+    } else {
+        (y1 - y0, x1 - x0)
+    };
     let mut canvas = _Canvas::new(size.0, size.1, false)?;
     let Some(paint) = Paint::of(doc, dict) else {
         return Ok(None);
@@ -344,6 +354,40 @@ pub(crate) fn appearance_with(
                     coordinates,
                     fill,
                     stroke,
+                )?;
+            }
+        }
+        b"Stamp" => {
+            let icon = entry(doc, dict, b"Name")
+                .and_then(|value| value.as_name().ok())
+                .unwrap_or(b"Draft");
+            draw_stamp(&mut canvas, &mut drawn, &paint, icon, size)?;
+        }
+        b"Caret" => {
+            if let Some((red, green, blue)) = paint.stroke {
+                let (w, h) = size;
+                add_path(
+                    &mut canvas,
+                    &mut drawn,
+                    "mcch",
+                    vec![
+                        0.0,
+                        h,
+                        w * 0.25,
+                        h * 0.9,
+                        w * 0.45,
+                        h * 0.3,
+                        w / 2.0,
+                        0.0,
+                        w * 0.55,
+                        h * 0.3,
+                        w * 0.75,
+                        h * 0.9,
+                        w,
+                        h,
+                    ],
+                    Some(((red, green, blue, paint.alpha), false)),
+                    None,
                 )?;
             }
         }
@@ -467,7 +511,7 @@ pub(crate) fn appearance_with(
     }
     Ok(Some(Appearance {
         canvas,
-        matrix: [1.0, 0.0, 0.0, 1.0, x0, y0],
+        matrix: turned_matrix(turn, size, [x0, y0]),
         rect,
         points: drawn,
         fits,
@@ -740,6 +784,137 @@ fn draw_free_text(
             turn,
         )?;
         Ok(spare >= 0.0)
+    })
+}
+
+/// The matrix that turns a composed canvas of `size` counterclockwise by
+/// `turn` degrees and moves its bounds to `origin`.
+fn turned_matrix(turn: i64, size: (f64, f64), origin: [f64; 2]) -> [f64; 6] {
+    let (w, h) = size;
+    let (a, b, c, d, e, f) = match turn {
+        90 => (0.0, 1.0, -1.0, 0.0, h, 0.0),
+        180 => (-1.0, 0.0, 0.0, -1.0, w, h),
+        270 => (0.0, -1.0, 1.0, 0.0, 0.0, w),
+        _ => (1.0, 0.0, 0.0, 1.0, 0.0, 0.0),
+    };
+    [a, b, c, d, e + origin[0], f + origin[1]]
+}
+
+/// The stamps of ISO 32000-2 §12.5.6.12 by `/Name`, with the label and the
+/// colour that the engine draws each in: green for approval, red for
+/// restriction, and blue for the rest.
+pub(crate) const STAMPS: [(&str, &str, (f64, f64, f64)); 14] = [
+    ("Approved", "APPROVED", GREEN),
+    ("AsIs", "AS IS", BLUE),
+    ("Confidential", "CONFIDENTIAL", RED),
+    ("Departmental", "DEPARTMENTAL", BLUE),
+    ("Experimental", "EXPERIMENTAL", BLUE),
+    ("Expired", "EXPIRED", RED),
+    ("Final", "FINAL", GREEN),
+    ("ForComment", "FOR COMMENT", BLUE),
+    ("ForPublicRelease", "FOR PUBLIC RELEASE", GREEN),
+    ("NotApproved", "NOT APPROVED", RED),
+    ("NotForPublicRelease", "NOT FOR PUBLIC RELEASE", RED),
+    ("Sold", "SOLD", BLUE),
+    ("TopSecret", "TOP SECRET", RED),
+    ("Draft", "DRAFT", RED),
+];
+const GREEN: (f64, f64, f64) = (0.0, 0.5, 0.0);
+const RED: (f64, f64, f64) = (0.8, 0.0, 0.0);
+const BLUE: (f64, f64, f64) = (0.0, 0.0, 0.6);
+
+/// Draw a stamp: its label in Helvetica-Bold, as large as fits, centred in
+/// a rounded frame, both in `/C` or the stamp's own colour. An unknown name
+/// draws itself as the label.
+fn draw_stamp(
+    canvas: &mut _Canvas,
+    drawn: &mut usize,
+    paint: &Paint,
+    icon: &[u8],
+    size: (f64, f64),
+) -> PyResult<()> {
+    let name = String::from_utf8_lossy(icon);
+    let (label, own) = STAMPS
+        .iter()
+        .find(|(known, _, _)| *known == name)
+        .map_or_else(
+            || (name.to_uppercase(), RED),
+            |(_, label, color)| ((*label).to_owned(), *color),
+        );
+    let (red, green, blue) = paint.stroke.unwrap_or(own);
+    let color = (red, green, blue, paint.alpha);
+    let (w, h) = size;
+    let frame = (w.min(h) / 12.0).max(0.5);
+    let radius = (w.min(h) / 6.0).max(frame);
+    let (a0, b0, a1, b1) = (frame / 2.0, frame / 2.0, w - frame / 2.0, h - frame / 2.0);
+    if a1 - a0 > 2.0 * radius && b1 - b0 > 2.0 * radius {
+        let k = radius * (1.0 - KAPPA);
+        add_path(
+            canvas,
+            drawn,
+            "mlclclclch",
+            vec![
+                a0 + radius,
+                b0,
+                a1 - radius,
+                b0,
+                a1 - k,
+                b0,
+                a1,
+                b0 + k,
+                a1,
+                b0 + radius,
+                a1,
+                b1 - radius,
+                a1,
+                b1 - k,
+                a1 - k,
+                b1,
+                a1 - radius,
+                b1,
+                a0 + radius,
+                b1,
+                a0 + k,
+                b1,
+                a0,
+                b1 - k,
+                a0,
+                b1 - radius,
+                a0,
+                b0 + radius,
+                a0,
+                b0 + k,
+                a0 + k,
+                b0,
+                a0 + radius,
+                b0,
+            ],
+            None,
+            Some((color, frame, 0, 0, 10.0, Vec::new(), 0.0)),
+        )?;
+    }
+    let font = pdf_base14_metrics::Base14Font::HelveticaBold;
+    let unit = crate::draw::standard_text_width(&label, font, 1.0).unwrap_or(0.0);
+    let room = (w - 4.0 * frame, h - 4.0 * frame);
+    if unit <= 0.0 || room.0 <= 0.0 || room.1 <= 0.0 {
+        return Ok(());
+    }
+    let text_size = (room.1 * 0.7).min(room.0 / unit);
+    let width = unit * text_size;
+    Python::attach(|py| -> PyResult<()> {
+        let face = Bound::new(py, _Font::standard("Helvetica-Bold")?)?;
+        canvas.add_text(
+            py,
+            ((w - width) / 2.0, h / 2.0 + text_size * 0.36),
+            vec![label],
+            &face,
+            text_size,
+            None,
+            Some(color),
+            None,
+            Some(crate::document::DEFAULT_MAX_GENERATED_TEXT_SIZE),
+            0,
+        )
     })
 }
 

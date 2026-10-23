@@ -794,9 +794,11 @@ const NOTE_ICONS: [&str; 7] = [
 ];
 
 /// The subtypes that `add_annotation` creates.
-const CREATED_SUBTYPES: [&str; 12] = [
+const CREATED_SUBTYPES: [&str; 14] = [
     "Text",
     "FreeText",
+    "Stamp",
+    "Caret",
     "Square",
     "Circle",
     "Line",
@@ -906,7 +908,10 @@ fn annotation_dictionary(
         }
         geometry.set("QuadPoints", Object::Array(quad_points));
         bounds
-    } else if matches!(subtype, "Square" | "Circle" | "Text" | "FreeText") {
+    } else if matches!(
+        subtype,
+        "Square" | "Circle" | "Text" | "FreeText" | "Stamp" | "Caret"
+    ) {
         let Some((x0, y0, x1, y1)) = spec.rect.filter(|_| spec.points.is_none()) else {
             return Err(PdfError::new_err(format!(
                 "a {subtype} annotation takes a rectangle"
@@ -1094,21 +1099,50 @@ fn annotation_dictionary(
         || spec.font_name.is_some()
         || spec.align.is_some()
         || spec.font.is_some()
-        || spec.rotate.is_some()
         || spec.callout.is_some()
         || spec.callout_ending.is_some();
-    if free_text != (subtype == "FreeText") {
+    if free_text && subtype != "FreeText" {
         return Err(PdfError::new_err(format!(
             "text style and callouts belong to free text, not a {subtype} annotation"
         )));
     }
+    if spec.rotate.is_some() && !matches!(subtype, "FreeText" | "Stamp") {
+        return Err(PdfError::new_err(format!(
+            "a {subtype} annotation does not turn"
+        )));
+    }
+    let turn = spec.rotate.unwrap_or(0);
+    if turn % 90 != 0 {
+        return Err(PdfError::new_err(
+            "an annotation turns by a multiple of 90 degrees",
+        ));
+    }
+    // Display turns are clockwise; /Rotate turns counterclockwise in user
+    // space, which the page then turns clockwise by its own rotation.
+    let user_turn = (rotation - turn).rem_euclid(360);
+    // A caret points up as the page is displayed.
+    if matches!(subtype, "FreeText" | "Stamp" | "Caret") && user_turn != 0 {
+        dict.set("Rotate", user_turn);
+    }
     if subtype == "FreeText" {
         free_text_entries(spec, (crop, rotation), &mut dict)?;
     }
-    if (spec.icon.is_some() || spec.open.is_some()) && subtype != "Text" {
+    if spec.open.is_some() && subtype != "Text"
+        || spec.icon.is_some() && !matches!(subtype, "Text" | "Stamp")
+    {
         return Err(PdfError::new_err(format!(
-            "an icon and an open state belong to a note, not a {subtype} annotation"
+            "an icon belongs to a note or a stamp, and an open state to a note, not a {subtype} annotation"
         )));
+    }
+    if subtype == "Stamp" {
+        let icon = spec.icon.as_deref().unwrap_or("Approved");
+        if !annotation_appearance::STAMPS
+            .iter()
+            .any(|(name, _, _)| *name == icon)
+        {
+            return Err(PdfError::new_err(format!("unknown stamp {icon:?}")));
+        }
+        dict.set("Name", Object::Name(icon.as_bytes().to_vec()));
     }
     if subtype == "Text" {
         let icon = spec.icon.as_deref().unwrap_or("Note");
@@ -1185,18 +1219,6 @@ fn free_text_entries(
         ));
     }
     dict.set("Q", i64::from(align));
-    let turn = spec.rotate.unwrap_or(0);
-    if turn % 90 != 0 {
-        return Err(PdfError::new_err(
-            "free text turns by a multiple of 90 degrees",
-        ));
-    }
-    // Display turns are clockwise; /Rotate turns counterclockwise in user
-    // space, which the page then turns clockwise by its own rotation.
-    let user_turn = (rotation - turn).rem_euclid(360);
-    if user_turn != 0 {
-        dict.set("Rotate", user_turn);
-    }
     let Some(points) = &spec.callout else {
         if spec.callout_ending.is_some() {
             return Err(PdfError::new_err("a callout ending needs a callout line"));

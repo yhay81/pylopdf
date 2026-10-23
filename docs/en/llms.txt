@@ -257,6 +257,7 @@ replacement, and the migration hint):
 - PDF_PERM_* -> Permissions: PDF_PERM_PRINT is Permissions.PRINT, and so on.
 - PDF_TX_FIELD_IS_* -> FieldFlags: Text field flags such as PDF_TX_FIELD_IS_MULTILINE and PDF_TX_FIELD_IS_COMB are FieldFlags members such as FieldFlags.MULTILINE and COMB.
 - PDF_WIDGET_TYPE_* -> FieldType: doc.form[name].type is a FieldType member: TEXT, CHECKBOX, RADIO, PUSHBUTTON, COMBOBOX, LISTBOX, SIGNATURE, or UNKNOWN.
+- Page.add_caret_annot -> Annotations.add: page.annotations.add(Caret(point)) adds a caret in a 20-point square and returns its Annotation.
 - Page.add_circle_annot -> Annotations.add: page.annotations.add(Circle(rect, color=..., interior_color=..., border=Border(...))) adds an ellipse with its appearance and returns its Annotation.
 - Page.add_freetext_annot -> Annotations.add: page.annotations.add(FreeText(rect, text, size=..., text_color=Color(...), color=fill, align='left', rotate=..., callout=[...])) adds free text with its appearance and returns its Annotation.
 - Page.add_highlight_annot -> Annotations.add: page.annotations.add(Highlight(quads)) adds a highlight and returns its Annotation; color is a Color and content becomes contents.
@@ -266,6 +267,7 @@ replacement, and the migration hint):
 - Page.add_polyline_annot -> Annotations.add: page.annotations.add(PolyLine(points, ...)) adds an open polyline with its appearance and returns its Annotation.
 - Page.add_rect_annot -> Annotations.add: page.annotations.add(Square(rect, color=..., interior_color=..., border=Border(...))) adds a rectangle with its appearance and returns its Annotation.
 - Page.add_squiggly_annot -> Annotations.add: page.annotations.add(Squiggly(quads)) adds a squiggly underline with its appearance and returns its Annotation; color is a Color and content becomes contents.
+- Page.add_stamp_annot -> Annotations.add: page.annotations.add(Stamp(rect, icon=StampIcon.APPROVED, rotate=...)) adds a stamp with its appearance and returns its Annotation.
 - Page.add_strikeout_annot -> Annotations.add: page.annotations.add(StrikeOut(quads)) adds a strikeout with its appearance and returns its Annotation; color is a Color and content becomes contents.
 - Page.add_text_annot -> Annotations.add: page.annotations.add(Note(point, contents=text, icon=NoteIcon.NOTE)) adds a note with its 20-point icon and returns its Annotation.
 - Page.add_underline_annot -> Annotations.add: page.annotations.add(Underline(quads)) adds an underline with its appearance and returns its Annotation; color is a Color and content becomes contents.
@@ -350,6 +352,7 @@ replacement, and the migration hint):
 - Rect.intersect -> Rect.__and__: Use r & other, which returns a new Rect.
 - Rect.normalize -> Rect.normalized: Use r.normalized(), which returns a new Rect.
 - Rect.transform -> Rect.__mul__: Use r * m, which returns a new Rect.
+- STAMP_* -> StampIcon: Stamps such as STAMP_Approved are StampIcon members such as StampIcon.APPROVED, in the same order.
 - Shape -> Canvas: page.draw() returns a Canvas, a context manager that draws paths, text, images, and pages in the order of the calls and writes them as one Form XObject when its with block ends.
 - Shape.commit -> Canvas: The canvas's with block writes the drawing when it ends; page.draw(underlay=True) writes it below the page's content.
 - Shape.draw_bezier -> Canvas.bezier: canvas.bezier(p1, p2, p3, p4, stroke=...), or canvas.path(PathBuilder()...) for a closed or filled curve.

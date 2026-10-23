@@ -72,6 +72,18 @@ MODULE_MEMBER_RENAMES = {
     "PDF_ANNOT_3D": "AnnotationType.THREE_D",
     **{f"PDF_ANNOT_IS_{member.name}": f"AnnotationFlags.{member.name}" for member in pylopdf.AnnotationFlags},
     **{f"PDF_PERM_{member.name}": f"Permissions.{member.name}" for member in pylopdf.Permissions},
+    **{
+        f"STAMP_{''.join(part.capitalize() for part in member.name.split('_'))}": f"StampIcon.{member.name}"
+        for member in pylopdf.StampIcon
+    },
+    **{
+        f"PDF_ANNOT_LE_{member.name.replace('REVERSED_', 'R_')}": f"LineEnding.{member.name}"
+        for member in pylopdf.LineEnding
+    },
+    **{
+        f"PDF_BM_{''.join(part.capitalize() for part in member.name.split('_'))}": f"BlendMode.{member.name}"
+        for member in pylopdf.BlendMode
+    },
     "Identity": "Matrix.IDENTITY",
     "planish_line": "Matrix.planish",
     "FZ_MIN_INF_RECT": "Rect.INFINITE.x0",
@@ -1395,6 +1407,45 @@ def _add_freetext_annot(migrator: _Migrator, receiver: str, args: _Arguments) ->
     return f"{receiver}.annotations.add({free_text}({', '.join(arguments)}))"
 
 
+#: The StampIcon member of each of pymupdf's STAMP_* codes, in their order.
+_STAMP_ICONS = (
+    "APPROVED",
+    "AS_IS",
+    "CONFIDENTIAL",
+    "DEPARTMENTAL",
+    "EXPERIMENTAL",
+    "EXPIRED",
+    "FINAL",
+    "FOR_COMMENT",
+    "FOR_PUBLIC_RELEASE",
+    "NOT_APPROVED",
+    "NOT_FOR_PUBLIC_RELEASE",
+    "SOLD",
+    "TOP_SECRET",
+    "DRAFT",
+)
+
+
+def _add_stamp_annot(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``add_stamp_annot(rect, stamp=N)`` to ``annotations.add(Stamp(...))``."""
+    bound = args.bind(("rect", "stamp"))
+    stamp = migrator.class_name("Stamp")
+    if bound is None or "rect" not in bound or stamp is None:
+        return None
+    arguments = [bound["rect"]]
+    if "stamp" in bound:
+        code = bound["stamp"].rsplit(".", 1)[-1]
+        if code in _STAMP_ICONS:
+            code = f"STAMP_{''.join(part.capitalize() for part in code.split('_'))}"
+        names = {f"STAMP_{''.join(part.capitalize() for part in member.split('_'))}": member for member in _STAMP_ICONS}
+        member = _STAMP_ICONS[int(code)] if code.isdigit() and int(code) < len(_STAMP_ICONS) else names.get(code)
+        icons = migrator.class_name("StampIcon")
+        if member is None or icons is None:
+            return None
+        arguments.append(f"icon={icons}.{member}")
+    return f"{receiver}.annotations.add({stamp}({', '.join(arguments)}))"
+
+
 def _delete_annot(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     """Rewrite ``delete_annot(annot)`` as a statement to ``del`` of its index."""
     bound = args.bind(("annot",))
@@ -1681,6 +1732,8 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "add_strikeout_annot": _add_text_markup_annot("StrikeOut"),
     "add_squiggly_annot": _add_text_markup_annot("Squiggly"),
     "add_text_annot": _add_text_annot,
+    "add_stamp_annot": _add_stamp_annot,
+    "add_caret_annot": _add_shape_annot("Caret", ("point",)),
     "add_freetext_annot": _add_freetext_annot,
     "add_rect_annot": _add_shape_annot("Square"),
     "add_circle_annot": _add_shape_annot("Circle"),

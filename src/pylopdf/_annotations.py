@@ -255,6 +255,29 @@ _NOTE_ICON_NAMES = {icon: "".join(part.capitalize() for part in icon.value.split
 _NOTE_SIZE = 20.0
 
 
+class StampIcon(enum.StrEnum):
+    """The stamps of ISO 32000-2 §12.5.6.12, ``/Name``; pymupdf's ``STAMP_*`` codes in their order."""
+
+    APPROVED = "approved"
+    AS_IS = "as_is"
+    CONFIDENTIAL = "confidential"
+    DEPARTMENTAL = "departmental"
+    EXPERIMENTAL = "experimental"
+    EXPIRED = "expired"
+    FINAL = "final"
+    FOR_COMMENT = "for_comment"
+    FOR_PUBLIC_RELEASE = "for_public_release"
+    NOT_APPROVED = "not_approved"
+    NOT_FOR_PUBLIC_RELEASE = "not_for_public_release"
+    SOLD = "sold"
+    TOP_SECRET = "top_secret"  # noqa: S105 - a stamp's name, not a password.
+    DRAFT = "draft"
+
+
+#: The ``/Name`` of each stamp.
+_STAMP_NAMES = {icon: "".join(part.capitalize() for part in icon.value.split("_")) for icon in StampIcon}
+
+
 #: The PDF name of each blend mode, such as ``ColorDodge``.
 _BLEND_MODE_NAMES: dict[BlendMode, str] = {
     mode: "".join(part.capitalize() for part in mode.value.split("_")) for mode in BlendMode
@@ -971,6 +994,112 @@ class Note:
         }
 
 
+@dataclass(frozen=True, slots=True, init=False)
+class Stamp:
+    """A rubber stamp, as ``page.annotations.add`` takes it.
+
+    ``rect`` is in display coordinates; the stamp's label is drawn as large
+    as fits, centred in a rounded frame, in ``color`` or the stamp's own
+    color (green for approval, red for restriction, blue for the rest), and
+    ``rotate`` turns it clockwise by a multiple of 90 degrees as the page is
+    displayed.
+    """
+
+    rect: Rect
+    icon: StampIcon
+    color: Color | None
+    opacity: float
+    rotate: int
+    contents: str | None
+
+    def __init__(  # noqa: PLR0913 - the stamp's options.
+        self,
+        rect: Sequence[float],
+        *,
+        icon: StampIcon = StampIcon.APPROVED,
+        color: Color | None = None,
+        opacity: float = 1.0,
+        rotate: int = 0,
+        contents: str | None = None,
+    ) -> None:
+        """Validate the specification."""
+        contents = _contents(contents)
+        _validate_cumulative_utf8_input(
+            ("Stamp", "" if contents is None else contents, _DATE_PLACEHOLDER, _DATE_PLACEHOLDER),
+            _MAX_ANNOTATION_INPUT_TEXT_SIZE,
+            limit_code="annotation_input_size",
+            input_label="annotation subtype and contents input",
+        )
+        if isinstance(rotate, bool) or not isinstance(rotate, int) or rotate % 90:
+            msg = f"rotate must be a multiple of 90: {rotate!r}"
+            raise ValueError(msg)
+        object.__setattr__(self, "rect", Rect(*_validate_rect(rect)))
+        object.__setattr__(self, "icon", StampIcon(icon))
+        object.__setattr__(self, "color", _optional_color(color, "color"))
+        object.__setattr__(self, "opacity", _opacity(opacity))
+        object.__setattr__(self, "rotate", rotate % 360)
+        object.__setattr__(self, "contents", contents)
+
+    def _payload(self) -> dict[str, Any]:
+        return {
+            "subtype": "Stamp",
+            "rect": tuple(self.rect),
+            "icon": _STAMP_NAMES[self.icon],
+            "color": None if self.color is None else self.color.rgb,
+            "opacity": self.opacity,
+            "rotate": self.rotate,
+            "contents": self.contents,
+            "created": _now(),
+        }
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Caret:
+    """A caret that marks where text goes, as ``page.annotations.add`` takes it.
+
+    ``at`` is the display point of the top-left corner of its 20-point
+    square; ``color`` fills the caret, and ``contents`` is the text to
+    insert.
+    """
+
+    at: Point
+    color: Color
+    opacity: float
+    contents: str | None
+
+    def __init__(
+        self,
+        at: Point | Sequence[float],
+        *,
+        color: Color = Color(0.0, 0.0, 1.0),  # noqa: B008 - Color is immutable.
+        opacity: float = 1.0,
+        contents: str | None = None,
+    ) -> None:
+        """Validate the specification."""
+        contents = _contents(contents)
+        _validate_cumulative_utf8_input(
+            ("Caret", "" if contents is None else contents, _DATE_PLACEHOLDER, _DATE_PLACEHOLDER),
+            _MAX_ANNOTATION_INPUT_TEXT_SIZE,
+            limit_code="annotation_input_size",
+            input_label="annotation subtype and contents input",
+        )
+        object.__setattr__(self, "at", Point(*_point(at)))
+        object.__setattr__(self, "color", _opaque_color(color))
+        object.__setattr__(self, "opacity", _opacity(opacity))
+        object.__setattr__(self, "contents", contents)
+
+    def _payload(self) -> dict[str, Any]:
+        x, y = self.at
+        return {
+            "subtype": "Caret",
+            "rect": (x, y, x + _NOTE_SIZE, y + _NOTE_SIZE),
+            "color": self.color.rgb,
+            "opacity": self.opacity,
+            "contents": self.contents,
+            "created": _now(),
+        }
+
+
 #: The ``/Q`` code of each free-text alignment.
 _FREE_TEXT_ALIGNMENTS = ("left", "center", "right")
 
@@ -1332,6 +1461,8 @@ AnnotationSpecification: TypeAlias = (
     | Squiggly
     | Note
     | FreeText
+    | Stamp
+    | Caret
     | Square
     | Circle
     | LineAnnotation
@@ -1346,6 +1477,8 @@ _SPECIFICATIONS = (
     Squiggly,
     Note,
     FreeText,
+    Stamp,
+    Caret,
     Square,
     Circle,
     LineAnnotation,
@@ -1427,6 +1560,7 @@ for _public in (
     AnnotationFlags,
     Border,
     BorderStyle,
+    Caret,
     Circle,
     FreeText,
     Highlight,
@@ -1439,6 +1573,8 @@ for _public in (
     PolyLine,
     Square,
     Squiggly,
+    Stamp,
+    StampIcon,
     StrikeOut,
     Underline,
 ):

@@ -426,6 +426,22 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "import fitz\npage.add_freetext_annot(r, 'hi', fontsize=9, fill_color=(1, 1, 0))\n",
             "page.annotations.add(pylopdf.FreeText(r, 'hi', size=9, color=pylopdf.Color(1, 1, 0)))",
         ),
+        ("import fitz\npage.add_stamp_annot(r)\n", "page.annotations.add(pylopdf.Stamp(r))"),
+        (
+            "import fitz\npage.add_stamp_annot(r, stamp=fitz.STAMP_TopSecret)\n",
+            "page.annotations.add(pylopdf.Stamp(r, icon=pylopdf.StampIcon.TOP_SECRET))",
+        ),
+        (
+            "import fitz\npage.add_stamp_annot(r, 13)\n",
+            "page.annotations.add(pylopdf.Stamp(r, icon=pylopdf.StampIcon.DRAFT))",
+        ),
+        ("import fitz\npage.add_caret_annot(p)\n", "page.annotations.add(pylopdf.Caret(p))"),
+        (
+            "import fitz\nending = fitz.PDF_ANNOT_LE_R_CLOSED_ARROW\n",
+            "ending = pylopdf.LineEnding.REVERSED_CLOSED_ARROW",
+        ),
+        ("import fitz\nmode = fitz.PDF_BM_ColorDodge\n", "mode = pylopdf.BlendMode.COLOR_DODGE"),
+        ("import fitz\nicon = fitz.STAMP_NotForPublicRelease\n", "icon = pylopdf.StampIcon.NOT_FOR_PUBLIC_RELEASE"),
         ("import fitz\nannot = page.add_rect_annot(r)\n", "annot = page.annotations.add(pylopdf.Square(r))"),
         ("import fitz\nannot = page.add_circle_annot(rect=r)\n", "annot = page.annotations.add(pylopdf.Circle(r))"),
         ("import fitz\npage.add_line_annot(a, b)\n", "page.annotations.add(pylopdf.LineAnnotation(a, b))"),
