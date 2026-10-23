@@ -135,6 +135,18 @@ time. Exceeding one raises `LimitError` and returns no partial result.
   widget handles raise `StaleObjectError` when their page changed or their
   object was deleted.
 
+### Exact preservation (Persistence target)
+
+Untouched values survive full and incremental saves without rounding.
+Real numbers retain their source decimal tokens or an exact decimal
+representation; Python `float`, Rust `f32`, and Rust `f64` are approximate
+views and cannot be the only persistence representation. Exact numeric
+access and assignment must not require conversion through a float, and
+reading an approximate view must not change the retained value. The final
+public shape of exact numeric values is confirmed in
+[Persistence](../ROADMAP.md#persistence) before implementation; today's
+float-based object model does not meet this target.
+
 ### Concurrency
 
 One `Document`, and every handle derived from it, is used by one thread at a
