@@ -2213,3 +2213,285 @@ pub(super) fn field_widget_locations(
         Ok(out)
     })
 }
+
+/// A field's label (`/TU`), maximum length (inherited `/MaxLen`), default
+/// value (inherited `/DV`), and the document's `/NeedAppearances`.
+pub(super) type FieldDetails = (Option<String>, Option<i64>, Option<String>, bool);
+
+/// Implements [`_Document::field_details`].
+pub(super) fn field_details(this: &_Document, py: Python<'_>, xref: u32) -> PyResult<FieldDetails> {
+    py.detach(|| {
+        let field_id = this.form_field_id(xref)?;
+        let doc = &*this.doc;
+        let field = doc.get_dictionary(field_id).map_err(to_py_err)?;
+        let mut budget = (0usize, 0usize);
+        let label = match field.get(b"TU") {
+            Ok(label) => {
+                bounded_annotation_text(doc, label, &mut budget.0, &mut budget.1, "field label")?
+            }
+            Err(_) => None,
+        };
+        let max_length = this
+            .resolve_field_attr(field_id, b"MaxLen")
+            .and_then(|value| deref_object(doc, &value).as_i64().ok())
+            .filter(|value| *value >= 0);
+        let default = match this.resolve_field_attr(field_id, b"DV") {
+            Some(Object::Name(name)) => Some(bounded_annotation_bytes(
+                &name,
+                &mut budget.0,
+                &mut budget.1,
+                "field default value",
+            )?),
+            Some(value @ Object::String(..)) => bounded_annotation_text(
+                doc,
+                &value,
+                &mut budget.0,
+                &mut budget.1,
+                "field default value",
+            )?,
+            _ => None,
+        };
+        let need = doc
+            .catalog()
+            .ok()
+            .and_then(|catalog| catalog.get(b"AcroForm").ok())
+            .and_then(|form| deref_dict_ref(doc, form))
+            .and_then(|form| form.get(b"NeedAppearances").ok())
+            .and_then(|value| deref_object(doc, value).as_bool().ok())
+            .unwrap_or(false);
+        Ok((label, max_length, default, need))
+    })
+}
+
+/// An edit of a field's properties, as the setters of `Field` pass it.
+#[derive(FromPyObject)]
+#[pyo3(from_item_all)]
+pub(super) struct FieldEdit {
+    #[pyo3(default)]
+    label: Option<String>,
+    #[pyo3(default)]
+    max_length: Option<i64>,
+    #[pyo3(default)]
+    flags: Option<i64>,
+    #[pyo3(default)]
+    choices: Option<Vec<(String, String)>>,
+    #[pyo3(default)]
+    default_value: Option<String>,
+    #[pyo3(default)]
+    reset: Option<bool>,
+    #[pyo3(default)]
+    font: Option<Py<_Font>>,
+    /// Always given, so that the edit is not all defaults.
+    clear: Vec<String>,
+}
+
+/// The `/Ff` bits that decide a field's kind, which an edit keeps.
+const FIELD_KIND_FLAGS: i64 = (1 << 15) | (1 << 16) | (1 << 17);
+
+/// The most options that a choice field takes.
+const MAX_FIELD_CHOICES: usize = 4_096;
+
+impl _Document {
+    /// The object of the terminal field with object number `xref`.
+    fn form_field_id(&self, xref: u32) -> PyResult<ObjectId> {
+        self.collect_form_fields()?
+            .into_iter()
+            .map(|(_, id, ..)| id)
+            .find(|id| id.0 == xref)
+            .ok_or_else(|| {
+                StaleObjectError::new_err(format!("object {xref} is no longer a field of the form"))
+            })
+    }
+}
+
+/// Implements [`_Document::edit_field`]: change a field's label, maximum
+/// length, flags, choices, or default value, or reset it, then draw its
+/// widgets again for its value; on any error the document is restored.
+pub(super) fn edit_field(
+    this: &mut _Document,
+    py: Python<'_>,
+    xref: u32,
+    edit: FieldEdit,
+) -> PyResult<()> {
+    let field_id = this.form_field_id(xref)?;
+    let (name, kind, flags, value) = this
+        .collect_form_fields()?
+        .into_iter()
+        .find(|(_, id, ..)| *id == field_id)
+        .map(|(name, _, kind, flags, value)| (name, kind, flags, value))
+        .ok_or_else(|| StaleObjectError::new_err("the field left the form"))?;
+    let texts = [&edit.label, &edit.default_value];
+    validate_annotation_input(
+        texts
+            .iter()
+            .map(|text| text.as_deref().unwrap_or_default().as_bytes())
+            .chain(
+                edit.choices
+                    .iter()
+                    .flatten()
+                    .flat_map(|(value, label)| [value.as_bytes(), label.as_bytes()]),
+            ),
+        "field texts",
+    )?;
+    if let Some(new) = edit.flags {
+        if !(0..=i64::from(u32::MAX)).contains(&new) {
+            return Err(PdfError::new_err("field flags are a 32-bit value"));
+        }
+        if new & FIELD_KIND_FLAGS != flags & FIELD_KIND_FLAGS {
+            return Err(PdfError::new_err(
+                "the radio, pushbutton, and combo box flags decide a field's kind; create a field of the other kind instead",
+            ));
+        }
+    }
+    if let Some(length) = edit.max_length
+        && (kind.as_str() != "Tx" || !(0..=1_000_000).contains(&length))
+    {
+        return Err(PdfError::new_err(
+            "only a text field has a maximum length, from 0 to 1000000",
+        ));
+    }
+    if let Some(choices) = &edit.choices
+        && (kind.as_str() != "Ch" || choices.len() > MAX_FIELD_CHOICES)
+    {
+        return Err(PdfError::new_err(format!(
+            "only a choice field has choices, at most {MAX_FIELD_CHOICES}"
+        )));
+    }
+    let font = edit
+        .font
+        .as_ref()
+        .map(|font| {
+            Python::attach(|py| font.borrow(py).face()).ok_or_else(|| {
+                PdfError::new_err("form appearances draw an OpenType Font, not a Standard 14 font")
+            })
+        })
+        .transpose()?
+        .map(FormFont::Face);
+    let reset = edit.reset.unwrap_or(false);
+    let default = if reset {
+        this.resolve_field_attr(field_id, b"DV")
+    } else {
+        None
+    };
+    let result = py.detach(|| {
+        let original = this.doc.clone();
+        let outcome = (|| -> PyResult<()> {
+            let field = this
+                .doc
+                .get_object_mut(field_id)
+                .and_then(Object::as_dict_mut)
+                .map_err(to_py_err)?;
+            if let Some(label) = &edit.label {
+                field.set("TU", form_text_string(label));
+            }
+            if let Some(length) = edit.max_length {
+                field.set("MaxLen", length);
+            }
+            if let Some(new) = edit.flags {
+                field.set("Ff", new);
+            }
+            if let Some(text) = &edit.default_value {
+                field.set(
+                    "DV",
+                    if kind.as_str() == "Btn" {
+                        Object::Name(text.as_bytes().to_vec())
+                    } else {
+                        form_text_string(text)
+                    },
+                );
+            }
+            if let Some(choices) = &edit.choices {
+                field.set(
+                    "Opt",
+                    Object::Array(
+                        choices
+                            .iter()
+                            .map(|(value, label)| {
+                                if value == label {
+                                    form_text_string(value)
+                                } else {
+                                    Object::Array(vec![
+                                        form_text_string(value),
+                                        form_text_string(label),
+                                    ])
+                                }
+                            })
+                            .collect(),
+                    ),
+                );
+            }
+            for property in &edit.clear {
+                let key: &[u8] = match property.as_str() {
+                    "label" => b"TU",
+                    "max_length" => b"MaxLen",
+                    "default_value" => b"DV",
+                    other => {
+                        return Err(PdfError::new_err(format!(
+                            "a field property that cannot be removed: {other:?}"
+                        )));
+                    }
+                };
+                field.remove(key);
+            }
+            // Draw the widgets again for the value the field ends with.
+            let target = if reset {
+                match (&default, kind.as_str()) {
+                    (Some(Object::Name(state)), "Btn") => {
+                        Some(String::from_utf8_lossy(state).into_owned())
+                    }
+                    (Some(value @ Object::String(..)), _) => {
+                        Some(decode_text_string(value).unwrap_or_default())
+                    }
+                    (_, "Btn") => Some("Off".to_owned()),
+                    _ => None,
+                }
+            } else {
+                value.as_deref().map(str::to_owned)
+            };
+            let fillable = match kind.as_str() {
+                "Tx" | "Ch" => true,
+                "Btn" => flags & (1 << 16) == 0,
+                _ => false,
+            };
+            if fillable {
+                this.set_form_field_inner(
+                    &name,
+                    target.as_deref().unwrap_or_default(),
+                    font.as_ref(),
+                )?;
+                if target.is_none()
+                    && let Ok(field) = this
+                        .doc
+                        .get_object_mut(field_id)
+                        .and_then(Object::as_dict_mut)
+                {
+                    field.remove(b"V");
+                }
+            }
+            Ok(())
+        })();
+        if let Err(error) = outcome {
+            this.doc.replace(original);
+            return Err(error);
+        }
+        Ok(())
+    });
+    if result.is_ok() {
+        this.invalidate_hayro_pdf();
+    }
+    result
+}
+
+/// Implements [`_Document::set_need_appearances_flag`].
+pub(super) fn set_need_appearances_flag(this: &mut _Document, value: bool) -> PyResult<()> {
+    let has_form = this
+        .doc
+        .catalog()
+        .ok()
+        .is_some_and(|catalog| catalog.has(b"AcroForm"));
+    if !has_form {
+        return Err(PdfError::new_err("the document has no interactive form"));
+    }
+    this.invalidate_hayro_pdf_keeping_placements();
+    this.set_need_appearances(value)
+}

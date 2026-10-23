@@ -136,6 +136,7 @@ replacement, and the migration hint):
 - Colorspace -> Colorspace: Colorspace is an enum: Colorspace.RGB and Colorspace.GRAY replace Colorspace(CS_RGB) and Colorspace(CS_GRAY).
 - DisplayList -> Content: Use the Content that page.content() returns; it records the page's items once and can be read any number of times.
 - DisplayList.rect -> Page.rect: Read page.rect, the display area in which the content items are positioned.
+- Document.FormFonts -> Document.catalog: list(doc.catalog['AcroForm']['DR']['Font']) names the form's font resources; doc.form.font chooses the face that fills draw with.
 - Document.__contains__ -> Pages.__contains__: Test page in doc.pages, which takes Page views.
 - Document.__getitem__ -> Pages.__getitem__: Use doc.pages[i]; doc.pages also takes slices.
 - Document.__len__ -> Pages.__len__: Use len(doc.pages).
@@ -166,11 +167,13 @@ replacement, and the migration hint):
 - Document.has_links -> Page.links: any(page.links for page in doc.pages)
 - Document.insert_pdf -> Pages.insert: Use doc.pages.insert(index, other.pages[a:b + 1]), or doc.pages.extend(other.pages) to append.
 - Document.is_encrypted -> Document.needs_password: Read doc.needs_password, which is true until unlock() succeeds.
+- Document.is_form_pdf -> Document.form: len(doc.form) counts the form's fields; an empty doc.form means no form.
 - Document.is_stream -> Stream: Check isinstance(doc.objects[xref], pylopdf.Stream).
 - Document.load_page -> Pages.__getitem__: Use doc.pages[i].
 - Document.markinfo -> Document.mark_info: doc.mark_info returns a MarkInfo record with marked, user_properties, and suspects, or None; assign a MarkInfo to replace it.
 - Document.move_page -> Pages.move: Use doc.pages.move(i, to); to is the index where the page ends up, where pymupdf inserted before page to.
 - Document.name -> Document.path: Read doc.path, a pathlib.Path, or None for a document opened from bytes or created empty.
+- Document.need_appearances -> Form.need_appearances: doc.form.need_appearances reads and sets /NeedAppearances.
 - Document.needs_pass -> Document.needs_password: Read doc.needs_password, which is true until unlock() succeeds; pymupdf's needs_pass stays true after authentication.
 - Document.new_page -> Pages.new: Use doc.pages.new((width, height), index=i); without index the page is appended.
 - Document.page_annot_xrefs -> Annotation.xref: [(annotation.xref, annotation.type) for annotation in doc.pages[n].annotations]
@@ -418,6 +421,7 @@ replacement, and the migration hint):
 - Widget.choice_values -> Field.choices: Read doc.form[name].choices, FieldChoice records with value and label.
 - Widget.field_display -> Widget.flags: widget.flags holds AnnotationFlags.HIDDEN, PRINT, and NO_VIEW, which pymupdf's field_display summarizes.
 - Widget.field_flags -> Field.flags: Read doc.form[name].flags, a FieldFlags value.
+- Widget.field_label -> Field.label: widget.field.label is the field's /TU description, assignable and deletable.
 - Widget.field_name -> Field.name: Read doc.form[name].name, or iterate over the keys of doc.form.
 - Widget.field_type -> Field.type: Read doc.form[name].type, a FieldType member.
 - Widget.field_type_string -> Field.type: Read doc.form[name].type, a FieldType member whose value is a lowercase name such as text.
@@ -426,8 +430,10 @@ replacement, and the migration hint):
 - Widget.next -> Widgets: Iterate page.widgets.
 - Widget.on_state -> Widget.on_state: widget.on_state is the state that selects a check box or radio button.
 - Widget.rb_parent -> Widget.field: widget.field is the radio group's Field.
+- Widget.reset -> Field.reset: widget.field.reset() restores the field's default_value, or clears it, and draws its widgets again.
 - Widget.text_font -> Widget.font: widget.font is the Standard 14 Font that /DA names, assignable with Font.standard(...).
 - Widget.text_fontsize -> Widget.font_size: widget.font_size is the /DA size, 0 to fit the text; assignable.
+- Widget.text_maxlen -> Field.max_length: widget.field.max_length is the text field's /MaxLen, assignable and deletable.
 - Widget.update -> Widget: Assign widget properties; each assignment draws the widget again, so there is no update().
 - csGRAY -> Colorspace: Use pylopdf.Colorspace.GRAY.
 - csRGB -> Colorspace: Use pylopdf.Colorspace.RGB.

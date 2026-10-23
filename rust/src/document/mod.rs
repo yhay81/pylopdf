@@ -1351,6 +1351,22 @@ impl _Document {
         annotations::read_annotation_geometry(self, py, page_number, index, xref)
     }
 
+    /// Return a field's label, maximum length, default value, and the
+    /// document's `/NeedAppearances`.
+    fn field_details(&self, py: Python<'_>, xref: u32) -> PyResult<forms::FieldDetails> {
+        forms::field_details(self, py, xref)
+    }
+
+    /// Change a field's properties or reset it, drawing its widgets again.
+    fn edit_field(&mut self, py: Python<'_>, xref: u32, edit: forms::FieldEdit) -> PyResult<()> {
+        forms::edit_field(self, py, xref, edit)
+    }
+
+    /// Set the AcroForm's `/NeedAppearances`.
+    fn set_need_appearances_flag(&mut self, value: bool) -> PyResult<()> {
+        forms::set_need_appearances_flag(self, value)
+    }
+
     /// Return the one-based page and object number of each widget of a field.
     fn field_widget_locations(&self, py: Python<'_>, xref: u32) -> PyResult<Vec<(u32, u32)>> {
         forms::field_widget_locations(self, py, xref)

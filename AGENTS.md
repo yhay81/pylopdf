@@ -2232,6 +2232,14 @@ the concept and API overview.
   of the `/DA` that the widget inherits (`widget_default_appearance`: its
   own, its `/Parent` chain, then the AcroForm's; `form::TextStyle`), size 0
   shrinking the text to fit as before.
+- Field setters and `reset()` call `edit_field`, which checks the edit
+  (the `/Ff` bits that decide a field's kind never change), writes `/TU`,
+  `/MaxLen`, `/Ff`, `/Opt`, or `/DV` on the field itself, and draws the
+  widgets again through `set_form_field_inner` for the value that the field
+  ends with (a reset takes the inherited `/DV`, else clears `/V`, and turns
+  buttons off), inside a document clone that it restores on failure.
+  `field_details` reads `/TU`, the inherited `/MaxLen` and `/DV`, and
+  `/NeedAppearances` under the annotation text budgets.
 - AcroForm filling writes `/V`, synchronizes button `/AS`, and regenerates
   widget `/AP /N`. Text and choice appearances auto-fit in widget-local
   coordinates, respect inherited `/Q` and multiline `/Ff`, and reuse the Core

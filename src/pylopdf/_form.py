@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import enum
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from pylopdf._fonts import Font, _form_generation_font, _package_face_weight, _regular_instance
-from pylopdf._limits import _DEFAULT_MAX_FONT_INPUT_SIZE, _validate_utf8_text_input
+from pylopdf._limits import _DEFAULT_MAX_FONT_INPUT_SIZE, _validate_cumulative_utf8_input, _validate_utf8_text_input
 from pylopdf._widgets import Widget
 from pylopdf.pylopdf_core import PdfError, StaleObjectError, _Font
 
@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 
 #: Caller field names and values stop here before the core copies them.
 _MAX_FORM_FIELD_INPUT_SIZE = 1024 * 1024
+#: The most options that a choice field takes.
+_MAX_FIELD_CHOICES = 4096
 
 #: The core's facts of one field: full name, object number, kind, value, and
 #: inherited ``/Ff``.
@@ -132,8 +134,19 @@ class Field:
 
     @property
     def flags(self) -> FieldFlags:
-        """Return the field flags, inherited from ancestors that set ``/Ff``; undefined bits are dropped."""
+        """Return or set the field flags, inherited from ancestors that set ``/Ff``; undefined bits are dropped.
+
+        Assigning writes the field's own ``/Ff``; the bits that decide its kind
+        (``RADIO``, ``PUSHBUTTON``, and ``COMBO``) cannot change.
+        """
         return FieldFlags(self._facts()[4] & _DEFINED_FIELD_FLAGS)
+
+    @flags.setter
+    def flags(self, flags: FieldFlags) -> None:
+        if isinstance(flags, bool) or not isinstance(flags, int):
+            msg = f"flags is a FieldFlags value: {flags!r}"
+            raise TypeError(msg)
+        self._edit(flags=int(FieldFlags(flags)))
 
     @property
     def choices(self) -> tuple[FieldChoice, ...]:
@@ -145,6 +158,93 @@ class Field:
         return tuple(
             FieldChoice(value=value, label=label) for value, label in self._document._doc.form_field_choices(self._xref)
         )
+
+    def _details(self) -> tuple[str | None, int | None, str | None, bool]:
+        self._facts()
+        return self._document._doc.field_details(self._xref)
+
+    def _edit(self, *, clear: list[str] | None = None, **entries: object) -> None:
+        """Change the field and draw its widgets again with the face that its value needs."""
+        self._facts()
+        edit: dict[str, object] = {"clear": clear or [], **entries}
+        face = _value_face(self._document, self.value or "")
+        if face is not None:
+            edit["font"] = face
+        self._document._doc.edit_field(self._xref, edit)
+
+    @choices.setter
+    def choices(self, choices: Iterable[FieldChoice | str]) -> None:
+        if isinstance(choices, (str, bytes)) or not isinstance(choices, Iterable):
+            msg = f"choices is an iterable of FieldChoice records or strings: {choices!r}"
+            raise TypeError(msg)
+        pairs: list[tuple[str, str]] = []
+        for choice in choices:
+            if len(pairs) >= _MAX_FIELD_CHOICES:
+                msg = f"a choice field has at most {_MAX_FIELD_CHOICES} choices"
+                raise ValueError(msg)
+            if isinstance(choice, str):
+                pairs.append((choice, choice))
+            elif isinstance(choice, FieldChoice):
+                pairs.append((choice.value, choice.label))
+            else:
+                msg = f"a choice is a FieldChoice or a str: {choice!r}"
+                raise TypeError(msg)
+        _validate_cumulative_utf8_input(
+            (text for pair in pairs for text in pair),
+            _MAX_FORM_FIELD_INPUT_SIZE,
+            limit_code="form_field_input_size",
+            input_label="field choices",
+        )
+        self._edit(choices=pairs)
+
+    @property
+    def label(self) -> str | None:
+        """Return or set the field's description for users, ``/TU``; ``del`` removes it."""
+        return self._details()[0]
+
+    @label.setter
+    def label(self, label: str) -> None:
+        self._edit(label=_field_text(label, "label"))
+
+    @label.deleter
+    def label(self) -> None:
+        self._edit(clear=["label"])
+
+    @property
+    def max_length(self) -> int | None:
+        """Return or set the most characters that a text field holds, ``/MaxLen``; ``del`` removes it."""
+        return self._details()[1]
+
+    @max_length.setter
+    def max_length(self, length: int) -> None:
+        if isinstance(length, bool) or not isinstance(length, int) or not 0 <= length <= 1_000_000:  # noqa: PLR2004
+            msg = f"max_length is an int from 0 to 1000000: {length!r}"
+            raise ValueError(msg)
+        self._edit(max_length=length)
+
+    @max_length.deleter
+    def max_length(self) -> None:
+        self._edit(clear=["max_length"])
+
+    @property
+    def default_value(self) -> str | None:
+        """Return or set the value that :meth:`reset` restores, ``/DV``; ``del`` removes it."""
+        return self._details()[2]
+
+    @default_value.setter
+    def default_value(self, value: str) -> None:
+        self._edit(default_value=_field_text(value, "default_value"))
+
+    @default_value.deleter
+    def default_value(self) -> None:
+        self._edit(clear=["default_value"])
+
+    def reset(self) -> None:
+        """Restore the field's default value, or clear it, and draw its widgets again.
+
+        A check box or radio button without a default value turns off.
+        """
+        self._edit(reset=True)
 
     @property
     def widgets(self) -> list[Widget]:
@@ -206,6 +306,17 @@ class Field:
         except (PdfError, StaleObjectError):
             return f"<Field {self._xref}>"
         return f"<Field {name!r} {self._xref}>"
+
+
+def _field_text(value: object, name: str) -> str:
+    """Check a field text property before the core copies it."""
+    if not isinstance(value, str):
+        msg = f"{name} must be a str: {type(value).__name__}"
+        raise TypeError(msg)
+    _validate_utf8_text_input(
+        value, _MAX_FORM_FIELD_INPUT_SIZE, limit_code="form_field_input_size", input_label=f"field {name}"
+    )
+    return value
 
 
 def _value_face(document: Document, value: str) -> _Font | None:
@@ -323,6 +434,28 @@ class Form(Mapping[str, Field]):
                 raise PdfError(msg)
         self._document._ensure_open()
         self._document._form_font = font
+
+    @property
+    def need_appearances(self) -> bool:
+        """Return or set the AcroForm's ``/NeedAppearances``, which asks viewers to draw the widgets again.
+
+        pylopdf draws widgets when it fills them and clears the flag once
+        every fillable widget has an appearance; a document without a form
+        reads ``False`` and refuses the assignment.
+        """
+        self._document._ensure_open()
+        fields = self._document._doc.form_fields()
+        if not fields:
+            return False
+        return self._document._doc.field_details(fields[0][1])[3]
+
+    @need_appearances.setter
+    def need_appearances(self, value: bool) -> None:
+        if not isinstance(value, bool):
+            msg = f"need_appearances is a bool: {value!r}"
+            raise TypeError(msg)
+        self._document._ensure_open()
+        self._document._doc.set_need_appearances_flag(value)
 
     def __getitem__(self, name: str) -> Field:
         """Return the field named ``name``; another name raises :class:`KeyError`."""
