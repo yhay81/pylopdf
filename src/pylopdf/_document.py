@@ -12,7 +12,7 @@ import sys
 import warnings as _warnings
 from collections import Counter
 from collections.abc import Mapping
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -33,6 +33,7 @@ from pylopdf._fonts import (
 )
 from pylopdf._form import Form
 from pylopdf._hints import hinted_getattr, hinted_protocol
+from pylopdf._history import History
 from pylopdf._images import Images
 from pylopdf._layers import Layers
 from pylopdf._limits import (
@@ -68,13 +69,13 @@ from pylopdf._tables import (
     _MarkdownBudget,
 )
 from pylopdf._types import Access, DocumentComplexity, ImageCompressionResult, Permissions
-from pylopdf.pylopdf_core import LimitError, PasswordError, PdfError, _Document
+from pylopdf.pylopdf_core import LimitError, PasswordError, PdfError, _Document, _DocumentSnapshot
 
 if sys.platform == "win32":
     from pylopdf.pylopdf_core import _copy_windows_dacl
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Callable, Generator, Iterable, Sequence
     from types import TracebackType
     from typing import Any, Self
 
@@ -352,6 +353,9 @@ class Document:
         # did not need still counts when it matches.
         access = None if password is None else self._original_access(password)
         self._access = access or self._original_access("")
+        # Undo and redo steps of transactions, and how deeply they nest now.
+        self._history = History(self)
+        self._transaction_depth = 0
         # Retain input only while an undecrypted document may need reopening.
         self._source_path = path if self._doc.is_encrypted() else None
         self._source_bytes = data if self._doc.is_encrypted() else None
@@ -486,6 +490,7 @@ class Document:
         self._clean_revision = self._doc.edit_revision()
         self._access = access
         self._object_epoch += 1
+        self._history.clear()
         self._emit_warnings()
         return access
 
@@ -541,6 +546,54 @@ class Document:
     def _bump_generation(self) -> None:
         """Record a structural change and invalidate existing page views."""
         self._generation += 1
+
+    @property
+    def history(self) -> History:
+        """Return the undo and redo steps that :meth:`transaction` records."""
+        self._ensure_not_closed()
+        return self._history
+
+    @contextmanager
+    def transaction(self, name: str = "") -> Generator[None]:
+        """Group the edits of a ``with`` block into one atomic step that :attr:`history` can undo.
+
+        When the block raises, the document returns to its state before the
+        block and the exception propagates; otherwise the block's edits are
+        one step named ``name`` in :attr:`history`, unless they changed
+        nothing. A transaction inside another one restores its own edits
+        when it raises and records no step of its own: the outer
+        transaction's step holds them. Pages and handles taken inside a
+        block that raised go stale, as after :meth:`History.undo`.
+
+        Each transaction copies the document when it starts, which costs
+        time and memory in proportion to the document's size.
+        """
+        self._ensure_open()
+        if not isinstance(name, str):
+            msg = f"name must be a str: {name!r}"
+            raise TypeError(msg)
+        core = self._doc
+        revision = core.edit_revision()
+        before = core.take_snapshot()
+        self._transaction_depth += 1
+        try:
+            yield
+        except BaseException:
+            if self._doc is core:
+                self._restore(before)
+                # The document is as it was, so the steps before still apply.
+                self._history._follow(revision)
+            raise
+        finally:
+            self._transaction_depth -= 1
+        if self._transaction_depth == 0 and self._doc is core and core.edit_revision() != revision:
+            self._history._record(name, before, revision)
+
+    def _restore(self, snapshot: _DocumentSnapshot) -> None:
+        """Return to ``snapshot`` and invalidate every page view and object handle."""
+        self._doc.restore_snapshot(snapshot)
+        self._bump_generation()
+        self._object_epoch += 1
 
     @property
     def metadata(self) -> Metadata:
@@ -1273,6 +1326,7 @@ class Document:
             incremental=incremental,
         )
         clean = not self.is_dirty
+        revision = self._doc.edit_revision()
         try:
             if incremental:
                 self._apply_save_options(compress=False, prune=prune, dedupe=False, renumber=False)
@@ -1298,6 +1352,8 @@ class Document:
         finally:
             if clean:
                 self._clean_revision = self._doc.edit_revision()
+            # Save options change the revision without an edit to undo.
+            self._history._follow(revision)
 
     def to_bytes(  # noqa: PLR0913 - one keyword per save option.
         self,
@@ -1329,6 +1385,7 @@ class Document:
         )
         _validate_optional_positive_int("max_size", max_size)
         clean = not self.is_dirty
+        revision = self._doc.edit_revision()
         try:
             if incremental:
                 self._apply_save_options(compress=False, prune=prune, dedupe=False, renumber=False)
@@ -1350,6 +1407,8 @@ class Document:
         finally:
             if clean:
                 self._clean_revision = self._doc.edit_revision()
+            # Save options change the revision without an edit to undo.
+            self._history._follow(revision)
 
     def _check_save_options(  # noqa: PLR0913 - one keyword per save option.
         self,
@@ -1419,6 +1478,7 @@ class Document:
     def close(self) -> None:
         """Close the document; subsequent operations raise an error."""
         self._closed = True
+        self._history.clear()
         self._doc.release_render_cache()
 
     def _ensure_not_closed(self) -> None:
