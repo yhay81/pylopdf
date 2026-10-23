@@ -1191,7 +1191,7 @@ def _rectangle_results() -> dict[str, Any]:  # noqa: PLR0915 - explicit compatib
 def _annotation_results() -> dict[str, Any]:
     """Create annotations with appearances, reopen them, and render them."""
     import pylopdf  # noqa: PLC0415
-    from pylopdf import BlendMode, Border, Circle, Color, Document, Ink, LineAnnotation, LineEnding, Square  # noqa: PLC0415
+    from pylopdf import BlendMode, Border, Circle, Color, Document, Ink, LineAnnotation, LineEnding, Square, Squiggly  # noqa: PLC0415
 
     with Document() as document:
         page = document.pages.new((200, 100))
@@ -1204,6 +1204,7 @@ def _annotation_results() -> dict[str, Any]:
             LineAnnotation((10, 120), (90, 120), line_endings=(LineEnding.CLOSED_ARROW, LineEnding.SLASH))
         )
         page.annotations.add(Ink([[(10, 150), (50, 170), (90, 150)]], border=Border(3)))
+        page.annotations.add(Squiggly((10, 180, 90, 195), color=Color(0, 0.5, 0)))
         data = document.to_bytes()
     with pylopdf.open(data) as reopened:
         page = reopened.pages[0]
@@ -1232,7 +1233,8 @@ def _annotation_results() -> dict[str, Any]:
         samples = bytes(pixmap)
         inside = list(samples[(25 * pixmap.width + 35) * 3 : (25 * pixmap.width + 35) * 3 + 3])
     _require(
-        [entry["type"] for entry in annotations] == ["SQUARE", "CIRCLE", "LINE", "INK"], "annotation types changed"
+        [entry["type"] for entry in annotations] == ["SQUARE", "CIRCLE", "LINE", "INK", "SQUIGGLY"],
+        "annotation types changed",
     )
     _require(inside == [255, 255, 0], "the square's appearance did not render")
     return {"annotations": annotations, "square_inside": inside}

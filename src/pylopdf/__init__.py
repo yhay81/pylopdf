@@ -33,6 +33,9 @@ from pylopdf._annotations import (
     Polygon,
     PolyLine,
     Square,
+    Squiggly,
+    StrikeOut,
+    Underline,
 )
 from pylopdf._attachments import Attachment, Attachments
 from pylopdf._boxes import PageBoxes
@@ -216,11 +219,13 @@ __all__ = [
     "SoftMaskType",
     "Span",
     "Square",
+    "Squiggly",
     "StaleObjectError",
     "StalePageError",
     "Standard",
     "StandardFontName",
     "Stream",
+    "StrikeOut",
     "String",
     "Stroke",
     "Table",
@@ -233,6 +238,7 @@ __all__ = [
     "TextRun",
     "TilingPattern",
     "TransparencyGroup",
+    "Underline",
     "Word",
     "create",
     "open",

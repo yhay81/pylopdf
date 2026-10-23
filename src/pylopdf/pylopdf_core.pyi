@@ -565,14 +565,6 @@ class _Document:
     def read_link(
         self, page_number: int, index: int, xref: int
     ) -> tuple[int, int, tuple[float, float, float, float], _Target]: ...
-    def add_highlight_annotation(
-        self,
-        page_number: int,
-        rects: list[tuple[float, float, float, float]],
-        color: tuple[float, float, float],
-        opacity: float,
-        content: str | None,
-    ) -> int: ...
     def add_annotation(self, page_number: int, spec: dict[str, Any]) -> int: ...
     def read_annotation_geometry(
         self, page_number: int, index: int, xref: int

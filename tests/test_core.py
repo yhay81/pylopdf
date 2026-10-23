@@ -549,7 +549,9 @@ def test_annotation_input_limit_is_repeated_in_core(one_page_pdf: bytes) -> None
     oversized = "é" * (512 * 1024 + 1)
 
     calls = [
-        lambda: doc.add_highlight_annotation(1, [rect], (1.0, 1.0, 0.0), 0.4, oversized),
+        lambda: doc.add_annotation(
+            1, {"subtype": "Highlight", "rects": [rect], "color": (1.0, 1.0, 0.0), "contents": oversized}
+        ),
         lambda: doc.add_link(1, rect, ("uri", None, None, None, oversized, None)),
         lambda: doc.add_link(1, rect, ("gotor", 0, None, None, "a.pdf", oversized)),
         lambda: doc.set_link(1, 0, xref, target=("launch", None, None, None, oversized, None)),

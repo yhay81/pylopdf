@@ -8,10 +8,6 @@ pub(crate) const MAX_PAGE_ANNOTATIONS: usize = 4_096;
 
 pub(super) const MAX_ANNOTATION_METADATA_BYTES: usize = 1024 * 1024;
 
-pub(super) const MAX_HIGHLIGHT_RECTS: usize = 4_096;
-
-pub(super) const MAX_TEXT_MARKUP_SEGMENTS: usize = 65_536;
-
 /// One page annotation that `page.annotations` lists: its position in
 /// `/Annots`, its xref (0 for a direct dictionary), its subtype (`None`
 /// without one), display rect, `/F` flags, the text entries `/Contents`,
@@ -73,16 +69,6 @@ pub(super) enum PageAnnotationAppendPlan {
     Replacement(Vec<Object>),
 }
 
-pub(super) struct TextMarkupAppearancePlan {
-    pub(super) annotation_id: ObjectId,
-    pub(super) kind: draw::TextMarkupKind,
-    pub(super) quads: Vec<[(f64, f64); 4]>,
-    pub(super) segment_counts: Vec<usize>,
-    pub(super) bbox: [f64; 4],
-    pub(super) color: (f64, f64, f64),
-    pub(super) opacity: f64,
-}
-
 pub(super) fn annotation_has_normal_appearance(doc: &Document, annotation: &Dictionary) -> bool {
     annotation
         .get(b"AP")
@@ -95,319 +81,78 @@ pub(super) fn annotation_has_normal_appearance(doc: &Document, annotation: &Dict
         })
 }
 
-pub(super) fn text_markup_kind(subtype: &[u8]) -> Option<draw::TextMarkupKind> {
-    match subtype {
-        b"Highlight" => Some(draw::TextMarkupKind::Highlight),
-        b"Underline" => Some(draw::TextMarkupKind::Underline),
-        b"Squiggly" => Some(draw::TextMarkupKind::Squiggly),
-        b"StrikeOut" => Some(draw::TextMarkupKind::StrikeOut),
-        _ => None,
-    }
-}
-
-pub(super) fn text_markup_segment_count(
-    kind: draw::TextMarkupKind,
-    quad: [(f64, f64); 4],
-) -> Option<usize> {
-    if matches!(kind, draw::TextMarkupKind::Highlight) {
-        return Some(4);
-    }
-    let [upper_left, upper_right, lower_left, lower_right] = quad;
-    let (start, end) = match kind {
-        draw::TextMarkupKind::Underline | draw::TextMarkupKind::Squiggly => {
-            (lower_left, lower_right)
-        }
-        draw::TextMarkupKind::StrikeOut => (
-            (
-                (upper_left.0 + lower_left.0) / 2.0,
-                (upper_left.1 + lower_left.1) / 2.0,
-            ),
-            (
-                (upper_right.0 + lower_right.0) / 2.0,
-                (upper_right.1 + lower_right.1) / 2.0,
-            ),
-        ),
-        draw::TextMarkupKind::Highlight => unreachable!(),
-    };
-    let inline_length = (end.0 - start.0).hypot(end.1 - start.1);
-    if !inline_length.is_finite() || inline_length <= f64::EPSILON {
-        return None;
-    }
-    if matches!(
-        kind,
-        draw::TextMarkupKind::Underline | draw::TextMarkupKind::Squiggly
-    ) {
-        let top = (
-            (upper_left.0 + upper_right.0) / 2.0,
-            (upper_left.1 + upper_right.1) / 2.0,
-        );
-        let bottom = (
-            (lower_left.0 + lower_right.0) / 2.0,
-            (lower_left.1 + lower_right.1) / 2.0,
-        );
-        let cross_length = (top.0 - bottom.0).hypot(top.1 - bottom.1);
-        if !cross_length.is_finite() || cross_length <= f64::EPSILON {
-            return None;
-        }
-    }
-    if matches!(kind, draw::TextMarkupKind::Squiggly) {
-        let segments = (inline_length / 2.0).ceil().max(1.0);
-        return Some(segments as usize);
-    }
-    Some(1)
-}
-
-/// Collect bounded text-markup annotations that need a render-only appearance.
-///
-/// PDF viewers may synthesize a normal appearance from `/QuadPoints` and `/C`,
-/// but hayro 0.8 requires `/AP /N`. Keep this compatibility work outside the
-/// editable document and refuse aggregate geometry amplification.
-pub(super) fn missing_text_markup_appearance_plans(
-    doc: &Document,
-) -> PyResult<Option<Vec<TextMarkupAppearancePlan>>> {
-    let mut plans = Vec::new();
-    let mut total_quads = 0usize;
-    let mut total_segments = 0usize;
-    for (&annotation_id, object) in &doc.objects {
-        let Ok(annotation) = object.as_dict() else {
-            continue;
-        };
-        let Some(kind) = annotation
-            .get(b"Subtype")
-            .ok()
-            .and_then(|subtype| deref_object(doc, subtype).as_name().ok())
-            .and_then(text_markup_kind)
-        else {
-            continue;
-        };
-        if annotation_has_normal_appearance(doc, annotation) {
-            continue;
-        }
-
-        let Ok(quad_points) = annotation
-            .get(b"QuadPoints")
-            .map(|points| deref_object(doc, points))
-            .and_then(Object::as_array)
-        else {
-            continue;
-        };
-        if quad_points.is_empty() || quad_points.len() % 8 != 0 {
-            continue;
-        }
-        let quad_count = quad_points.len() / 8;
-        let Some(new_total_quads) = total_quads.checked_add(quad_count) else {
-            return Ok(None);
-        };
-        total_quads = new_total_quads;
-        if total_quads > MAX_HIGHLIGHT_RECTS {
-            return Ok(None);
-        }
-
-        let mut quads = Vec::new();
-        quads.try_reserve_exact(quad_count).map_err(|error| {
-            PdfError::new_err(format!(
-                "failed to allocate text-markup appearance quads: {error}"
-            ))
-        })?;
-        let mut segment_counts = Vec::new();
-        segment_counts
-            .try_reserve_exact(quad_count)
-            .map_err(|error| {
-                PdfError::new_err(format!(
-                    "failed to allocate text-markup appearance segment counts: {error}"
-                ))
-            })?;
-        let mut valid = true;
-        for chunk in quad_points.as_chunks::<8>().0 {
-            let mut values = [0.0f64; 8];
-            for (slot, value) in values.iter_mut().zip(chunk) {
-                let Some(number) = finite_number(doc, value) else {
-                    valid = false;
-                    break;
-                };
-                *slot = number;
-            }
-            if !valid {
-                break;
-            }
-            let quad = [
-                (values[0], values[1]),
-                (values[2], values[3]),
-                (values[4], values[5]),
-                (values[6], values[7]),
-            ];
-            let Some(segment_count) = text_markup_segment_count(kind, quad) else {
-                valid = false;
-                break;
-            };
-            let Some(new_total_segments) = total_segments.checked_add(segment_count) else {
-                return Ok(None);
-            };
-            total_segments = new_total_segments;
-            if total_segments > MAX_TEXT_MARKUP_SEGMENTS {
-                return Ok(None);
-            }
-            quads.push(quad);
-            segment_counts.push(segment_count);
-        }
-        if !valid {
-            continue;
-        }
-
-        let Some(color) = annotation
-            .get(b"C")
-            .ok()
-            .map(|color| deref_object(doc, color))
-            .and_then(|color| color.as_array().ok())
-            .filter(|color| color.len() == 3)
-            .and_then(|color| {
-                Some((
-                    finite_number(doc, &color[0])?,
-                    finite_number(doc, &color[1])?,
-                    finite_number(doc, &color[2])?,
-                ))
-            })
-            .filter(|color| {
-                [color.0, color.1, color.2]
-                    .into_iter()
-                    .all(|component| (0.0..=1.0).contains(&component))
-            })
-        else {
-            continue;
-        };
-        let opacity = if let Ok(opacity) = annotation.get(b"CA") {
-            let Some(opacity) = finite_number(doc, opacity) else {
-                continue;
-            };
-            opacity
-        } else {
-            1.0
-        };
-        if !(0.0..=1.0).contains(&opacity) {
-            continue;
-        }
-
-        let bbox = draw::bounding_rect_iter(quads.iter().flatten().copied());
-        if bbox.iter().any(|value| !value.is_finite()) || bbox[0] >= bbox[2] || bbox[1] >= bbox[3] {
-            continue;
-        }
-        plans.try_reserve(1).map_err(|error| {
-            PdfError::new_err(format!(
-                "failed to grow text-markup appearance plans: {error}"
-            ))
-        })?;
-        plans.push(TextMarkupAppearancePlan {
-            annotation_id,
-            kind,
-            quads,
-            segment_counts,
-            bbox,
-            color,
-            opacity,
-        });
-    }
-    Ok(Some(plans))
-}
-
-/// Add bounded text-markup appearances to a rendering clone only.
-pub(super) fn synthesize_missing_text_markup_appearances_for_render(
-    doc: &mut Document,
-    plans: Vec<TextMarkupAppearancePlan>,
-) -> PyResult<bool> {
-    let Ok(object_count) = u32::try_from(plans.len()).map(|count| count.saturating_mul(2)) else {
-        return Ok(false);
-    };
-    if doc.max_id.checked_add(object_count).is_none() {
-        return Ok(false);
-    }
-
-    let mut changed = false;
-    for plan in plans {
-        let gs_id = doc.add_object(dictionary! {
-            "Type" => "ExtGState",
-            "BM" => Object::Name(plan.kind.blend_mode().as_bytes().to_vec()),
-            "CA" => Object::Real(plan.opacity as f32),
-            "ca" => Object::Real(plan.opacity as f32),
-            "AIS" => Object::Boolean(false),
-        });
-        let form_dict = dictionary! {
-            "Type" => "XObject",
-            "Subtype" => "Form",
-            "FormType" => 1,
-            "BBox" => Object::Array(plan.bbox.iter().map(|&value| Object::Real(value as f32)).collect()),
-            "Resources" => dictionary! {
-                "ExtGState" => dictionary! { "PyloGS" => Object::Reference(gs_id) },
-            },
-        };
-        let appearance_ops =
-            draw::text_markup_ap_ops(plan.kind, &plan.quads, plan.color, &plan.segment_counts)
-                .map_err(PdfError::new_err)?;
-        let appearance_id =
-            doc.add_object(Stream::new(form_dict, appearance_ops).with_compression(false));
-        if let Ok(annotation) = doc
-            .get_object_mut(plan.annotation_id)
-            .and_then(Object::as_dict_mut)
-        {
-            annotation.set(
-                "AP",
-                dictionary! { "N" => Object::Reference(appearance_id) },
-            );
-            changed = true;
-        }
-    }
-    Ok(changed)
-}
-
 /// An annotation without a normal appearance that the rendering snapshot
 /// draws with the appearance engine.
 pub(super) struct DrawnAppearancePlan {
     annotation_id: ObjectId,
     form: CanvasForm,
     matrix: [f64; 6],
+    rect: [f64; 4],
 }
 
 /// The appearances that the rendering snapshot synthesizes.
 #[derive(Default)]
 pub(super) struct MissingAppearances {
-    text_markup: Vec<TextMarkupAppearancePlan>,
     drawn: Vec<DrawnAppearancePlan>,
 }
 
 impl MissingAppearances {
     pub(super) fn is_empty(&self) -> bool {
-        self.text_markup.is_empty() && self.drawn.is_empty()
+        self.drawn.is_empty()
     }
 }
 
+/// The most annotations whose appearances one rendering snapshot draws.
+const MAX_SYNTHESIZED_APPEARANCES: usize = 4_096;
+
+/// The most path points that the synthesized appearances of one rendering
+/// snapshot draw together.
+const MAX_SYNTHESIZED_POINTS: usize = 262_144;
+
 /// Collect the appearances that annotations without one need in the
-/// rendering snapshot: text markup from `/QuadPoints`, and the annotation
-/// types that the appearance engine draws. More than 4,096 drawn ones are
-/// left undrawn rather than drawn in part.
+/// rendering snapshot, for every type that the appearance engine draws.
+/// More than 4,096 of them, more than 262,144 path points in all, or one
+/// whose geometry holds more points than the engine draws, leave all of them
+/// undrawn rather than drawn in part, so a document cannot amplify small
+/// dictionaries into unbounded drawing.
 pub(super) fn missing_appearance_plans(doc: &Document) -> PyResult<MissingAppearances> {
-    let text_markup = missing_text_markup_appearance_plans(doc)?.unwrap_or_default();
     let mut drawn = Vec::new();
+    let mut points = 0usize;
     for (&annotation_id, object) in &doc.objects {
         let Ok(annotation) = object.as_dict() else {
             continue;
         };
-        if !annotation
+        let Some(subtype) = annotation
             .get(b"Subtype")
             .ok()
             .and_then(|subtype| deref_object(doc, subtype).as_name().ok())
-            .is_some_and(annotation_appearance::draws)
-            || annotation_has_normal_appearance(doc, annotation)
-        {
-            continue;
-        }
-        if drawn.len() >= MAX_PAGE_ANNOTATIONS {
-            drawn.clear();
-            break;
-        }
-        let Some(annotation_appearance::Appearance { mut canvas, matrix }) =
-            annotation_appearance::appearance(doc, annotation)?
+            .filter(|subtype| annotation_appearance::draws(subtype))
         else {
             continue;
         };
+        if annotation_has_normal_appearance(doc, annotation) {
+            continue;
+        }
+        if drawn.len() >= MAX_SYNTHESIZED_APPEARANCES
+            || annotation_appearance::exceeds_points(doc, annotation, subtype)
+        {
+            drawn.clear();
+            break;
+        }
+        let Some(annotation_appearance::Appearance {
+            mut canvas,
+            matrix,
+            rect,
+            points: drawn_points,
+        }) = annotation_appearance::appearance(doc, annotation)?
+        else {
+            continue;
+        };
+        points = points.saturating_add(drawn_points);
+        if points > MAX_SYNTHESIZED_POINTS {
+            drawn.clear();
+            break;
+        }
         // An appearance that draws nothing needs no rendering copy.
         let recording = canvas.take_recording()?;
         if recording.is_empty() {
@@ -423,9 +168,10 @@ pub(super) fn missing_appearance_plans(doc: &Document) -> PyResult<MissingAppear
             annotation_id,
             form,
             matrix,
+            rect,
         });
     }
-    Ok(MissingAppearances { text_markup, drawn })
+    Ok(MissingAppearances { drawn })
 }
 
 /// Add the planned appearances to a rendering clone only.
@@ -433,7 +179,6 @@ pub(super) fn synthesize_missing_appearances_for_render(
     doc: &mut Document,
     plans: MissingAppearances,
 ) -> PyResult<()> {
-    synthesize_missing_text_markup_appearances_for_render(doc, plans.text_markup)?;
     for plan in plans.drawn {
         let committed = commit_canvas_form(doc, plan.form, Some(plan.matrix))?;
         if let Ok(annotation) = doc
@@ -443,6 +188,16 @@ pub(super) fn synthesize_missing_appearances_for_render(
             annotation.set(
                 "AP",
                 dictionary! { "N" => Object::Reference(committed.form_id) },
+            );
+            // Text markup covers its quadrilaterals, which /Rect may not.
+            annotation.set(
+                "Rect",
+                Object::Array(
+                    plan.rect
+                        .iter()
+                        .map(|&value| Object::Real(value as f32))
+                        .collect(),
+                ),
             );
         }
     }
@@ -931,172 +686,6 @@ impl _Document {
     }
 }
 
-/// The `/Matrix` of an appearance drawn on a canvas `size` over the display
-/// rectangle `rect` of a page with `crop` and `rotation`: the composed canvas
-/// is y up from the rectangle's bottom-left corner, and the matrix maps it to
-/// PDF user space, so its BBox lands on the annotation's `/Rect` upright on
-/// the displayed page.
-pub(super) fn appearance_matrix(
-    crop: [f64; 4],
-    rotation: i64,
-    rect: [f64; 4],
-    size: (f64, f64),
-) -> [f64; 6] {
-    let bottom = rect[1] + size.1;
-    let origin = draw::display_to_pdf(crop, rotation, rect[0], bottom);
-    let right = draw::display_to_pdf(crop, rotation, rect[0] + 1.0, bottom);
-    let up = draw::display_to_pdf(crop, rotation, rect[0], bottom - 1.0);
-    [
-        right.0 - origin.0,
-        right.1 - origin.1,
-        up.0 - origin.0,
-        up.1 - origin.1,
-        origin.0,
-        origin.1,
-    ]
-}
-
-/// Implements [`_Document::add_highlight_annotation`].
-pub(super) fn add_highlight_annotation(
-    this: &mut _Document,
-    py: Python<'_>,
-    page_number: u32,
-    rects: Vec<(f64, f64, f64, f64)>,
-    color: (f64, f64, f64),
-    opacity: f64,
-    content: Option<String>,
-) -> PyResult<u32> {
-    if rects.is_empty() || rects.len() > MAX_HIGHLIGHT_RECTS {
-        return Err(PdfError::new_err(format!(
-            "highlight annotations require 1 to {MAX_HIGHLIGHT_RECTS} rectangles"
-        )));
-    }
-    validate_annotation_input(
-        [
-            b"Highlight".as_slice(),
-            content.as_deref().unwrap_or_default().as_bytes(),
-        ],
-        "content",
-    )?;
-    let encoded_content = match content {
-        Some(content) => {
-            let encoded = text_string(&content);
-            if encoded.as_str().is_ok_and(|bytes| {
-                bytes
-                    .len()
-                    .checked_add(b"Highlight".len())
-                    .is_none_or(|size| size > MAX_ANNOTATION_METADATA_BYTES)
-            }) {
-                return Err(limit_err(
-                    "annotation_input_size",
-                    format!(
-                        "encoded annotation subtype and content exceed the {MAX_ANNOTATION_METADATA_BYTES}-byte safety limit"
-                    ),
-                ));
-            }
-            Some(encoded)
-        }
-        None => None,
-    };
-    let (crop, rotation) = this.page_display_geometry(page_number)?;
-    let page_id = this.page_id(page_number)?;
-    let annotation_append = this.prepare_page_annotation_append(page_id)?;
-
-    let mut quads = Vec::new();
-    quads.try_reserve_exact(rects.len()).map_err(|error| {
-        PdfError::new_err(format!("failed to allocate highlight quads: {error}"))
-    })?;
-    for &(x0, y0, x1, y1) in &rects {
-        quads.push(draw::display_rect_quad_pdf(
-            crop,
-            rotation,
-            [x0, y0, x1, y1],
-        ));
-    }
-    let bbox = draw::bounding_rect_iter(quads.iter().flatten().copied());
-    let quad_point_count = quads
-        .len()
-        .checked_mul(8)
-        .ok_or_else(|| PdfError::new_err("highlight QuadPoints exceed the platform limit"))?;
-    let mut quad_points = Vec::new();
-    quad_points
-        .try_reserve_exact(quad_point_count)
-        .map_err(|error| {
-            PdfError::new_err(format!("failed to allocate highlight QuadPoints: {error}"))
-        })?;
-    for &(x, y) in quads.iter().flatten() {
-        quad_points.push(Object::Real(x as f32));
-        quad_points.push(Object::Real(y as f32));
-    }
-
-    // The appearance: each rectangle filled in multiply blending.
-    let display = rects.iter().fold(
-        [
-            f64::INFINITY,
-            f64::INFINITY,
-            f64::NEG_INFINITY,
-            f64::NEG_INFINITY,
-        ],
-        |[x0, y0, x1, y1], &(a0, b0, a1, b1)| {
-            [
-                x0.min(a0.min(a1)),
-                y0.min(b0.min(b1)),
-                x1.max(a0.max(a1)),
-                y1.max(b0.max(b1)),
-            ]
-        },
-    );
-    let mut canvas = _Canvas::new(display[2] - display[0], display[3] - display[1], false)?;
-    let multiply = canvas::BLEND_MODES
-        .iter()
-        .position(|mode| *mode == "Multiply")
-        .and_then(|mode| u8::try_from(mode).ok())
-        .ok_or_else(|| PdfError::new_err("the canvas has no multiply blend mode"))?;
-    let depth = canvas.push_blend(multiply)?;
-    for &(x0, y0, x1, y1) in &rects {
-        let (x0, x1) = (x0.min(x1) - display[0], x0.max(x1) - display[0]);
-        let (y0, y1) = (y0.min(y1) - display[1], y0.max(y1) - display[1]);
-        canvas.add_path(
-            "mlllh",
-            vec![x0, y0, x1, y0, x1, y1, x0, y1],
-            Some(((color.0, color.1, color.2, opacity), false)),
-            None,
-        )?;
-    }
-    canvas.pop(depth)?;
-    let appearance = canvas.take_recording()?;
-    let matrix = appearance_matrix(crop, rotation, display, appearance.size);
-    let appearance = this.prepare_canvas_form(py, appearance)?;
-
-    this.invalidate_hayro_pdf_keeping_placements();
-    let committed = commit_canvas_form(&mut this.doc, appearance, Some(matrix))?;
-    let ap_id = committed.form_id;
-    this.remember_canvas_placements(committed, Some(page_number));
-
-    let mut annot = dictionary! {
-        "Type" => "Annot",
-        "Subtype" => "Highlight",
-        "Rect" => Object::Array(bbox.iter().map(|&v| Object::Real(v as f32)).collect()),
-        "QuadPoints" => Object::Array(quad_points),
-        "C" => Object::Array(vec![
-            Object::Real(color.0 as f32),
-            Object::Real(color.1 as f32),
-            Object::Real(color.2 as f32),
-        ]),
-        "CA" => Object::Real(opacity as f32),
-        // Printable flag.
-        "F" => 4,
-        "P" => page_id,
-        "AP" => dictionary! { "N" => Object::Reference(ap_id) },
-    };
-    if let Some(encoded_content) = encoded_content {
-        annot.set("Contents", encoded_content);
-    }
-    let annot_id = this.doc.add_object(annot);
-    this.commit_page_annotation_append(page_id, annotation_append, annot_id)?;
-    Ok(annot_id.0)
-}
-
 /// An annotation to create, as `page.annotations.add` passes a
 /// specification: the PDF subtype, the display rectangle, and the entries
 /// that the subtype takes. Colours are RGB from 0 to 1, the border is its
@@ -1116,6 +705,9 @@ pub(super) struct AnnotationSpec {
     /// The start and end `/LE` styles of a line or polyline.
     #[pyo3(default)]
     line_endings: Option<(String, String)>,
+    /// The display rectangles that text markup covers.
+    #[pyo3(default)]
+    rects: Option<Vec<(f64, f64, f64, f64)>>,
     #[pyo3(default)]
     color: Option<(f64, f64, f64)>,
     #[pyo3(default)]
@@ -1133,7 +725,18 @@ pub(super) struct AnnotationSpec {
 }
 
 /// The subtypes that `add_annotation` creates.
-const CREATED_SUBTYPES: [&str; 6] = ["Square", "Circle", "Line", "Polygon", "PolyLine", "Ink"];
+const CREATED_SUBTYPES: [&str; 10] = [
+    "Square",
+    "Circle",
+    "Line",
+    "Polygon",
+    "PolyLine",
+    "Ink",
+    "Highlight",
+    "Underline",
+    "StrikeOut",
+    "Squiggly",
+];
 
 fn rgb_array(name: &str, (red, green, blue): (f64, f64, f64)) -> PyResult<Object> {
     if ![red, green, blue]
@@ -1163,17 +766,76 @@ fn annotation_dictionary(
             spec.subtype
         )));
     }
+    // The date is written twice, as /CreationDate and /M, and read back
+    // under the same budget.
+    let created = spec.created.as_deref().unwrap_or_default().as_bytes();
     validate_annotation_input(
         [
             spec.subtype.as_bytes(),
             spec.contents.as_deref().unwrap_or_default().as_bytes(),
-            spec.created.as_deref().unwrap_or_default().as_bytes(),
+            created,
+            created,
         ],
-        "subtype, contents, and date",
+        "subtype, contents, and dates",
     )?;
     let subtype = spec.subtype.as_str();
     let mut geometry = Dictionary::new();
-    let rect = if matches!(subtype, "Square" | "Circle") {
+    if spec.rects.is_some() != annotation_appearance::is_text_markup(subtype.as_bytes()) {
+        return Err(PdfError::new_err(format!(
+            "rectangles place text markup, not a {subtype} annotation"
+        )));
+    }
+    let rect = if let Some(rects) = &spec.rects {
+        if rects.is_empty() || rects.len() > annotation_appearance::MAX_QUADS {
+            return Err(PdfError::new_err(format!(
+                "text markup covers 1 to {} rectangles",
+                annotation_appearance::MAX_QUADS
+            )));
+        }
+        let mut quad_points = Vec::new();
+        quad_points
+            .try_reserve_exact(rects.len() * 8)
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate QuadPoints: {error}"))
+            })?;
+        let mut bounds = [
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        ];
+        let mut zigzag = 0usize;
+        for &(x0, y0, x1, y1) in rects {
+            if ![x0, y0, x1, y1].iter().all(|value| value.is_finite()) {
+                return Err(PdfError::new_err("text markup rectangles are finite"));
+            }
+            if subtype == "Squiggly" {
+                zigzag =
+                    zigzag.saturating_add(((x1 - x0).abs() / 2.0).ceil().max(1.0) as usize + 1);
+            }
+            for (x, y) in draw::display_rect_quad_pdf(crop, rotation, [x0, y0, x1, y1]) {
+                bounds = [
+                    bounds[0].min(x),
+                    bounds[1].min(y),
+                    bounds[2].max(x),
+                    bounds[3].max(y),
+                ];
+                quad_points.push(Object::Real(x as f32));
+                quad_points.push(Object::Real(y as f32));
+            }
+        }
+        if zigzag > annotation_appearance::MAX_ANNOTATION_POINTS {
+            return Err(limit_err(
+                "annotation_point_count",
+                format!(
+                    "a squiggly line of more than {} points",
+                    annotation_appearance::MAX_ANNOTATION_POINTS
+                ),
+            ));
+        }
+        geometry.set("QuadPoints", Object::Array(quad_points));
+        bounds
+    } else if matches!(subtype, "Square" | "Circle") {
         let Some((x0, y0, x1, y1)) = spec.rect.filter(|_| spec.points.is_none()) else {
             return Err(PdfError::new_err(format!(
                 "a {subtype} annotation takes a rectangle"
@@ -1357,7 +1019,7 @@ fn annotation_dictionary(
         dict.set("Contents", text_string(contents));
     }
     if let Some(created) = &spec.created {
-        if !created.starts_with("D:") || !created.is_ascii() {
+        if !created.starts_with("D:") || !created.is_ascii() || created.len() > 64 {
             return Err(PdfError::new_err("an annotation date is a PDF date string"));
         }
         dict.set("CreationDate", Object::string_literal(created.as_bytes()));
@@ -1377,9 +1039,10 @@ pub(super) fn add_annotation(
     let mut dict = annotation_dictionary(&spec, geometry)?;
     let page_id = this.page_id(page_number)?;
     let annotation_append = this.prepare_page_annotation_append(page_id)?;
-    let annotation_appearance::Appearance { mut canvas, matrix } =
-        annotation_appearance::appearance(&this.doc, &dict)?
-            .ok_or_else(|| PdfError::new_err("the annotation has no appearance to draw"))?;
+    let annotation_appearance::Appearance {
+        mut canvas, matrix, ..
+    } = annotation_appearance::appearance(&this.doc, &dict)?
+        .ok_or_else(|| PdfError::new_err("the annotation has no appearance to draw"))?;
     let appearance = this.prepare_canvas_form(py, canvas.take_recording()?)?;
 
     this.invalidate_hayro_pdf_keeping_placements();

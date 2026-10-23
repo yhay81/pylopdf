@@ -411,6 +411,12 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "import fitz\nannot = page.add_highlight_annot(hits)\n",
             "annot = page.annotations.add(pylopdf.Highlight(hits))",
         ),
+        ("import fitz\npage.add_underline_annot(hits)\n", "page.annotations.add(pylopdf.Underline(hits))"),
+        ("import fitz\npage.add_strikeout_annot(quads=q)\n", "page.annotations.add(pylopdf.StrikeOut(q))"),
+        (
+            "import fitz\npage.add_squiggly_annot(q, color=(0, 0, 1))\n",
+            "page.annotations.add(pylopdf.Squiggly(q, color=pylopdf.Color(0, 0, 1)))",
+        ),
         ("import fitz\nannot = page.add_rect_annot(r)\n", "annot = page.annotations.add(pylopdf.Square(r))"),
         ("import fitz\nannot = page.add_circle_annot(rect=r)\n", "annot = page.annotations.add(pylopdf.Circle(r))"),
         ("import fitz\npage.add_line_annot(a, b)\n", "page.annotations.add(pylopdf.LineAnnotation(a, b))"),
