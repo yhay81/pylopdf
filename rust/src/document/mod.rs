@@ -1658,6 +1658,78 @@ impl _Document {
         layers::set_layer_intent(self, layer, intents)
     }
 
+    /// Return how many configurations there are: `/D` and `/Configs`.
+    fn layer_configuration_count(&self) -> PyResult<usize> {
+        layers::layer_configuration_count(self)
+    }
+
+    /// Return one configuration; slot 0 is `/D`, slot n is `/Configs[n - 1]`.
+    fn layer_configuration(&self, slot: usize) -> PyResult<ConfigurationInfo> {
+        layers::layer_configuration(self, slot)
+    }
+
+    /// Replace or, for `None`, remove a configuration's `/Name` or `/Creator`.
+    #[pyo3(signature = (slot, key, value))]
+    fn set_layer_configuration_text(
+        &mut self,
+        slot: usize,
+        key: &str,
+        value: Option<&str>,
+    ) -> PyResult<()> {
+        layers::set_layer_configuration_text(self, slot, key, value)
+    }
+
+    /// Replace a configuration's `/BaseState`.
+    fn set_layer_configuration_base_state(&mut self, slot: usize, state: &str) -> PyResult<()> {
+        layers::set_layer_configuration_base_state(self, slot, state)
+    }
+
+    /// Replace a configuration's `/ON`, `/OFF`, or `/Locked`.
+    fn set_layer_configuration_refs(
+        &mut self,
+        slot: usize,
+        key: &str,
+        ids: Vec<(u32, u16)>,
+    ) -> PyResult<()> {
+        layers::set_layer_configuration_refs(self, slot, key, ids)
+    }
+
+    /// Replace a configuration's `/RBGroups`.
+    fn set_layer_configuration_radio_groups(
+        &mut self,
+        slot: usize,
+        groups: Vec<Vec<(u32, u16)>>,
+    ) -> PyResult<()> {
+        layers::set_layer_configuration_radio_groups(self, slot, groups)
+    }
+
+    /// Replace a configuration's `/Order` from preorder entries.
+    fn set_layer_configuration_order(
+        &mut self,
+        slot: usize,
+        entries: Vec<OrderEntry>,
+    ) -> PyResult<()> {
+        layers::set_layer_configuration_order(self, slot, entries)
+    }
+
+    /// Make configuration `slot` the default configuration.
+    fn apply_layer_configuration(&mut self, slot: usize) -> PyResult<()> {
+        layers::apply_layer_configuration(self, slot)
+    }
+
+    /// Append a configuration to `/Configs` and return its slot.
+    #[pyo3(signature = (name, creator, base_state, on, off))]
+    fn add_layer_configuration(
+        &mut self,
+        name: &str,
+        creator: Option<&str>,
+        base_state: &str,
+        on: Vec<(u32, u16)>,
+        off: Vec<(u32, u16)>,
+    ) -> PyResult<usize> {
+        layers::add_layer_configuration(self, name, creator, base_state, on, off)
+    }
+
     /// Return AcroForm fields as `(full name, xref, kind, value, flags)`.
     ///
     /// Kind is text/checkbox/radio/pushbutton/combobox/listbox/signature or

@@ -67,6 +67,10 @@
     "Ink",
     "Launch",
     "Layer",
+    "LayerBaseState",
+    "LayerConfiguration",
+    "LayerConfigurations",
+    "LayerOrder",
     "Layers",
     "Layout",
     "LimitError",
@@ -5716,6 +5720,214 @@
         "returns": "None"
       }
     },
+    "LayerBaseState": {
+      "kind": "enum",
+      "members": {
+        "OFF": "OFF",
+        "ON": "ON",
+        "UNCHANGED": "Unchanged"
+      }
+    },
+    "LayerConfiguration": {
+      "kind": "class",
+      "members": {
+        "apply": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "base_state": {
+          "kind": "property",
+          "returns": "LayerBaseState"
+        },
+        "creator": {
+          "kind": "property",
+          "returns": "str | None"
+        },
+        "index": {
+          "kind": "property",
+          "returns": "int"
+        },
+        "locked": {
+          "kind": "property",
+          "returns": "tuple[Layer, ...]"
+        },
+        "name": {
+          "kind": "property",
+          "returns": "str | None"
+        },
+        "off": {
+          "kind": "property",
+          "returns": "tuple[Layer, ...]"
+        },
+        "on": {
+          "kind": "property",
+          "returns": "tuple[Layer, ...]"
+        },
+        "order": {
+          "kind": "property",
+          "returns": "tuple[Layer | LayerOrder, ...]"
+        },
+        "radio_groups": {
+          "kind": "property",
+          "returns": "tuple[tuple[Layer, ...], ...]"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "slot"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "LayerConfigurations": {
+      "kind": "class",
+      "members": {
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | slice",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              }
+            ],
+            "returns": "LayerConfiguration | list[LayerConfiguration]"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[LayerConfiguration]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        },
+        "add": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_only",
+                "name": "name"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "creator"
+              },
+              {
+                "annotation": "LayerBaseState | str",
+                "default": "ON",
+                "kind": "keyword_only",
+                "name": "base_state"
+              },
+              {
+                "annotation": "Iterable[Layer]",
+                "default": [],
+                "kind": "keyword_only",
+                "name": "on"
+              },
+              {
+                "annotation": "Iterable[Layer]",
+                "default": [],
+                "kind": "keyword_only",
+                "name": "off"
+              }
+            ],
+            "returns": "LayerConfiguration"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "LayerOrder": {
+      "annotations": {
+        "items": "tuple[Layer | LayerOrder, ...]",
+        "label": "str | None"
+      },
+      "dataclass_fields": [
+        "label",
+        "items"
+      ],
+      "kind": "class",
+      "members": {
+        "items": {
+          "kind": "property"
+        },
+        "label": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str | None",
+            "kind": "positional_or_keyword",
+            "name": "label"
+          },
+          {
+            "annotation": "tuple[Layer | LayerOrder, ...]",
+            "default": [],
+            "kind": "positional_or_keyword",
+            "name": "items"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "Layers": {
       "kind": "class",
       "members": {
@@ -5790,6 +6002,10 @@
             ],
             "returns": "Layer"
           }
+        },
+        "configurations": {
+          "kind": "property",
+          "returns": "LayerConfigurations"
         }
       },
       "signature": {

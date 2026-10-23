@@ -227,9 +227,40 @@ for layer in doc.layers:
 doc.layers[0].is_visible = False
 ```
 
+`doc.layers.configurations` lists the configurations, each a
+`LayerConfiguration` handle: the default configuration first, which viewers
+apply when they open the document and which rendering and extraction use,
+then the alternatives that a viewer can switch to.
+
+| `LayerConfiguration` member | Purpose |
+|---|---|
+| `index` | 0 for the default configuration |
+| `name`, `creator` | The name a viewer shows and the application that made it, or `None`; assignable |
+| `base_state` | The `LayerBaseState` (`ON`, `OFF`, or `UNCHANGED`) of the groups that `on` and `off` leave out; assignable |
+| `on`, `off`, `locked` | Tuples of `Layer` handles: shown, hidden, and not to be changed by the user; a group in both `on` and `off` is hidden; assignable |
+| `radio_groups` | Tuples of layers of which at most one shows; assignable |
+| `order` | The tree a viewer's layer panel shows: `Layer` handles and `LayerOrder(label, items)` values, where an unlabeled `LayerOrder` after a layer holds its children; assignable |
+| `apply()` | Makes the configuration the default; the default keeps its `order` when this one has none |
+
+`doc.layers.configurations.add(name, *, creator=None, base_state=LayerBaseState.ON, on=(), off=())`
+adds an alternative.
+
+```python
+from pylopdf import LayerOrder
+
+default = doc.layers.configurations[0]
+notes, draft = doc.layers
+default.order = [LayerOrder("Review", (notes, draft))]
+default.radio_groups = [(notes, draft)]
+printing = doc.layers.configurations.add("Print", off=[notes, draft])
+printing.apply()  # rendering and extraction now hide both
+```
+
 Reads stop at 65,536 groups in one array (`LimitError` code `layer_count`)
-and 1 MiB of name and intent text per group (`layer_text_size`); a name above
-1 MiB is refused before it is written (`layer_input_size`).
+or `order` entries and 32 levels of `order`, and 1 MiB of name and intent
+text per group or of name, creator, and label text per configuration
+(`layer_text_size`); names and labels above 1 MiB are refused before they are
+written (`layer_input_size`).
 
 ### Text and Markdown { #document-text }
 

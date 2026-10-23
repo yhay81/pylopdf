@@ -1483,6 +1483,12 @@ def _optional_content_results() -> dict[str, Any]:
     hidden.is_visible = True
     added = document.layers.add("Ébauche", visible=False, intent=("Design",))
     after = [page.text().split(), memoryview(page.pixmap()).tolist()[155][45]]
+    default = document.layers.configurations[0]
+    default.order = [pylopdf.LayerOrder("Review", (notes, hidden)), added]
+    default.radio_groups = [(notes, hidden)]
+    printing = document.layers.configurations.add("Print", base_state="OFF", on=[notes])
+    printing.apply()
+    applied = page.text().split()
     saved = pylopdf.open(document.to_bytes())
     _require(before[0] == ["Bravo"] and after[0] == [], "layer visibility did not change extraction")
     _require(before[1] != after[1], "layer visibility did not change rendering")
@@ -1491,6 +1497,11 @@ def _optional_content_results() -> dict[str, Any]:
         "after": after,
         "added": [added.name, list(added.intent), added.is_visible],
         "saved": [[layer.name, list(layer.intent), layer.is_visible] for layer in saved.layers],
+        "applied": applied,
+        "configurations": [
+            [config.name, str(config.base_state), [layer.name for layer in config.on], repr(config.order)]
+            for config in saved.layers.configurations
+        ],
     }
 
 

@@ -2718,7 +2718,15 @@ the concept and API overview.
   and appends to an existing `/Order` only. Arrays stop at 65,536 entries
   (`layer_count`), one group's name and intents at 1 MiB (`layer_text_size`),
   and written names at 1 MiB (`layer_input_size`); intents are 1 to 64 PDF
-  names of printable ASCII without delimiters. hayro ignores `/VE`, an
+  names of printable ASCII without delimiters. `doc.layers.configurations`
+  addresses a configuration by slot, 0 for `/D` and `n` for `/Configs[n-1]`
+  (configurations are never removed, so a slot stays valid), and edits it
+  through the same plan, storing a direct alternative back into `/Configs`.
+  `/Order` crosses the boundary as preorder entries `(depth, is_array,
+  group, label)`; reads are iterative and cycle-aware, and both directions
+  stop at 65,536 entries and 32 levels. `apply()` replaces `/D` with a copy
+  of the alternative, keeping `/D /Order` when the copy has none, because
+  only `/D` reaches hayro. hayro ignores `/VE`, an
   annotation's own `/OC`, other configurations, and intents (#338).
 - `Document.pdfa_claim` releases the GIL and applies a 1 MiB decoded XMP
   limit to every filter layer; the core's `pdfa_claim(max_size)` takes the
