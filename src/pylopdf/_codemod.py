@@ -46,6 +46,7 @@ MODULE_RENAMES = {
     "FileDataError": "MalformedPdfError",
     "EmptyFileError": "MalformedPdfError",
     "peek_metadata": "probe",
+    "get_pdf_now": "pdf_date",
 }
 #: pymupdf module attributes that pylopdf names otherwise; pylopdf's own ``Outline`` is the item sequence.
 PYMUPDF_MODULE_RENAMES = {"Outline": "OutlineItem", "Annot": "Annotation"}
@@ -2598,6 +2599,34 @@ def _geometry_constant(_: _Migrator, __: str | None, function: str, args: _Argum
     return None if args.positional or args.keywords else function
 
 
+def _paper_member(text: str) -> tuple[str, bool] | None:
+    """Return the ``PaperSize`` member and orientation that a pymupdf paper name literal names, or None."""
+    literal = _string_literal(text)
+    if literal is None:
+        return None
+    name, _, orientation = literal.lower().partition("-")
+    member = name.upper().replace(" ", "_")
+    if member not in pylopdf.PaperSize.__members__ or orientation not in {"", "l", "p"}:
+        return None
+    return member, orientation == "l"
+
+
+def _paper(migrator: _Migrator, prefix: str | None, function: str, args: _Arguments) -> str | None:
+    """Rewrite pymupdf's ``paper_size(name)`` and ``paper_rect(name)`` for a literal name to ``PaperSize``."""
+    bound = args.bind(("s",))
+    if bound is None or "s" not in bound:
+        return None
+    member = _paper_member(bound["s"])
+    paper = f"{prefix}PaperSize" if prefix else migrator.class_name("PaperSize")
+    if member is None or paper is None:
+        return None
+    size = f"{paper}.{member[0]}" + (".landscape" if member[1] else "")
+    if function.rsplit(".", 1)[-1] == "paper_size":
+        return size
+    rect = f"{prefix}Rect" if prefix else migrator.class_name("Rect")
+    return None if rect is None else f"{rect}(0, 0, *{size})"
+
+
 #: Module calls whose arguments changed, keyed by their name in the module.
 MODULE_CALL_RULES: dict[str, Callable[[_Migrator, str | None, str, _Arguments], str | None]] = {
     "open": _open_document,
@@ -2605,6 +2634,8 @@ MODULE_CALL_RULES: dict[str, Callable[[_Migrator, str | None, str, _Arguments], 
     "peek_metadata": _probe,
     "Font": _font,
     "get_text_length": _get_text_length,
+    "paper_size": _paper,
+    "paper_rect": _paper,
     **dict.fromkeys(GEOMETRY_CONSTANTS, _geometry_constant),
 }
 

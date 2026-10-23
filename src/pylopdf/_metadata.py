@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import enum
+import re
 from collections.abc import Iterable, Iterator, Mapping, MutableMapping
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
@@ -165,6 +167,85 @@ class PdfaClaim:
     """The part of ISO 19005, such as 2 for PDF/A-2."""
     conformance: str
     """The conformance level, such as ``"B"``; empty for PDF/A-4 without one."""
+
+
+#: A PDF date string (ISO 32000-2 §7.9.4): ``D:YYYYMMDDHHmmSSOHH'mm``, every
+#: part after the year optional, and the apostrophes optional as PDF 2.0
+#: allows.
+_PDF_DATE = re.compile(
+    r"(?:D:)?(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?(?:([Zz+-])(?:(\d{2})'?(?:(\d{2})'?)?)?)?",
+    re.ASCII,
+)
+_MAX_PDF_DATE_SIZE = 64
+
+
+def pdf_date(value: datetime | None = None) -> str:
+    """Return ``value``, or the current local time, as a PDF date string.
+
+    The string is ``D:YYYYMMDDHHmmSS`` followed by ``Z`` for UTC, by the
+    offset as ``+HH'mm'`` for another aware time, and by nothing for a naive
+    one; fractions of a second are left out. :class:`Metadata` and the date
+    fields of annotations and attachments take such strings.
+    """
+    if value is None:
+        value = datetime.now().astimezone()
+    elif not isinstance(value, datetime):
+        msg = f"pdf_date takes a datetime or None: {value!r}"
+        raise TypeError(msg)
+    text = f"D:{value.year:04d}{value:%m%d%H%M%S}"
+    offset = value.utcoffset()
+    if offset is None:
+        return text
+    if not offset:
+        return text + "Z"
+    minutes = int(offset.total_seconds()) // 60
+    sign = "+" if minutes > 0 else "-"
+    hours, minutes = divmod(abs(minutes), 60)
+    return f"{text}{sign}{hours:02d}'{minutes:02d}'"
+
+
+def parse_pdf_date(text: str) -> datetime:
+    """Parse a PDF date string into a :class:`~datetime.datetime`.
+
+    The ``D:`` prefix, every part after the year, and the apostrophes of
+    the offset are optional, as ISO 32000-2 §7.9.4 allows; missing parts take
+    their earliest value. The result is aware when the string gives ``Z``
+    or an offset, and naive otherwise. A string that is no PDF date raises
+    :class:`ValueError`.
+    """
+    if not isinstance(text, str):
+        msg = f"parse_pdf_date takes a str: {text!r}"
+        raise TypeError(msg)
+    stripped = text.strip()
+    match = _PDF_DATE.fullmatch(stripped) if len(stripped) <= _MAX_PDF_DATE_SIZE else None
+    if match is None:
+        msg = f"not a PDF date string: {text!r}"
+        raise ValueError(msg)
+    year, month, day, hour, minute, second, sign, offset_hours, offset_minutes = match.groups()
+    zone: timezone | None = None
+    if sign is not None:
+        if sign in "Zz":
+            zone = UTC
+        else:
+            hours, minutes = int(offset_hours or 0), int(offset_minutes or 0)
+            if hours > 23 or minutes > 59:  # noqa: PLR2004 - the bounds of an offset.
+                msg = f"not a PDF date string: {text!r}"
+                raise ValueError(msg)
+            delta = timedelta(hours=hours, minutes=minutes)
+            zone = timezone(-delta if sign == "-" else delta)
+    try:
+        return datetime(
+            int(year),
+            int(month or 1),
+            int(day or 1),
+            int(hour or 0),
+            int(minute or 0),
+            int(second or 0),
+            tzinfo=zone,
+        )
+    except ValueError as exc:
+        msg = f"not a PDF date string: {text!r}"
+        raise ValueError(msg) from exc
 
 
 # The package re-exports these names; reprs, pickles, and documentation name them.
