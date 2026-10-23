@@ -940,6 +940,30 @@ lengths are respected; a value that is too long raises and leaves the document
 unchanged. Rich text, push button actions, and signatures are not supported;
 see [ecosystem recipes](ecosystem.md#signatures) for signing.
 
+A field appears on pages through its widgets. `field.widgets` lists them in
+page order, and `page.widgets` lists the widgets of a page as `Widget`
+handles, which `page.annotations` leaves out. A widget has `field`, the
+`Field` it shows, `rect`, `flags` (`AnnotationFlags`, such as `HIDDEN`),
+`border` (a `Border`), `border_color` and `background_color` (`/MK`),
+`caption` (a pushbutton's label), `text_color`, `font` (the Standard 14 font
+that its `/DA` names), and `font_size` (0 fits the text to the widget), and
+the `button_states` and `on_state` of a check box or radio button. All but
+the button states are assignable, and `del` removes the border, its colours,
+and the caption; each assignment draws the widget again for its field's
+value, text and choice values in the widget's `/DA` font, size, and colour,
+which value assignments now honour as well. A widget's value is its field's
+value.
+
+```python
+from pylopdf import Border, Color, Font
+
+for widget in doc.form["customer"].widgets:
+    widget.background_color = Color(1, 1, 0.8)
+    widget.border = Border(1)
+    widget.font = Font.standard("Courier")
+    widget.font_size = 10
+```
+
 ## Attachments { #attachments }
 
 `doc.attachments` is a mapping from names to `Attachment` objects:

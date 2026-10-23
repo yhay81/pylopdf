@@ -436,6 +436,7 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "page.annotations.add(pylopdf.Stamp(r, icon=pylopdf.StampIcon.DRAFT))",
         ),
         ("import fitz\npage.add_caret_annot(p)\n", "page.annotations.add(pylopdf.Caret(p))"),
+        ("import fitz\nfor w in page.widgets():\n    pass\n", "for w in list(page.widgets):\n    pass"),
         ("import fitz\nannot.set_opacity(0.5)\n", "annot.opacity = 0.5"),
         ("import fitz\nannot.set_rect(r)\n", "annot.rect = r"),
         ("import fitz\nannot.set_colors(stroke=(1, 0, 0))\n", "annot.color = pylopdf.Color(1, 0, 0)"),

@@ -1351,6 +1351,41 @@ impl _Document {
         annotations::read_annotation_geometry(self, py, page_number, index, xref)
     }
 
+    /// Return the one-based page and object number of each widget of a field.
+    fn field_widget_locations(&self, py: Python<'_>, xref: u32) -> PyResult<Vec<(u32, u32)>> {
+        forms::field_widget_locations(self, py, xref)
+    }
+
+    /// Read the form widgets of a one-based page.
+    fn read_widgets(&self, py: Python<'_>, page_number: u32) -> PyResult<Vec<forms::WidgetTuple>> {
+        forms::read_widgets(self, py, page_number)
+    }
+
+    /// Read one widget of a one-based page, found as `read_annotation` finds
+    /// an annotation.
+    fn read_widget(
+        &self,
+        py: Python<'_>,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+    ) -> PyResult<forms::WidgetTuple> {
+        forms::read_widget(self, py, page_number, index, xref)
+    }
+
+    /// Change one widget's geometry and style and draw it again; return its
+    /// object number.
+    fn edit_widget(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+        edit: forms::WidgetEdit,
+    ) -> PyResult<u32> {
+        forms::edit_widget(self, py, page_number, index, xref, edit)
+    }
+
     /// Read every named destination with its one-based page, display
     /// point, and zoom.
     fn named_destinations(

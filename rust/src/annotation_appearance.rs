@@ -593,13 +593,23 @@ pub(crate) struct DefaultAppearance {
 /// Read `/DA`: the last `Tf` and colour operator of the string; Helvetica,
 /// 12 points, and black for what it does not set.
 pub(crate) fn default_appearance(doc: &Document, dict: &Dictionary) -> DefaultAppearance {
+    let mut result = match entry(doc, dict, b"DA") {
+        Some(Object::String(bytes, _)) => parse_default_appearance(bytes),
+        _ => parse_default_appearance(b""),
+    };
+    if result.size <= 0.0 {
+        result.size = 12.0;
+    }
+    result
+}
+
+/// Parse a `/DA` string: the last `Tf` and colour operator; Helvetica, size
+/// 0 (which fits the text to its box), and black for what it does not set.
+pub(crate) fn parse_default_appearance(bytes: &[u8]) -> DefaultAppearance {
     let mut result = DefaultAppearance {
         font: "Helv".to_owned(),
-        size: 12.0,
+        size: 0.0,
         color: (0.0, 0.0, 0.0),
-    };
-    let Some(Object::String(bytes, _)) = entry(doc, dict, b"DA") else {
-        return result;
     };
     if bytes.len() > MAX_DEFAULT_APPEARANCE {
         return result;
@@ -628,7 +638,7 @@ pub(crate) fn default_appearance(doc: &Document, dict: &Dictionary) -> DefaultAp
                 ) && let Some(name) = name.strip_prefix(b"/")
                 {
                     result.font = String::from_utf8_lossy(name).into_owned();
-                    if size > 0.0 {
+                    if size >= 0.0 {
                         result.size = size;
                     }
                 }

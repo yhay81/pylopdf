@@ -1027,7 +1027,7 @@ impl _Document {
             .map_err(to_py_err)?
             .clone();
         let style =
-            form::WidgetStyle::from_widget(&self.doc, &widget).map_err(PdfError::new_err)?;
+            form::WidgetStyle::from_widget(&self.doc, &widget, None).map_err(PdfError::new_err)?;
         let mut normal = self.button_normal_appearance(widget_id);
         for (name, on) in [("Off", false), (state, state != "Off")] {
             let keep_existing = normal
@@ -1099,6 +1099,42 @@ impl _Document {
         Ok(())
     }
 
+    /// The `/DA` that a widget draws its text with: its own, else the nearest
+    /// one along its `/Parent` chain (ISO 32000-2 Table 228 makes it
+    /// inheritable), else the AcroForm dictionary's, or `None` without any.
+    pub(super) fn widget_default_appearance(
+        &self,
+        widget_id: ObjectId,
+    ) -> Option<annotation_appearance::DefaultAppearance> {
+        let doc = &*self.doc;
+        let mut current = doc.get_dictionary(widget_id).ok()?;
+        for _ in 0..MAX_FORM_FIELD_TREE_DEPTH {
+            if let Ok(Object::String(bytes, _)) =
+                current.get(b"DA").map(|value| deref_object(doc, value))
+            {
+                return Some(annotation_appearance::parse_default_appearance(bytes));
+            }
+            match current.get(b"Parent") {
+                Ok(Object::Reference(parent)) => match doc.get_dictionary(*parent) {
+                    Ok(parent) => current = parent,
+                    Err(_) => break,
+                },
+                _ => break,
+            }
+        }
+        doc.catalog()
+            .ok()
+            .and_then(|catalog| catalog.get(b"AcroForm").ok())
+            .and_then(|form| deref_dict_ref(doc, form))
+            .and_then(|form| form.get(b"DA").ok())
+            .and_then(|value| match deref_object(doc, value) {
+                Object::String(bytes, _) => {
+                    Some(annotation_appearance::parse_default_appearance(bytes))
+                }
+                _ => None,
+            })
+    }
+
     /// Generate a text/choice widget appearance, preserving AP down/rollover data.
     pub(super) fn synthesize_text_appearance(
         &mut self,
@@ -1114,8 +1150,9 @@ impl _Document {
             .and_then(Object::as_dict)
             .map_err(to_py_err)?
             .clone();
-        let style =
-            form::WidgetStyle::from_widget(&self.doc, &widget).map_err(PdfError::new_err)?;
+        let da = self.widget_default_appearance(widget_id);
+        let style = form::WidgetStyle::from_widget(&self.doc, &widget, da.as_ref())
+            .map_err(PdfError::new_err)?;
         if let WidgetTextLayout::Comb(max_len) = layout {
             form::validate_comb_text(value, max_len).map_err(PdfError::new_err)?;
         }
@@ -1138,7 +1175,7 @@ impl _Document {
                         max_len,
                         align,
                         &face,
-                        (0.0, 0.0, 0.0),
+                        style.text.color,
                     ),
                     _ => generate::embedded_widget_text_page(
                         (style.layout_width, style.layout_height),
@@ -1147,7 +1184,7 @@ impl _Document {
                         &face,
                         matches!(layout, WidgetTextLayout::Multiline),
                         align,
-                        (0.0, 0.0, 0.0),
+                        style.text.color,
                     ),
                 }
                 .map_err(generated_text_err)?;
@@ -1177,29 +1214,31 @@ impl _Document {
             None => {
                 let text_ops = match layout {
                     WidgetTextLayout::Comb(max_len) => {
-                        form::standard_comb_text_ops(&style, value, max_len, align, "Helv")
+                        form::standard_comb_text_ops(&style, value, max_len, align)
                     }
                     _ => form::standard_text_ops(
                         &style,
                         value,
                         matches!(layout, WidgetTextLayout::Multiline),
                         align,
-                        "Helv",
                     ),
                 }
                 .map_err(generated_text_err)?;
                 if text_ops.is_empty() {
                     (None, text_ops)
                 } else {
-                    let font_id = self.doc.add_object(dictionary! {
+                    let mut font = dictionary! {
                         "Type" => "Font",
                         "Subtype" => "Type1",
-                        "BaseFont" => "Helvetica",
-                        "Encoding" => "WinAnsiEncoding",
-                    });
+                        "BaseFont" => style.text.base_font,
+                    };
+                    if !matches!(style.text.base_font, "Symbol" | "ZapfDingbats") {
+                        font.set("Encoding", "WinAnsiEncoding");
+                    }
+                    let font_id = self.doc.add_object(font);
                     let resources = dictionary! {
                         "Font" => dictionary! {
-                            "Helv" => Object::Reference(font_id),
+                            style.text.resource.as_bytes() => Object::Reference(font_id),
                         },
                     };
                     (Some(resources), text_ops)
@@ -1613,4 +1652,564 @@ pub(super) fn set_form_field_font(
         PdfError::new_err("form appearances draw an OpenType Font, not a Standard 14 font")
     })?;
     this.fill_form_field(py, name, value, Some(FormFont::Face(face)))
+}
+
+/// One widget as `read_widgets` returns it: its position in `/Annots`, its
+/// object number (0 for a direct dictionary), the object number of its
+/// terminal field (0 when no field of the form owns it), its display
+/// rectangle, `/F` flags, its `/MK` border colour, background colour, and
+/// caption, its border, the font resource, size, and colour of the `/DA` it
+/// draws with, the state names of its normal appearance, and `/AS`.
+pub(super) type WidgetTuple = (
+    u32,
+    u32,
+    u32,
+    (f64, f64, f64, f64),
+    i64,
+    (Vec<f64>, Vec<f64>, Option<String>),
+    Option<(f64, String, Vec<f64>)>,
+    Option<(String, f64, (f64, f64, f64))>,
+    Vec<String>,
+    Option<String>,
+);
+
+/// What one form field records about a widget it owns: the field's object,
+/// its kind, flags, and value.
+type WidgetField = (ObjectId, Arc<String>, i64, Option<Arc<str>>);
+
+impl _Document {
+    /// Map each widget object of the form to the terminal field that owns
+    /// it, under the field-tree limits.
+    fn widget_fields(&self) -> PyResult<HashMap<ObjectId, WidgetField>> {
+        let mut owners = HashMap::new();
+        for (_, field_id, kind, flags, value) in self.collect_form_fields()? {
+            for widget in self.field_widgets(field_id)? {
+                owners.try_reserve(1).map_err(|error| {
+                    PdfError::new_err(format!("failed to grow the widget map: {error}"))
+                })?;
+                owners
+                    .entry(widget)
+                    .or_insert((field_id, Arc::clone(&kind), flags, value.clone()));
+            }
+        }
+        Ok(owners)
+    }
+
+    fn widget_item(
+        &self,
+        index: u32,
+        xref: u32,
+        dict: &Dictionary,
+        (crop, rotation): ([f64; 4], i64),
+        owners: &HashMap<ObjectId, WidgetField>,
+        budget: &mut (usize, usize),
+    ) -> PyResult<Option<WidgetTuple>> {
+        let doc = &*self.doc;
+        if !matches!(
+            dict.get(b"Subtype")
+                .map(|value| deref_object(doc, value))
+                .and_then(Object::as_name),
+            Ok(b"Widget")
+        ) {
+            return Ok(None);
+        }
+        let Some(rect) = resolve_box(doc, dict, b"Rect") else {
+            return Ok(None);
+        };
+        let display = draw::pdf_rect_to_display(crop, rotation, rect);
+        let flags = dict
+            .get(b"F")
+            .map(|value| deref_object(doc, value))
+            .and_then(Object::as_i64)
+            .unwrap_or(0);
+        let mark = dict
+            .get(b"MK")
+            .ok()
+            .and_then(|value| deref_dict_ref(doc, value));
+        let (encoded, returned) = budget;
+        let caption = match mark.and_then(|mark| mark.get(b"CA").ok()) {
+            Some(caption) => {
+                bounded_annotation_text(doc, caption, encoded, returned, "widget caption")?
+            }
+            None => None,
+        };
+        let colors = (
+            mark.map(|mark| annotation_color(doc, mark, b"BC"))
+                .unwrap_or_default(),
+            mark.map(|mark| annotation_color(doc, mark, b"BG"))
+                .unwrap_or_default(),
+            caption,
+        );
+        let field = if xref == 0 {
+            None
+        } else {
+            owners.get(&(xref, 0)).or_else(|| {
+                owners
+                    .iter()
+                    .find(|(id, _)| id.0 == xref)
+                    .map(|(_, field)| field)
+            })
+        };
+        let da = if xref == 0 {
+            None
+        } else {
+            self.widget_default_appearance((xref, 0))
+        }
+        .map(|da| (da.font, da.size, da.color));
+        let mut states = Vec::new();
+        if let Some(normal) = dict
+            .get(b"AP")
+            .ok()
+            .and_then(|appearance| deref_dict_ref(doc, appearance))
+            .and_then(|appearance| appearance.get(b"N").ok())
+            .and_then(|normal| deref_dict_ref(doc, normal))
+        {
+            for (name, _) in normal {
+                states.push(bounded_annotation_bytes(
+                    name,
+                    encoded,
+                    returned,
+                    "button state",
+                )?);
+            }
+        }
+        let current = match dict.get(b"AS").map(|value| deref_object(doc, value)) {
+            Ok(Object::Name(name)) => Some(bounded_annotation_bytes(
+                name,
+                encoded,
+                returned,
+                "button state",
+            )?),
+            _ => None,
+        };
+        Ok(Some((
+            index,
+            xref,
+            field.map_or(0, |field| field.0.0),
+            (display[0], display[1], display[2], display[3]),
+            flags,
+            colors,
+            annotation_appearance::border(doc, dict).map(|border| {
+                (
+                    border.width,
+                    String::from_utf8_lossy(&border.style).into_owned(),
+                    border.dashes,
+                )
+            }),
+            da,
+            states,
+            current,
+        )))
+    }
+}
+
+/// Implements [`_Document::read_widgets`].
+pub(super) fn read_widgets(
+    this: &_Document,
+    py: Python<'_>,
+    page_number: u32,
+) -> PyResult<Vec<WidgetTuple>> {
+    py.detach(|| {
+        let geometry = this.page_display_geometry(page_number)?;
+        let page_id = this.page_id(page_number)?;
+        let Some(items) = this.page_annotation_items(page_id)? else {
+            return Ok(Vec::new());
+        };
+        let owners = this.widget_fields()?;
+        let mut budget = (0, 0);
+        let mut out = Vec::new();
+        for (index, item) in items.iter().enumerate() {
+            let (xref, dict) = match item {
+                Object::Reference(id) => match this.doc.get_object(*id).and_then(Object::as_dict) {
+                    Ok(dict) => (id.0, dict),
+                    Err(_) => continue,
+                },
+                Object::Dictionary(dict) => (0, dict),
+                _ => continue,
+            };
+            let index = u32::try_from(index).unwrap_or(u32::MAX);
+            if let Some(widget) =
+                this.widget_item(index, xref, dict, geometry, &owners, &mut budget)?
+            {
+                try_push_form(&mut out, widget, "widgets")?;
+            }
+        }
+        Ok(out)
+    })
+}
+
+/// Implements [`_Document::read_widget`].
+pub(super) fn read_widget(
+    this: &_Document,
+    py: Python<'_>,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+) -> PyResult<WidgetTuple> {
+    py.detach(|| {
+        let geometry = this.page_display_geometry(page_number)?;
+        let page_id = this.page_id(page_number)?;
+        let (index, dict) = this.annotation_at(page_id, index, xref)?;
+        let owners = this.widget_fields()?;
+        this.widget_item(index, xref, dict, geometry, &owners, &mut (0, 0))?
+            .ok_or_else(|| {
+                StaleObjectError::new_err(format!("annotation {xref} is no longer a widget"))
+            })
+    })
+}
+
+/// An edit of a widget's geometry and style, as the setters of `Widget`
+/// pass it; `clear` names the properties to remove.
+#[derive(FromPyObject)]
+#[pyo3(from_item_all)]
+pub(super) struct WidgetEdit {
+    #[pyo3(default)]
+    rect: Option<(f64, f64, f64, f64)>,
+    #[pyo3(default)]
+    border: Option<(f64, String, Vec<f64>)>,
+    #[pyo3(default)]
+    border_color: Option<(f64, f64, f64)>,
+    #[pyo3(default)]
+    background_color: Option<(f64, f64, f64)>,
+    #[pyo3(default)]
+    caption: Option<String>,
+    #[pyo3(default)]
+    text_color: Option<(f64, f64, f64)>,
+    #[pyo3(default)]
+    font_name: Option<String>,
+    #[pyo3(default)]
+    font_size: Option<f64>,
+    #[pyo3(default)]
+    flags: Option<i64>,
+    /// The OpenType face that text and choice values are drawn with.
+    #[pyo3(default)]
+    font: Option<Py<_Font>>,
+    /// Always given, so that the edit is not all defaults.
+    clear: Vec<String>,
+}
+
+fn rgb_entry(name: &str, (red, green, blue): (f64, f64, f64)) -> PyResult<Object> {
+    if ![red, green, blue]
+        .iter()
+        .all(|component| component.is_finite() && (0.0..=1.0).contains(component))
+    {
+        return Err(PdfError::new_err(format!(
+            "a widget {name} has components from 0 to 1"
+        )));
+    }
+    Ok(Object::Array(vec![
+        Object::Real(red as f32),
+        Object::Real(green as f32),
+        Object::Real(blue as f32),
+    ]))
+}
+
+/// Implements [`_Document::edit_widget`]: change a widget's geometry and
+/// style, then draw its appearance again for its field's value, restoring
+/// the document on any error.
+pub(super) fn edit_widget(
+    this: &mut _Document,
+    py: Python<'_>,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+    edit: WidgetEdit,
+) -> PyResult<u32> {
+    let (crop, rotation) = this.page_display_geometry(page_number)?;
+    let page_id = this.page_id(page_number)?;
+    let (_, widget) = this.annotation_at(page_id, index, xref)?;
+    if !matches!(
+        widget.get(b"Subtype").and_then(Object::as_name),
+        Ok(b"Widget")
+    ) {
+        return Err(StaleObjectError::new_err(format!(
+            "annotation {xref} is no longer a widget"
+        )));
+    }
+    let mut dict = widget.clone();
+    let mut mark = dict
+        .get(b"MK")
+        .ok()
+        .and_then(|mark| deref_dict_ref(&this.doc, mark))
+        .cloned()
+        .unwrap_or_default();
+    if let Some(caption) = &edit.caption {
+        validate_annotation_input([caption.as_bytes()], "caption")?;
+        mark.set("CA", text_string(caption));
+    }
+    if let Some(color) = edit.border_color {
+        mark.set("BC", rgb_entry("border colour", color)?);
+    }
+    if let Some(color) = edit.background_color {
+        mark.set("BG", rgb_entry("background colour", color)?);
+    }
+    for property in &edit.clear {
+        match property.as_str() {
+            "border_color" => {
+                mark.remove(b"BC");
+            }
+            "background_color" => {
+                mark.remove(b"BG");
+            }
+            "caption" => {
+                mark.remove(b"CA");
+            }
+            "border" => {
+                dict.remove(b"BS");
+                dict.remove(b"Border");
+            }
+            other => {
+                return Err(PdfError::new_err(format!(
+                    "a widget property that cannot be removed: {other:?}"
+                )));
+            }
+        }
+    }
+    dict.set("MK", mark);
+    if let Some((width, style, dashes)) = &edit.border {
+        if !(width.is_finite() && *width >= 0.0)
+            || !matches!(style.as_str(), "S" | "D" | "B" | "I" | "U")
+            || dashes.len() > annotation_appearance::MAX_BORDER_DASHES
+            || (!dashes.is_empty() && !annotation_appearance::valid_dashes(dashes))
+            || (style == "D") == dashes.is_empty()
+        {
+            return Err(PdfError::new_err(
+                "the border is not one that pylopdf writes",
+            ));
+        }
+        let mut border = dictionary! {
+            "W" => Object::Real(*width as f32),
+            "S" => Object::Name(style.as_bytes().to_vec()),
+        };
+        if !dashes.is_empty() {
+            border.set(
+                "D",
+                Object::Array(
+                    dashes
+                        .iter()
+                        .map(|&dash| Object::Real(dash as f32))
+                        .collect(),
+                ),
+            );
+        }
+        dict.remove(b"Border");
+        dict.set("BS", border);
+    }
+    if let Some(flags) = edit.flags {
+        if !(0..=1023).contains(&flags) {
+            return Err(PdfError::new_err("annotation flags are bits 1 to 10"));
+        }
+        dict.set("F", flags);
+    }
+    if let Some((x0, y0, x1, y1)) = edit.rect {
+        if ![x0, y0, x1, y1].iter().all(|value| value.is_finite()) || x1 <= x0 || y1 <= y0 {
+            return Err(PdfError::new_err(
+                "a widget rectangle is finite and not empty",
+            ));
+        }
+        let quad = draw::display_rect_quad_pdf(crop, rotation, [x0, y0, x1, y1]);
+        let rect = draw::bounding_rect_iter(quad.iter().copied());
+        dict.set(
+            "Rect",
+            Object::Array(
+                rect.iter()
+                    .map(|&value| Object::Real(value as f32))
+                    .collect(),
+            ),
+        );
+    }
+    let styled = edit.text_color.is_some() || edit.font_name.is_some() || edit.font_size.is_some();
+    if styled {
+        let current = if xref == 0 {
+            None
+        } else {
+            this.widget_default_appearance((xref, 0))
+        }
+        .unwrap_or_else(|| annotation_appearance::parse_default_appearance(b""));
+        let (red, green, blue) = edit.text_color.unwrap_or(current.color);
+        rgb_entry("text colour", (red, green, blue))?;
+        let resource = match &edit.font_name {
+            Some(name) => annotation_appearance::DA_FONTS
+                .iter()
+                .find(|(_, font)| font == name)
+                .map(|(resource, _)| (*resource).to_owned())
+                .ok_or_else(|| PdfError::new_err(format!("unknown Standard 14 font {name:?}")))?,
+            None => current.font.clone(),
+        };
+        let size = edit.font_size.unwrap_or(current.size);
+        if !(size.is_finite() && (0.0..=10_000.0).contains(&size)) {
+            return Err(PdfError::new_err(
+                "a widget font size is from 0, which fits the text, to 10000",
+            ));
+        }
+        dict.set(
+            "DA",
+            Object::string_literal(format!(
+                "/{resource} {} Tf {} {} {} rg",
+                draw::fmt(size),
+                draw::fmt(red),
+                draw::fmt(green),
+                draw::fmt(blue)
+            )),
+        );
+    }
+    let font = edit
+        .font
+        .as_ref()
+        .map(|font| {
+            Python::attach(|py| font.borrow(py).face()).ok_or_else(|| {
+                PdfError::new_err("form appearances draw an OpenType Font, not a Standard 14 font")
+            })
+        })
+        .transpose()?
+        .map(FormFont::Face);
+
+    let (_, id) = edited_annotation(this, page_id, index, xref)?;
+    py.detach(|| {
+        let original = this.doc.clone();
+        if let Ok(object) = this.doc.get_object_mut(id) {
+            *object = Object::Dictionary(dict);
+        }
+        let result = this.redraw_widget(id, font.as_ref());
+        if let Err(error) = result {
+            this.doc.replace(original);
+            return Err(error);
+        }
+        Ok(())
+    })?;
+    this.invalidate_hayro_pdf();
+    Ok(id.0)
+}
+
+impl _Document {
+    /// Draw one widget's appearance again for its field's current value:
+    /// text and choice values, every state of a check box or radio button,
+    /// and a pushbutton's caption. Widgets of signature fields and of no
+    /// field keep theirs.
+    fn redraw_widget(&mut self, widget_id: ObjectId, font: Option<&FormFont>) -> PyResult<()> {
+        let owners = self.widget_fields()?;
+        let Some((field_id, kind, flags, value)) = owners.get(&widget_id).cloned() else {
+            return Ok(());
+        };
+        match kind.as_str() {
+            "Tx" | "Ch" => {
+                let value = value.as_deref().unwrap_or_default().to_owned();
+                let layout = if kind.as_str() == "Tx" {
+                    match self
+                        .field_comb_max_len(field_id, flags)
+                        .map_err(PdfError::new_err)?
+                    {
+                        Some(max_len) => WidgetTextLayout::Comb(max_len),
+                        None if flags & TEXT_FIELD_MULTILINE != 0 => WidgetTextLayout::Multiline,
+                        None => WidgetTextLayout::SingleLine,
+                    }
+                } else {
+                    WidgetTextLayout::SingleLine
+                };
+                let align = self.field_quadding(field_id);
+                self.synthesize_text_appearance(widget_id, &value, layout, align, font)?;
+            }
+            "Btn" if flags & (1 << 16) != 0 => {
+                let widget = self
+                    .doc
+                    .get_dictionary(widget_id)
+                    .map_err(to_py_err)?
+                    .clone();
+                let da = self.widget_default_appearance(widget_id);
+                let style = form::WidgetStyle::from_widget(&self.doc, &widget, da.as_ref())
+                    .map_err(PdfError::new_err)?;
+                let caption = widget
+                    .get(b"MK")
+                    .ok()
+                    .and_then(|mark| deref_dict_ref(&self.doc, mark))
+                    .and_then(|mark| mark.get(b"CA").ok())
+                    .and_then(|caption| decode_text_string(deref_object(&self.doc, caption)).ok())
+                    .unwrap_or_default();
+                let text = if caption.is_empty() || !draw::is_winansi(&caption) {
+                    Vec::new()
+                } else {
+                    form::standard_text_ops(&style, &caption, false, 1)
+                        .map_err(PdfError::new_err)?
+                };
+                let resources = (!text.is_empty()).then(|| {
+                    let mut font = dictionary! {
+                        "Type" => "Font",
+                        "Subtype" => "Type1",
+                        "BaseFont" => style.text.base_font,
+                    };
+                    if !matches!(style.text.base_font, "Symbol" | "ZapfDingbats") {
+                        font.set("Encoding", "WinAnsiEncoding");
+                    }
+                    let font_id = self.doc.add_object(font);
+                    dictionary! {
+                        "Font" => dictionary! {
+                            style.text.resource.as_bytes() => Object::Reference(font_id),
+                        },
+                    }
+                });
+                let content = style.decorated_text_ops(&text).map_err(PdfError::new_err)?;
+                let appearance = self.doc.add_object(style.stream(resources, content));
+                self.set_widget_normal_appearance(widget_id, Some(Object::Reference(appearance)))?;
+            }
+            "Btn" => {
+                let radio = flags & (1 << 15) != 0;
+                let widget = self
+                    .doc
+                    .get_dictionary(widget_id)
+                    .map_err(to_py_err)?
+                    .clone();
+                let style = form::WidgetStyle::from_widget(&self.doc, &widget, None)
+                    .map_err(PdfError::new_err)?;
+                let mut normal = self.button_normal_appearance(widget_id);
+                let mut names: Vec<Vec<u8>> = normal.iter().map(|(name, _)| name.clone()).collect();
+                if names.is_empty() {
+                    names.push(b"Off".to_vec());
+                    names.push(b"Yes".to_vec());
+                }
+                for name in names {
+                    let on = name != b"Off";
+                    let appearance = self.doc.add_object(style.button_stream(on, radio));
+                    normal.set(name, Object::Reference(appearance));
+                }
+                self.set_widget_normal_appearance(widget_id, Some(Object::Dictionary(normal)))?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+/// Implements [`_Document::field_widget_locations`]: the one-based page and
+/// object number of each widget of a field that a page lists, in page order.
+pub(super) fn field_widget_locations(
+    this: &_Document,
+    py: Python<'_>,
+    xref: u32,
+) -> PyResult<Vec<(u32, u32)>> {
+    py.detach(|| {
+        let field_id = this
+            .collect_form_fields()?
+            .into_iter()
+            .map(|(_, id, ..)| id)
+            .find(|id| id.0 == xref)
+            .ok_or_else(|| {
+                StaleObjectError::new_err(format!("object {xref} is no longer a field of the form"))
+            })?;
+        let widgets: HashSet<ObjectId> = this.field_widgets(field_id)?.into_iter().collect();
+        let mut out = Vec::new();
+        for page_number in 1..=u32::try_from(this.doc.page_count()?).unwrap_or(u32::MAX) {
+            let page_id = this.page_id(page_number)?;
+            let Some(items) = this.page_annotation_items(page_id)? else {
+                continue;
+            };
+            for item in items {
+                if let Object::Reference(id) = item
+                    && widgets.contains(id)
+                {
+                    try_push_form(&mut out, (page_number, id.0), "field widgets")?;
+                }
+            }
+        }
+        Ok(out)
+    })
 }

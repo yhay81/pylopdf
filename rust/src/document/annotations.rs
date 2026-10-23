@@ -44,7 +44,7 @@ const ANNOTATION_TEXT_KEYS: [&[u8]; 8] = [
 ];
 
 /// Read an annotation colour array of up to four numbers.
-fn annotation_color(doc: &Document, dict: &Dictionary, key: &[u8]) -> Vec<f64> {
+pub(super) fn annotation_color(doc: &Document, dict: &Dictionary, key: &[u8]) -> Vec<f64> {
     let Ok(color) = dict.get(key).map(|value| deref_object(doc, value)) else {
         return Vec::new();
     };
@@ -2214,7 +2214,7 @@ pub(super) fn edit_annotation(
 /// storing the page's direct annotation dictionaries as objects when it is
 /// one, as `set_link` does. The caller has checked its input, and the caches
 /// are invalidated here.
-fn edited_annotation(
+pub(super) fn edited_annotation(
     this: &mut _Document,
     page_id: ObjectId,
     index: u32,

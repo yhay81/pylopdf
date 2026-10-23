@@ -28,6 +28,7 @@ from pylopdf._ocr import OcrEngine, OcrWord, _default_ocr_engine, _validate_ocr_
 from pylopdf._page_labels import _label, _read_page_labels
 from pylopdf._pixmap import Colorspace, _render_background, _render_gray, _render_scale, _validate_bool
 from pylopdf._tables import Table, build_tables
+from pylopdf._widgets import Widgets
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -554,6 +555,11 @@ class Page:
     def links(self) -> Links:
         """Return the page's link annotations as a :class:`Links` sequence of :class:`Link` handles."""
         return Links(self)
+
+    @property
+    def widgets(self) -> Widgets:
+        """Return the page's form widgets as a :class:`Widgets` sequence of :class:`Widget` handles."""
+        return Widgets(self)
 
     def pixmap(  # noqa: PLR0913 - rendering options are keyword-only.
         self,

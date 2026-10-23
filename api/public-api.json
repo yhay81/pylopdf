@@ -146,6 +146,8 @@
     "TilingPattern",
     "TransparencyGroup",
     "Underline",
+    "Widget",
+    "Widgets",
     "Word",
     "create",
     "open",
@@ -3357,6 +3359,10 @@
         "value": {
           "kind": "property",
           "returns": "str | None"
+        },
+        "widgets": {
+          "kind": "property",
+          "returns": "list[Widget]"
         },
         "xref": {
           "kind": "property",
@@ -7253,6 +7259,10 @@
           "kind": "property",
           "returns": "Matrix"
         },
+        "widgets": {
+          "kind": "property",
+          "returns": "Widgets"
+        },
         "words": {
           "kind": "method",
           "signature": {
@@ -10854,6 +10864,147 @@
             "default": null,
             "kind": "keyword_only",
             "name": "contents"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "Widget": {
+      "kind": "class",
+      "members": {
+        "background_color": {
+          "kind": "property",
+          "returns": "Color | None"
+        },
+        "border": {
+          "kind": "property",
+          "returns": "Border | None"
+        },
+        "border_color": {
+          "kind": "property",
+          "returns": "Color | None"
+        },
+        "button_states": {
+          "kind": "property",
+          "returns": "tuple[str, ...]"
+        },
+        "caption": {
+          "kind": "property",
+          "returns": "str | None"
+        },
+        "field": {
+          "kind": "property",
+          "returns": "Field | None"
+        },
+        "flags": {
+          "kind": "property",
+          "returns": "AnnotationFlags"
+        },
+        "font": {
+          "kind": "property",
+          "returns": "Font | None"
+        },
+        "font_size": {
+          "kind": "property",
+          "returns": "float"
+        },
+        "obj": {
+          "kind": "property",
+          "returns": "Dictionary"
+        },
+        "on_state": {
+          "kind": "property",
+          "returns": "str | None"
+        },
+        "page": {
+          "kind": "property",
+          "returns": "Page"
+        },
+        "rect": {
+          "kind": "property",
+          "returns": "Rect"
+        },
+        "text_color": {
+          "kind": "property",
+          "returns": "Color"
+        },
+        "xref": {
+          "kind": "property",
+          "returns": "int"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Page",
+            "kind": "positional_or_keyword",
+            "name": "page"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "xref"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "index"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "Widgets": {
+      "kind": "class",
+      "members": {
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | slice",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              }
+            ],
+            "returns": "Widget | list[Widget]"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[Widget]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Page",
+            "kind": "positional_or_keyword",
+            "name": "page"
           }
         ],
         "returns": "None"

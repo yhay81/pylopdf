@@ -328,6 +328,7 @@ replacement, and the migration hint):
 - Page.find_tables -> Page.tables: Use page.tables(strategy=..., clip=...), which returns a list of Table records; table.rows replaces extract().
 - Page.first_annot -> Page.annotations: next(iter(page.annotations), None) is the first annotation; iterate page.annotations instead of following annot.next.
 - Page.first_link -> Page.links: next(iter(page.links), None) is the first link; iterate page.links instead of following link.next.
+- Page.first_widget -> Page.widgets: page.widgets[0], or iterate page.widgets.
 - Page.get_bboxlog -> Page.content: Call page.content(); every item has a bbox and a kind, and its context lists the clips around it.
 - Page.get_cdrawings -> Page.content: Read page.content().paths, whose segments, paints, and strokes are immutable values.
 - Page.get_displaylist -> Page.content: Call page.content(), which returns the page's painted items as an immutable Content sequence.
@@ -352,6 +353,7 @@ replacement, and the migration hint):
 - Page.links -> Page.links: page.links is a sequence of Link handles: iterate it instead of calling it, and test the type of link.target instead of passing kinds.
 - Page.load_annot -> Page.annotations: Find the annotation in page.annotations by its xref or name.
 - Page.load_links -> Page.links: next(iter(page.links), None) is the first link; iterate page.links instead of following link.next.
+- Page.load_widget -> Page.widgets: next(w for w in page.widgets if w.xref == xref) finds a widget by its object number.
 - Page.mediabox -> Page.boxes: Read page.boxes.media.
 - Page.mediabox_size -> Page.boxes: Read page.boxes.media.width and page.boxes.media.height.
 - Page.new_shape -> Page.draw: with page.draw() as canvas: draws paths and text in the order of the calls and writes them when the block ends, as Shape.commit() did.
@@ -370,6 +372,7 @@ replacement, and the migration hint):
 - Page.transformation_matrix -> Page.user_to_display: Use page.user_to_display, which maps PDF user space to display space with the rotation included; pymupdf's matrix stops before the rotation.
 - Page.trimbox -> Page.boxes: Read page.boxes.trim, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Page.update_link -> Link.target: Assign link.rect and link.target on a handle from page.links.
+- Page.widgets -> Page.widgets: page.widgets is a sequence of Widget handles; filter by widget.field.type for pymupdf's types=.
 - Pixmap.n -> Pixmap.channels: Read pix.channels.
 - Pixmap.samples -> Pixmap: bytes(pix) copies the pixels; memoryview(pix) and numpy.asarray(pix) read them without a copy, shaped (height, width, channels).
 - Pixmap.samples_mv -> Pixmap: Use memoryview(pix), shaped (height, width, channels).
@@ -406,12 +409,26 @@ replacement, and the migration hint):
 - TEXT_ALIGN_JUSTIFY -> Canvas.textbox: canvas.textbox(rect, text, align="justify") takes the alignment as a string.
 - TEXT_ALIGN_LEFT -> Canvas.textbox: canvas.textbox(rect, text, align="left") takes the alignment as a string.
 - TEXT_ALIGN_RIGHT -> Canvas.textbox: canvas.textbox(rect, text, align="right") takes the alignment as a string.
+- Widget.border_color -> Widget.border_color: widget.border_color is a Color or None, assignable and deletable.
+- Widget.border_dashes -> Widget.border: widget.border.dashes; assign widget.border = Border(width, dashes=...).
+- Widget.border_style -> Widget.border: widget.border.style is a BorderStyle member.
+- Widget.border_width -> Widget.border: widget.border.width; assign widget.border = Border(width).
+- Widget.button_caption -> Widget.caption: widget.caption is a pushbutton's caption, assignable and deletable.
+- Widget.button_states -> Widget.button_states: widget.button_states is the tuple of normal-appearance state names, such as ('Yes', 'Off').
 - Widget.choice_values -> Field.choices: Read doc.form[name].choices, FieldChoice records with value and label.
+- Widget.field_display -> Widget.flags: widget.flags holds AnnotationFlags.HIDDEN, PRINT, and NO_VIEW, which pymupdf's field_display summarizes.
 - Widget.field_flags -> Field.flags: Read doc.form[name].flags, a FieldFlags value.
 - Widget.field_name -> Field.name: Read doc.form[name].name, or iterate over the keys of doc.form.
 - Widget.field_type -> Field.type: Read doc.form[name].type, a FieldType member.
 - Widget.field_type_string -> Field.type: Read doc.form[name].type, a FieldType member whose value is a lowercase name such as text.
 - Widget.field_value -> Field.value: Read or assign doc.form[name].value; assignment regenerates the appearances at once, so no update() follows.
+- Widget.fill_color -> Widget.background_color: widget.background_color is the /MK /BG Color or None, assignable and deletable.
+- Widget.next -> Widgets: Iterate page.widgets.
+- Widget.on_state -> Widget.on_state: widget.on_state is the state that selects a check box or radio button.
+- Widget.rb_parent -> Widget.field: widget.field is the radio group's Field.
+- Widget.text_font -> Widget.font: widget.font is the Standard 14 Font that /DA names, assignable with Font.standard(...).
+- Widget.text_fontsize -> Widget.font_size: widget.font_size is the /DA size, 0 to fit the text; assignable.
+- Widget.update -> Widget: Assign widget properties; each assignment draws the widget again, so there is no update().
 - csGRAY -> Colorspace: Use pylopdf.Colorspace.GRAY.
 - csRGB -> Colorspace: Use pylopdf.Colorspace.RGB.
 - get_pdf_str -> String: Write a Python str into the object model, which encodes it as a PDF text string, or read String.text.

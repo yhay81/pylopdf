@@ -113,6 +113,7 @@ from pylopdf._types import (
     ImageCompressionResult,
     Permissions,
 )
+from pylopdf._widgets import Widget, Widgets
 from pylopdf.pylopdf_core import LimitError, OcrError, PasswordError, PdfError, Pixmap, StaleObjectError
 
 __version__ = "0.15.0"
@@ -260,6 +261,8 @@ __all__ = [
     "TilingPattern",
     "TransparencyGroup",
     "Underline",
+    "Widget",
+    "Widgets",
     "Word",
     "create",
     "open",
