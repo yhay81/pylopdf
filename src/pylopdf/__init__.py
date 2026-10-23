@@ -110,7 +110,17 @@ from pylopdf._form import (
 from pylopdf._geometry import IRect, Matrix, Point, Quad, Rect
 from pylopdf._hints import missing_attribute
 from pylopdf._images import EncodedImage, ImageObject, Images, Resources
-from pylopdf._layers import Layer, LayerBaseState, LayerConfiguration, LayerConfigurations, LayerOrder, Layers
+from pylopdf._layers import (
+    Layer,
+    LayerBaseState,
+    LayerConfiguration,
+    LayerConfigurations,
+    LayerExpression,
+    LayerMembership,
+    LayerOrder,
+    Layers,
+    VisibilityPolicy,
+)
 from pylopdf._limits import DocumentLimits
 from pylopdf._links import Destinations, Link, Links
 from pylopdf._metadata import MarkInfo, Metadata, PageLayout, PageMode, PdfaClaim
@@ -206,6 +216,8 @@ __all__ = [
     "LayerBaseState",
     "LayerConfiguration",
     "LayerConfigurations",
+    "LayerExpression",
+    "LayerMembership",
     "LayerOrder",
     "Layers",
     "Layout",
@@ -299,6 +311,7 @@ __all__ = [
     "TilingPattern",
     "TransparencyGroup",
     "Underline",
+    "VisibilityPolicy",
     "Widget",
     "Widgets",
     "Word",

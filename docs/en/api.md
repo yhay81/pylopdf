@@ -274,8 +274,34 @@ printing = doc.layers.configurations.add("Print", off=[notes, draft])
 printing.apply()  # rendering and extraction now hide both
 ```
 
+Content, annotations, and XObjects join a group through their `/OC` entry,
+which names a group or a membership. `LayerMembership(layers, *,
+policy=VisibilityPolicy.ANY_ON, expression=None)` is a membership as a value:
+`policy` (`ALL_ON`, `ANY_ON`, `ANY_OFF`, or `ALL_OFF`) decides from the
+visibility of `layers`, and `expression`, a `LayerExpression(operator,
+operands)` with `"and"`, `"or"`, or `"not"` over layers and expressions,
+takes precedence where viewers read it. The `layer` property of
+`Annotation`, `Link`, `Widget`, and `ImageObject` reads the entry as a
+`Layer`, a `LayerMembership`, or `None`; assigning one sets it, writing a new
+membership dictionary for a `LayerMembership`, and `del` removes it.
+`page.resources.layers` maps the names that the page's marked content uses
+(`/OC /Name BDC`) to their groups and memberships.
+
+```python
+from pylopdf import LayerExpression, LayerMembership, VisibilityPolicy
+
+notes, draft = doc.layers
+doc.images[12].layer = draft  # the image renders only while draft shows
+page.annotations[0].layer = LayerMembership((notes, draft), policy=VisibilityPolicy.ALL_ON)
+print(page.resources.layers)  # {'OC1': Layer(xref=5, name='Notes'), ...}
+```
+
+hayro, which renders and extracts, ignores an annotation's own `/OC`, a
+visibility expression, and a membership stored directly in `/Properties`, so
+those change only what other viewers show.
+
 Reads stop at 65,536 groups in one array (`LimitError` code `layer_count`)
-or `order` entries and 32 levels of `order`, and 1 MiB of name and intent
+or `order` and expression entries and 32 levels of either, and 1 MiB of name and intent
 text per group or of name, creator, and label text per configuration
 (`layer_text_size`); names and labels above 1 MiB are refused before they are
 written (`layer_input_size`).

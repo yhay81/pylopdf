@@ -1773,6 +1773,42 @@ impl _Document {
         layers::add_layer_configuration(self, name, creator, base_state, on, off)
     }
 
+    /// Return an annotation's current index and its `/OC` value.
+    fn annotation_layer(
+        &self,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+    ) -> PyResult<(u32, LayerValue)> {
+        layers::annotation_layer(self, page_number, index, xref)
+    }
+
+    /// Replace or remove an annotation's `/OC`; returns its object number.
+    fn set_annotation_layer(
+        &mut self,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+        value: LayerValue,
+    ) -> PyResult<u32> {
+        layers::set_annotation_layer(self, page_number, index, xref, value)
+    }
+
+    /// Return an image or form XObject's `/OC` value.
+    fn xobject_layer(&self, xref: u32) -> PyResult<LayerValue> {
+        layers::xobject_layer(self, xref)
+    }
+
+    /// Replace or remove an image or form XObject's `/OC`.
+    fn set_xobject_layer(&mut self, xref: u32, value: LayerValue) -> PyResult<()> {
+        layers::set_xobject_layer(self, xref, value)
+    }
+
+    /// Return the groups and memberships that a page's `/Properties` names.
+    fn page_layers(&self, page_number: u32) -> PyResult<Vec<(String, LayerValue)>> {
+        layers::page_layers(self, page_number)
+    }
+
     /// Return AcroForm fields as `(full name, xref, kind, value, flags)`.
     ///
     /// Kind is text/checkbox/radio/pushbutton/combobox/listbox/signature or

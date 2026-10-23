@@ -1201,3 +1201,420 @@ pub(super) fn add_layer_configuration(
     plan.commit(&mut this.doc);
     Ok(slot)
 }
+
+/// One operand of a visibility expression in preorder: its depth, its
+/// operator (`"and"`, `"or"`, `"not"`, or `""` for a group), and the group.
+pub(super) type ExpressionEntry = (u32, String, (u32, u16));
+
+/// An `/OC` value as it crosses the boundary: kind (0 none, 1 group, 2
+/// membership dictionary), the group, the policy, the groups, and the
+/// visibility expression in preorder.
+pub(super) type LayerValue = (
+    u8,
+    (u32, u16),
+    String,
+    Vec<(u32, u16)>,
+    Vec<ExpressionEntry>,
+);
+
+fn no_layer() -> LayerValue {
+    (0, (0, 0), String::new(), Vec::new(), Vec::new())
+}
+
+const POLICIES: [&str; 4] = ["AllOn", "AnyOn", "AnyOff", "AllOff"];
+
+/// Read a membership dictionary as hayro's `begin_ocmd` reads `/OCGs` and
+/// `/P`, plus its visibility expression `/VE`.
+fn read_membership(doc: &Document, membership: &Dictionary) -> PyResult<LayerValue> {
+    let policy = match membership.get(b"P").map(|object| deref_object(doc, object)) {
+        Ok(Object::Name(name)) => POLICIES
+            .iter()
+            .find(|policy| policy.as_bytes() == name.as_slice())
+            .copied()
+            .unwrap_or("AnyOn"),
+        _ => "AnyOn",
+    };
+    let groups = match membership.get(b"OCGs") {
+        Ok(Object::Reference(id)) if matches!(doc.objects.get(id), Some(Object::Dictionary(_))) => {
+            vec![*id]
+        }
+        _ => references(doc, membership, b"OCGs")?,
+    };
+    let expression = match membership
+        .get(b"VE")
+        .ok()
+        .and_then(|object| array_of(doc, object))
+    {
+        Some(items) => read_expression(doc, items)?,
+        None => Vec::new(),
+    };
+    Ok((2, (0, 0), policy.to_owned(), groups, expression))
+}
+
+/// A pending node of a visibility expression: an array, or one group.
+enum ExpressionFrame<'a> {
+    Array(&'a [Object], u32),
+    Group(ObjectId, u32),
+}
+
+/// Read a visibility expression in preorder, cycle-aware and bounded.
+fn read_expression(doc: &Document, root: &[Object]) -> PyResult<Vec<ExpressionEntry>> {
+    let mut out: Vec<ExpressionEntry> = Vec::new();
+    let mut visited = HashSet::new();
+    let mut stack = Vec::new();
+    stack
+        .try_reserve(1)
+        .map_err(|error| alloc_err("visibility expression", error))?;
+    stack.push(ExpressionFrame::Array(root, 0));
+    while let Some(frame) = stack.pop() {
+        let (items, depth) = match frame {
+            ExpressionFrame::Group(id, depth) => {
+                push_expression(&mut out, (depth, String::new(), id))?;
+                continue;
+            }
+            ExpressionFrame::Array(items, depth) => (items, depth),
+        };
+        if depth > MAX_ORDER_DEPTH {
+            return Err(limit_err(
+                "layer_count",
+                format!("a visibility expression nests more than {MAX_ORDER_DEPTH} levels"),
+            ));
+        }
+        let Some((Object::Name(operator), operands)) = items.split_first() else {
+            continue;
+        };
+        let operator = match operator.as_slice() {
+            b"And" => "and",
+            b"Or" => "or",
+            b"Not" => "not",
+            _ => continue,
+        };
+        push_expression(&mut out, (depth, operator.to_owned(), (0, 0)))?;
+        stack
+            .try_reserve(operands.len())
+            .map_err(|error| alloc_err("visibility expression", error))?;
+        // Push in reverse so that the operands pop in order.
+        for operand in operands.iter().rev() {
+            match operand {
+                Object::Reference(id) => match doc.objects.get(id) {
+                    Some(Object::Dictionary(_)) => {
+                        stack.push(ExpressionFrame::Group(*id, depth + 1))
+                    }
+                    Some(Object::Array(items)) => {
+                        visited
+                            .try_reserve(1)
+                            .map_err(|error| alloc_err("visibility expression", error))?;
+                        if visited.insert(*id) {
+                            stack.push(ExpressionFrame::Array(items, depth + 1));
+                        }
+                    }
+                    _ => {}
+                },
+                Object::Array(items) => stack.push(ExpressionFrame::Array(items, depth + 1)),
+                _ => {}
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn push_expression(out: &mut Vec<ExpressionEntry>, entry: ExpressionEntry) -> PyResult<()> {
+    if out.len() >= MAX_LAYER_ENTRIES {
+        return Err(limit_err(
+            "layer_count",
+            format!("a visibility expression lists more than {MAX_LAYER_ENTRIES} entries"),
+        ));
+    }
+    out.try_reserve(1)
+        .map_err(|error| alloc_err("visibility expression", error))?;
+    out.push(entry);
+    Ok(())
+}
+
+/// Read the `/OC` entry of `holder` as hayro's `xobject_oc` reads it: a
+/// reference to a membership dictionary or to a group, or a direct
+/// membership dictionary.
+fn read_oc(doc: &Document, holder: &Dictionary) -> PyResult<LayerValue> {
+    match holder.get(b"OC") {
+        Ok(Object::Reference(id)) => match doc.objects.get(id) {
+            Some(Object::Dictionary(dict)) if is_membership(dict) => read_membership(doc, dict),
+            Some(Object::Dictionary(_)) => Ok((1, *id, String::new(), Vec::new(), Vec::new())),
+            _ => Ok(no_layer()),
+        },
+        Ok(Object::Dictionary(dict)) => read_membership(doc, dict),
+        _ => Ok(no_layer()),
+    }
+}
+
+fn is_membership(dict: &Dictionary) -> bool {
+    matches!(dict.get(b"Type"), Ok(Object::Name(name)) if name == b"OCMD")
+}
+
+/// A checked `/OC` value, ready to store.
+enum PreparedLayer {
+    Remove,
+    Group(ObjectId),
+    Membership(Dictionary),
+}
+
+/// Build a visibility expression array from preorder entries.
+fn expression_object(doc: &Document, entries: &[ExpressionEntry]) -> PyResult<Object> {
+    if entries.len() > MAX_LAYER_ENTRIES {
+        return Err(limit_err(
+            "layer_count",
+            format!(
+                "a visibility expression of {} entries exceeds {MAX_LAYER_ENTRIES}",
+                entries.len()
+            ),
+        ));
+    }
+    let mut stack: Vec<Vec<Object>> = Vec::new();
+    stack
+        .try_reserve(MAX_ORDER_DEPTH as usize + 2)
+        .map_err(|error| alloc_err("visibility expression", error))?;
+    let mut closed: Option<Object> = None;
+    for (index, (depth, operator, id)) in entries.iter().enumerate() {
+        let depth = *depth as usize;
+        let valid = if index == 0 {
+            depth == 0 && !operator.is_empty()
+        } else {
+            depth >= 1 && depth <= stack.len()
+        };
+        if !valid || depth > MAX_ORDER_DEPTH as usize {
+            return Err(PdfError::new_err(
+                "a visibility expression is an operator whose operands nest one level below it",
+            ));
+        }
+        while stack.len() > depth {
+            let array = stack.pop().unwrap_or_default();
+            match stack.last_mut() {
+                Some(parent) => {
+                    parent
+                        .try_reserve(1)
+                        .map_err(|error| alloc_err("visibility expression", error))?;
+                    parent.push(Object::Array(array));
+                }
+                None => closed = Some(Object::Array(array)),
+            }
+        }
+        if closed.is_some() {
+            return Err(PdfError::new_err("a visibility expression has one root"));
+        }
+        let operator = match operator.as_str() {
+            "" => {
+                group_dictionary(doc, *id)?;
+                let parent = stack
+                    .last_mut()
+                    .ok_or_else(|| PdfError::new_err("a group needs an operator"))?;
+                parent
+                    .try_reserve(1)
+                    .map_err(|error| alloc_err("visibility expression", error))?;
+                parent.push(Object::Reference(*id));
+                continue;
+            }
+            "and" => &b"And"[..],
+            "or" => &b"Or"[..],
+            "not" => &b"Not"[..],
+            other => {
+                return Err(PdfError::new_err(format!(
+                    "bad expression operator: {other:?}"
+                )));
+            }
+        };
+        let mut array = Vec::new();
+        array
+            .try_reserve(1)
+            .map_err(|error| alloc_err("visibility expression", error))?;
+        array.push(Object::Name(operator.to_vec()));
+        stack.push(array);
+    }
+    while let Some(array) = stack.pop() {
+        match stack.last_mut() {
+            Some(parent) => {
+                parent
+                    .try_reserve(1)
+                    .map_err(|error| alloc_err("visibility expression", error))?;
+                parent.push(Object::Array(array));
+            }
+            None => closed = Some(Object::Array(array)),
+        }
+    }
+    closed.ok_or_else(|| PdfError::new_err("an empty visibility expression"))
+}
+
+/// Check an `/OC` value from Python and build what it stores.
+fn prepare_layer(doc: &Document, value: &LayerValue) -> PyResult<PreparedLayer> {
+    let (kind, id, policy, groups, expression) = value;
+    match kind {
+        0 => Ok(PreparedLayer::Remove),
+        1 => {
+            group_dictionary(doc, *id)?;
+            Ok(PreparedLayer::Group(*id))
+        }
+        2 => {
+            if !POLICIES.contains(&policy.as_str()) {
+                return Err(PdfError::new_err(format!(
+                    "bad visibility policy: {policy:?}"
+                )));
+            }
+            check_groups(doc, groups)?;
+            let mut membership = Dictionary::new();
+            membership.set("Type", Object::Name(b"OCMD".to_vec()));
+            membership.set("OCGs", reference_array(groups)?);
+            if policy != "AnyOn" {
+                membership.set("P", Object::Name(policy.as_bytes().to_vec()));
+            }
+            if !expression.is_empty() {
+                membership.set("VE", expression_object(doc, expression)?);
+            }
+            Ok(PreparedLayer::Membership(membership))
+        }
+        _ => Err(PdfError::new_err(format!("bad layer value kind: {kind}"))),
+    }
+}
+
+/// Store a prepared value as the `/OC` entry of object `holder`.
+fn store_layer(doc: &mut Document, holder: ObjectId, prepared: PreparedLayer) {
+    let value = match prepared {
+        PreparedLayer::Remove => None,
+        PreparedLayer::Group(id) => Some(Object::Reference(id)),
+        PreparedLayer::Membership(membership) => Some(Object::Reference(
+            doc.add_object(Object::Dictionary(membership)),
+        )),
+    };
+    let dict = match doc.objects.get_mut(&holder) {
+        Some(Object::Dictionary(dict)) => dict,
+        Some(Object::Stream(stream)) => &mut stream.dict,
+        _ => return,
+    };
+    match value {
+        Some(value) => dict.set("OC", value),
+        None => {
+            dict.remove(b"OC");
+        }
+    }
+}
+
+/// Implements [`_Document::annotation_layer`].
+pub(super) fn annotation_layer(
+    this: &_Document,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+) -> PyResult<(u32, LayerValue)> {
+    let page_id = this.page_id(page_number)?;
+    let (index, annotation) = this.annotation_at(page_id, index, xref)?;
+    Ok((index, read_oc(&this.doc, annotation)?))
+}
+
+/// Implements [`_Document::set_annotation_layer`]; returns the annotation's
+/// object number, new when it was stored in `/Annots` itself.
+pub(super) fn set_annotation_layer(
+    this: &mut _Document,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+    value: LayerValue,
+) -> PyResult<u32> {
+    let page_id = this.page_id(page_number)?;
+    let prepared = prepare_layer(&this.doc, &value)?;
+    let (_, annotation) = this.annotation_at(page_id, index, xref)?;
+    if matches!(prepared, PreparedLayer::Remove) && !annotation.has(b"OC") {
+        return Ok(xref);
+    }
+    let (_, id) = edited_annotation(this, page_id, index, xref)?;
+    store_layer(&mut this.doc, id, prepared);
+    Ok(id.0)
+}
+
+/// The dictionary of the XObject stream `xref`, or a stale error.
+fn xobject_dictionary(doc: &Document, xref: u32) -> PyResult<(ObjectId, &Dictionary)> {
+    doc.objects
+        .range((xref, 0)..=(xref, u16::MAX))
+        .next()
+        .and_then(|(id, object)| match object {
+            Object::Stream(stream)
+                if matches!(stream.dict.get(b"Subtype"), Ok(Object::Name(name)) if name == b"Image" || name == b"Form") =>
+            {
+                Some((*id, &stream.dict))
+            }
+            _ => None,
+        })
+        .ok_or_else(|| StaleObjectError::new_err(format!("object {xref} is no longer an image or form XObject")))
+}
+
+/// Implements [`_Document::xobject_layer`].
+pub(super) fn xobject_layer(this: &_Document, xref: u32) -> PyResult<LayerValue> {
+    let (_, dict) = xobject_dictionary(&this.doc, xref)?;
+    read_oc(&this.doc, dict)
+}
+
+/// Implements [`_Document::set_xobject_layer`].
+pub(super) fn set_xobject_layer(
+    this: &mut _Document,
+    xref: u32,
+    value: LayerValue,
+) -> PyResult<()> {
+    let prepared = prepare_layer(&this.doc, &value)?;
+    let (id, dict) = xobject_dictionary(&this.doc, xref)?;
+    if matches!(prepared, PreparedLayer::Remove) && !dict.has(b"OC") {
+        return Ok(());
+    }
+    // An XObject is drawn wherever it is placed, so placements stay valid.
+    this.invalidate_hayro_pdf_keeping_placements();
+    store_layer(&mut this.doc, id, prepared);
+    Ok(())
+}
+
+/// Implements [`_Document::page_layers`]: the groups and membership
+/// dictionaries that the page's inherited `/Resources /Properties` names.
+pub(super) fn page_layers(
+    this: &_Document,
+    page_number: u32,
+) -> PyResult<Vec<(String, LayerValue)>> {
+    let doc = &this.doc;
+    let page = resolve_inherited_page_dict(doc, this.page_id(page_number)?)?;
+    let Some(properties) = page
+        .get(b"Resources")
+        .ok()
+        .and_then(|resources| deref_dict_ref(doc, resources))
+        .and_then(|resources| resources.get(b"Properties").ok())
+        .and_then(|properties| deref_dict_ref(doc, properties))
+    else {
+        return Ok(Vec::new());
+    };
+    if properties.len() > MAX_LAYER_ENTRIES {
+        return Err(limit_err(
+            "layer_count",
+            format!(
+                "/Properties lists {} entries; the limit is {MAX_LAYER_ENTRIES}",
+                properties.len()
+            ),
+        ));
+    }
+    let mut out = Vec::new();
+    out.try_reserve_exact(properties.len())
+        .map_err(|error| alloc_err("page layers", error))?;
+    let mut used = 0usize;
+    for (name, object) in properties.iter() {
+        let value = match object {
+            Object::Reference(id) => match doc.objects.get(id) {
+                Some(Object::Dictionary(dict)) if is_membership(dict) => {
+                    read_membership(doc, dict)?
+                }
+                Some(Object::Dictionary(dict)) if matches!(dict.get(b"Type"), Ok(Object::Name(kind)) if kind == b"OCG") => {
+                    (1, *id, String::new(), Vec::new(), Vec::new())
+                }
+                _ => continue,
+            },
+            Object::Dictionary(dict) if is_membership(dict) => read_membership(doc, dict)?,
+            _ => continue,
+        };
+        used += name.len();
+        if used > MAX_LAYER_TEXT_BYTES {
+            return Err(layer_text_err());
+        }
+        out.push((String::from_utf8_lossy(name).into_owned(), value));
+    }
+    Ok(out)
+}

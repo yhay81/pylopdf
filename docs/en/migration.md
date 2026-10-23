@@ -101,6 +101,9 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `PDF_OC_ON`, `PDF_OC_OFF`, `PDF_OC_TOGGLE` | `layer.is_visible = True`, `False`, `not layer.is_visible` | |
 | `doc.get_layer(config)`, `set_layer(config, ...)` | `doc.layers.configurations[i]` and its assignable `base_state`, `on`, `off`, `locked`, `radio_groups` | Index 0 is the default configuration, where pymupdf used -1; arrays hold `Layer` handles |
 | `doc.add_layer(name, creator, on)`, `switch_layer(config)` | `doc.layers.configurations.add(name, creator=, on=)`, `configuration.apply()` | |
+| `doc.get_ocmd(xref)`, `set_ocmd(...)` | `LayerMembership(layers, policy=, expression=)` read from and assigned to `layer` properties | A value instead of an xref; `ve=` is `expression=LayerExpression(...)` |
+| `doc.get_oc(xref)`, `set_oc(xref, oc)`, `annot.get_oc()`, `annot.set_oc(oc)` | `doc.images[xref].layer`, `annotation.layer`, `link.layer`, `widget.layer` | Assign a `Layer` or a `LayerMembership`, or `del`; a Form XObject's `/OC` goes through `doc.objects[xref]` |
+| `page.get_oc_items()` | `page.resources.layers` | A dictionary from resource names to layers and memberships |
 | `doc.layer_ui_configs()`, `set_layer_ui_config(n, action)`, `PDF_LAYER_UI_*` | `configuration.order` and `radio_groups`, `layer.is_visible` | `order` is the tree of `Layer` handles and `LayerOrder(label, items)` values that the flat list was made from |
 | `doc.xref_*`, `pdf_catalog()`, `pdf_trailer()` | `doc.objects`, `doc.catalog`, `doc.trailer` | Typed Python values instead of PDF syntax; see [Low-level objects](api.md#low-level-objects) |
 

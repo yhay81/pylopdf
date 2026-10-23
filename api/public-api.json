@@ -71,6 +71,8 @@
     "LayerBaseState",
     "LayerConfiguration",
     "LayerConfigurations",
+    "LayerExpression",
+    "LayerMembership",
     "LayerOrder",
     "Layers",
     "Layout",
@@ -166,6 +168,7 @@
     "TilingPattern",
     "TransparencyGroup",
     "Underline",
+    "VisibilityPolicy",
     "Widget",
     "Widgets",
     "Word",
@@ -244,6 +247,10 @@
         "language": {
           "kind": "property",
           "returns": "str | None"
+        },
+        "layer": {
+          "kind": "property",
+          "returns": "Layer | LayerMembership | None"
         },
         "line_endings": {
           "kind": "property",
@@ -5467,6 +5474,10 @@
           "kind": "property",
           "returns": "bool"
         },
+        "layer": {
+          "kind": "property",
+          "returns": "Layer | LayerMembership | None"
+        },
         "mask": {
           "kind": "property",
           "returns": "ImageObject | None"
@@ -5964,6 +5975,88 @@
         "returns": "None"
       }
     },
+    "LayerExpression": {
+      "annotations": {
+        "operands": "tuple[Layer | LayerExpression, ...]",
+        "operator": "Literal['and', 'or', 'not']"
+      },
+      "dataclass_fields": [
+        "operator",
+        "operands"
+      ],
+      "kind": "class",
+      "members": {
+        "operands": {
+          "kind": "property"
+        },
+        "operator": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Literal['and', 'or', 'not']",
+            "kind": "positional_or_keyword",
+            "name": "operator"
+          },
+          {
+            "annotation": "tuple[Layer | LayerExpression, ...]",
+            "kind": "positional_or_keyword",
+            "name": "operands"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "LayerMembership": {
+      "annotations": {
+        "_": "KW_ONLY",
+        "expression": "LayerExpression | None",
+        "layers": "tuple[Layer, ...]",
+        "policy": "VisibilityPolicy"
+      },
+      "dataclass_fields": [
+        "layers",
+        "policy",
+        "expression"
+      ],
+      "kind": "class",
+      "members": {
+        "expression": {
+          "kind": "property"
+        },
+        "layers": {
+          "kind": "property"
+        },
+        "policy": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "tuple[Layer, ...]",
+            "default": [],
+            "kind": "positional_or_keyword",
+            "name": "layers"
+          },
+          {
+            "annotation": "VisibilityPolicy",
+            "default": "AnyOn",
+            "kind": "keyword_only",
+            "name": "policy"
+          },
+          {
+            "annotation": "LayerExpression | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "expression"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "LayerOrder": {
       "annotations": {
         "items": "tuple[Layer | LayerOrder, ...]",
@@ -6398,6 +6491,10 @@
     "Link": {
       "kind": "class",
       "members": {
+        "layer": {
+          "kind": "property",
+          "returns": "Layer | LayerMembership | None"
+        },
         "obj": {
           "kind": "property",
           "returns": "Dictionary"
@@ -11075,6 +11172,10 @@
         "images": {
           "kind": "property",
           "returns": "tuple[ImageObject, ...]"
+        },
+        "layers": {
+          "kind": "property",
+          "returns": "dict[str, Layer | LayerMembership]"
         }
       },
       "signature": {
@@ -12768,6 +12869,15 @@
         "returns": "None"
       }
     },
+    "VisibilityPolicy": {
+      "kind": "enum",
+      "members": {
+        "ALL_OFF": "AllOff",
+        "ALL_ON": "AllOn",
+        "ANY_OFF": "AnyOff",
+        "ANY_ON": "AnyOn"
+      }
+    },
     "Widget": {
       "kind": "class",
       "members": {
@@ -12806,6 +12916,10 @@
         "font_size": {
           "kind": "property",
           "returns": "float"
+        },
+        "layer": {
+          "kind": "property",
+          "returns": "Layer | LayerMembership | None"
         },
         "obj": {
           "kind": "property",
