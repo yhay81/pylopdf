@@ -473,9 +473,9 @@ Workstream Writing.
   metadata, an outline from `bookmark`, a structure tree from `tag` scopes,
   and the validators of PDF/A-1 to PDF/A-4 and PDF/UA-1. A recording is a
   list of structured operations, which `Page.draw()` composes into lopdf
-  content and `create()` replays onto a krilla surface. Table header scopes
-  and list numbering are done. Still to come: links and other annotations,
-  and placed pages.
+  content and `create()` replays onto a krilla surface. Table header scopes,
+  list numbering, and links to URIs and pages are done. Still to come: other
+  annotations and placed pages.
 - Upstream in krilla: the Standard 14 fonts without embedding, which krilla
   cannot draw today, so pylopdf drops its own operator writer for them;
   optional content; annotation and widget types beyond links for new

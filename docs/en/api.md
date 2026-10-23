@@ -797,12 +797,21 @@ differences:
   `ARTIFACT` scope, is an artifact.
 - `bookmark(title, *, level=1, at=(0, 0))` adds an outline entry that shows
   `at` on the page; a level can grow by one at a time.
+- `link(rect, target, *, alt=None)` adds a link to a URI string or to a
+  `Destination(page, point)` of the new document, whose page must exist when
+  the document is written; `alt` describes it, as PDF/UA requires. In a
+  tagged document a link belongs inside a tag scope, usually
+  `TagRole.LINK` around the text it covers. Destinations with a zoom and the
+  other targets are refused, because krilla writes neither. A page holds at
+  most 4,096 links. The rectangle follows the current transform, using its
+  bounding box after rotation or shear; the destination stays in the target
+  page's display coordinates.
 
 `finish()` and `to_bytes()` can be called again after more pages. Saving the
 `Document` that `finish()` returns writes it again with lopdf, so keep
 `to_bytes()` for the file exactly as krilla validated it. A document holds at
-most 65,536 pages and 65,536 bookmarks, and a tag's texts or a bookmark title
-at most 64 KiB (`tag_text_size`).
+most 65,536 pages and 65,536 bookmarks, and a tag's texts, a bookmark title,
+or a link's URI and description at most 64 KiB (`tag_text_size`).
 
 ## Tables { #tables }
 

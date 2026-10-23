@@ -2118,7 +2118,14 @@ the concept and API overview.
   `TagRole.ARTIFACT` scope, is a `Layout` artifact. A `TH` scope carries its
   `TableHeaderScope` (`Column` by default) and an `L` scope its
   `ListNumbering` (`None` by default) into krilla's `Tag::TH` and `Tag::L`,
-  and other roles refuse both. Bookmarks become the
+  and other roles refuse both. `Canvas.link` records a `CanvasLink` and an
+  `Op::Link` at its place among the operations; `finish` adds each page's
+  links to the krilla page before drawing it, tagged in tagged documents,
+  and `draw_on` puts each identifier into the innermost tag scope that was
+  open at the link, refusing one outside every scope or in an artifact.
+  krilla writes URI actions and XYZ destinations only, so other targets and
+  zooms are refused when recorded and a page beyond the document when
+  written. Bookmarks become the
   outline, nesting each entry under the closest earlier one a level up; a
   level that grows by more than one is refused. `created` defaults to the
   current UTC time, since PDF/A and PDF/UA require a creation date. krilla's
