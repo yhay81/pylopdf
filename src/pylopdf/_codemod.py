@@ -1377,6 +1377,24 @@ def _add_text_annot(migrator: _Migrator, receiver: str, args: _Arguments) -> str
     return f"{receiver}.annotations.add({note}({', '.join(arguments)}))"
 
 
+def _add_freetext_annot(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``add_freetext_annot(rect, text, ...)`` to ``annotations.add(FreeText(...))``."""
+    bound = args.bind(("rect", "text", "fontsize", "fontname", "text_color", "fill_color"))
+    free_text = migrator.class_name("FreeText")
+    if bound is None or not {"rect", "text"} <= set(bound) or "fontname" in bound or free_text is None:
+        return None
+    arguments = [bound["rect"], bound["text"]]
+    if "fontsize" in bound:
+        arguments.append(f"size={bound['fontsize']}")
+    for keyword, field in (("text_color", "text_color"), ("fill_color", "color")):
+        if keyword in bound:
+            color = _color_record(migrator, bound[keyword])
+            if color is None:
+                return None
+            arguments.append(f"{field}={color}")
+    return f"{receiver}.annotations.add({free_text}({', '.join(arguments)}))"
+
+
 def _delete_annot(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     """Rewrite ``delete_annot(annot)`` as a statement to ``del`` of its index."""
     bound = args.bind(("annot",))
@@ -1663,6 +1681,7 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "add_strikeout_annot": _add_text_markup_annot("StrikeOut"),
     "add_squiggly_annot": _add_text_markup_annot("Squiggly"),
     "add_text_annot": _add_text_annot,
+    "add_freetext_annot": _add_freetext_annot,
     "add_rect_annot": _add_shape_annot("Square"),
     "add_circle_annot": _add_shape_annot("Circle"),
     "add_line_annot": _add_shape_annot("LineAnnotation", ("p1", "p2")),

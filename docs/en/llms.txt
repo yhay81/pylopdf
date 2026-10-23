@@ -95,6 +95,7 @@ replacement, and the migration hint):
 - Annot.popup_rect -> Annotation.popup_rect: annotation.popup_rect is the popup's display Rect, or None without a popup.
 - Annot.popup_xref -> Annotation.obj: annotation.obj['Popup'] is the popup annotation's dictionary.
 - Annot.rect -> Annotation.rect: Read annotation.rect.
+- Annot.rotation -> Annotation.rotation: annotation.rotation is the clockwise turn of the content as the page is displayed: the page's rotation less /Rotate, which annotation.obj holds.
 - Annot.set_irt_xref -> Annotation.in_reply_to: Assign annotation.in_reply_to = other_annotation, or None, to set or remove /IRT.
 - Annot.set_open -> Annotation.is_open: Assign annotation.is_open = True or False.
 - Annot.set_popup -> Annotation.popup_rect: Assign annotation.popup_rect = rect to add or move the popup; del annotation.popup_rect removes it.
@@ -245,7 +246,9 @@ replacement, and the migration hint):
 - Outline.y -> OutlineItem.destination: Read item.destination.point.y of a Destination with a point.
 - PDF_ANNOT_* -> AnnotationType: PDF_ANNOT_TEXT is AnnotationType.TEXT, and so on; PDF_ANNOT_3D is AnnotationType.THREE_D.
 - PDF_ANNOT_IS_* -> AnnotationFlags: PDF_ANNOT_IS_HIDDEN is AnnotationFlags.HIDDEN, and so on.
+- PDF_ANNOT_IT_* -> Annotation.intent: annotation.intent is the /IT name, such as 'FreeTextCallout'; FreeText with a callout writes it.
 - PDF_ANNOT_LE_* -> LineEnding: Line endings such as PDF_ANNOT_LE_ClosedArrow are LineEnding members such as LineEnding.CLOSED_ARROW.
+- PDF_ANNOT_Q_* -> FreeText: Free-text alignments are FreeText(align='left' | 'center' | 'right') strings.
 - PDF_BM_* -> BlendMode: Blend modes such as PDF_BM_Multiply are BlendMode members such as BlendMode.MULTIPLY; annotation specifications take blend_mode=.
 - PDF_BTN_FIELD_IS_* -> FieldFlags: Button field flags such as PDF_BTN_FIELD_IS_RADIO and PDF_BTN_FIELD_IS_PUSHBUTTON are FieldFlags members such as FieldFlags.RADIO and PUSHBUTTON.
 - PDF_CH_FIELD_IS_* -> FieldFlags: Choice field flags such as PDF_CH_FIELD_IS_COMBO and PDF_CH_FIELD_IS_MULTI_SELECT are FieldFlags members such as FieldFlags.COMBO and MULTI_SELECT.
@@ -255,6 +258,7 @@ replacement, and the migration hint):
 - PDF_TX_FIELD_IS_* -> FieldFlags: Text field flags such as PDF_TX_FIELD_IS_MULTILINE and PDF_TX_FIELD_IS_COMB are FieldFlags members such as FieldFlags.MULTILINE and COMB.
 - PDF_WIDGET_TYPE_* -> FieldType: doc.form[name].type is a FieldType member: TEXT, CHECKBOX, RADIO, PUSHBUTTON, COMBOBOX, LISTBOX, SIGNATURE, or UNKNOWN.
 - Page.add_circle_annot -> Annotations.add: page.annotations.add(Circle(rect, color=..., interior_color=..., border=Border(...))) adds an ellipse with its appearance and returns its Annotation.
+- Page.add_freetext_annot -> Annotations.add: page.annotations.add(FreeText(rect, text, size=..., text_color=Color(...), color=fill, align='left', rotate=..., callout=[...])) adds free text with its appearance and returns its Annotation.
 - Page.add_highlight_annot -> Annotations.add: page.annotations.add(Highlight(quads)) adds a highlight and returns its Annotation; color is a Color and content becomes contents.
 - Page.add_ink_annot -> Annotations.add: page.annotations.add(Ink(handwriting, ...)) adds freehand strokes, a sequence of point sequences, with their appearance and returns its Annotation.
 - Page.add_line_annot -> Annotations.add: page.annotations.add(LineAnnotation(p1, p2, line_endings=(...), ...)) adds a line with its appearance and returns its Annotation.

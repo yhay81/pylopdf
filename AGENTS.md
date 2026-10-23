@@ -2414,6 +2414,19 @@ the concept and API overview.
   is created with `/F` Print, NoZoom, and NoRotate, as ISO 32000-2
   §12.5.6.4 says a note behaves: MuPDF honours that on turned pages and
   hayro does not (#338), so pylopdf draws no rotation of its own.
+  Free text (`/FreeText`) draws its box inside `/RD`, filled with `/C` and
+  outlined in the `/DA` colour, the `/CL` callout with its `/LE` ending, and
+  `/Contents` through `_Canvas::add_textbox` in the Standard 14 font that
+  `/DA` names (`DA_FONTS`: `Helv`, `TiRo`, `Cour` and the others MuPDF and
+  Acrobat use; any other name draws Helvetica), aligned by `/Q`, and turned
+  by `/Rotate`, counterclockwise in user space as MuPDF reads it; the
+  specification's `rotate` is clockwise as displayed, so `/Rotate` is the
+  page rotation less `rotate`. Creation can pass an OpenType `_Font`
+  (`appearance_with`), embedded through krilla; its `/DA` names `/PyloF`,
+  and only creation draws it, so the rendering snapshot never needs it.
+  Text that does not fit raises at creation and is left undrawn in a
+  synthesized appearance, and an engine error there leaves that annotation
+  undrawn rather than failing the render.
   `popup_rect`, `is_open`, and `in_reply_to` edit through
   `set_annotation_popup`, `set_annotation_open`, and `set_annotation_reply`,
   which validate first, then find the annotation with `edited_annotation`

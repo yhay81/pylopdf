@@ -142,12 +142,15 @@ pub(super) fn missing_appearance_plans(doc: &Document) -> PyResult<MissingAppear
             drawn.clear();
             break;
         }
-        let Some(annotation_appearance::Appearance {
+        // An annotation that the engine cannot draw, such as free text in a
+        // font that cannot encode it, stays undrawn.
+        let Ok(Some(annotation_appearance::Appearance {
             mut canvas,
             matrix,
             rect,
             points: drawn_points,
-        }) = annotation_appearance::appearance(doc, annotation)?
+            ..
+        })) = annotation_appearance::appearance(doc, annotation)
         else {
             continue;
         };
@@ -739,6 +742,30 @@ pub(super) struct AnnotationSpec {
     /// Whether a note starts open, `/Open`.
     #[pyo3(default)]
     open: Option<bool>,
+    /// A free text's text colour, font size, Standard 14 font, and alignment
+    /// (0 to 2), as `/DA` and `/Q` record them.
+    #[pyo3(default)]
+    text_color: Option<(f64, f64, f64)>,
+    #[pyo3(default)]
+    font_size: Option<f64>,
+    #[pyo3(default)]
+    font_name: Option<String>,
+    #[pyo3(default)]
+    align: Option<u8>,
+    /// The OpenType face that draws a free text's text in place of a
+    /// Standard 14 font.
+    #[pyo3(default)]
+    font: Option<Py<_Font>>,
+    /// The clockwise turn of a free text's text in display space.
+    #[pyo3(default)]
+    rotate: Option<i64>,
+    /// A free text's callout line: the display point it shows, an optional
+    /// knee, and the point where it meets the box.
+    #[pyo3(default)]
+    callout: Option<Vec<(f64, f64)>>,
+    /// The `/LE` ending at the shown point of a callout line.
+    #[pyo3(default)]
+    callout_ending: Option<String>,
     #[pyo3(default)]
     color: Option<(f64, f64, f64)>,
     #[pyo3(default)]
@@ -767,8 +794,9 @@ const NOTE_ICONS: [&str; 7] = [
 ];
 
 /// The subtypes that `add_annotation` creates.
-const CREATED_SUBTYPES: [&str; 11] = [
+const CREATED_SUBTYPES: [&str; 12] = [
     "Text",
+    "FreeText",
     "Square",
     "Circle",
     "Line",
@@ -878,7 +906,7 @@ fn annotation_dictionary(
         }
         geometry.set("QuadPoints", Object::Array(quad_points));
         bounds
-    } else if matches!(subtype, "Square" | "Circle" | "Text") {
+    } else if matches!(subtype, "Square" | "Circle" | "Text" | "FreeText") {
         let Some((x0, y0, x1, y1)) = spec.rect.filter(|_| spec.points.is_none()) else {
             return Err(PdfError::new_err(format!(
                 "a {subtype} annotation takes a rectangle"
@@ -1061,6 +1089,22 @@ fn annotation_dictionary(
     if let Some(contents) = &spec.contents {
         dict.set("Contents", text_string(contents));
     }
+    let free_text = spec.text_color.is_some()
+        || spec.font_size.is_some()
+        || spec.font_name.is_some()
+        || spec.align.is_some()
+        || spec.font.is_some()
+        || spec.rotate.is_some()
+        || spec.callout.is_some()
+        || spec.callout_ending.is_some();
+    if free_text != (subtype == "FreeText") {
+        return Err(PdfError::new_err(format!(
+            "text style and callouts belong to free text, not a {subtype} annotation"
+        )));
+    }
+    if subtype == "FreeText" {
+        free_text_entries(spec, (crop, rotation), &mut dict)?;
+    }
     if (spec.icon.is_some() || spec.open.is_some()) && subtype != "Text" {
         return Err(PdfError::new_err(format!(
             "an icon and an open state belong to a note, not a {subtype} annotation"
@@ -1087,6 +1131,148 @@ fn annotation_dictionary(
     Ok(dict)
 }
 
+/// Write the entries of a free text: `/DA`, `/Q`, `/Rotate`, and with a
+/// callout `/CL`, `/LE`, `/IT`, `/RD`, and a `/Rect` that holds the line and
+/// its ending as well as the box.
+fn free_text_entries(
+    spec: &AnnotationSpec,
+    (crop, rotation): ([f64; 4], i64),
+    dict: &mut Dictionary,
+) -> PyResult<()> {
+    let (red, green, blue) = spec.text_color.unwrap_or((0.0, 0.0, 0.0));
+    rgb_array("text colour", (red, green, blue))?;
+    let size = spec.font_size.unwrap_or(11.0);
+    if !(size.is_finite() && size > 0.0 && size <= 10_000.0) {
+        return Err(PdfError::new_err(
+            "a font size is greater than 0 and at most 10000",
+        ));
+    }
+    let resource = match (&spec.font, spec.font_name.as_deref()) {
+        (Some(_), None) => "PyloF",
+        (None, Some(name)) => annotation_appearance::DA_FONTS
+            .iter()
+            .find(|(_, font)| *font == name)
+            .map(|(resource, _)| *resource)
+            .ok_or_else(|| PdfError::new_err(format!("unknown Standard 14 font {name:?}")))?,
+        (None, None) => "Helv",
+        (Some(_), Some(_)) => {
+            return Err(PdfError::new_err(
+                "a free text draws with an OpenType face or a Standard 14 font, not both",
+            ));
+        }
+    };
+    if let Some(font) = &spec.font
+        && Python::attach(|py| font.borrow(py).standard_name().is_some())
+    {
+        return Err(PdfError::new_err(
+            "name a Standard 14 font by its PostScript name, not as a face",
+        ));
+    }
+    dict.set(
+        "DA",
+        Object::string_literal(format!(
+            "/{resource} {} Tf {} {} {} rg",
+            draw::fmt(size),
+            draw::fmt(red),
+            draw::fmt(green),
+            draw::fmt(blue)
+        )),
+    );
+    let align = spec.align.unwrap_or(0);
+    if align > 2 {
+        return Err(PdfError::new_err(
+            "free text aligns left (0), centre (1), or right (2)",
+        ));
+    }
+    dict.set("Q", i64::from(align));
+    let turn = spec.rotate.unwrap_or(0);
+    if turn % 90 != 0 {
+        return Err(PdfError::new_err(
+            "free text turns by a multiple of 90 degrees",
+        ));
+    }
+    // Display turns are clockwise; /Rotate turns counterclockwise in user
+    // space, which the page then turns clockwise by its own rotation.
+    let user_turn = (rotation - turn).rem_euclid(360);
+    if user_turn != 0 {
+        dict.set("Rotate", user_turn);
+    }
+    let Some(points) = &spec.callout else {
+        if spec.callout_ending.is_some() {
+            return Err(PdfError::new_err("a callout ending needs a callout line"));
+        }
+        return Ok(());
+    };
+    if !(2..=3).contains(&points.len())
+        || !points.iter().all(|(x, y)| x.is_finite() && y.is_finite())
+    {
+        return Err(PdfError::new_err(
+            "a callout line has 2 or 3 finite points: the point it shows, an optional knee, and the box",
+        ));
+    }
+    let ending = spec.callout_ending.as_deref().unwrap_or("None");
+    if !annotation_appearance::LINE_ENDINGS.contains(&ending) {
+        return Err(PdfError::new_err(format!("unknown line ending {ending:?}")));
+    }
+    let Ok(inner) = dict.get(b"Rect").and_then(Object::as_array).map(|rect| {
+        rect.iter()
+            .map(|value| f64::from(value.as_float().unwrap_or(0.0)))
+            .collect::<Vec<_>>()
+    }) else {
+        return Err(PdfError::new_err("a free text needs its rectangle"));
+    };
+    let width = spec.border.as_ref().map_or(0.0, |border| border.0).max(1.0);
+    let pad = width / 2.0
+        + 1.0
+        + if ending == "None" {
+            0.0
+        } else {
+            2.0 * annotation_appearance::ending_size(width)
+        };
+    let mut outer = [inner[0], inner[1], inner[2], inner[3]];
+    let mut line = Vec::with_capacity(points.len() * 2);
+    for &(x, y) in points {
+        let (x, y) = draw::display_to_pdf(crop, rotation, x, y);
+        outer = [
+            outer[0].min(x - pad),
+            outer[1].min(y - pad),
+            outer[2].max(x + pad),
+            outer[3].max(y + pad),
+        ];
+        line.push(Object::Real(x as f32));
+        line.push(Object::Real(y as f32));
+    }
+    dict.set("CL", Object::Array(line));
+    dict.set("IT", "FreeTextCallout");
+    if ending != "None" {
+        dict.set("LE", Object::Name(ending.as_bytes().to_vec()));
+    }
+    dict.set(
+        "Rect",
+        Object::Array(
+            outer
+                .iter()
+                .map(|&value| Object::Real(value as f32))
+                .collect(),
+        ),
+    );
+    dict.set(
+        "RD",
+        Object::Array(
+            [
+                inner[0] - outer[0],
+                outer[3] - inner[3],
+                outer[2] - inner[2],
+                inner[1] - outer[1],
+            ]
+            .iter()
+            .map(|&value| Object::Real(value.max(0.0) as f32))
+            .collect(),
+        ),
+    );
+    Ok(())
+}
+
 /// Implements [`_Document::add_annotation`].
 pub(super) fn add_annotation(
     this: &mut _Document,
@@ -1099,9 +1285,17 @@ pub(super) fn add_annotation(
     let page_id = this.page_id(page_number)?;
     let annotation_append = this.prepare_page_annotation_append(page_id)?;
     let annotation_appearance::Appearance {
-        mut canvas, matrix, ..
-    } = annotation_appearance::appearance(&this.doc, &dict)?
+        mut canvas,
+        matrix,
+        fits,
+        ..
+    } = annotation_appearance::appearance_with(&this.doc, &dict, spec.font.as_ref())?
         .ok_or_else(|| PdfError::new_err("the annotation has no appearance to draw"))?;
+    if !fits {
+        return Err(PdfError::new_err(
+            "the text does not fit in the free text's rectangle; enlarge it or use a smaller size",
+        ));
+    }
     let appearance = this.prepare_canvas_form(py, canvas.take_recording()?)?;
 
     this.invalidate_hayro_pdf_keeping_placements();
