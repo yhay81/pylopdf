@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from typing import Any, cast
 
 import pytest
@@ -208,3 +210,119 @@ def test_styled_fields_draw_their_style() -> None:
     pixmap = page.pixmap(dpi=72)
     offset = 50 * pixmap.stride + 190 * pixmap.channels
     assert tuple(bytes(pixmap)[offset : offset + 3]) == (255, 255, 0)
+
+
+def test_added_buttons_synchronize_the_whole_field() -> None:
+    page = _page()
+    page.widgets.add(RadioButton("plan", (0, 0, 20, 20), on_state="Basic", selected=True))
+    page.widgets.add(RadioButton("plan", (30, 0, 50, 20), on_state="Pro", selected=True))
+    page.widgets.add(CheckBox("agree", (0, 30, 20, 50), checked=True))
+    page.widgets.add(CheckBox("agree", (30, 30, 50, 50)))
+
+    for doc in (page.document, pylopdf.open(page.document.to_bytes())):
+        assert doc.form["plan"].value == "Pro"
+        assert [widget.obj["AS"] for widget in doc.form["plan"].widgets] == ["Off", "Pro"]
+        assert [widget.obj["AS"] for widget in doc.form["agree"].widgets] == ["Yes", "Yes"]
+
+
+@pytest.mark.parametrize("widget_only", [False, True])
+def test_failed_removal_restores_widgets_on_earlier_pages(*, widget_only: bool) -> None:
+    doc = pylopdf.Document()
+    doc.pages.new()
+    doc.pages.new()
+    page = doc.pages[0]
+    widget = page.widgets.add(TextField("name", (0, 0, 100, 20), value="Ada"))
+    # The later page fails admission after the earlier page was visited.
+    doc.pages[1].obj["Annots"] = [None] * 4097
+
+    if widget_only:
+        with pytest.raises(pylopdf.PdfError, match="4096-entry"):
+            del page.widgets[0]
+    else:
+        with pytest.raises(pylopdf.PdfError, match="4096-entry"):
+            del doc.form["name"]
+
+    doc.pages[1].obj["Annots"] = []
+    assert doc.form["name"].widgets == [widget]
+    assert doc.form["name"].value == "Ada"
+    assert "Ada" in page.text()
+
+
+@pytest.mark.parametrize("indirect", [False, True])
+def test_calculation_order_follows_nested_field_splits_and_removals(*, indirect: bool) -> None:
+    doc = pylopdf.open(_build_form_pdf())
+    form = doc.catalog["AcroForm"]
+    order = [doc.form["person.first"].obj, doc.form["customer"].obj]
+    form["CO"] = doc.objects[doc.objects.add(order)] if indirect else order
+    doc.pages[0].widgets.add(TextField("person.first", (0, 0, 100, 20)))
+
+    assert form["CO"][0].xref == doc.form["person.first"].xref
+    del doc.form["person.first"]
+    assert [entry.xref for entry in form["CO"]] == [doc.form["customer"].xref]
+    assert len(pylopdf.open(doc.to_bytes()).catalog["AcroForm"]["CO"]) == 1
+
+
+def test_a_new_field_cannot_duplicate_a_nonterminal_name() -> None:
+    doc = pylopdf.open(_build_form_pdf())
+    before = list(doc.form)
+
+    with pytest.raises(pylopdf.PdfError, match="non-terminal"):
+        doc.pages[0].widgets.add(TextField("person", (0, 0, 100, 20)))
+
+    assert list(doc.form) == before
+
+
+@pytest.mark.parametrize("selection", [slice(None), slice(None, None, -1), slice(0, 3, 2)])
+def test_slices_remove_direct_widgets(selection: slice) -> None:
+    page = _page()
+    page.obj["Annots"] = [
+        {"Subtype": pylopdf.Name("Widget"), "Rect": [index * 30, 0, index * 30 + 20, 20]} for index in range(3)
+    ]
+    expected = list(range(3))
+    del expected[selection]
+
+    del page.widgets[selection]
+
+    assert [widget.rect.x0 for widget in page.widgets] == [index * 30 for index in expected]
+
+
+def test_a_cyclic_parent_chain_is_refused_without_hanging() -> None:
+    script = """
+import pylopdf
+page = pylopdf.Document().pages.new()
+page.widgets.add(pylopdf.TextField('name', (0, 0, 100, 20)))
+field = page.document.form['name']
+field.obj['Parent'] = field.obj
+try:
+    del page.document.form['name']
+except pylopdf.PdfError as error:
+    assert 'cycle' in str(error), str(error)
+else:
+    raise AssertionError('a cyclic parent chain was accepted')
+assert len(page.widgets) == 1
+assert page.document.form['name'].xref == field.xref
+"""
+    result = subprocess.run(  # noqa: S603 - fixed script under the active interpreter.
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False, timeout=10
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_a_field_can_omit_its_border_color() -> None:
+    page = _page()
+    widget = page.widgets.add(TextField("name", (0, 0, 100, 20), border_color=None))
+    assert widget.border_color is None
+
+
+def test_removing_a_widget_preserves_its_object_generation() -> None:
+    raw = _build_form_pdf().replace(b"[9 0 R", b"[9 2 R").replace(b"\n9 0 obj", b"\n9 2 obj")
+    head, tail = raw.rsplit(b"\nxref\n", 1)
+    lines = tail.splitlines(keepends=True)
+    lines[10] = lines[10].replace(b"00000 n", b"00002 n")
+    doc = pylopdf.open(head + b"\nxref\n" + b"".join(lines))
+    assert doc.pages[0].widgets[0].obj.generation == 2
+
+    del doc.pages[0].widgets[0]
+
+    assert "customer" not in doc.form
+    assert len(doc.pages[0].widgets) == 7

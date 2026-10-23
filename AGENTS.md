@@ -2253,7 +2253,11 @@ the concept and API overview.
   caption, or a signature field's frame. `remove_widget` and `remove_field`
   take widgets out of every page's `/Annots` and fields out of the tree,
   removing a named parent that a removal leaves without kids
-  (`remove_form_field`, `detach_form_node`).
+  (`remove_form_field`, `detach_form_node`). Both removals release the GIL,
+  restore the document on failure, and bound cyclic parent chains. Field
+  removal and splitting also update direct or indirect `/CO` arrays for
+  nested fields. Adding a button synchronizes every widget's state with the
+  field value, and a new field cannot duplicate a non-terminal field name.
 - AcroForm filling writes `/V`, synchronizes button `/AS`, and regenerates
   widget `/AP /N`. Text and choice appearances auto-fit in widget-local
   coordinates, respect inherited `/Q` and multiline `/Ff`, and reuse the Core

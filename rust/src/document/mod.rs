@@ -1363,13 +1363,19 @@ impl _Document {
     }
 
     /// Remove one widget of a one-based page, and its field with the last one.
-    fn remove_widget(&mut self, page_number: u32, index: u32, xref: u32) -> PyResult<()> {
-        forms::remove_widget(self, page_number, index, xref)
+    fn remove_widget(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+    ) -> PyResult<()> {
+        forms::remove_widget(self, py, page_number, index, xref)
     }
 
     /// Remove a field with all its widgets.
-    fn remove_field(&mut self, xref: u32) -> PyResult<()> {
-        forms::remove_field(self, xref)
+    fn remove_field(&mut self, py: Python<'_>, xref: u32) -> PyResult<()> {
+        forms::remove_field(self, py, xref)
     }
 
     /// Return a field's label, maximum length, default value, and the

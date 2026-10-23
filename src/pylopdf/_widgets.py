@@ -305,10 +305,11 @@ class Widgets(Sequence[Widget]):
 
     def __delitem__(self, index: int | slice) -> None:
         """Remove widgets from the page and their fields; a field goes with its last widget."""
-        selected = self._handles()[index]
-        widgets = selected if isinstance(selected, list) else [selected]
+        selected = range(len(self))[index]
+        positions = selected if isinstance(selected, range) else [selected]
         page = self._page
-        for widget in widgets:
+        for position in sorted(positions, reverse=True):
+            widget = self._handles()[position]
             page._document._doc.remove_widget(page._page_number(), widget._index, widget._xref)
 
     def add(self, specification: FieldSpecification) -> Widget:

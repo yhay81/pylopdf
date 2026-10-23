@@ -2642,6 +2642,7 @@ impl _Document {
     /// Remove `id` from the `/Kids` of `parent`, or from `/Fields` and `/CO`
     /// when `parent` is `None`.
     fn detach_form_node(&mut self, parent: Option<ObjectId>, id: ObjectId) -> PyResult<()> {
+        self.edit_form_calculation_order(id, None)?;
         let is_id = |item: &Object| matches!(item, Object::Reference(item) if *item == id);
         match parent {
             Some(parent) => {
@@ -2671,16 +2672,59 @@ impl _Document {
             None => {
                 let form_id = self.acroform_object()?;
                 self.form_fields_mut(form_id)?.retain(|item| !is_id(item));
-                if let Ok(Object::Array(order)) = self
-                    .doc
-                    .get_object_mut(form_id)
-                    .and_then(Object::as_dict_mut)
-                    .and_then(|form| form.get_mut(b"CO"))
-                {
-                    order.retain(|item| !is_id(item));
-                }
             }
         }
+        Ok(())
+    }
+
+    /// Keep calculation order consistent when a field is removed or split,
+    /// including nested fields and indirect calculation-order arrays.
+    fn edit_form_calculation_order(
+        &mut self,
+        old: ObjectId,
+        replacement: Option<ObjectId>,
+    ) -> PyResult<()> {
+        let form_id = self.acroform_object()?;
+        let mut object = match self
+            .doc
+            .get_dictionary(form_id)
+            .map_err(to_py_err)?
+            .get(b"CO")
+        {
+            Ok(object) => object,
+            Err(_) => return Ok(()),
+        };
+        let mut array_id = None;
+        for _ in 0..32 {
+            let Object::Reference(id) = object else { break };
+            array_id = Some(*id);
+            object = self.doc.get_object(*id).map_err(to_py_err)?;
+        }
+        let order = object.as_array().map_err(to_py_err)?;
+        if order.len() > MAX_FORM_FIELD_TREE_EDGES {
+            return Err(PdfError::new_err(
+                "AcroForm calculation order exceeds the field-tree edge limit",
+            ));
+        }
+        let order = match array_id {
+            Some(id) => self.doc.get_object_mut(id).and_then(Object::as_array_mut),
+            None => self
+                .doc
+                .get_object_mut(form_id)
+                .and_then(Object::as_dict_mut)
+                .and_then(|form| form.get_mut(b"CO"))
+                .and_then(Object::as_array_mut),
+        }
+        .map_err(to_py_err)?;
+        order.retain_mut(|item| {
+            if matches!(item, Object::Reference(id) if *id == old) {
+                match replacement {
+                    Some(id) => *item = Object::Reference(id),
+                    None => return false,
+                }
+            }
+            true
+        });
         Ok(())
     }
 
@@ -2709,7 +2753,13 @@ impl _Document {
             self.unlist_widget(widget)?;
         }
         let mut node = field_id;
+        let mut visited = HashSet::new();
         loop {
+            if !visit_form_node(&mut visited, node)? {
+                return Err(PdfError::new_err(
+                    "AcroForm field parent chain contains a cycle",
+                ));
+            }
             let parent = self
                 .doc
                 .get_dictionary(node)
@@ -2798,11 +2848,11 @@ pub(super) fn add_widget(
             "a button's on state is a name other than Off",
         ));
     }
-    let existing = this
-        .collect_form_fields()?
-        .into_iter()
+    let fields = this.collect_form_fields()?;
+    let existing = fields
+        .iter()
         .find(|(name, ..)| *name == spec.name)
-        .map(|(_, id, field_type, flags, _)| (id, existing_kind(&field_type, flags)));
+        .map(|(_, id, field_type, flags, _)| (*id, existing_kind(field_type, *flags)));
     match existing {
         Some((_, kind)) if kind != spec.kind => {
             return Err(PdfError::new_err(format!(
@@ -2813,6 +2863,15 @@ pub(super) fn add_widget(
         None if spec.name.contains('.') => {
             return Err(PdfError::new_err(
                 "a new field's name has no dots; dots join the names of a field's parents",
+            ));
+        }
+        None if fields.iter().any(|(name, ..)| {
+            name.strip_prefix(&spec.name)
+                .is_some_and(|suffix| suffix.starts_with('.'))
+        }) =>
+        {
+            return Err(PdfError::new_err(
+                "the form already has a non-terminal field of that name",
             ));
         }
         _ => {}
@@ -2827,8 +2886,9 @@ pub(super) fn add_widget(
         "P" => page_id,
     };
     let mut mark = Dictionary::new();
-    let border_color = spec.border_color.unwrap_or((0.0, 0.0, 0.0));
-    mark.set("BC", rgb_entry("border colour", border_color)?);
+    if let Some(color) = spec.border_color {
+        mark.set("BC", rgb_entry("border colour", color)?);
+    }
     if let Some(color) = spec.background_color {
         mark.set("BG", rgb_entry("background colour", color)?);
     }
@@ -3110,6 +3170,13 @@ pub(super) fn add_widget(
                 } else if !field.has(b"V") {
                     field.set("V", "Off");
                 }
+                let value = this
+                    .collect_form_fields()?
+                    .into_iter()
+                    .find(|(name, ..)| *name == spec.name)
+                    .and_then(|(.., value)| value)
+                    .unwrap_or_else(|| Arc::from("Off"));
+                this.set_form_field_inner(&spec.name, &value, None)?;
             } else if matches!(spec.kind.as_str(), "text" | "combobox" | "listbox") {
                 let current = this
                     .collect_form_fields()?
@@ -3177,6 +3244,7 @@ impl _Document {
         old: ObjectId,
         new: ObjectId,
     ) -> PyResult<()> {
+        self.edit_form_calculation_order(old, Some(new))?;
         let swap = |items: &mut Vec<Object>| {
             for item in items {
                 if matches!(item, Object::Reference(id) if *id == old) {
@@ -3218,14 +3286,6 @@ impl _Document {
             None => {
                 let form_id = self.acroform_object()?;
                 swap(self.form_fields_mut(form_id)?);
-                if let Ok(Object::Array(order)) = self
-                    .doc
-                    .get_object_mut(form_id)
-                    .and_then(Object::as_dict_mut)
-                    .and_then(|form| form.get_mut(b"CO"))
-                {
-                    swap(order);
-                }
             }
         }
         Ok(())
@@ -3236,6 +3296,7 @@ impl _Document {
 /// out of its field, removing the field with its last widget.
 pub(super) fn remove_widget(
     this: &mut _Document,
+    py: Python<'_>,
     page_number: u32,
     index: u32,
     xref: u32,
@@ -3250,37 +3311,58 @@ pub(super) fn remove_widget(
             "annotation {xref} is no longer a widget"
         )));
     }
-    this.invalidate_hayro_pdf();
-    if xref == 0 {
-        let items = this.indirect_page_annotations_mut(page_id)?;
-        if (index as usize) < items.len() {
-            items.remove(index as usize);
+    let widget_id = this
+        .page_annotation_items(page_id)?
+        .and_then(|items| items.get(index as usize))
+        .and_then(|item| item.as_reference().ok());
+    py.detach(|| {
+        let original = this.doc.clone();
+        this.invalidate_hayro_pdf();
+        let result = (|| {
+            let Some(widget_id) = widget_id else {
+                let items = this.indirect_page_annotations_mut(page_id)?;
+                if (index as usize) < items.len() {
+                    items.remove(index as usize);
+                }
+                return Ok(());
+            };
+            let owner = this.widget_fields()?.get(&widget_id).map(|field| field.0);
+            this.unlist_widget(widget_id)?;
+            match owner {
+                Some(field_id)
+                    if field_id == widget_id || this.field_widgets(field_id)?.len() <= 1 =>
+                {
+                    this.remove_form_field(field_id)
+                }
+                Some(_) => {
+                    let parent = this
+                        .doc
+                        .get_dictionary(widget_id)
+                        .ok()
+                        .and_then(|dict| dict.get(b"Parent").ok())
+                        .and_then(|parent| parent.as_reference().ok());
+                    this.detach_form_node(parent, widget_id)
+                }
+                None => Ok(()),
+            }
+        })();
+        if result.is_err() {
+            this.doc.replace(original);
         }
-        return Ok(());
-    }
-    let widget_id = (xref, 0);
-    let owner = this.widget_fields()?.get(&widget_id).map(|field| field.0);
-    this.unlist_widget(widget_id)?;
-    match owner {
-        Some(field_id) if field_id == widget_id || this.field_widgets(field_id)?.len() <= 1 => {
-            this.remove_form_field(field_id)
-        }
-        Some(_) => {
-            let parent = this
-                .doc
-                .get_dictionary(widget_id)
-                .ok()
-                .and_then(|dict| dict.get(b"Parent").ok())
-                .and_then(|parent| parent.as_reference().ok());
-            this.detach_form_node(parent, widget_id)
-        }
-        None => Ok(()),
-    }
+        result
+    })
 }
 
 /// Implements [`_Document::remove_field`].
-pub(super) fn remove_field(this: &mut _Document, xref: u32) -> PyResult<()> {
+pub(super) fn remove_field(this: &mut _Document, py: Python<'_>, xref: u32) -> PyResult<()> {
     let field_id = this.form_field_id(xref)?;
-    this.invalidate_hayro_pdf();
-    this.remove_form_field(field_id)
+    py.detach(|| {
+        let original = this.doc.clone();
+        this.invalidate_hayro_pdf();
+        let result = this.remove_form_field(field_id);
+        if result.is_err() {
+            this.doc.replace(original);
+        }
+        result
+    })
 }
