@@ -1279,13 +1279,14 @@ impl _Document {
     /// an `AP /N` appearance with Multiply blending for hayro and other viewers.
     fn add_highlight_annotation(
         &mut self,
+        py: Python<'_>,
         page_number: u32,
         rects: Vec<(f64, f64, f64, f64)>,
         color: (f64, f64, f64),
         opacity: f64,
         content: Option<String>,
     ) -> PyResult<u32> {
-        annotations::add_highlight_annotation(self, page_number, rects, color, opacity, content)
+        annotations::add_highlight_annotation(self, py, page_number, rects, color, opacity, content)
     }
 
     /// Add a link annotation over display `rect` on a one-based page and

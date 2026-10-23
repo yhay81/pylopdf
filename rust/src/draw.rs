@@ -609,14 +609,6 @@ pub fn text_markup_ap_ops(
     Ok(out)
 }
 
-/// Build drawing operators for a pylopdf-created Highlight appearance.
-pub fn highlight_ap_ops(
-    quads: &[[(f64, f64); 4]],
-    color: (f64, f64, f64),
-) -> Result<Vec<u8>, String> {
-    text_markup_ap_ops(TextMarkupKind::Highlight, quads, color, &[])
-}
-
 /// Content variants that require different `cm` matrix construction.
 pub enum PlacedContent {
     /// Image XObject drawn in a unit square; aspect ratio is width/height.

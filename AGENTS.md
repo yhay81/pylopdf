@@ -1820,8 +1820,13 @@ the concept and API overview.
   planned once, with borrowed dictionary reads and fallible collections, before
   preparing the rendering clone. Quad bounding boxes do not materialize a
   second point vector, and generated appearance buffers grow fallibly.
-  Pylopdf-created Highlights prepare quads, appearance operators, and
-  `QuadPoints` before cache invalidation or dependent-object creation.
+  Pylopdf-created Highlights prepare quads, `QuadPoints`, and their
+  appearance, a canvas over the highlighted display rectangles that
+  `prepare_canvas_form` composes, before cache invalidation or
+  dependent-object creation. An appearance canvas is as large as the
+  annotation's display rectangle, and its Form's `/Matrix`
+  (`annotations::appearance_matrix`) maps the composed canvas onto `/Rect` in
+  user space, upright on the displayed page.
   Annotation appends validate the final page limit and preallocate their
   `/Annots` target before dependent-object creation. Direct arrays and unshared
   indirect arrays reserve one slot in place; page-shared indirect arrays
@@ -2036,7 +2041,11 @@ the concept and API overview.
   calls: paths, text items, images, placed pages, and `Push`/`Pop` scopes.
   Two backends consume a recording. A canvas from `Page.draw()` commits once,
   in `_Document.commit_canvas` (`place_canvas` in `document/drawing.rs`), as
-  one Form XObject on the page.
+  one Form XObject on the page. `prepare_canvas_form` does every fallible
+  step on the input, `commit_canvas_form` adds the Form, with a `/Matrix`
+  when given, and `remember_canvas_placements` records its new images and
+  pages; annotation appearances use the same three without placing the Form
+  on the page.
   `CanvasRecording::compose` writes its content in display space: it starts
   with `1 0 0 -1 0 H cm`, where `H` is the page's display height rounded to
   single precision, as the Form's BBox is. Paths, clips (`W n`), transforms

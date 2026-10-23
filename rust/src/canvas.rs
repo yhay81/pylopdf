@@ -66,7 +66,7 @@ const MAX_CANVAS_SCOPE_DEPTH: usize = 16;
 const MAX_TAG_TEXT_SIZE: usize = 64 * 1024;
 
 /// The PDF names of the blend modes, in the order of `BlendMode`.
-const BLEND_MODES: [&str; 16] = [
+pub(crate) const BLEND_MODES: [&str; 16] = [
     "Normal",
     "Multiply",
     "Screen",
@@ -192,7 +192,7 @@ struct StrokeStyle {
 
 /// A stroke's colour, width, cap, join, miter limit, dash lengths, and dash
 /// offset, as Python passes them.
-type StrokeArgs = ((f64, f64, f64, f64), f64, u8, u8, f64, Vec<f64>, f64);
+pub(crate) type StrokeArgs = ((f64, f64, f64, f64), f64, u8, u8, f64, Vec<f64>, f64);
 
 impl StrokeStyle {
     fn new(
@@ -1943,7 +1943,7 @@ impl _Canvas {
     /// display space, of a new document when `new_document` is true.
     #[new]
     #[pyo3(signature = (width, height, new_document=false))]
-    fn new(width: f64, height: f64, new_document: bool) -> PyResult<Self> {
+    pub(crate) fn new(width: f64, height: f64, new_document: bool) -> PyResult<Self> {
         let width = f64::from(coordinate(width)?);
         let height = f64::from(coordinate(height)?);
         Ok(Self {
@@ -2005,7 +2005,7 @@ impl _Canvas {
 
     /// Record a path: `operators` holds one character per path operator,
     /// `fill` is a colour and the even-odd flag, and `stroke` a stroke.
-    fn add_path(
+    pub(crate) fn add_path(
         &mut self,
         operators: &str,
         coordinates: Vec<f64>,
@@ -2048,7 +2048,7 @@ impl _Canvas {
 
     /// Open a scope that blends later drawing with a blend mode and return
     /// its depth.
-    fn push_blend(&mut self, mode: u8) -> PyResult<usize> {
+    pub(crate) fn push_blend(&mut self, mode: u8) -> PyResult<usize> {
         if usize::from(mode) >= BLEND_MODES.len() {
             return Err(PdfError::new_err("unknown blend mode"));
         }
@@ -2057,7 +2057,7 @@ impl _Canvas {
 
     /// Open a scope whose drawing is composited first and then drawn at
     /// `alpha`, and return its depth.
-    fn push_opacity(&mut self, alpha: f64) -> PyResult<usize> {
+    pub(crate) fn push_opacity(&mut self, alpha: f64) -> PyResult<usize> {
         if !(alpha.is_finite() && (0.0..=1.0).contains(&alpha)) {
             return Err(PdfError::new_err("opacity must be a number from 0 to 1"));
         }
@@ -2110,7 +2110,7 @@ impl _Canvas {
     }
 
     /// Close the innermost scope, which must be at `depth`.
-    fn pop(&mut self, depth: usize) -> PyResult<()> {
+    pub(crate) fn pop(&mut self, depth: usize) -> PyResult<()> {
         if depth == 0 || depth != self.scopes.len() {
             return Err(PdfError::new_err(
                 "canvas scopes must be left in the reverse order of entering them",

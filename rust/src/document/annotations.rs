@@ -738,9 +738,35 @@ impl _Document {
     }
 }
 
+/// The `/Matrix` of an appearance drawn on a canvas `size` over the display
+/// rectangle `rect` of a page with `crop` and `rotation`: the composed canvas
+/// is y up from the rectangle's bottom-left corner, and the matrix maps it to
+/// PDF user space, so its BBox lands on the annotation's `/Rect` upright on
+/// the displayed page.
+pub(super) fn appearance_matrix(
+    crop: [f64; 4],
+    rotation: i64,
+    rect: [f64; 4],
+    size: (f64, f64),
+) -> [f64; 6] {
+    let bottom = rect[1] + size.1;
+    let origin = draw::display_to_pdf(crop, rotation, rect[0], bottom);
+    let right = draw::display_to_pdf(crop, rotation, rect[0] + 1.0, bottom);
+    let up = draw::display_to_pdf(crop, rotation, rect[0], bottom - 1.0);
+    [
+        right.0 - origin.0,
+        right.1 - origin.1,
+        up.0 - origin.0,
+        up.1 - origin.1,
+        origin.0,
+        origin.1,
+    ]
+}
+
 /// Implements [`_Document::add_highlight_annotation`].
 pub(super) fn add_highlight_annotation(
     this: &mut _Document,
+    py: Python<'_>,
     page_number: u32,
     rects: Vec<(f64, f64, f64, f64)>,
     color: (f64, f64, f64),
@@ -787,7 +813,7 @@ pub(super) fn add_highlight_annotation(
     quads.try_reserve_exact(rects.len()).map_err(|error| {
         PdfError::new_err(format!("failed to allocate highlight quads: {error}"))
     })?;
-    for (x0, y0, x1, y1) in rects {
+    for &(x0, y0, x1, y1) in &rects {
         quads.push(draw::display_rect_quad_pdf(
             crop,
             rotation,
@@ -795,7 +821,6 @@ pub(super) fn add_highlight_annotation(
         ));
     }
     let bbox = draw::bounding_rect_iter(quads.iter().flatten().copied());
-    let appearance_ops = draw::highlight_ap_ops(&quads, color).map_err(PdfError::new_err)?;
     let quad_point_count = quads
         .len()
         .checked_mul(8)
@@ -811,27 +836,49 @@ pub(super) fn add_highlight_annotation(
         quad_points.push(Object::Real(y as f32));
     }
 
-    // Appearance BBox equals annotation Rect and draws in page space.
-    this.invalidate_hayro_pdf_keeping_placements();
-    let gs_id = this.doc.add_object(dictionary! {
-        "Type" => "ExtGState",
-        "BM" => Object::Name(b"Multiply".to_vec()),
-        "CA" => Object::Real(opacity as f32),
-        "ca" => Object::Real(opacity as f32),
-        "AIS" => Object::Boolean(false),
-    });
-    let form_dict = dictionary! {
-        "Type" => "XObject",
-        "Subtype" => "Form",
-        "FormType" => 1,
-        "BBox" => Object::Array(bbox.iter().map(|&v| Object::Real(v as f32)).collect()),
-        "Resources" => dictionary! {
-            "ExtGState" => dictionary! { "PyloGS" => Object::Reference(gs_id) },
+    // The appearance: each rectangle filled in multiply blending.
+    let display = rects.iter().fold(
+        [
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        ],
+        |[x0, y0, x1, y1], &(a0, b0, a1, b1)| {
+            [
+                x0.min(a0.min(a1)),
+                y0.min(b0.min(b1)),
+                x1.max(a0.max(a1)),
+                y1.max(b0.max(b1)),
+            ]
         },
-    };
-    let ap_id = this
-        .doc
-        .add_object(Stream::new(form_dict, appearance_ops).with_compression(false));
+    );
+    let mut canvas = _Canvas::new(display[2] - display[0], display[3] - display[1], false)?;
+    let multiply = canvas::BLEND_MODES
+        .iter()
+        .position(|mode| *mode == "Multiply")
+        .and_then(|mode| u8::try_from(mode).ok())
+        .ok_or_else(|| PdfError::new_err("the canvas has no multiply blend mode"))?;
+    let depth = canvas.push_blend(multiply)?;
+    for &(x0, y0, x1, y1) in &rects {
+        let (x0, x1) = (x0.min(x1) - display[0], x0.max(x1) - display[0]);
+        let (y0, y1) = (y0.min(y1) - display[1], y0.max(y1) - display[1]);
+        canvas.add_path(
+            "mlllh",
+            vec![x0, y0, x1, y0, x1, y1, x0, y1],
+            Some(((color.0, color.1, color.2, opacity), false)),
+            None,
+        )?;
+    }
+    canvas.pop(depth)?;
+    let appearance = canvas.take_recording()?;
+    let matrix = appearance_matrix(crop, rotation, display, appearance.size);
+    let appearance = this.prepare_canvas_form(py, appearance)?;
+
+    this.invalidate_hayro_pdf_keeping_placements();
+    let committed = this.commit_canvas_form(appearance, Some(matrix))?;
+    let ap_id = committed.form_id;
+    this.remember_canvas_placements(committed, Some(page_number));
 
     let mut annot = dictionary! {
         "Type" => "Annot",
