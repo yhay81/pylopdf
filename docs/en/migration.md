@@ -136,7 +136,7 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `page.add_highlight_annot(quads)`, `page.delete_annot(annot)` | `page.annotations.add(Highlight(quads))`, `del page.annotations[i]` | `color` is a `Color` and `content` becomes `contents`; deleting an annotation removes its popup |
 | `page.get_links()`, `page.links()`, `page.first_link`, `page.load_links()` | `page.links` | A sequence of `Link` handles with `rect` and `target` instead of dictionaries and a chain of `Link` objects |
 | `page.insert_link(link)`, `page.update_link(link)`, `page.delete_link(link)` | `page.links.add(rect, target)`, assigning `link.rect` and `link.target`, `del page.links[i]` | A target is a URI string, `Destination(page, point, zoom)`, `RemoteDestination(file, page)`, `Launch(file)`, or `NamedAction(name)`, as in the outline; `isinstance` on it replaces the `LINK_*` kinds |
-| `page.widgets()` | `doc.get_form_fields()`, `doc.set_form_field(name, value)` | Forms are handled per document |
+| `page.widgets()`, `widget.field_name`, `field_type`, `field_value`, `field_flags`, `choice_values`, `widget.update()` | `doc.form`, `field.name`, `type`, `value`, `flags`, `choices`, assigning `doc.form[name].value` | Fields are handled per document as `Field` handles; assigning `value` regenerates the appearances at once, and `doc.form.font` picks the face. Widgets as handles come with the Interaction milestone |
 
 ### Geometry { #mapping-geometry }
 

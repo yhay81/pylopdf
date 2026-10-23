@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 import pytest
-from conftest import build_raw_pdf
+from conftest import build_raw_pdf, form_entries
 from test_acroform_import import (
     EXCLUDED_APPEARANCE,
     F1040,
@@ -57,7 +57,7 @@ def test_deleting_the_second_page_removes_its_widgets_and_fields(edit: str) -> N
 
     reopened = pylopdf.open(saved)
     assert _fields(reopened) == expected
-    reopened.set_form_field("person.first", "Grace")
+    reopened.form["person.first"].value = "Grace"
     assert _fields(reopened)["person.first"] == ("text", "Grace")
 
 
@@ -84,7 +84,7 @@ def test_deleting_the_first_page_points_remaining_widgets_at_their_page(edit: st
 
     reopened = pylopdf.open(saved)
     assert _fields(reopened) == expected
-    reopened.set_form_field("choice", "Off")
+    reopened.form["choice"].value = "Off"
     assert _fields(reopened)["choice"] == ("radio", "Off")
 
 
@@ -123,28 +123,28 @@ def test_a_widget_that_no_page_lists_goes_only_with_its_page_entry(deleted: int,
         )
     )
     del doc.pages[deleted]
-    assert [field["name"] for field in doc.get_form_fields()] == names
+    assert [field["name"] for field in form_entries(doc)] == names
 
 
 def test_f1040_keeps_the_fields_of_its_remaining_page() -> None:
     doc = pylopdf.open(F1040)
-    fields = doc.get_form_fields()
+    fields = form_entries(doc)
     first_page = [field for field in fields if field["name"].startswith("topmostSubform[0].Page1[0].")]
     assert len(fields) == 199
     assert len(first_page) == 128
 
     del doc.pages[1:2]
-    assert doc.get_form_fields() == first_page
+    assert form_entries(doc) == first_page
     reopened = pylopdf.open(doc.to_bytes())
-    assert reopened.get_form_fields() == first_page
-    reopened.set_form_field(first_page[0]["name"], "x" if first_page[0]["type"] == "text" else "Off")
+    assert form_entries(reopened) == first_page
+    reopened.form[first_page[0]["name"]].value = "x" if first_page[0]["type"] == "text" else "Off"
 
 
 def test_documents_without_a_form_delete_pages_unchanged(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
     doc.pages.new()
     del doc.pages[1:2]
-    assert doc.get_form_fields() == []
+    assert form_entries(doc) == []
     assert b"/AcroForm" not in doc.to_bytes()
 
 
@@ -187,4 +187,4 @@ def test_indirect_fields_and_kids_arrays_are_filtered_in_place() -> None:
         )
     )
     del doc.pages[1:2]
-    assert [field["name"] for field in doc.get_form_fields()] == ["group.a"]
+    assert [field["name"] for field in form_entries(doc)] == ["group.a"]

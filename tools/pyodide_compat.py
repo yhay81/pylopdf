@@ -801,8 +801,9 @@ def _variable_font_form_results(bold: Any) -> dict[str, Any]:  # noqa: ANN401 - 
             },
         )
     )
-    document.set_form_field("name", _HEBREW, font=bold)
-    document.set_form_field("code", "A12", font=bold)
+    document.form.font = bold
+    document.form["name"].value = _HEBREW
+    document.form["code"].value = "A12"
     lines = [line for block in document.pages[0].layout(chars=True).to_dict()["blocks"] for line in block["lines"]]
     _require(len(lines) == 2, "the filled fields did not extract as two lines")  # noqa: PLR2004 - two fields.
     name, code = sorted(lines, key=lambda line: line["bbox"][1])
@@ -821,11 +822,9 @@ def _variable_font_form_results(bold: Any) -> dict[str, Any]:  # noqa: ANN401 - 
     )
     reopened = pylopdf.open(document.to_bytes())
     return {
-        "values": sorted([field["name"], field["value"]] for field in reopened.get_form_fields()),
+        "values": sorted([name, field.value] for name, field in reopened.form.items()),
         "fonts": fonts,
-        "standard_font": _exception_name(
-            lambda: document.set_form_field("code", "A1", font=pylopdf.Font.standard("Helvetica"))
-        ),
+        "standard_font": _exception_name(lambda: setattr(document.form, "font", pylopdf.Font.standard("Helvetica"))),
     }
 
 
@@ -959,7 +958,7 @@ def _form_page_deletion_results() -> dict[str, Any]:
     )
 
     def names(document: Any) -> list[str]:  # noqa: ANN401 - pylopdf imports lazily.
-        return [field["name"] for field in document.get_form_fields()]
+        return list(document.form)
 
     results: dict[str, Any] = {}
     edits = (("delete_first", lambda doc: _delete_page(doc, 0)), ("select_first", lambda doc: doc.pages.select([0])))

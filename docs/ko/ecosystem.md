@@ -68,7 +68,7 @@ out = signers.sign_pdf(
 signed_pdf: bytes = out.getvalue()
 ```
 
-서명은 마지막 단계에서 하세요. 그 뒤에 pylopdf로 저장하면 파일을 다시 쓰므로 서명이 무효가 됩니다. `set_form_field()`는 서명 필드 채우기를 거부합니다.
+서명은 마지막 단계에서 하세요. 그 뒤에 pylopdf로 저장하면 파일을 다시 쓰므로 서명이 무효가 됩니다. `doc.form`의 서명 필드에 값을 대입하면 예외가 발생합니다.
 
 ## 다른 엔진으로 OCR하기 { #ocr }
 

@@ -68,7 +68,7 @@ out = signers.sign_pdf(
 signed_pdf: bytes = out.getvalue()
 ```
 
-请把签名作为最后一步：之后再用pylopdf保存会重写文件，使签名失效。`set_form_field()`拒绝填写签名字段。
+请把签名作为最后一步：之后再用pylopdf保存会重写文件，使签名失效。给`doc.form`中的签名字段赋值会引发异常。
 
 ## 使用其他OCR引擎 { #ocr }
 

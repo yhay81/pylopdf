@@ -1385,12 +1385,18 @@ impl _Document {
         labels::set_page_labels(self, labels)
     }
 
-    /// Return AcroForm fields as `(full name, kind, value)`.
+    /// Return AcroForm fields as `(full name, xref, kind, value, flags)`.
     ///
-    /// Kind is text/checkbox/radio/button/combobox/listbox/signature. Value is
-    /// stringified `/V`, including state names such as Yes/Off, or None.
-    fn get_form_fields(&self, py: Python<'_>) -> PyResult<Vec<(String, String, Option<String>)>> {
-        forms::get_form_fields(self, py)
+    /// Kind is text/checkbox/radio/pushbutton/combobox/listbox/signature or
+    /// unknown. Value is stringified `/V`, including state names such as
+    /// Yes/Off, or None; flags are the inherited `/Ff`.
+    fn form_fields(&self, py: Python<'_>) -> PyResult<Vec<FormFieldTuple>> {
+        forms::form_fields(self, py)
+    }
+
+    /// Return the `(export value, label)` options of a choice field's `/Opt`.
+    fn form_field_choices(&self, py: Python<'_>, xref: u32) -> PyResult<Vec<(String, String)>> {
+        forms::form_field_choices(self, py, xref)
     }
 
     /// Return checkbox/radio state names from widget `AP /N` keys.

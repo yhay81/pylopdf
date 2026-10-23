@@ -113,7 +113,7 @@ python -m pylopdf.migrate src/
 | `page.add_highlight_annot(quads)`、`page.delete_annot(annot)` | `page.annotations.add(Highlight(quads))`、`del page.annotations[i]` | `color`是`Color`，`content`改为`contents`；删除批注会一并删除其弹出窗口 |
 | `page.get_links()`、`page.links()`、`page.first_link`、`page.load_links()` | `page.links` | 带有`rect`和`target`的`Link`句柄序列，取代字典和`Link`对象链 |
 | `page.insert_link(link)`、`page.update_link(link)`、`page.delete_link(link)` | `page.links.add(rect, target)`、给`link.rect`和`link.target`赋值、`del page.links[i]` | 链接目标与书签相同，是URI字符串、`Destination(page, point, zoom)`、`RemoteDestination(file, page)`、`Launch(file)`或`NamedAction(name)`之一；用`isinstance`判断目标，取代`LINK_*`类型 |
-| `page.widgets()` | `doc.get_form_fields()`、`doc.set_form_field(name, value)` | 表单按文档处理 |
+| `page.widgets()`、`widget.field_name`、`field_type`、`field_value`、`field_flags`、`choice_values`、`widget.update()` | `doc.form`、`field.name`、`type`、`value`、`flags`、`choices`、给`doc.form[name].value`赋值 | 字段按文档以`Field`句柄处理；给`value`赋值会立即重新生成外观，`doc.form.font`选择字体。控件句柄随Interaction里程碑加入 |
 
 ### 几何 { #mapping-geometry }
 

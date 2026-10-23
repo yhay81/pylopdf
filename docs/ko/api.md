@@ -171,8 +171,7 @@ del doc.fallback_fonts            # back to the installed font extras
 
 | 멤버 | 용도 |
 |---|---|
-| `get_form_fields()` | 모든 폼 필드와 그 이름, 종류, 값, 옵션 |
-| `set_form_field(name, value, *, font=, fontfile=, fontbuffer=, fontindex=, font_language=)` | 필드를 채우고 표시 모양을 다시 생성. [폼](#forms) 참고 |
+| `form` | 폼 필드를 전체 이름에서 `Field` 핸들로의 매핑으로 반환. [폼](#forms) 참고 |
 | `attachments` | 포함된 파일을 매핑으로. [첨부 파일](#attachments) 참고 |
 | `pdfa_claim` | 파일이 선언한 PDF/A 파트와 적합성 수준을 담은 `PdfaClaim(part=2, conformance="B")` 레코드, 또는 `None`. 선언만 읽으며 검증하지는 않음 |
 | `xmp` | XMP 메타데이터 패킷을 텍스트로, 또는 `None`. 문자열을 대입하면 기록하고 `del doc.xmp`는 삭제. 읽기와 쓰기는 1 MiB에서 멈추며, 더 큰 패킷은 `doc.catalog["Metadata"].read(max_size=None)`로 읽음. `metadata`는 이를 바꾸지 않음 |
@@ -520,7 +519,7 @@ pylopdf.Font.installed(*, language=None, family=None, serif=False, weight=None, 
 
 글꼴은 [캔버스](#canvas)가 그리는 대로 텍스트를 잽니다. `text_width(text, size)`는 커닝과 합자를 포함한 한 줄의 폭입니다. `text_height(text, size, *, width, line_height=None)`는 텍스트를 `width`포인트 폭으로 줄바꿈했을 때 `canvas.textbox`에 필요한 높이이므로, 이 높이의 textbox에 텍스트가 정확히 들어갑니다. 속성은 `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, `units_per_em`, `ascender`, `descender`이고, `has_glyph(char)`는 글꼴에 그 문자의 글리프가 있는지 알려 줍니다. `typing.get_args(pylopdf.StandardFontName)`는 `Font.standard()`가 받는 14개의 이름을 나열합니다. Standard 14 글꼴은 포함되지 않으며 서유럽(WinAnsi) 문자만 쓸 수 있습니다.
 
-`weight` 없이 불러온 가변 글꼴은 기본 인스턴스를 사용하며, 기본 인스턴스가 항상 Regular 굵기인 것은 아닙니다. 가변 글꼴인 Noto Sans CJK JP의 기본값은 Thin입니다. Regular를 쓰려면 `weight=400`을 전달하세요. `set_form_field`의 `fontfile`과 `fontbuffer` 인수도 기본 인스턴스를 사용합니다. 다른 굵기로 채우려면 `Font`를 `font=`로 전달하세요.
+`weight` 없이 불러온 가변 글꼴은 기본 인스턴스를 사용하며, 기본 인스턴스가 항상 Regular 굵기인 것은 아닙니다. 가변 글꼴인 Noto Sans CJK JP의 기본값은 Thin입니다. Regular를 쓰려면 `weight=400`을 전달하세요. 폼을 채우는 글꼴(`doc.form.font`)도 마찬가지입니다.
 
 아랍어, 히브리어, 힌디어, 태국어 extra는 가변 글꼴을 제공하므로 축 위의 어떤 굵기든 쓸 수 있습니다(100–900, Noto Naskh Arabic은 400–700). CJK extra는 스타일마다 Regular 글꼴 하나만 제공합니다. `Font.installed(language="ja", weight=700)`는 `PdfError`를 발생시키므로, Noto Sans JP Bold 같은 볼드 글꼴을 `Font.from_file()`로 불러오세요. pylopdf는 글리프를 변형해 볼드나 이탤릭을 흉내 내지 않습니다.
 
@@ -528,7 +527,20 @@ pylopdf는 시스템 글꼴 디렉터리를 검색하지 않고 전역 글꼴 �
 
 ### 폼 { #forms }
 
-`set_form_field`는 텍스트, 콤보 박스, 리스트 박스, 체크 박스, 라디오 버튼 필드를 채우고 각각의 표시 모양을 다시 생성합니다. 서유럽(WinAnsi) 텍스트는 Helvetica로 크기를 맞춥니다. 그 밖의 문자에는 `fontfile`, `fontbuffer`, 불러온 `font`를 전달하거나 글꼴 extra를 설치하세요. 콤(comb) 필드, 정렬, 최대 길이를 지키며, 너무 긴 값은 예외를 발생시키고 문서를 변경하지 않습니다. 서식 있는 텍스트(rich text), 푸시 버튼 동작, 서명은 지원하지 않습니다. 서명은 [생태계 연동](ecosystem.md#signatures)을 참고하세요.
+`doc.form`은 `person.first` 같은 완전한 필드 이름에서 `Field` 핸들로의, 이름 순서의 매핑입니다. 핸들은 접근할 때마다 문서를 읽으며 `name`, `type`(`FieldType.TEXT`, `CHECKBOX`, `RADIO`, `PUSHBUTTON`, `COMBOBOX`, `LISTBOX`, `SIGNATURE` 같은 `FieldType` 멤버), `value`, `flags`(부모 필드에서 상속하는 `FieldFlags`), `choices`(선택 필드의 `FieldChoice(value=, label=)` 옵션), 그리고 `xref`와 `obj`를 가집니다.
+
+```python
+from pylopdf import Font
+
+for name, field in doc.form.items():
+    print(name, field.type, field.value)
+doc.form["customer"].value = "Alice"   # 값과 표시 모양을 함께 기록
+doc.form["agree"].value = True         # 체크 박스의 켜짐 상태
+doc.form.font = Font.from_file("NotoSansJP-Regular.otf")
+doc.form["name"].value = "山田 太郎"
+```
+
+`value`에 대입하면 텍스트, 콤보 박스, 리스트 박스, 체크 박스, 라디오 버튼 필드를 채우고 각각의 표시 모양을 다시 생성합니다. `True`와 `False`는 버튼의 켜짐 상태와 `"Off"`를 고릅니다. 서유럽(WinAnsi) 텍스트는 Helvetica로 크기를 맞추고, 그 밖의 문자는 설치된 글꼴 extra로 씁니다. `doc.form.font`에 OpenType `Font`를 지정하면 이후의 모든 채우기를 그 글꼴로 씁니다. 중국어 텍스트라면 `Font.installed(language="zh-CN")`입니다. 이 설정은 `Document` 객체에 속하며 저장되지 않습니다. 콤(comb) 필드, 정렬, 최대 길이를 지키며, 너무 긴 값은 예외를 발생시키고 문서를 변경하지 않습니다. 서식 있는 텍스트(rich text), 푸시 버튼 동작, 서명은 지원하지 않습니다. 서명은 [생태계 연동](ecosystem.md#signatures)을 참고하세요.
 
 ## 첨부 파일 { #attachments }
 
@@ -665,11 +677,12 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [목차와 페이지 레이블](#outline) |
 | `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `Highlight`, `Link`, `Links` | [주석과 링크](#page-annotations) |
 | `PageBoxes` | [페이지 기하](#page-geometry) |
+| `Form`, `Field`, `FieldType`, `FieldFlags`, `FieldChoice` | [폼](#forms) |
 | `FallbackFont`, `FallbackFonts` | [렌더링과 이미지](#document-rendering) |
 
 상수는 pymupdf의 이름을 유지하며 열거형으로도 묶여 있습니다. `Permissions`(`PDF_PERM_*`), `AnnotationType`(`PDF_ANNOT_*`), `AnnotationFlags`(`PDF_ANNOT_IS_*`)입니다. `Access`의 멤버는 `USER`와 `OWNER`이고, `Encryption`은 저장하는 파일을 암호화하는 방법을 나타냅니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
 
-텍스트, 표, OCR, 페이지 내용의 결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord`, `Path`, `Image`, `MarkInfo`, `PdfaClaim`, `OutlineEntry`, `PageLabelRange`, 목차 대상 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 반환하는 그 밖의 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `FormFieldInfo` 같은 `TypedDict` 클래스로 기술됩니다.
+텍스트, 표, OCR, 페이지 내용의 결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord`, `Path`, `Image`, `MarkInfo`, `PdfaClaim`, `OutlineEntry`, `PageLabelRange`, 목차 대상 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 반환하는 그 밖의 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `DocumentComplexity` 같은 `TypedDict` 클래스로 기술됩니다.
 
 ## 예외와 경고 { #exceptions }
 

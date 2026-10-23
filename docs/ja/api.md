@@ -170,8 +170,7 @@ del doc.fallback_fonts            # back to the installed font extras
 
 | メンバ | 用途 |
 |---|---|
-| `get_form_fields()` | すべてのフォームフィールドと、その名前・種類・値・選択肢 |
-| `set_form_field(name, value, *, font=, fontfile=, fontbuffer=, fontindex=, font_language=)` | フィールドに記入し、見た目を生成し直します。[フォーム](#forms)を参照 |
+| `form` | フォームフィールドを、完全名から`Field`ハンドルへのマッピングとして返します。[フォーム](#forms)を参照 |
 | `attachments` | 埋め込みファイルのマッピング。[添付ファイル](#attachments)を参照 |
 | `pdfa_claim` | ファイルが宣言しているPDF/Aのパートと適合レベルを表す`PdfaClaim(part=2, conformance="B")`レコード、または`None`。宣言を読むだけで、検証はしません |
 | `xmp` | XMPメタデータのパケットをテキストで、または`None`。文字列を代入すると書き込み、`del doc.xmp`で削除します。読み書きとも1 MiBまでで、それより大きいパケットは`doc.catalog["Metadata"].read(max_size=None)`で読めます。`metadata`はこれを変更しません |
@@ -519,7 +518,7 @@ pylopdf.Font.installed(*, language=None, family=None, serif=False, weight=None, 
 
 フォントは、[キャンバス](#canvas)が描くとおりにテキストを測ります。`text_width(text, size)`は1行の幅で、カーニングと合字を含みます。`text_height(text, size, *, width, line_height=None)`は、テキストを幅`width`ポイントで折り返したときに`canvas.textbox`が必要とする高さです。この高さのtextboxにはテキストがちょうど収まります。プロパティは`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`、`units_per_em`、`ascender`、`descender`で、`has_glyph(char)`はフェイスがその文字のグリフを持つかどうかを返します。`typing.get_args(pylopdf.StandardFontName)`は`Font.standard()`が受け付ける14の名前を列挙します。Standard 14フォントは埋め込まれず、西欧（WinAnsi）の文字しか書けません。
 
-`weight`を指定せずに読み込んだ可変フォントは既定のインスタンスを使いますが、それがRegularの太さとは限りません。可変フォントのNoto Sans CJK JPの既定はThinです。Regularにするには`weight=400`を渡してください。`set_form_field`の`fontfile`と`fontbuffer`引数も既定のインスタンスを使います。別の太さで記入するには、`Font`を`font=`に渡してください。
+`weight`を指定せずに読み込んだ可変フォントは既定のインスタンスを使いますが、それがRegularの太さとは限りません。可変フォントのNoto Sans CJK JPの既定はThinです。Regularにするには`weight=400`を渡してください。フォームに記入する書体（`doc.form.font`）も同じです。
 
 アラビア語・ヘブライ語・ヒンディー語・タイ語のextraは可変フォントを含むので、軸上の任意の太さを使えます（100–900。Noto Naskh Arabicは400–700）。CJKのextraはスタイルごとにRegularのフォントを1つだけ含みます。そのため`Font.installed(language="ja", weight=700)`は`PdfError`を送出します。Noto Sans JP Boldのような太字のフェイスを`Font.from_file()`で読み込んでください。pylopdfがグリフを変形して太字や斜体を真似ることはありません。
 
@@ -527,7 +526,20 @@ pylopdfはシステムのフォントディレクトリを探さず、グロー�
 
 ### フォーム { #forms }
 
-`set_form_field`はテキスト、コンボボックス、リストボックス、チェックボックス、ラジオボタンのフィールドに記入し、それぞれの見た目を生成し直します。西欧（WinAnsi）のテキストはHelveticaで収まるように大きさを調整します。それ以外の文字には`fontfile`、`fontbuffer`、読み込み済みの`font`を渡すか、フォントのextraをインストールしてください。コーム（comb）フィールド、配置、最大文字数を守り、長すぎる値は例外を送出して文書を変更しません。リッチテキスト、プッシュボタンのアクション、署名には対応していません。署名については[エコシステム連携](ecosystem.md#signatures)を参照してください。
+`doc.form`は、`person.first`のような完全修飾のフィールド名から`Field`ハンドルへの、名前順のマッピングです。ハンドルはアクセスのたびに文書を読み、`name`、`type`（`FieldType.TEXT`、`CHECKBOX`、`RADIO`、`PUSHBUTTON`、`COMBOBOX`、`LISTBOX`、`SIGNATURE`などの`FieldType`メンバ）、`value`、`flags`（親フィールドから継承する`FieldFlags`）、`choices`（選択フィールドの`FieldChoice(value=, label=)`の選択肢）、それに`xref`と`obj`を持ちます。
+
+```python
+from pylopdf import Font
+
+for name, field in doc.form.items():
+    print(name, field.type, field.value)
+doc.form["customer"].value = "Alice"   # 値とその見た目を書き込む
+doc.form["agree"].value = True         # チェックボックスのオンの状態
+doc.form.font = Font.from_file("NotoSansJP-Regular.otf")
+doc.form["name"].value = "山田 太郎"
+```
+
+`value`に代入すると、テキスト、コンボボックス、リストボックス、チェックボックス、ラジオボタンのフィールドに記入し、それぞれの見た目を生成し直します。`True`と`False`はボタンのオンの状態と`"Off"`を選びます。西欧（WinAnsi）のテキストはHelveticaで収まるように大きさを調整し、それ以外の文字はインストールされたフォントのextraで書きます。`doc.form.font`にOpenTypeの`Font`を設定すると、以降の記入はすべてその書体で書きます。中国語のテキストなら`Font.installed(language="zh-CN")`です。この設定は`Document`オブジェクトに属し、保存されません。コーム（comb）フィールド、配置、最大文字数を守り、長すぎる値は例外を送出して文書を変更しません。リッチテキスト、プッシュボタンのアクション、署名には対応していません。署名については[エコシステム連携](ecosystem.md#signatures)を参照してください。
 
 ## 添付ファイル { #attachments }
 
@@ -664,11 +676,12 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [しおりとページラベル](#outline) |
 | `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `Highlight`, `Link`, `Links` | [注釈とリンク](#page-annotations) |
 | `PageBoxes` | [ページの幾何情報](#page-geometry) |
+| `Form`, `Field`, `FieldType`, `FieldFlags`, `FieldChoice` | [フォーム](#forms) |
 | `FallbackFont`, `FallbackFonts` | [レンダリングと画像](#document-rendering) |
 
 定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`AnnotationType`（`PDF_ANNOT_*`）、`AnnotationFlags`（`PDF_ANNOT_IS_*`）です。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
 
-テキスト、表、OCR、ページの内容の結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`、しおりの行き先などの変更できないデータクラス（frozen dataclass）です。APIが返すそのほかの辞書はただの`dict`で、型チェッカー向けに`FormFieldInfo`などの`TypedDict`クラスで記述しています。
+テキスト、表、OCR、ページの内容の結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`、しおりの行き先などの変更できないデータクラス（frozen dataclass）です。APIが返すそのほかの辞書はただの`dict`で、型チェッカー向けに`DocumentComplexity`などの`TypedDict`クラスで記述しています。
 
 ## 例外と警告 { #exceptions }
 

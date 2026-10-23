@@ -1227,6 +1227,14 @@ def _set_rotation(migrator: _Migrator, receiver: str, args: _Arguments) -> str |
     return f"{receiver}.rotation = {bound['rotation']}"
 
 
+def _set_form_field(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite pylopdf 0.15's ``set_form_field(name, value)`` without font options."""
+    bound = args.bind(("name", "value"))
+    if bound is None or set(bound) != {"name", "value"}:
+        return None
+    return f"{receiver}.form[{bound['name']}].value = {bound['value']}"
+
+
 def _set_fallback_font(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     """Rewrite pylopdf 0.15's ``set_fallback_font(None)``, which turned fallback rendering off."""
     bound = args.bind(("font",))
@@ -1514,6 +1522,9 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
         '"firstpagenum": label.first}} for label in {receiver}.page_labels]'
     ),
     "get_label": _no_arguments("{receiver}.label"),
+    "get_form_fields": _no_arguments(
+        '[{{"name": name, "type": str(field.type), "value": field.value}} for name, field in {receiver}.form.items()]'
+    ),
     "copy_page": _copy_page,
     "fullcopy_page": _copy_page,
     "move_page": _move_page,
@@ -2034,6 +2045,7 @@ STATEMENT_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] =
     "set_toc": _set_toc,
     "set_page_labels": _set_page_labels,
     "set_fallback_font": _set_fallback_font,
+    "set_form_field": _set_form_field,
     "set_rotation": _set_rotation,
     "set_mediabox": _set_page_box("media"),
     "set_cropbox": _set_page_box("crop"),

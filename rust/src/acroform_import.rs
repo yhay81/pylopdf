@@ -17,7 +17,7 @@
 //! and `/SigFlags` describe the source document as a whole and are not copied.
 //!
 //! A partial import walks the source field tree under the limits of
-//! `get_form_fields()`. A widget belongs to the imported pages when one of them
+//! `form_fields()`. A widget belongs to the imported pages when one of them
 //! lists it in `/Annots`, or when no source page lists it and its `/P` names
 //! an imported page. The import removes every other widget, every field left
 //! without a widget of its own, and every top-level field without one. Fields
@@ -25,7 +25,7 @@
 //! widget whose `/P` names no imported page is pointed at the imported page
 //! that lists it. A complete import keeps the field tree as it is and does not
 //! walk it, so the size of a field tree never refuses one; the merged form is
-//! then as readable by `get_form_fields()` as its size allows. An import into
+//! then as readable by `form_fields()` as its size allows. An import into
 //! a document that already has a form compares top-level names within the
 //! 1 MiB name budget.
 //!
@@ -446,7 +446,7 @@ fn locate_array<'a>(
 }
 
 /// The source field tree of a partial import, walked once under the limits
-/// of `get_form_fields()`.
+/// of `form_fields()`.
 struct PartialTree<'a> {
     coverage: HashMap<ObjectId, Coverage>,
     annotations: PageAnnotations<'a>,
@@ -1815,7 +1815,7 @@ impl AcroFormImport {
 /// tree still references their widgets, whose `/P` keeps each deleted page
 /// reachable through every save. The removal reads the remaining pages as a
 /// partial import reads its imported pages: it walks the field tree under the
-/// limits of `get_form_fields()`, removes from every walked `/Kids` the
+/// limits of `form_fields()`, removes from every walked `/Kids` the
 /// widgets of deleted pages and the fields whose widgets all lay there, trims
 /// a button field's matching `/Opt`, drops such top-level fields from
 /// `/Fields` and their entries from `/CO`, and points a remaining widget whose

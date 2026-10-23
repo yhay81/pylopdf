@@ -38,12 +38,15 @@
     "FZ_MIN_INF_RECT",
     "FallbackFont",
     "FallbackFonts",
+    "Field",
+    "FieldChoice",
+    "FieldFlags",
+    "FieldType",
     "FillRule",
     "Font",
     "FontLanguage",
     "FontRef",
-    "FormFieldInfo",
-    "FormFieldType",
+    "Form",
     "Glyph",
     "GraphicsContext",
     "Highlight",
@@ -2064,17 +2067,9 @@
           "kind": "property",
           "returns": "FallbackFonts"
         },
-        "get_form_fields": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "list[FormFieldInfo]"
-          }
+        "form": {
+          "kind": "property",
+          "returns": "Form"
         },
         "images": {
           "kind": "property",
@@ -2376,64 +2371,6 @@
                 "default": null,
                 "kind": "keyword_only",
                 "name": "encryption"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "set_form_field": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "name"
-              },
-              {
-                "annotation": "str | bool",
-                "kind": "positional_or_keyword",
-                "name": "value"
-              },
-              {
-                "annotation": "Font | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "font"
-              },
-              {
-                "annotation": "str | os.PathLike[str] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "fontfile"
-              },
-              {
-                "annotation": "bytes | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "fontbuffer"
-              },
-              {
-                "annotation": "int",
-                "default": 0,
-                "kind": "keyword_only",
-                "name": "fontindex"
-              },
-              {
-                "annotation": "FontLanguage | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "font_language"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_font_size"
               }
             ],
             "returns": "None"
@@ -2956,6 +2893,125 @@
         "returns": "None"
       }
     },
+    "Field": {
+      "kind": "class",
+      "members": {
+        "choices": {
+          "kind": "property",
+          "returns": "tuple[FieldChoice, ...]"
+        },
+        "flags": {
+          "kind": "property",
+          "returns": "FieldFlags"
+        },
+        "name": {
+          "kind": "property",
+          "returns": "str"
+        },
+        "obj": {
+          "kind": "property",
+          "returns": "Dictionary"
+        },
+        "type": {
+          "kind": "property",
+          "returns": "FieldType"
+        },
+        "value": {
+          "kind": "property",
+          "returns": "str | None"
+        },
+        "xref": {
+          "kind": "property",
+          "returns": "int"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "xref"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "FieldChoice": {
+      "annotations": {
+        "label": "str",
+        "value": "str"
+      },
+      "dataclass_fields": [
+        "value",
+        "label"
+      ],
+      "kind": "class",
+      "members": {
+        "label": {
+          "kind": "property"
+        },
+        "value": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "keyword_only",
+            "name": "value"
+          },
+          {
+            "annotation": "str",
+            "kind": "keyword_only",
+            "name": "label"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "FieldFlags": {
+      "kind": "enum",
+      "members": {
+        "COMB": 16777216,
+        "COMBO": 131072,
+        "COMMIT_ON_SEL_CHANGE": 67108864,
+        "DO_NOT_SCROLL": 8388608,
+        "DO_NOT_SPELL_CHECK": 4194304,
+        "EDIT": 262144,
+        "FILE_SELECT": 1048576,
+        "MULTILINE": 4096,
+        "MULTI_SELECT": 2097152,
+        "NO_EXPORT": 4,
+        "NO_TOGGLE_TO_OFF": 16384,
+        "PASSWORD": 8192,
+        "PUSHBUTTON": 65536,
+        "RADIO": 32768,
+        "RADIOS_IN_UNISON": 33554432,
+        "READ_ONLY": 1,
+        "REQUIRED": 2,
+        "RICH_TEXT": 33554432,
+        "SORT": 524288
+      }
+    },
+    "FieldType": {
+      "kind": "enum",
+      "members": {
+        "CHECKBOX": "checkbox",
+        "COMBOBOX": "combobox",
+        "LISTBOX": "listbox",
+        "PUSHBUTTON": "pushbutton",
+        "RADIO": "radio",
+        "SIGNATURE": "signature",
+        "TEXT": "text",
+        "UNKNOWN": "unknown"
+      }
+    },
     "FillRule": {
       "kind": "enum",
       "members": {
@@ -3294,23 +3350,65 @@
         "returns": "None"
       }
     },
-    "FormFieldInfo": {
-      "fields": {
-        "name": "str",
-        "type": "FormFieldType",
-        "value": "str | None"
+    "Form": {
+      "kind": "class",
+      "members": {
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "name"
+              }
+            ],
+            "returns": "Field"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[str]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        },
+        "font": {
+          "kind": "property",
+          "returns": "Font | None"
+        }
       },
-      "kind": "typed-dict",
-      "optional_keys": [],
-      "required_keys": [
-        "name",
-        "type",
-        "value"
-      ]
-    },
-    "FormFieldType": {
-      "kind": "type-alias",
-      "target": "Literal['text', 'checkbox', 'radio', 'button', 'combobox', 'listbox', 'signature', 'unknown']"
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "Glyph": {
       "annotations": {

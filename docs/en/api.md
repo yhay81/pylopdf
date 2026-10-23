@@ -251,8 +251,7 @@ del doc.fallback_fonts            # back to the installed font extras
 
 | Member | Purpose |
 |---|---|
-| `get_form_fields()` | Every form field with its name, type, value, and options |
-| `set_form_field(name, value, *, font=, fontfile=, fontbuffer=, fontindex=, font_language=)` | Fill a field and regenerate how it looks; see [Forms](#forms) |
+| `form` | The form fields as a mapping from full names to `Field` handles; see [Forms](#forms) |
 | `attachments` | Embedded files as a mapping; see [Attachments](#attachments) |
 | `pdfa_claim` | The PDF/A part and conformance the file declares, as a `PdfaClaim(part=2, conformance="B")` record, or `None`. This reads the declaration only; it does not validate |
 | `xmp` | The XMP metadata packet as text, or `None`. Assign a string to write it and `del doc.xmp` to remove it. Reads and writes stop at 1 MiB; read a larger packet with `doc.catalog["Metadata"].read(max_size=None)`. `metadata` does not change it |
@@ -771,9 +770,8 @@ European (WinAnsi) characters only.
 
 A variable font loaded without `weight` uses its default instance, which is
 not always the regular weight: the variable Noto Sans CJK JP defaults to Thin.
-Pass `weight=400` for regular. The `fontfile` and `fontbuffer` arguments of
-`set_form_field` use the default instance too; pass a `Font` as `font=` to
-fill a field in another weight.
+Pass `weight=400` for regular, also for the face that fills a form with
+(`doc.form.font`).
 
 The Arabic, Hebrew, Hindi, and Thai extras ship variable fonts, so any weight
 on their axis works (100–900; 400–700 for Noto Naskh Arabic). The CJK extras
@@ -787,10 +785,32 @@ registry, so the output depends only on the fonts you pass in.
 
 ### Forms { #forms }
 
-`set_form_field` fills text, combo box, list box, check box, and radio button
-fields, and regenerates how each one looks. Western European (WinAnsi) text
-is sized to fit in Helvetica. For other characters, pass `fontfile`, `fontbuffer`, or
-a loaded `font`, or install a font extra. Comb fields, alignment, and maximum
+`doc.form` is a mapping from fully qualified field names, such as
+`person.first`, to `Field` handles, in name order. A handle reads the
+document on every access: `name`, `type` (a `FieldType` member such as
+`FieldType.TEXT`, `CHECKBOX`, `RADIO`, `PUSHBUTTON`, `COMBOBOX`, `LISTBOX`,
+or `SIGNATURE`), `value`, `flags` (`FieldFlags`, inherited from parent
+fields), `choices` (the `FieldChoice(value=, label=)` options of a choice
+field), and `xref` and `obj`.
+
+```python
+from pylopdf import Font
+
+for name, field in doc.form.items():
+    print(name, field.type, field.value)
+doc.form["customer"].value = "Alice"   # writes the value and how it looks
+doc.form["agree"].value = True         # a check box's on state
+doc.form.font = Font.from_file("NotoSansJP-Regular.otf")
+doc.form["name"].value = "山田 太郎"
+```
+
+Assigning `value` fills text, combo box, list box, check box, and radio
+button fields, and regenerates how each one looks. `True` and `False` select
+a button's on state and `"Off"`. Western European (WinAnsi) text is sized to
+fit in Helvetica, and other scripts use an installed font extra, unless
+`doc.form.font` names an OpenType `Font` to draw every fill with, such as
+`Font.installed(language="zh-CN")` for Chinese text. That setting belongs to
+the `Document` object and is not saved. Comb fields, alignment, and maximum
 lengths are respected; a value that is too long raises and leaves the document
 unchanged. Rich text, push button actions, and signatures are not supported;
 see [ecosystem recipes](ecosystem.md#signatures) for signing.
@@ -950,6 +970,7 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [Outline and page labels](#outline) |
 | `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `Highlight`, `Link`, `Links` | [Annotations and links](#page-annotations) |
 | `PageBoxes` | [Page geometry](#page-geometry) |
+| `Form`, `Field`, `FieldType`, `FieldFlags`, `FieldChoice` | [Forms](#forms) |
 | `FallbackFont`, `FallbackFonts` | [Rendering and images](#document-rendering) |
 
 Constants keep pymupdf's names and are also grouped in enums:
@@ -964,7 +985,7 @@ such as `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`,
 `TableDiagnostics`, `OcrWord`, `Path`, `Image`, `MarkInfo`, `PdfaClaim`,
 `OutlineEntry`, `PageLabelRange`, and the outline targets. Other dictionaries
 returned by the API are plain `dict` objects, described for type checkers by
-`TypedDict` classes such as `FormFieldInfo`.
+`TypedDict` classes such as `DocumentComplexity`.
 
 ## Exceptions and warnings { #exceptions }
 

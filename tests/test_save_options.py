@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import build_pdf, build_raw_pdf
+from conftest import build_pdf, build_raw_pdf, form_entries
 
 import pylopdf
 
@@ -136,7 +136,7 @@ def test_dedupe_merges_duplicates_and_renumber_keeps_the_count() -> None:
         counts[name] = len(_object_ids(saved))
         reopened = pylopdf.open(saved)
         assert _signature(reopened) == expected
-        assert len(reopened.get_form_fields()) == 2 * len(single.get_form_fields())
+        assert len(form_entries(reopened)) == 2 * len(form_entries(single))
     assert counts["renumber"] == counts["prune"]
     assert counts["dedupe"] < counts["prune"]
     # Merging removes the second copy of every font program, so the output

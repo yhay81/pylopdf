@@ -120,8 +120,8 @@ the concept and API overview.
     `src/pylopdf/_canvas.py`, `_create.py`, `_fonts.py`, and
     `_geometry.py`.
   - Interaction: `form.rs`, `acroform_import.rs`;
-    `document/{forms,annotations}.rs`; `src/pylopdf/_annotations.py` and
-    `_links.py`.
+    `document/{forms,annotations}.rs`; `src/pylopdf/_annotations.py`,
+    `_form.py`, and `_links.py`.
   - Rewriting: `content/`, `text_replace.rs`, `image_compression.rs`;
     `document/replacement.rs`.
   - Shared: `lib.rs`, `document/mod.rs`,
@@ -1437,7 +1437,7 @@ the concept and API overview.
   attachment, and metadata edits, pruning saves, and object-stream saves.
   `compress` forgets when it compresses a stream and otherwise changes
   nothing, so saving a compressed document again keeps every cache;
-  `decompress`, `rewrite_images`, `replace_text`, and `set_form_field`
+  `decompress`, `rewrite_images`, `replace_text`, and form fills
   forget. Both replace the revision.
   Classify a new editing method before giving it the keeping variant. A
   canvas that places a page of its own document re-keys that page's Form,
@@ -1905,15 +1905,15 @@ the concept and API overview.
   `_Document.package_font_reads()` counts slot reads for tests. Interleaved
   A/B on the five GitHub-hosted release targets measured a short Japanese
   text insertion on a fresh document 46–59% faster, Simplified Chinese serif
-  66–83%, and a Japanese `set_form_field` 55–79%, with byte-identical output;
+  66–83%, and a Japanese form fill 55–79%, with byte-identical output;
   each used face then stays resident after the last document closes
   (11.0 MiB for the Simplified Chinese serif face on Windows). `Font`,
-  `set_form_field`, and fallback fonts share a 64 MiB default OpenType
+  form fills, and fallback fonts share a 64 MiB default OpenType
   boundary. Python rejects buffer input before PyO3 copying; file input uses
   a one-byte-overrun bounded Rust read with the GIL released and fallible
   64 KiB retained-buffer growth. The core `_Font` constructors and the form
-  and fallback calls repeat the check, `max_size=None` (`max_font_size=None`
-  for forms) explicitly opts trusted input out, and failures use
+  and fallback calls repeat the check, `max_size=None` (the core form
+  calls' `max_font_size=None`) explicitly opts trusted input out, and failures use
   `font_input_size` without mutation.
   `Canvas.text`, `Canvas.textbox`, `Font.text_width`, and `Font.text_height`
   share a 1 MiB default aggregate UTF-8 boundary. Python cuts the text one
@@ -1966,16 +1966,15 @@ the concept and API overview.
   normalized as `Canvas.textbox` normalizes it (`_textbox_text`) and returns
   `TextBoxLayout::height`, so a textbox of that height fits with zero spare
   height. `has_glyph(char)` takes one character and returns a bool. Filling a
-  form with an OpenType `font=` passes the same bytes and index as
-  `fontbuffer`, and a face loaded without `weight` produces byte-identical
-  output; `set_form_field` refuses a Standard 14 `font=`, because its
-  Standard 14 path draws Helvetica only. There is no font registry or other process-global font state, and
+  form with an OpenType `doc.form.font` draws the same bytes and index as the
+  core's font-bytes path, and a face loaded without `weight` produces
+  byte-identical output; `doc.form.font` refuses a Standard 14 `Font`,
+  because the Standard 14 path of form filling draws Helvetica only. There is no font registry or other process-global font state, and
   pylopdf never scans system font directories, so output depends only on the
   fonts passed in. A request that a face does not provide, a weight or an
   italic style of an installed extra, raises; never synthesize a weight by
-  stroking, overprinting, or render-mode changes. The `fontfile` and
-  `fontbuffer` arguments of `set_form_field`, and `Font.from_file` or
-  `Font.from_bytes` without `weight`, load a variable font at its default instance, which need
+  stroking, overprinting, or render-mode changes. `Font.from_file` or
+  `Font.from_bytes` without `weight` load a variable font at its default instance, which need
   not be regular (Noto Sans CJK JP's is Thin). `weight` extends a loaded
   face: `_face_at_weight` selects that instance with `_Font.with_weight`, so
   `weight=400` differs from an omitted weight, and refuses a weight outside
@@ -2105,7 +2104,7 @@ the concept and API overview.
   the same bytes; after a lopdf, krilla, or pdf-writer upgrade the suite must
   still report no fallbacks or mismatches. Interleaved A/B on the five
   GitHub-hosted release targets measured a fresh Japanese text insertion
-  6–38% faster and a twelve-widget `set_form_field` 17–31% faster, with loads
+  6–38% faster and a twelve-widget form fill 17–31% faster, with loads
   unchanged and byte-identical output.
 - Canvas text places lines with the ascender and descender that pymupdf's
   `Font` reports (`layout::LineMetrics`), which `Font.ascender` and
@@ -2150,6 +2149,22 @@ the concept and API overview.
   semantics. Keep page rotation resolved through display coordinates and
   preserve the no-drawing overflow boundary. The textbox layout added
   0.16 MB to the Windows abi3 wheel, which measured 5.58 MB.
+- `doc.form` (`src/pylopdf/_form.py`) is a `Form` mapping from full field
+  names to `Field` handles, from one `form_fields` walk per access, which
+  returns each terminal field's name, object number, kind, value, and
+  inherited `/Ff`; the first field of a repeated name wins. A handle stores
+  the document, the object epoch, and the object number, finds itself in
+  that walk on every access, and raises `StaleObjectError` once the field is
+  gone or the epoch changed. `type` is a `FieldType` (`pushbutton`, where
+  0.15 said `button`), `flags` the defined `FieldFlags` bits, and `choices`
+  the `FieldChoice` records of `/Opt` read along the `/Parent` chain by
+  `form_field_choices`, at most 4,096 options and 1 MiB of text. Assigning
+  `value` fills the field by name through the core's `set_form_field_font`
+  with `doc.form.font`, a Python-side `Document` setting like
+  `fallback_fonts`, or else through `set_form_field` or
+  `set_form_field_file` with the installed extra that `_form_generation_font`
+  selects for non-WinAnsi text. `True` resolves the first non-`Off` state of
+  `form_button_states`.
 - AcroForm filling writes `/V`, synchronizes button `/AS`, and regenerates
   widget `/AP /N`. Text and choice appearances auto-fit in widget-local
   coordinates, respect inherited `/Q` and multiline `/Ff`, and reuse the Core
@@ -2197,10 +2212,10 @@ the concept and API overview.
   fields share their inherited type. `/Kids` can push one kid once per edge,
   while only its first visit is charged to the text budgets, so a copy per
   push would let a long name or type grow with the edge count.
-  `set_form_field` must reject caller
-  field names and values above 1 MiB before font discovery, button lookup, or
-  file reads, repeat the check in Rust with `form_field_input_size`, enforce the
-  same tree limits, and preserve its atomic rollback contract.
+  Assigning `Field.value` must reject field names and values above 1 MiB
+  before font discovery, button lookup, or file reads, the core's
+  `set_form_field` calls repeat the check with `form_field_input_size`,
+  enforce the same tree limits, and preserve the atomic rollback contract.
   The walk and `field_widgets` classify `/Kids` entries through
   `classify_field_kid`, so `visible_field_widgets` and button-state handling
   see the widgets that the walk classifies. A kid dictionary whose `/T` is

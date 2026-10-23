@@ -13,7 +13,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import build_nonembedded_cjk_pdf, build_nonembedded_locale_cjk_pdf, build_raw_pdf, draw_text, draw_textbox
+from conftest import (
+    build_nonembedded_cjk_pdf,
+    build_nonembedded_locale_cjk_pdf,
+    build_raw_pdf,
+    draw_text,
+    draw_textbox,
+    form_entries,
+)
 
 import pylopdf
 from pylopdf.pylopdf_core import LimitError, PdfError, _Document, _Font
@@ -300,7 +307,8 @@ def test_package_generation_fonts_are_read_once(tmp_path: Path, monkeypatch: pyt
         with doc.pages[0].draw() as canvas:
             canvas.text("日本語", (20, 30), font=sans)
             assert canvas.textbox((20, 40, 280, 70), "明朝体の段落", font=serif).fits
-        doc.set_form_field("name", "山田 太郎", font=sans)
+        doc.form.font = sans
+        doc.form["name"].value = "山田 太郎"
         return doc.to_bytes()
 
     reads = _Document.package_font_reads()
@@ -320,12 +328,12 @@ def test_package_generation_fonts_are_checked_on_every_call(tmp_path: Path, monk
     page = doc.pages[0]
     with page.draw() as canvas:
         canvas.text("日本語", (20, 30))
-    doc.set_form_field("name", "山田 太郎")
+    doc.form["name"].value = "山田 太郎"
     baseline = doc.to_bytes()
 
     size = provider.sans.stat().st_size
     with pytest.raises(LimitError) as caught:
-        doc.set_form_field("name", "佐藤 花子", max_font_size=size - 1)
+        doc._doc.set_form_field_file("name", "佐藤 花子", str(provider.sans), 0, size - 1, ("ja", "sans"), 400)  # noqa: SLF001
     assert caught.value.args[0] == "font_input_size"
 
     data = provider.sans.read_bytes()
@@ -333,13 +341,13 @@ def test_package_generation_fonts_are_checked_on_every_call(tmp_path: Path, monk
     for call in (
         lambda: draw_text(page, (20, 60), "日本語"),
         lambda: draw_textbox(page, (20, 60, 280, 90), "日本語"),
-        lambda: doc.set_form_field("name", "佐藤 花子"),
+        lambda: setattr(doc.form["name"], "value", "佐藤 花子"),
     ):
         with pytest.raises(FileNotFoundError) as not_found:
             call()
         assert Path(not_found.value.filename) == provider.sans
     assert doc.to_bytes() == baseline
-    assert {field["name"]: field["value"] for field in doc.get_form_fields()} == {"name": "山田 太郎"}
+    assert {field["name"]: field["value"] for field in form_entries(doc)} == {"name": "山田 太郎"}
 
     # A file restored or replaced at the same path is read again.
     provider.sans.write_bytes(SERIF.read_bytes())

@@ -80,27 +80,6 @@ def _font_input_limit_error(size: int, max_font_size: int) -> LimitError:
     )
 
 
-def _resolve_font_source(
-    fontfile: str | os.PathLike[str] | None,
-    fontbuffer: bytes | None,
-    max_font_size: int | None,
-) -> Path | bytes | None:
-    """Resolve optional font input without reading a filesystem path."""
-    if fontfile is not None:
-        if fontbuffer is not None:
-            msg = "fontfile and fontbuffer cannot both be specified"
-            raise ValueError(msg)
-        return Path(fontfile)
-    if fontbuffer is not None:
-        if max_font_size is not None and len(fontbuffer) > max_font_size:
-            raise _font_input_limit_error(len(fontbuffer), max_font_size)
-        data = bytes(fontbuffer)
-        if max_font_size is not None and len(data) > max_font_size:
-            raise _font_input_limit_error(len(data), max_font_size)
-        return data
-    return None
-
-
 #: Script ranges used only to select an installed CJK locale font package.
 _KANA_RANGES = ((0x3040, 0x30FF), (0x31F0, 0x31FF), (0xFF65, 0xFF9F))
 _HANGUL_RANGES = (
@@ -237,16 +216,8 @@ def _resolve_generation_font(text: str) -> tuple[str | None, Path | bytes | None
     return "Helvetica", None, None
 
 
-def _form_generation_font(
-    value: str,
-    font_language: FontLanguage | None,
-) -> tuple[Path | bytes, tuple[FontLanguage, str]] | None:
-    """Select an installed font for a form value Helvetica cannot draw.
-
-    An explicit ``font_language`` selects its package even for WinAnsi text.
-    """
-    if font_language is not None:
-        return _bundled_generation_font(value, font_language)
+def _form_generation_font(value: str) -> tuple[Path | bytes, tuple[FontLanguage, str]] | None:
+    """Select an installed font for a form value Helvetica cannot draw."""
     try:
         value.encode("cp1252")
     except UnicodeEncodeError:
@@ -731,47 +702,6 @@ def _require_winansi(text: str) -> None:
             "pass an OpenType Font for other text"
         )
         raise ValueError(msg) from exc
-
-
-def _validate_font_choice(
-    font: Font,
-    fontfile: str | os.PathLike[str] | None,
-    fontbuffer: bytes | None,
-    fontindex: int,
-    font_language: str | None,
-) -> _Font:
-    """Return the core face of a ``font`` argument that no other source contradicts."""
-    if not isinstance(font, Font):
-        msg = f"font must be a pylopdf.Font, not {type(font).__name__}"
-        raise TypeError(msg)
-    if fontfile is not None or fontbuffer is not None or fontindex != 0 or font_language is not None:
-        msg = "font cannot be combined with fontfile, fontbuffer, fontindex, or font_language"
-        raise ValueError(msg)
-    return font._font
-
-
-def _validate_form_font(
-    font: Font | None,
-    fontfile: str | os.PathLike[str] | None,
-    fontbuffer: bytes | None,
-    fontindex: int,
-    font_language: str | None,
-) -> _Font | None:
-    """Return the OpenType face of a form ``font`` argument, or ``None`` without one.
-
-    Form appearances embed the face they draw; the Standard 14 path of form
-    filling draws Helvetica only.
-    """
-    if font is None:
-        return None
-    core_font = _validate_font_choice(font, fontfile, fontbuffer, fontindex, font_language)
-    if core_font.standard_name is not None:
-        msg = (
-            f"set_form_field draws with an OpenType Font, not the Standard 14 font {core_font.standard_name!r}; "
-            "omit font to draw WinAnsi text in Helvetica"
-        )
-        raise PdfError(msg)
-    return core_font
 
 
 # The package re-exports this class; reprs, pickles, and documentation name it.
