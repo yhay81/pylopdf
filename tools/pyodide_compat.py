@@ -965,6 +965,12 @@ def _widget_results() -> dict[str, Any]:
         name.font_size = 12
         name.background_color = pylopdf.Color(1, 1, 0)
         check.border_color = pylopdf.Color(0, 0, 1)
+        field = document.form["name"]
+        field.label = "Name"
+        field.max_length = 30
+        field.default_value = "Ada"
+        field.value = "Grace"
+        field.reset()
         saved = document.to_bytes()
     with pylopdf.open(saved) as reopened:
         name, check = reopened.pages[0].widgets
@@ -975,6 +981,7 @@ def _widget_results() -> dict[str, Any]:
             "background": list(name.background_color.rgb) if name.background_color else None,
             "states": list(check.button_states),
             "text": reopened.pages[0].text().strip(),
+            "field": [reopened.form["name"].label, reopened.form["name"].max_length, reopened.form["name"].value],
         }
     _require(result["text"] == "Ada", "the restyled widget lost its value")
     return result

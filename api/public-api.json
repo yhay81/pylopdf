@@ -3340,9 +3340,21 @@
           "kind": "property",
           "returns": "tuple[FieldChoice, ...]"
         },
+        "default_value": {
+          "kind": "property",
+          "returns": "str | None"
+        },
         "flags": {
           "kind": "property",
           "returns": "FieldFlags"
+        },
+        "label": {
+          "kind": "property",
+          "returns": "str | None"
+        },
+        "max_length": {
+          "kind": "property",
+          "returns": "int | None"
         },
         "name": {
           "kind": "property",
@@ -3351,6 +3363,18 @@
         "obj": {
           "kind": "property",
           "returns": "Dictionary"
+        },
+        "reset": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "None"
+          }
         },
         "type": {
           "kind": "property",
@@ -3948,6 +3972,10 @@
         "font": {
           "kind": "property",
           "returns": "Font | None"
+        },
+        "need_appearances": {
+          "kind": "property",
+          "returns": "bool"
         }
       },
       "signature": {

@@ -940,6 +940,15 @@ lengths are respected; a value that is too long raises and leaves the document
 unchanged. Rich text, push button actions, and signatures are not supported;
 see [ecosystem recipes](ecosystem.md#signatures) for signing.
 
+A field also has `label` (its `/TU` description), `max_length` (a text
+field's `/MaxLen`), and `default_value` (`/DV`), all assignable and
+deletable; `flags` and a choice field's `choices` (an iterable of
+`FieldChoice` records or strings) are assignable too, except the flags that
+decide the field's kind. `field.reset()` restores the default value, or
+clears the value, and draws the widgets again. `doc.form.need_appearances`
+reads and sets the form's `/NeedAppearances`, which pylopdf clears once
+every fillable widget has an appearance.
+
 A field appears on pages through its widgets. `field.widgets` lists them in
 page order, and `page.widgets` lists the widgets of a page as `Widget`
 handles, which `page.annotations` leaves out. A widget has `field`, the
