@@ -100,6 +100,10 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `page.get_text("words")` | `page.words()` | `Word` records with `text`, `bbox`, `block`, `line`, and `index` instead of tuples |
 | `page.get_text("blocks")` | `page.layout().blocks` | `Block` records with `text`, `bbox`, and `lines` instead of tuples |
 | `page.get_text("dict")`, `get_text("rawdict")` | `page.layout().to_dict()`, `page.layout(chars=True).to_dict()` | The same dictionaries; `page.layout()` itself returns records. No `html` or `xml` |
+| `page.get_text("json")`, `get_text("rawjson")` | `json.dumps(page.layout().to_dict())`, `json.dumps(page.layout(chars=True).to_dict())` | |
+| `page.get_text("xhtml")` | `page.markdown()` | The semantic form of headings, paragraphs, lists, and tables |
+| `page.get_textpage()`, `TextPage`, `page.extend_textpage()` | The page's own `text()`, `words()`, `layout()`, and `search()` | There is no text-page object: each page caches its interpretation, which every view reads |
+| `doc.search_page_for(i, text)` | `doc.pages[i].search(text)` | |
 | `page.search_for(text)` | `page.search(text)` | Returns rectangles; no `quads=`; at most 4,096 results unless `max_hits=` is raised |
 | `page.find_tables()` | `page.tables()` | A list of `Table` records: `table.rows` replaces `extract()`, `len(table.rows)` replaces `row_count`, and `table.cells` holds the boxes row by row. No tuning keywords, `header`, or `to_pandas()` yet |
 | `page.get_textpage_ocr()` | `page.ocr()`, `page.apply_ocr()` | Built-in offline OCR; see [Offline OCR](ocr.md) |
