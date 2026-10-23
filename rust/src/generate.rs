@@ -377,7 +377,7 @@ pub(crate) fn weight_axis(font: &ShapingFont) -> Option<WeightAxis> {
 fn name_text(font: &ShapingFont, id: NameId) -> Option<String> {
     font.names()
         .get(id)
-        .english_or_first()
+        .and_then(|name| name.english_or_first())
         .map(|localized| localized.name().to_string())
 }
 

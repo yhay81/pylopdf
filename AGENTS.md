@@ -1896,7 +1896,7 @@ the concept and API overview.
   is refused. Re-run this pdf.js-corpus sweep after any change to the
   interpreter or to hayro.
 - Embedded-font text generation lives in `rust/src/generate.rs`. krilla is
-  pinned to 0.8.2 with all default features disabled; HarfRust 0.14 supplies
+  pinned to 0.8.2 with all default features disabled; HarfRust 0.15 supplies
   shaping without krilla's unmaintained rustybuzz/ttf-parser path. Raster and
   PDF-import features remain disabled. The canvas and widget appearances
   generate transparent pages in target display coordinates that subset-embed
@@ -2004,7 +2004,7 @@ the concept and API overview.
   value, so subsetter 0.2.6 instantiates the outlines and advances that
   HarfRust measures. Both normalize through read-fonts'
   `fvar.user_to_normalized` (skrifa 0.42 through read-fonts 0.39, HarfRust
-  through 0.45), which agree for `avar` 1.0; re-check after a krilla, skrifa,
+  through 0.46), which agree for `avar` 1.0; re-check after a krilla, skrifa,
   or HarfRust upgrade. A static face, a face drawn as given, and a variable
   face at its default location carry no coordinates, so their output stays
   byte-identical, and a weight outside the axis fails instead of being

@@ -85,7 +85,7 @@ const STANDARD_NAMES: [&str; 14] = [
 fn name_record(font: &ShapingFont, id: NameId) -> Option<String> {
     font.names()
         .get(id)
-        .english_or_first()
+        .and_then(|name| name.english_or_first())
         .map(|localized| localized.name().to_string())
         .filter(|text| !text.is_empty())
 }

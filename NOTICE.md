@@ -12,11 +12,11 @@ Apache-2.0), image-webp 0.2 (MIT OR Apache-2.0), weezl 0.1 (MIT OR
 Apache-2.0), imagesize 0.14 (MIT), color_quant 1.1 (MIT), and quick-error 2
 (MIT OR Apache-2.0).
 
-pylopdf uses HarfRust 0.14 for OpenType shaping. HarfRust is available under
+pylopdf uses HarfRust 0.15 for OpenType shaping. HarfRust is available under
 the MIT license:
 
 - Source: <https://github.com/harfbuzz/harfrust>
-- Package: <https://crates.io/crates/harfrust/0.14.0>
+- Package: <https://crates.io/crates/harfrust/0.15.0>
 
 pylopdf uses `pdf-base14-metrics` 0.0.2 for canonical Core 14 font widths.
 Its Rust code is MIT and its Adobe Font Metrics data is licensed under
