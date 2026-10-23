@@ -811,3 +811,11 @@ Dated facts that still drive decisions.
   same graphics model. hayro's glyph runs carry outlines, glyph IDs, advances,
   and Unicode. krilla 0.8.2 writes only link annotations, and lopdf 0.45 has
   an `IncrementalDocument`.
+- **2026-10-23, lopdf 0.46**: over the same 14 corpus files and 8 damage
+  types, inputs whose first page reads rose from 67 to 78 of 112, because
+  damaged cross-reference streams are now rebuilt. Of the first six pages of
+  the 1,455 pdf.js corpus files, 4 that raised now open, 25 read text strings
+  with their tabs and line breaks, 1 drops an odd UTF-16BE byte, 3 AES-128
+  files that open without a password now probe with their page count, and
+  `issue17147.pdf` would have lost 17 of its 26 objects to a corrected
+  offset without pylopdf's rebuild; nothing else changed.

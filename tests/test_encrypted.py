@@ -40,8 +40,15 @@ def test_open_with_user_password(name: str) -> None:
 
 @USER
 def test_open_with_owner_password(name: str) -> None:
+    """Derive the file key from the user password that the owner password recovers.
+
+    lopdf 0.45 derived it from the owner password itself for revisions 2 to 4,
+    so the content of the RC4 and AES-128 assets decrypted to nothing
+    (J-F-Liu/lopdf#573).
+    """
     doc = pylopdf.open(ASSETS / name, password="ownerpw")
     assert len(doc.pages) == 2
+    assert "Encrypted page one" in doc.pages[0].text()
 
 
 @USER
@@ -151,6 +158,25 @@ def test_save_encrypted_roundtrip(three_page_pdf: bytes) -> None:
     locked2 = pylopdf.open(data)
     assert locked2.unlock("boss") is pylopdf.Access.OWNER
     assert len(locked2.pages) == 3
+
+
+def test_strings_in_stream_dictionaries_are_encrypted(three_page_pdf: bytes) -> None:
+    """Encrypt every string of a stream dictionary except a signature's /Contents.
+
+    lopdf 0.45 left strings in stream dictionaries in clear text when saving
+    and read them back undecrypted (J-F-Liu/lopdf#603, J-F-Liu/lopdf#608).
+    """
+    doc = pylopdf.open(three_page_pdf)
+    stream = doc.objects.add_stream(b"data", {"Note": pylopdf.String(b"stream dictionary note")})
+    signature = doc.objects.add({"Type": pylopdf.Name("Sig"), "Contents": pylopdf.String(b"signature bytes")})
+    doc.catalog["Extras"] = [doc.objects[stream], doc.objects[signature]]
+    data = doc.to_bytes(encryption=pylopdf.Encryption(user_password="secret", owner_password="boss"), compress=False)
+    assert b"stream dictionary note" not in data
+    assert b"signature bytes" in data
+
+    locked = pylopdf.open(data, password="secret")
+    assert locked.objects[stream]["Note"] == b"stream dictionary note"
+    assert locked.objects[signature]["Contents"] == b"signature bytes"
 
 
 def test_tobytes_bounds_encrypted_output(three_page_pdf: bytes) -> None:

@@ -1588,12 +1588,18 @@ the concept and API overview.
   `PasswordError`. `needs_password` reads the core's `is_encrypted`, and
   `_ensure_open` must check it because an undecrypted document otherwise
   appears to have zero pages.
-- Lenient opening relies on lopdf 0.45 cross-reference recovery
+- Lenient opening relies on lopdf 0.46 cross-reference recovery
   (`rust/src/recovery.rs`). lopdf moves a `startxref`, `/Prev`, or `/XRefStm`
-  offset that misses by at most 64 bytes to the nearest `xref` keyword, and
-  rebuilds the table from line-start object headers plus the newest classic
-  `trailer` whose `/Root` exists when standard resolution fails; later
-  revisions win. It reports both only as `log` warnings from `lopdf::reader`,
+  offset that misses by at most 64 bytes to the nearest `xref` keyword, or
+  without one to the nearest object header that begins a cross-reference
+  stream, and keeps the move only when more than half of the normal entries
+  of the section found there point at their own objects
+  (J-F-Liu/lopdf#611). When standard resolution fails, it rebuilds the table
+  from line-start object headers plus the newest classic `trailer` whose
+  `/Root` exists, or, in a file with cross-reference streams only, the
+  dictionary of the newest such stream whose `/Root` resolves, merging the
+  compressed entries of the streams it finds for numbers the scan did not see
+  (J-F-Liu/lopdf#613); later revisions win. It reports both only as `log` warnings from `lopdf::reader`,
   emitted on the loading thread before object parsing moves to the rayon pool.
   `recovery::load_document` and `load_metadata` install one process-wide
   logger and capture those records in a thread-local scope, so concurrent
@@ -1606,8 +1612,9 @@ the concept and API overview.
   input. lopdf's other lenient tolerances (19-byte xref entries, stream
   `/Length` recovered at an unambiguous object boundary, and skipped
   unparseable objects, which `object_recovery` re-parses where it can) are not
-  reported. Reconstruction never runs for damaged xref-stream files without a
-  classic trailer; they remain rejected.
+  reported. Damaged xref-stream files, which lopdf 0.45 rejected, are rebuilt;
+  truncations that lose every trailer and every cross-reference stream are
+  still rejected.
   lopdf trusts any table that it resolves, including one that it reached by
   correcting `startxref`, whose entries miss their objects in a file that
   lost bytes before them: pdf.js `bug1130815.pdf` loaded 2 of its 66 objects
@@ -1619,6 +1626,16 @@ the concept and API overview.
   fail and the table be rebuilt from the same bytes at the same offsets, and
   keeps the rebuilt document, with the `Reconstructed` report, when its page
   tree is reachable. hayro, MuPDF, and pdf.js rebuild such tables as well.
+  More than half of a section can still locate its objects in a file that
+  gained or lost bytes after its first objects: lopdf 0.46 then keeps the
+  correction and loads without the later objects, as pdf.js `issue17147.pdf`
+  loaded 9 of its 26 objects, its Info dictionary not among them, once lopdf
+  corrected its `/XRefStm` onto the shifted cross-reference stream. An
+  offset-corrected load that leaves an in-use uncompressed entry without its
+  object is therefore rebuilt in the same way, and the rebuilt document
+  replaces it when its page tree is reachable and it loads more objects;
+  `bytes-inserted-late` in `test_damaged_corpus_outcome` pins it. The
+  metadata probe reads too few objects to notice and keeps the correction.
   lopdf's metadata probe reports only a page count, which is zero when it
   cannot read those objects, so `load_metadata` repeats an unencrypted probe
   that counts no pages in the same way and keeps the rebuilt one when it
@@ -2095,7 +2112,7 @@ the concept and API overview.
   fresh Japanese text insertion on an Apple M2 Pro. The module reads the subset
   pdf-writer emits on the calling thread (one classic cross-reference section
   with lopdf's lenient entry terminators, compact direct objects, and direct
-  stream lengths) and builds exactly the document lopdf 0.45 returns, including
+  stream lengths) and builds exactly the document lopdf 0.46 returns, including
   the header version, binary mark, `xref_start`, the `/Size` correction, and
   `max_id`. Comments, other cross-reference forms, `/Prev` and `/XRefStm`,
   encryption, object streams, indirect stream lengths, nesting beyond 32
@@ -2771,7 +2788,7 @@ the concept and API overview.
   bounded same-document parallel read boundary.
 ## Known pitfalls
 
-- lopdf 0.45 decrypts on load with the empty password whenever it matches the
+- lopdf 0.46 decrypts on load with the empty password whenever it matches the
   user or the owner password, and removes `/Encrypt`. MuPDF refuses an empty
   owner password unless the user password is empty too, so pylopdf opens such
   a document without a password where pymupdf asks for one. `unlock`
@@ -2786,7 +2803,7 @@ the concept and API overview.
 - lopdf's cross-reference reconstruction rescans the remaining input for every
   unterminated `stream` keyword. Keep the `recovery_scan_size` pre-scan until
   upstream makes that scan linear.
-- lopdf 0.45 rebuilds the cross-reference table only when standard resolution
+- lopdf 0.46 rebuilds the cross-reference table only when standard resolution
   fails, and exposes no way to ask for a rebuild, so pylopdf forces one for a
   document whose page tree did not load by adding a `startxref` past the end
   of a copy of the input. Rebuilding when the catalog or the root page-tree

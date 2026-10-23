@@ -177,6 +177,26 @@ def test_info_metadata_edits_leave_xmp_unchanged() -> None:
     assert doc.xmp == "<old/>"
 
 
+@pytest.mark.parametrize(
+    ("stored", "text"),
+    [
+        # PDFDocEncoding keeps tab, line feed, and carriage return (J-F-Liu/lopdf#617).
+        (b"one\ttwo\nthree\rfour", "one\ttwo\nthree\rfour"),
+        # A UTF-8 text string drops its byte order mark (J-F-Liu/lopdf#619).
+        (b"\xef\xbb\xbfcaf\xc3\xa9", "caf\u00e9"),
+        # UTF-16BE ignores an odd trailing byte (J-F-Liu/lopdf#621).
+        (b"\xfe\xff\x00A\x00B\x34", "AB"),
+    ],
+)
+def test_info_text_string_decoding(stored: bytes, text: str) -> None:
+    doc = pylopdf.open(build_pdf(["Info"]))
+    doc.trailer["Info"] = doc.objects[doc.objects.add({"Title": pylopdf.String(stored)})]
+    data = doc.to_bytes()
+
+    assert pylopdf.open(data).metadata["title"] == text
+    assert pylopdf.probe(data).metadata["title"] == text
+
+
 # --- page mode and page layout ----------------------------------------------
 
 
