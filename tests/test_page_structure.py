@@ -196,7 +196,7 @@ def test_insert_imports_pages_of_another_document_in_any_order() -> None:
     source = _doc(4)
 
     target.pages.insert(0, source.pages[::-2])
-    target.pages.extend(source.pages[0])
+    target.pages.insert(40, source.pages[0])
     target.pages.extend(source.pages)
 
     assert _numbers(target) == [3, 1, 0, 0, 0, 1, 2, 3]

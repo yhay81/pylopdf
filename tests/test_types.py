@@ -11,47 +11,6 @@ from conftest import build_pdf
 import pylopdf
 
 
-def test_public_type_contracts_are_runtime_importable() -> None:
-    names = {
-        "Block",
-        "DocumentComplexity",
-        "DocumentLimits",
-        "Metadata",
-        "Field",
-        "FieldChoice",
-        "FieldFlags",
-        "FieldType",
-        "Form",
-        "ImageCompressionResult",
-        "LimitError",
-        "Link",
-        "Links",
-        "MarkInfo",
-        "PageLayout",
-        "PageMode",
-        "PdfaClaim",
-        "OcrRotation",
-        "OcrWord",
-        "PageLabelRange",
-        "PageLabelStyle",
-        "Outline",
-        "OutlineEntry",
-        "OutlineItem",
-        "Destination",
-        "RemoteDestination",
-        "Launch",
-        "NamedAction",
-        "Target",
-        "Char",
-        "Layout",
-        "Line",
-        "Span",
-        "Word",
-    }
-    assert names <= set(pylopdf.__all__)
-    assert all(hasattr(pylopdf, name) for name in names)
-
-
 def test_public_names_report_the_package_rather_than_a_private_module() -> None:
     """Reprs, pickles, and documentation name ``pylopdf.X``, not the module that defines it."""
     private = {

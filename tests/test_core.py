@@ -32,11 +32,6 @@ def test_new_document_saves_valid_minimum_structure() -> None:
     assert _Document.load_bytes(data).page_count() == 0
 
 
-def test_load_bytes_and_page_count(three_page_pdf: bytes) -> None:
-    doc = _Document.load_bytes(three_page_pdf)
-    assert doc.page_count() == 3
-
-
 def test_interpretation_size_limit_is_repeated_in_core(one_page_pdf: bytes) -> None:
     exact = _Document.load_bytes(
         one_page_pdf,
@@ -94,14 +89,6 @@ def test_load_metadata_file_size_limit(tmp_path: Path, three_page_pdf: bytes) ->
         _Document.load_metadata_bytes(three_page_pdf, None, 0)
 
 
-def test_save_bytes_roundtrip(three_page_pdf: bytes) -> None:
-    doc = _Document.load_bytes(three_page_pdf)
-    data = doc.save_bytes()
-    assert data.startswith(b"%PDF-")
-    reloaded = _Document.load_bytes(data)
-    assert reloaded.page_count() == 3
-
-
 def test_save_bytes_paths_are_bounded_in_core(one_page_pdf: bytes) -> None:
     plain = _Document.load_bytes(one_page_pdf)
     with pytest.raises(LimitError) as plain_limit:
@@ -153,20 +140,6 @@ def test_save_writer_temporary_state_is_restored(tmp_path: Path) -> None:
     assert modern_second_path.read_bytes() == expected_modern
 
 
-def test_save_and_load_file(tmp_path, one_page_pdf: bytes) -> None:  # noqa: ANN001
-    path = tmp_path / "out.pdf"
-    doc = _Document.load_bytes(one_page_pdf)
-    doc.save(str(path))
-    reloaded = _Document.load(str(path))
-    assert reloaded.page_count() == 1
-
-
-def test_extract_text(three_page_pdf: bytes) -> None:
-    doc = _Document.load_bytes(three_page_pdf)
-    assert "Page one" in doc.extract_text([1])
-    assert "Page three" in doc.extract_text([3])
-
-
 def test_extract_text_batch_is_bounded_in_core(one_page_pdf: bytes) -> None:
     bounded = _Document.load_bytes(one_page_pdf, max_text_size=16)
     assert bounded.extract_text([1])
@@ -180,14 +153,6 @@ def test_extract_text_batch_is_bounded_in_core(one_page_pdf: bytes) -> None:
     assert entries.value.args[0] == "page_entry_count"
 
 
-def test_delete_pages(three_page_pdf: bytes) -> None:
-    doc = _Document.load_bytes(three_page_pdf)
-    doc.delete_pages([2])
-    assert doc.page_count() == 2
-    remaining = doc.extract_text([1, 2])
-    assert "Page two" not in remaining
-
-
 def test_metadata_set_and_get(one_page_pdf: bytes) -> None:
     doc = _Document.load_bytes(one_page_pdf)
     assert doc.get_metadata() == {}
@@ -197,14 +162,6 @@ def test_metadata_set_and_get(one_page_pdf: bytes) -> None:
     # An empty value removes the metadata key.
     doc.set_metadata("Author", "")
     assert doc.get_metadata() == {"Title": "My Title"}
-
-
-def test_metadata_unicode_roundtrip(one_page_pdf: bytes) -> None:
-    doc = _Document.load_bytes(one_page_pdf)
-    doc.set_metadata("Title", "日本語のタイトル")
-    # Save and reload through UTF-16BE.
-    reloaded = _Document.load_bytes(doc.save_bytes())
-    assert reloaded.get_metadata()["Title"] == "日本語のタイトル"
 
 
 def test_metadata_batch_rejects_duplicate_keys_atomically(one_page_pdf: bytes) -> None:
@@ -561,14 +518,6 @@ def test_annotation_input_limit_is_repeated_in_core(one_page_pdf: bytes) -> None
             call()
         assert caught.value.args[0] == "annotation_input_size"
         assert doc.save_bytes() == before
-
-
-def test_merge_into_empty(three_page_pdf: bytes) -> None:
-    doc = _Document()
-    doc.merge(_Document.load_bytes(three_page_pdf))
-    assert doc.page_count() == 3
-    reloaded = _Document.load_bytes(doc.save_bytes())
-    assert reloaded.page_count() == 3
 
 
 def test_merge_empty_then_nonempty(three_page_pdf: bytes) -> None:

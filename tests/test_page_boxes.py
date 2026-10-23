@@ -63,6 +63,7 @@ def test_assigning_a_box_stores_it_in_user_space() -> None:
     page.boxes.trim = Rect(110, 60, 490, 340)
 
     assert page.boxes.crop == Rect(100, 50, 500, 350)
+    assert page.boxes.media == Rect(0, 0, 600, 800)
     assert list(page.obj["CropBox"]) == [100, 50, 500, 350]
     assert list(page.obj["TrimBox"]) == [110, 60, 490, 340]
     assert page.rect == Rect(0, 0, 400, 300)
