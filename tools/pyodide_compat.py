@@ -1231,6 +1231,10 @@ def _annotation_results() -> dict[str, Any]:
         page.annotations.add(Stamp((100, 200, 195, 240), icon=StampIcon.TOP_SECRET))
         page.annotations.add(FileAttachment((170, 60), b"attached", filename="a.txt", icon=AttachmentIcon.TAG))
         page.annotations.add(Redaction((20, 250, 90, 270), overlay_text="gone"))
+        edited = page.annotations[0]
+        edited.interior_color = Color(0, 1, 1)
+        edited.border = Border(3, dashes=(2, 1))
+        edited.contents = "edited"
         data = document.to_bytes()
     with pylopdf.open(data) as reopened:
         page = reopened.pages[0]
@@ -1269,7 +1273,7 @@ def _annotation_results() -> dict[str, Any]:
         == ["SQUARE", "CIRCLE", "LINE", "INK", "SQUIGGLY", "TEXT", "FREE_TEXT", "STAMP", "FILE_ATTACHMENT", "REDACT"],
         "annotation types changed",
     )
-    _require(inside == [255, 255, 0], "the square's appearance did not render")
+    _require(inside == [0, 255, 255], "the square's edited appearance did not render")
     return {"annotations": annotations, "square_inside": inside}
 
 

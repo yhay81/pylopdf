@@ -436,6 +436,16 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "page.annotations.add(pylopdf.Stamp(r, icon=pylopdf.StampIcon.DRAFT))",
         ),
         ("import fitz\npage.add_caret_annot(p)\n", "page.annotations.add(pylopdf.Caret(p))"),
+        ("import fitz\nannot.set_opacity(0.5)\n", "annot.opacity = 0.5"),
+        ("import fitz\nannot.set_rect(r)\n", "annot.rect = r"),
+        ("import fitz\nannot.set_colors(stroke=(1, 0, 0))\n", "annot.color = pylopdf.Color(1, 0, 0)"),
+        ("import fitz\nannot.set_colors(fill=None)\n", "del annot.interior_color"),
+        ("import fitz\nannot.set_info(content='x')\n", "annot.contents = 'x'"),
+        ("import fitz\nannot.set_border(width=2)\n", "annot.border = pylopdf.Border(2)"),
+        (
+            "import fitz\nannot.set_line_ends(fitz.PDF_ANNOT_LE_SLASH, fitz.PDF_ANNOT_LE_NONE)\n",
+            "annot.line_endings = (pylopdf.LineEnding.SLASH, pylopdf.LineEnding.NONE)",
+        ),
         (
             "import fitz\npage.add_redact_annot(q, text='gone')\n",
             "page.annotations.add(pylopdf.Redaction(q, overlay_text='gone', fill=pylopdf.Color(1, 1, 1)))",
@@ -923,6 +933,10 @@ def test_codemod_marks_probe_results_for_review(migrate_source: Migrate) -> None
             "import pylopdf\nfont = pylopdf.Font.from_file(path, weight=700)\n"
             "base = pylopdf.Font.standard('Helvetica')\n"
             "width = font.text_width('x', 11) + font.text_height('x', 11, width=100)\nfound = font.has_glyph('x')\n"
+        ),
+        (
+            "import pylopdf\nwidget.set_opacity(0.5)\nshape.set_rect(r)\nother.set_colors(stroke=c)\n"
+            "note = page.annotations.add(pylopdf.Note((1, 2), icon=pylopdf.NoteIcon.KEY))\nnote.opacity = 0.5\n"
         ),
         (
             "import pylopdf\ndoc = pylopdf.open(path)\nfacts = doc.complexity\n"

@@ -69,8 +69,8 @@ def test_annotations_are_typed_handles() -> None:
     assert text.obj["Subtype"] == "Text"
     assert free_text.obj["IT"] == "FreeTextCallout"
     assert repr(text) == "Annotation(type=AnnotationType.TEXT, rect=Rect(x0=10.0, y0=70.0, x1=30.0, y1=90.0))"
-    with pytest.raises(AttributeError):
-        text.rect = Rect(0, 0, 1, 1)  # ty: ignore[invalid-assignment]
+    text.rect = Rect(0, 0, 20, 20)
+    assert text.rect == Rect(0, 0, 20, 20)
 
 
 def test_links_widgets_and_popups_are_not_listed() -> None:

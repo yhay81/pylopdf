@@ -79,6 +79,9 @@ Migrating pymupdf and pylopdf 0.15 code:
 pymupdf name map (generated from api/pymupdf-parity.json; each pymupdf name that pylopdf replaced, its
 replacement, and the migration hint):
 - Annot -> Annotation: page.annotations lists Annotation handles with type, rect, contents, author, subject, created, modified, name, icon, intent, color, interior_color, opacity, flags, xref, and page.
+- Annot.__bool__ -> Annotation: An Annotation handle is always true; a handle whose annotation is gone raises StaleObjectError on use.
+- Annot.apn_bbox -> Annotation.obj: annotation.obj['AP']['N']['BBox'] is the appearance's bounding box in its own space.
+- Annot.apn_matrix -> Annotation.obj: annotation.obj['AP']['N'].get('Matrix') is the appearance's matrix.
 - Annot.blendmode -> Annotation.blend_mode: annotation.blend_mode is a BlendMode member, or None without /BM.
 - Annot.border -> Annotation.border: annotation.border is a Border(width, style=BorderStyle..., dashes=...) record, or None when the annotation has none.
 - Annot.colors -> Annotation.color: Read annotation.color and annotation.interior_color, Color records or None.
@@ -86,10 +89,17 @@ replacement, and the migration hint):
 - Annot.file_info -> Annotation.file: annotation.file.filename, .description, and .size describe the embedded file; annotation.file is None for other annotations.
 - Annot.flags -> Annotation.flags: annotation.flags is an AnnotationFlags value.
 - Annot.get_file -> AnnotationFile.read: annotation.file.read(max_size=...) returns the embedded file's data.
+- Annot.get_parent -> Annotation.page: annotation.page is the Page that holds the annotation.
+- Annot.get_pixmap -> Page.pixmap: annotation.page.pixmap(clip=annotation.rect, ...) renders the annotation's area.
+- Annot.get_sound -> Annotation.obj: annotation.obj['Sound'] is the sound stream in the object model; read() returns its samples.
+- Annot.get_text -> Page.words: [w.text for w in annotation.page.words() if w.bbox.intersects(annotation.rect)] lists the words under the annotation.
+- Annot.get_textbox -> Page.words: ' '.join(w.text for w in page.words() if w.bbox in rect) joins the words inside a rectangle.
+- Annot.get_textpage -> Page.layout: annotation.page.layout() is the page's structured text; filter its blocks by annotation.rect.
 - Annot.has_popup -> Annotation.popup_rect: annotation.popup_rect is not None tells whether the annotation has a popup.
 - Annot.info -> Annotation.contents: Read annotation.contents, author, subject, created, modified, name, and icon.
 - Annot.irt_xref -> Annotation.in_reply_to: annotation.in_reply_to is the Annotation that this one replies to, or None; its xref is in_reply_to.xref.
 - Annot.is_open -> Annotation.is_open: annotation.is_open tells whether the popup, or a note without one, opens when the page is shown.
+- Annot.language -> Annotation.language: annotation.language is the /Lang tag, assignable and deletable.
 - Annot.line_ends -> Annotation.line_endings: annotation.line_endings is a (start, end) pair of LineEnding members, or None for an annotation other than a line or polyline.
 - Annot.next -> Annotations: Iterate page.annotations instead of following annot.next.
 - Annot.opacity -> Annotation.opacity: Read annotation.opacity.
@@ -97,11 +107,26 @@ replacement, and the migration hint):
 - Annot.popup_rect -> Annotation.popup_rect: annotation.popup_rect is the popup's display Rect, or None without a popup.
 - Annot.popup_xref -> Annotation.obj: annotation.obj['Popup'] is the popup annotation's dictionary.
 - Annot.rect -> Annotation.rect: Read annotation.rect.
+- Annot.rect_delta -> Annotation.obj: annotation.obj.get('RD') holds the rectangle differences (left, top, right, bottom).
 - Annot.rotation -> Annotation.rotation: annotation.rotation is the clockwise turn of the content as the page is displayed: the page's rotation less /Rotate, which annotation.obj holds.
+- Annot.set_apn_bbox -> Annotation.obj: Assign annotation.obj['AP']['N']['BBox'] in the object model; property setters draw the appearance again instead.
+- Annot.set_apn_matrix -> Annotation.obj: Assign annotation.obj['AP']['N']['Matrix'] in the object model; property setters draw the appearance again instead.
+- Annot.set_blendmode -> Annotation.blend_mode: Assign annotation.blend_mode = BlendMode.MULTIPLY; the appearance is drawn again.
+- Annot.set_border -> Annotation.border: Assign annotation.border = Border(width, style=..., dashes=...); the appearance is drawn again.
+- Annot.set_colors -> Annotation.color: Assign annotation.color (stroke) and annotation.interior_color (fill) Color values, or None; the appearance is drawn again.
+- Annot.set_flags -> Annotation.flags: Assign annotation.flags = AnnotationFlags.PRINT | ...
+- Annot.set_info -> Annotation.contents: Assign annotation.contents, author, subject, and name; dates record themselves.
 - Annot.set_irt_xref -> Annotation.in_reply_to: Assign annotation.in_reply_to = other_annotation, or None, to set or remove /IRT.
+- Annot.set_language -> Annotation.language: Assign annotation.language = 'ja-JP'; del annotation.language removes it.
+- Annot.set_line_ends -> Annotation.line_endings: Assign annotation.line_endings = (LineEnding.START, LineEnding.END).
+- Annot.set_name -> Annotation.icon: Assign annotation.icon = NoteIcon..., StampIcon..., or AttachmentIcon...
+- Annot.set_opacity -> Annotation.opacity: Assign annotation.opacity = 0.5.
 - Annot.set_open -> Annotation.is_open: Assign annotation.is_open = True or False.
 - Annot.set_popup -> Annotation.popup_rect: Assign annotation.popup_rect = rect to add or move the popup; del annotation.popup_rect removes it.
+- Annot.set_rect -> Annotation.rect: Assign annotation.rect = Rect(...) in display coordinates; lines and polygons move with annotation.vertices instead.
+- Annot.set_rotation -> Annotation.rotation: Assign annotation.rotation, the clockwise turn as the page is displayed, to free text, stamps, carets, and file attachments.
 - Annot.type -> Annotation.type: annotation.type is an AnnotationType member; annotation.obj['Subtype'] holds the name and annotation.intent the intent.
+- Annot.update -> Annotation: pylopdf has no update(): each property assignment changes the annotation and draws its appearance at once.
 - Annot.update_file -> AnnotationFile.write: annotation.file.write(data) replaces the embedded file's data; its name and description stay.
 - Annot.vertices -> Annotation.vertices: annotation.vertices lists the display Points of a line, polygon, or polyline; an ink annotation's points are annotation.strokes, one tuple of Points per stroke.
 - Annot.xref -> Annotation.xref: Read annotation.xref.
