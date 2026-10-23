@@ -123,6 +123,8 @@
     "Redaction",
     "RemoteDestination",
     "Resources",
+    "ScriptTrigger",
+    "Scripts",
     "Segment",
     "ShadingPattern",
     "ShadingType",
@@ -3699,6 +3701,10 @@
             ],
             "returns": "None"
           }
+        },
+        "scripts": {
+          "kind": "property",
+          "returns": "Scripts"
         },
         "type": {
           "kind": "property",
@@ -10431,6 +10437,105 @@
         "returns": "None"
       }
     },
+    "ScriptTrigger": {
+      "kind": "enum",
+      "members": {
+        "ACTIVATE": "activate",
+        "BLUR": "blur",
+        "CALCULATE": "calculate",
+        "DOWN": "down",
+        "ENTER": "enter",
+        "EXIT": "exit",
+        "FOCUS": "focus",
+        "FORMAT": "format",
+        "KEYSTROKE": "keystroke",
+        "UP": "up",
+        "VALIDATE": "validate"
+      }
+    },
+    "Scripts": {
+      "kind": "class",
+      "members": {
+        "__delitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "ScriptTrigger",
+                "kind": "positional_or_keyword",
+                "name": "trigger"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "ScriptTrigger",
+                "kind": "positional_or_keyword",
+                "name": "trigger"
+              }
+            ],
+            "returns": "str"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[ScriptTrigger]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Callable[[], list[tuple[str, str]]]",
+            "kind": "positional_or_keyword",
+            "name": "read"
+          },
+          {
+            "annotation": "Callable[[str, str | None], None]",
+            "kind": "positional_or_keyword",
+            "name": "write"
+          },
+          {
+            "annotation": "frozenset[ScriptTrigger]",
+            "kind": "positional_or_keyword",
+            "name": "triggers"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "Segment": {
       "kind": "type-alias",
       "target": "pylopdf.MoveTo | pylopdf.LineTo | pylopdf.CurveTo | pylopdf.ClosePath"
@@ -11998,6 +12103,10 @@
         "rect": {
           "kind": "property",
           "returns": "Rect"
+        },
+        "scripts": {
+          "kind": "property",
+          "returns": "Scripts"
         },
         "text_color": {
           "kind": "property",

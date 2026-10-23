@@ -23,7 +23,7 @@ from pylopdf._limits import _validate_rect
 from pylopdf.pylopdf_core import StaleObjectError
 
 if TYPE_CHECKING:
-    from pylopdf._form import Field, FieldSpecification
+    from pylopdf._form import Field, FieldSpecification, Scripts
     from pylopdf._objects import Dictionary
     from pylopdf._page import Page
     from pylopdf.pylopdf_core import _Widget as _WidgetTuple
@@ -237,6 +237,26 @@ class Widget:
             msg = f"font_size is a number from 0, which fits the text, to 10000: {size!r}"
             raise ValueError(msg)
         self._set(font_size=float(size))
+
+    @property
+    def scripts(self) -> Scripts:
+        """Return the widget's JavaScript by trigger: focus, blur, enter, exit, down, up, and activate."""
+        from pylopdf._form import _FIELD_TRIGGERS, Scripts, ScriptTrigger  # noqa: PLC0415 - the form module imports this one.
+
+        self._read()
+        page = self._page
+
+        def read() -> list[tuple[str, str]]:
+            self._read()
+            return page._document._doc.widget_scripts(page._page_number(), self._index, self._xref)
+
+        def write(trigger: str, source: str | None) -> None:
+            self._read()
+            self._xref = page._document._doc.set_widget_script(
+                page._page_number(), self._index, self._xref, trigger, source
+            )
+
+        return Scripts(read, write, frozenset(ScriptTrigger) - _FIELD_TRIGGERS)
 
     @property
     def button_states(self) -> tuple[str, ...]:

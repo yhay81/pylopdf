@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import enum
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeAlias, cast
@@ -78,6 +78,126 @@ class FieldFlags(enum.IntFlag):
 
 
 _DEFINED_FIELD_FLAGS = sum(flag.value for flag in FieldFlags)
+
+
+class ScriptTrigger(enum.StrEnum):
+    """When a viewer runs a form script: the field triggers of ``field.scripts``, the widget ones of ``widget.scripts``.
+
+    pylopdf stores scripts and never runs them.
+    """
+
+    KEYSTROKE = "keystroke"
+    """A field's text changes (``/AA /K``)."""
+    FORMAT = "format"
+    """A field's value is displayed (``/AA /F``)."""
+    VALIDATE = "validate"
+    """A field's value is committed (``/AA /V``)."""
+    CALCULATE = "calculate"
+    """Another field changes and this one is recalculated (``/AA /C``, listed in ``/CO``)."""
+    FOCUS = "focus"
+    """A widget receives the focus (``/AA /Fo``)."""
+    BLUR = "blur"
+    """A widget loses the focus (``/AA /Bl``)."""
+    ENTER = "enter"
+    """The pointer enters a widget (``/AA /E``)."""
+    EXIT = "exit"
+    """The pointer leaves a widget (``/AA /X``)."""
+    DOWN = "down"
+    """A mouse button is pressed in a widget (``/AA /D``)."""
+    UP = "up"
+    """A mouse button is released in a widget (``/AA /U``)."""
+    ACTIVATE = "activate"
+    """A widget, such as a pushbutton, is activated (``/A``)."""
+
+
+#: The ``/AA`` key of each trigger, and ``A`` for activation.
+_TRIGGER_KEYS = {
+    ScriptTrigger.KEYSTROKE: "K",
+    ScriptTrigger.FORMAT: "F",
+    ScriptTrigger.VALIDATE: "V",
+    ScriptTrigger.CALCULATE: "C",
+    ScriptTrigger.FOCUS: "Fo",
+    ScriptTrigger.BLUR: "Bl",
+    ScriptTrigger.ENTER: "E",
+    ScriptTrigger.EXIT: "X",
+    ScriptTrigger.DOWN: "D",
+    ScriptTrigger.UP: "U",
+    ScriptTrigger.ACTIVATE: "A",
+}
+_TRIGGERS = {key: trigger for trigger, key in _TRIGGER_KEYS.items()}
+_FIELD_TRIGGERS = frozenset(
+    {ScriptTrigger.KEYSTROKE, ScriptTrigger.FORMAT, ScriptTrigger.VALIDATE, ScriptTrigger.CALCULATE}
+)
+#: Scripts stop at 1 MiB, read or written (``script_size``).
+_MAX_SCRIPT_SIZE = 1024 * 1024
+
+
+class Scripts(MutableMapping[ScriptTrigger, str]):
+    """The JavaScript of a field or widget by trigger, as ``field.scripts`` and ``widget.scripts`` return them.
+
+    Keys are :class:`ScriptTrigger` members and values the script source;
+    assigning sets a JavaScript action, and ``del`` removes it. Actions of
+    other kinds are not listed. A field takes the keystroke, format,
+    validate, and calculate triggers, and a widget the others. pylopdf never
+    runs the scripts. Each script and the mapping's scripts together stop
+    at 1 MiB of UTF-8 (``script_size``); a refused write changes nothing.
+    """
+
+    __slots__ = ("_read", "_triggers", "_write")
+
+    def __init__(
+        self,
+        read: Callable[[], list[tuple[str, str]]],
+        write: Callable[[str, str | None], None],
+        triggers: frozenset[ScriptTrigger],
+    ) -> None:
+        """Wrap a field's or widget's reads and writes; use ``Field.scripts`` or ``Widget.scripts``."""
+        self._read = read
+        self._write = write
+        self._triggers = triggers
+
+    def _items(self) -> dict[ScriptTrigger, str]:
+        return {_TRIGGERS[key]: source for key, source in self._read()}
+
+    def _trigger(self, trigger: object) -> ScriptTrigger:
+        resolved = ScriptTrigger(trigger)
+        if resolved not in self._triggers:
+            owner = "field" if ScriptTrigger.FORMAT in self._triggers else "widget"
+            msg = f"{resolved.name} is not a trigger of this {owner}"
+            raise ValueError(msg)
+        return resolved
+
+    def __getitem__(self, trigger: ScriptTrigger) -> str:
+        """Return the script of ``trigger``; a trigger without one raises :class:`KeyError`."""
+        return self._items()[self._trigger(trigger)]
+
+    def __setitem__(self, trigger: ScriptTrigger, source: str) -> None:
+        """Set the JavaScript that ``trigger`` runs."""
+        resolved = self._trigger(trigger)
+        if not isinstance(source, str):
+            msg = f"a script is a str: {type(source).__name__}"
+            raise TypeError(msg)
+        _validate_utf8_text_input(source, _MAX_SCRIPT_SIZE, limit_code="script_size", input_label="script")
+        self._write(_TRIGGER_KEYS[resolved], source)
+
+    def __delitem__(self, trigger: ScriptTrigger) -> None:
+        """Remove the script of ``trigger``; a trigger without one raises :class:`KeyError`."""
+        resolved = self._trigger(trigger)
+        if resolved not in self._items():
+            raise KeyError(trigger)
+        self._write(_TRIGGER_KEYS[resolved], None)
+
+    def __iter__(self) -> Iterator[ScriptTrigger]:
+        """Iterate over the triggers that have a script."""
+        return iter(list(self._items()))
+
+    def __len__(self) -> int:
+        """Return the number of scripts."""
+        return len(self._items())
+
+    def __repr__(self) -> str:
+        """Return ``Scripts({...})``."""
+        return f"Scripts({self._items()!r})"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -253,6 +373,27 @@ class Field:
         A check box or radio button without a default value turns off.
         """
         self._edit(reset=True)
+
+    @property
+    def scripts(self) -> Scripts:
+        """Return the field's JavaScript by trigger: keystroke, format, validate, and calculate.
+
+        Setting a calculate script lists the field in the form's calculation
+        order, ``/CO``.
+        """
+        self._facts()
+        document = self._document
+        xref = self._xref
+
+        def write(trigger: str, source: str | None) -> None:
+            self._facts()
+            document._doc.set_field_script(xref, trigger, source)
+
+        def read() -> list[tuple[str, str]]:
+            self._facts()
+            return document._doc.field_scripts(xref)
+
+        return Scripts(read, write, _FIELD_TRIGGERS)
 
     @property
     def widgets(self) -> list[Widget]:
@@ -981,6 +1122,8 @@ def _button_state(state: object) -> None:
 
 
 for _public in (
+    Scripts,
+    ScriptTrigger,
     CheckBox,
     ComboBox,
     ListBox,

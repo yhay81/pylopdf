@@ -1378,6 +1378,41 @@ impl _Document {
         forms::remove_field(self, py, xref)
     }
 
+    /// Return a field's JavaScript scripts by `/AA` trigger.
+    fn field_scripts(&self, py: Python<'_>, xref: u32) -> PyResult<Vec<(String, String)>> {
+        forms::field_scripts(self, py, xref)
+    }
+
+    /// Set or remove one script of a field.
+    #[pyo3(signature = (xref, trigger, source))]
+    fn set_field_script(&mut self, xref: u32, trigger: &str, source: Option<&str>) -> PyResult<()> {
+        forms::set_field_script(self, xref, trigger, source)
+    }
+
+    /// Return a widget's JavaScript scripts by trigger.
+    fn widget_scripts(
+        &self,
+        py: Python<'_>,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+    ) -> PyResult<Vec<(String, String)>> {
+        forms::widget_scripts(self, py, page_number, index, xref)
+    }
+
+    /// Set or remove one script of a widget; return its object number.
+    #[pyo3(signature = (page_number, index, xref, trigger, source))]
+    fn set_widget_script(
+        &mut self,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+        trigger: &str,
+        source: Option<&str>,
+    ) -> PyResult<u32> {
+        forms::set_widget_script(self, page_number, index, xref, trigger, source)
+    }
+
     /// Return a field's label, maximum length, default value, and the
     /// document's `/NeedAppearances`.
     fn field_details(&self, py: Python<'_>, xref: u32) -> PyResult<forms::FieldDetails> {

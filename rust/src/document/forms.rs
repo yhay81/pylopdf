@@ -2571,8 +2571,8 @@ fn existing_kind(field_type: &str, flags: i64) -> &'static str {
 
 /// The field entries that a merged field and widget dictionary moves to a
 /// new parent when the field gains a second widget.
-const FIELD_KEYS: [&[u8]; 12] = [
-    b"FT", b"T", b"TU", b"TM", b"Ff", b"V", b"DV", b"AA", b"Opt", b"MaxLen", b"TI", b"I",
+const FIELD_KEYS: [&[u8]; 11] = [
+    b"FT", b"T", b"TU", b"TM", b"Ff", b"V", b"DV", b"Opt", b"MaxLen", b"TI", b"I",
 ];
 
 impl _Document {
@@ -3058,6 +3058,24 @@ pub(super) fn add_widget(
                                 parent.set(key, value.clone());
                             }
                         }
+                        // A merged dictionary owns both field and widget
+                        // actions. Only field triggers move to the parent.
+                        let mut widget_actions = old
+                            .get(b"AA")
+                            .ok()
+                            .and_then(|aa| deref_dict_ref(&this.doc, aa))
+                            .cloned();
+                        if let Some(actions) = &mut widget_actions {
+                            let mut field_actions = Dictionary::new();
+                            for trigger in FIELD_TRIGGERS {
+                                if let Some(action) = actions.remove(trigger.as_bytes()) {
+                                    field_actions.set(trigger, action);
+                                }
+                            }
+                            if !field_actions.is_empty() {
+                                parent.set("AA", field_actions);
+                            }
+                        }
                         let grand = old.get(b"Parent").and_then(Object::as_reference).ok();
                         if let Some(grand) = grand {
                             parent.set("Parent", grand);
@@ -3070,6 +3088,13 @@ pub(super) fn add_widget(
                             .map_err(to_py_err)?;
                         for key in FIELD_KEYS {
                             kid.remove(key);
+                        }
+                        if let Some(actions) = widget_actions {
+                            if actions.is_empty() {
+                                kid.remove(b"AA");
+                            } else {
+                                kid.set("AA", actions);
+                            }
                         }
                         kid.set("Parent", parent_id);
                         this.replace_form_node(grand, field_id, parent_id)?;
@@ -3365,4 +3390,303 @@ pub(super) fn remove_field(this: &mut _Document, py: Python<'_>, xref: u32) -> P
         }
         result
     })
+}
+
+/// The `/AA` keys of a field's triggers (ISO 32000-2 Table 199).
+const FIELD_TRIGGERS: [&str; 4] = ["K", "F", "V", "C"];
+
+/// The `/AA` keys of a widget's triggers (Table 197), and `A`, its
+/// activation action.
+const WIDGET_TRIGGERS: [&str; 7] = ["Fo", "Bl", "E", "X", "D", "U", "A"];
+
+/// The most bytes of JavaScript that one script holds.
+const MAX_SCRIPT_BYTES: usize = 1024 * 1024;
+/// UTF-16BE may use two bytes per UTF-8 input byte, plus its BOM.
+const MAX_ENCODED_SCRIPT_BYTES: usize = 2 * MAX_SCRIPT_BYTES + 3;
+
+/// The JavaScript source of an action dictionary, or `None` for another
+/// action; a stream is decoded under the script bound.
+fn javascript_source(doc: &Document, action: &Object) -> PyResult<Option<String>> {
+    let Some(action) = deref_dict_ref(doc, action) else {
+        return Ok(None);
+    };
+    if !matches!(
+        action
+            .get(b"S")
+            .map(|kind| deref_object(doc, kind))
+            .and_then(Object::as_name),
+        Ok(b"JavaScript")
+    ) {
+        return Ok(None);
+    }
+    let stream_source;
+    let source = match action.get(b"JS").map(|source| deref_object(doc, source)) {
+        Ok(source @ Object::String(bytes, _)) => {
+            if bytes.len() > MAX_ENCODED_SCRIPT_BYTES {
+                return Err(limit_err(
+                    "script_size",
+                    format!("a script exceeds the {MAX_SCRIPT_BYTES}-byte safety limit"),
+                ));
+            }
+            source
+        }
+        Ok(Object::Stream(stream)) => {
+            let data = decoded_stream_content(
+                stream,
+                Some(MAX_ENCODED_SCRIPT_BYTES),
+                "script_size",
+                "a script",
+            )?;
+            stream_source = Object::String(data, StringFormat::Literal);
+            &stream_source
+        }
+        _ => return Ok(None),
+    };
+    let source = decode_text_string(source).map_err(to_py_err)?;
+    if source.len() > MAX_SCRIPT_BYTES {
+        return Err(limit_err(
+            "script_size",
+            format!("a script exceeds the {MAX_SCRIPT_BYTES}-byte UTF-8 safety limit"),
+        ));
+    }
+    Ok(Some(source))
+}
+
+/// The JavaScript scripts of `dict` for `triggers`, in that order.
+fn read_scripts(
+    doc: &Document,
+    dict: &Dictionary,
+    triggers: &[&str],
+) -> PyResult<Vec<(String, String)>> {
+    let mut out = Vec::new();
+    let additional = dict.get(b"AA").ok().and_then(|aa| deref_dict_ref(doc, aa));
+    let mut total = 0usize;
+    for trigger in triggers {
+        let action = if *trigger == "A" {
+            dict.get(b"A").ok()
+        } else {
+            additional.and_then(|aa| aa.get(trigger.as_bytes()).ok())
+        };
+        if let Some(action) = action
+            && let Some(source) = javascript_source(doc, action)?
+        {
+            total = total.saturating_add(source.len());
+            if total > MAX_SCRIPT_BYTES {
+                return Err(limit_err(
+                    "script_size",
+                    format!("scripts exceed the {MAX_SCRIPT_BYTES}-byte safety limit"),
+                ));
+            }
+            try_push_form(&mut out, ((*trigger).to_owned(), source), "scripts")?;
+        }
+    }
+    Ok(out)
+}
+
+/// Set or remove the JavaScript of one trigger of `dict`.
+fn write_script(dict: &mut Dictionary, trigger: &str, source: Option<&str>) {
+    let action = source.map(|source| {
+        Object::Dictionary(dictionary! {
+            "S" => "JavaScript",
+            "JS" => text_string(source),
+        })
+    });
+    if trigger == "A" {
+        match action {
+            Some(action) => dict.set("A", action),
+            None => {
+                dict.remove(b"A");
+            }
+        }
+        return;
+    }
+    let mut additional = match dict.get(b"AA") {
+        Ok(Object::Dictionary(aa)) => aa.clone(),
+        _ => Dictionary::new(),
+    };
+    match action {
+        Some(action) => additional.set(trigger, action),
+        None => {
+            additional.remove(trigger.as_bytes());
+        }
+    }
+    if additional.is_empty() {
+        dict.remove(b"AA");
+    } else {
+        dict.set("AA", additional);
+    }
+}
+
+/// Prepare an owned edit and admit its complete result before mutation, so
+/// a write cannot make the mapping unreadable under its aggregate limit.
+fn prepared_script(
+    doc: &Document,
+    dict: &Dictionary,
+    trigger: &str,
+    source: Option<&str>,
+    triggers: &[&str],
+) -> PyResult<Dictionary> {
+    let mut updated = dict.clone();
+    if let Ok(Object::Reference(id)) = dict.get(b"AA")
+        && let Ok(additional) = doc.get_dictionary(*id)
+    {
+        updated.set("AA", additional.clone());
+    }
+    write_script(&mut updated, trigger, source);
+    read_scripts(doc, &updated, triggers)?;
+    Ok(updated)
+}
+
+fn validate_script(trigger: &str, triggers: &[&str], source: Option<&str>) -> PyResult<()> {
+    if !triggers.contains(&trigger) {
+        return Err(PdfError::new_err(format!(
+            "unknown script trigger {trigger:?}"
+        )));
+    }
+    if source.is_some_and(|source| source.len() > MAX_SCRIPT_BYTES) {
+        return Err(limit_err(
+            "script_size",
+            format!("a script exceeds the {MAX_SCRIPT_BYTES}-byte safety limit"),
+        ));
+    }
+    Ok(())
+}
+
+/// Implements [`_Document::field_scripts`].
+pub(super) fn field_scripts(
+    this: &_Document,
+    py: Python<'_>,
+    xref: u32,
+) -> PyResult<Vec<(String, String)>> {
+    py.detach(|| {
+        let field_id = this.form_field_id(xref)?;
+        let field = this.doc.get_dictionary(field_id).map_err(to_py_err)?;
+        read_scripts(&this.doc, field, &FIELD_TRIGGERS)
+    })
+}
+
+/// Implements [`_Document::set_field_script`]: set or remove one field
+/// script, keeping `/CO` listing every field with a calculation.
+pub(super) fn set_field_script(
+    this: &mut _Document,
+    xref: u32,
+    trigger: &str,
+    source: Option<&str>,
+) -> PyResult<()> {
+    validate_script(trigger, &FIELD_TRIGGERS, source)?;
+    let field_id = this.form_field_id(xref)?;
+    let field = prepared_script(
+        &this.doc,
+        this.doc.get_dictionary(field_id).map_err(to_py_err)?,
+        trigger,
+        source,
+        &FIELD_TRIGGERS,
+    )?;
+    let calculation = if trigger == "C" {
+        let form = this
+            .doc
+            .catalog()
+            .map_err(to_py_err)?
+            .get(b"AcroForm")
+            .map_err(to_py_err)?;
+        let form = deref_dict_ref(&this.doc, form)
+            .ok_or_else(|| PdfError::new_err("AcroForm is not a dictionary"))?;
+        let current = form
+            .get(b"CO")
+            .ok()
+            .map(|order| deref_object(&this.doc, order))
+            .and_then(|order| order.as_array().ok());
+        if current.is_some_and(|order| order.len() > MAX_FORM_FIELD_TREE_EDGES) {
+            return Err(PdfError::new_err(
+                "AcroForm calculation order exceeds the field-tree edge limit",
+            ));
+        }
+        let mut order = Vec::new();
+        order
+            .try_reserve_exact(current.map_or(0, Vec::len))
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate calculation order: {error}"))
+            })?;
+        if let Some(current) = current {
+            order.extend(current.iter().cloned());
+        }
+        let mut listed = false;
+        order.retain(|item| {
+            if matches!(item, Object::Reference(id) if *id == field_id) {
+                let keep = source.is_some() && !listed;
+                listed = true;
+                keep
+            } else {
+                true
+            }
+        });
+        if source.is_some() && !listed {
+            if order.len() == MAX_FORM_FIELD_TREE_EDGES {
+                return Err(PdfError::new_err(
+                    "AcroForm calculation order exceeds the field-tree edge limit",
+                ));
+            }
+            try_push_form(&mut order, Object::Reference(field_id), "calculation order")?;
+        }
+        Some((this.acroform_object()?, order))
+    } else {
+        None
+    };
+    this.invalidate_hayro_pdf_keeping_placements();
+    *this.doc.get_object_mut(field_id).map_err(to_py_err)? = Object::Dictionary(field);
+    if let Some((form_id, order)) = calculation {
+        let form = this
+            .doc
+            .get_object_mut(form_id)
+            .and_then(Object::as_dict_mut)
+            .map_err(to_py_err)?;
+        if order.is_empty() {
+            form.remove(b"CO");
+        } else {
+            form.set("CO", Object::Array(order));
+        }
+    }
+    Ok(())
+}
+
+/// Implements [`_Document::widget_scripts`].
+pub(super) fn widget_scripts(
+    this: &_Document,
+    py: Python<'_>,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+) -> PyResult<Vec<(String, String)>> {
+    py.detach(|| {
+        let page_id = this.page_id(page_number)?;
+        let (_, widget) = this.annotation_at(page_id, index, xref)?;
+        read_scripts(&this.doc, widget, &WIDGET_TRIGGERS)
+    })
+}
+
+/// Implements [`_Document::set_widget_script`]; returns the widget's
+/// object number, which a widget stored in `/Annots` itself gains here.
+pub(super) fn set_widget_script(
+    this: &mut _Document,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+    trigger: &str,
+    source: Option<&str>,
+) -> PyResult<u32> {
+    validate_script(trigger, &WIDGET_TRIGGERS, source)?;
+    let page_id = this.page_id(page_number)?;
+    let (_, widget) = this.annotation_at(page_id, index, xref)?;
+    if !matches!(
+        widget.get(b"Subtype").and_then(Object::as_name),
+        Ok(b"Widget")
+    ) {
+        return Err(StaleObjectError::new_err(format!(
+            "annotation {xref} is no longer a widget"
+        )));
+    }
+    let updated = prepared_script(&this.doc, widget, trigger, source, &WIDGET_TRIGGERS)?;
+    let (_, id) = edited_annotation(this, page_id, index, xref)?;
+    *this.doc.get_object_mut(id).map_err(to_py_err)? = Object::Dictionary(updated);
+    Ok(id.0)
 }
