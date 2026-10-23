@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime as dt
 import io
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -206,3 +207,110 @@ def test_pyhanko_signs_a_pylopdf_signature_field(tmp_path: Path) -> None:
         flags = reopened.form.signature_flags
         assert flags == pylopdf.SignatureFlags.SIGNATURES_EXIST | pylopdf.SignatureFlags.APPEND_ONLY
         assert reopened.pages[0].widgets[0].field == field
+
+
+def _signed_form(tmp_path: Path, *, certify: bool = False) -> tuple[bytes, Path]:
+    """Sign a one-page form with a text field, and return the PDF and the certificate."""
+    from pyhanko.sign import fields  # noqa: PLC0415
+
+    doc = pylopdf.Document()
+    page = doc.pages.new((300, 200))
+    page.widgets.add(pylopdf.SignatureField("Approval", (20, 20, 200, 60)))
+    page.widgets.add(pylopdf.TextField("Name", (20, 100, 200, 130)))
+    key_path, cert_path = _make_self_signed_cert(tmp_path)
+    signer = signers.SimpleSigner.load(str(key_path), str(cert_path))
+    assert signer is not None
+    metadata = signers.PdfSignatureMetadata(
+        field_name="Approval",
+        certify=certify,
+        docmdp_permissions=fields.MDPPerm.NO_CHANGES if certify else fields.MDPPerm.FILL_FORMS,
+    )
+    signed = signers.sign_pdf(IncrementalPdfFileWriter(io.BytesIO(doc.to_bytes())), metadata, signer=signer)
+    return signed.getvalue(), cert_path
+
+
+def _validate(data: bytes, cert_path: Path) -> Any:  # noqa: ANN401 - pyHanko's status record.
+    from pyhanko.keys import load_cert_from_pemder  # noqa: PLC0415
+    from pyhanko.pdf_utils.reader import PdfFileReader  # noqa: PLC0415
+    from pyhanko.sign.validation import validate_pdf_signature  # noqa: PLC0415
+    from pyhanko_certvalidator import ValidationContext  # noqa: PLC0415
+
+    (embedded,) = PdfFileReader(io.BytesIO(data)).embedded_signatures
+    return validate_pdf_signature(embedded, ValidationContext(trust_roots=[load_cert_from_pemder(str(cert_path))]))
+
+
+def test_incremental_form_fill_keeps_a_pyhanko_signature_valid(tmp_path: Path) -> None:
+    from pyhanko.sign.diff_analysis import ModificationLevel  # noqa: PLC0415
+    from pyhanko.sign.validation.status import SignatureCoverageLevel  # noqa: PLC0415
+
+    signed, cert_path = _signed_form(tmp_path)
+    doc = pylopdf.open(signed)
+    assert doc.can_save_incrementally
+
+    doc.form["Name"].value = "Alice"
+    edited = doc.to_bytes(incremental=True)
+
+    assert edited[: len(signed)] == signed
+    status = _validate(edited, cert_path)
+    assert status.intact
+    assert status.valid
+    assert status.coverage == SignatureCoverageLevel.ENTIRE_REVISION
+    assert status.modification_level == ModificationLevel.FORM_FILLING
+    assert status.docmdp_ok
+    with pylopdf.open(edited) as reopened:
+        assert reopened.form["Name"].value == "Alice"
+        assert reopened.form["Approval"].is_signed
+
+
+def test_incremental_metadata_edit_keeps_a_pyhanko_signature_valid(tmp_path: Path) -> None:
+    signed, cert_path = _signed_form(tmp_path)
+    doc = pylopdf.open(signed)
+
+    doc.metadata["title"] = "Edited after signing"
+    edited = doc.to_bytes(incremental=True)
+
+    status = _validate(edited, cert_path)
+    assert status.intact
+    assert status.valid
+    assert status.docmdp_ok
+
+
+def test_incremental_annotation_keeps_the_signed_bytes_intact(tmp_path: Path) -> None:
+    from pyhanko.sign.diff_analysis import ModificationLevel  # noqa: PLC0415
+
+    signed, cert_path = _signed_form(tmp_path)
+    doc = pylopdf.open(signed)
+
+    doc.pages[0].annotations.add(pylopdf.Square((50, 140, 120, 180)))
+    edited = doc.to_bytes(incremental=True)
+
+    status = _validate(edited, cert_path)
+    # The signed bytes and their signature are untouched. pyHanko's diff
+    # policy explains form filling and metadata but no other annotation, so
+    # it reports the comment as an unexplained modification.
+    assert status.intact
+    assert status.valid
+    assert status.modification_level == ModificationLevel.OTHER
+
+
+def test_pyhanko_reports_an_incremental_edit_that_a_certification_forbids(tmp_path: Path) -> None:
+    signed, cert_path = _signed_form(tmp_path, certify=True)
+    doc = pylopdf.open(signed)
+
+    doc.form["Name"].value = "Alice"
+    edited = doc.to_bytes(incremental=True)
+
+    status = _validate(edited, cert_path)
+    assert status.intact
+    assert not status.docmdp_ok
+
+
+def test_a_full_save_breaks_what_an_incremental_save_keeps(tmp_path: Path) -> None:
+    signed, cert_path = _signed_form(tmp_path)
+    doc = pylopdf.open(signed)
+    doc.form["Name"].value = "Alice"
+
+    rewritten = doc.to_bytes()
+
+    status = _validate(rewritten, cert_path)
+    assert not status.intact

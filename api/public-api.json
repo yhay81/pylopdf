@@ -2802,6 +2802,10 @@
           "kind": "property",
           "returns": "Attachments"
         },
+        "can_save_incrementally": {
+          "kind": "property",
+          "returns": "bool"
+        },
         "catalog": {
           "kind": "property",
           "returns": "Dictionary"
@@ -3166,6 +3170,12 @@
                 "default": null,
                 "kind": "keyword_only",
                 "name": "encryption"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "incremental"
               }
             ],
             "returns": "None"
@@ -3232,6 +3242,12 @@
                 "default": null,
                 "kind": "keyword_only",
                 "name": "encryption"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "incremental"
               },
               {
                 "annotation": "int | None",

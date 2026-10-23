@@ -219,8 +219,8 @@ recognized by another OCR engine.
 
 ## Not supported yet { #not-supported }
 
-Redaction, editing or deleting annotations, creating form fields,
-incremental saving, and validated PDF/A and PDF/UA output are planned; the
+Redaction, editing or deleting annotations, creating form fields, and
+validated PDF/A and PDF/UA output are planned; the
 [roadmap](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md) lists them.
 pylopdf opens PDF files only.
 

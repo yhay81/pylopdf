@@ -71,6 +71,8 @@ dev = [
 interop = [
     "typst>=0.15",
     "pyhanko>=0.36.1",
+    # qpdf through pikepdf checks that every saved PDF reads as written.
+    "pikepdf>=10.0",
 ]
 # Comparison libraries for reproducible benchmarks; manual only, not installed in CI.
 bench = [

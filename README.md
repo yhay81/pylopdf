@@ -115,8 +115,8 @@ covers each area in more detail.
 
 ## Not supported yet
 
-Redaction, editing or deleting annotations, creating form fields,
-incremental saving, and validated PDF/A and PDF/UA output are planned; the
+Redaction, editing or deleting annotations, creating form fields, and
+validated PDF/A and PDF/UA output are planned; the
 [roadmap](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md) lists them.
 
 Typesetting with HTML and CSS and digital signatures stay with ecosystem

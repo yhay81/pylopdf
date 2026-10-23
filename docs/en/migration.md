@@ -74,6 +74,9 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `doc.save(encryption=PDF_ENCRYPT_AES_256, user_pw=…, owner_pw=…, permissions=…)` | `doc.save(encryption=Encryption(user_password=…, owner_password=…, permissions=…))` | AES-256 only |
 | `doc.tobytes(...)`, `doc.write(...)` | `doc.to_bytes(...)` | The options of `save()` |
 | `doc.save(use_objstms=True)` | `doc.save(object_streams=True)` | |
+| `doc.saveIncr()`, `doc.save(name, incremental=True)` | `doc.save(path, incremental=True)` | Any path, including the file the document came from; refuses `dedupe`, `renumber`, `object_streams`, and `encryption` |
+| `doc.can_save_incrementally()` | `doc.can_save_incrementally` | A property |
+| `doc.ez_save(path)` | `doc.save(path, dedupe=True, renumber=True, object_streams=True)` | |
 | `doc.select(indexes)` | `doc.pages.select(indexes)` | Also removes form fields and tagged-PDF structure of the pages left out |
 | `doc.delete_page(i)`, `delete_pages(a, b)`, `del doc[i]` | `del doc.pages[i]`, `del doc.pages[a:b + 1]` | Keep the other pages of a list with `doc.pages.select(...)` |
 | `doc.new_page(pno, width=, height=)` | `doc.pages.new((width, height), index=pno)` | Appended unless `index` is given |

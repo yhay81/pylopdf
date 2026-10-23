@@ -50,7 +50,8 @@ untrusted input. Use the document as a context manager, or call `close()`.
 | `is_dirty` | Whether the document was edited since it was opened. A new empty document starts edited, and saving does not reset it, as in pymupdf |
 | `is_closed`, `path` | Whether the document is closed, and the file it was opened from as a `pathlib.Path`, or `None` for bytes and an empty document |
 | `limits`, `complexity` | The policy the document was opened with, and cheap structural facts (pages, objects, streams) for deciding whether to process it |
-| `save(path, /, *, compress=True, prune=True, dedupe=False, renumber=False, object_streams=False, encryption=None)` | Write the PDF. The file is replaced only after the complete write succeeds |
+| `save(path, /, *, compress=True, prune=True, dedupe=False, renumber=False, object_streams=False, encryption=None, incremental=False)` | Write the PDF. The file is replaced only after the complete write succeeds |
+| `can_save_incrementally` | Whether `save` and `to_bytes` accept `incremental=True` |
 | `to_bytes(..., max_size=512 MiB)` | The same output as `bytes` |
 | `close()` | Release the document; `with` does this for you |
 
@@ -74,6 +75,23 @@ doc.save(
         permissions=pylopdf.Permissions.PRINT,
     ),
 )
+```
+
+`incremental=True` writes the bytes the document was opened from unchanged
+and appends one update with the objects that differ from them, so a
+signature over the original bytes stays intact; an unedited document is
+written exactly as it was read. It works for a document opened from
+unencrypted bytes that loaded without repair, which `can_save_incrementally`
+reports, and refuses `dedupe`, `renumber`, `object_streams`, and
+`encryption`, which would rewrite objects the update leaves alone. `compress`
+then compresses only the streams the update writes. The output may go to any
+path, including the file the document came from. Such a document keeps its
+original bytes in memory while it is open.
+
+```python
+with pylopdf.open("signed.pdf") as doc:
+    doc.form["Name"].value = "Alice"
+    doc.save("signed.pdf", incremental=True)
 ```
 
 ### Pages { #document-pages }
