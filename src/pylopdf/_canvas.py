@@ -319,6 +319,48 @@ class TagRole(enum.StrEnum):
     ARTIFACT = "Artifact"
 
 
+class TableHeaderScope(enum.StrEnum):
+    """What a table header cell heads (ISO 32000-1 §14.8.5.7), by its PDF name."""
+
+    ROW = "Row"
+    COLUMN = "Column"
+    BOTH = "Both"
+
+
+class ListNumbering(enum.StrEnum):
+    """How a list numbers its items (ISO 32000-1 §14.8.5.5), by its PDF name."""
+
+    NONE = "None"
+    DISC = "Disc"
+    CIRCLE = "Circle"
+    SQUARE = "Square"
+    DECIMAL = "Decimal"
+    LOWER_ROMAN = "LowerRoman"
+    UPPER_ROMAN = "UpperRoman"
+    LOWER_ALPHA = "LowerAlpha"
+    UPPER_ALPHA = "UpperAlpha"
+
+
+def _tag_attribute(
+    value: object,
+    kind: type[enum.StrEnum],
+    name: str,
+    role: TagRole,
+    takes: TagRole,
+) -> str | None:
+    """Return the PDF name of a role-specific tag attribute, refusing it on other roles."""
+    if value is None:
+        return None
+    if role is not takes:
+        msg = f"only {takes.name} tags take {name}: {role.name}"
+        raise ValueError(msg)
+    try:
+        return kind(value).value
+    except ValueError as exc:
+        msg = f"{name} must be a {kind.__name__}: {value!r}"
+        raise ValueError(msg) from exc
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TextFit:
     """How text fits a :meth:`Canvas.textbox`."""
@@ -1068,7 +1110,7 @@ class Canvas:
         point = _point(at, "at")
         self._record.add_bookmark(title, level, tuple(point))
 
-    def tag(
+    def tag(  # noqa: PLR0913 - the attributes of a structure element.
         self,
         role: TagRole | str,
         *,
@@ -1076,6 +1118,8 @@ class Canvas:
         lang: str | None = None,
         title: str | None = None,
         actual_text: str | None = None,
+        scope: TableHeaderScope | str | None = None,
+        numbering: ListNumbering | str | None = None,
     ) -> AbstractContextManager[None]:
         """Make what the block draws a structure element of a tagged new document.
 
@@ -1086,6 +1130,9 @@ class Canvas:
         figures and formulas need, ``title`` a heading's title, ``lang`` the
         element's BCP 47 language, and ``actual_text`` the text that replaces
         the element's content for extraction and assistive technology.
+        ``scope`` says what a :attr:`TagRole.TABLE_HEADER` cell heads, its
+        column by default, and ``numbering`` how a :attr:`TagRole.LIST`
+        numbers its items, with none by default; other roles take neither.
         Elements cannot span pages.
         """
         self._check_open()
@@ -1111,10 +1158,12 @@ class Canvas:
             if not _is_language_tag(lang):
                 msg = f"lang must be a BCP 47 language tag: {lang!r}"
                 raise ValueError(msg)
+        header_scope = _tag_attribute(scope, TableHeaderScope, "scope", tag_role, TagRole.TABLE_HEADER)
+        list_numbering = _tag_attribute(numbering, ListNumbering, "numbering", tag_role, TagRole.LIST)
         value = tag_role.value
         return _CanvasScope(
             self._record,
-            lambda: self._record.push_tag(value, alt, lang, title, actual_text),
+            lambda: self._record.push_tag(value, alt, lang, title, actual_text, header_scope, list_numbering),
         )
 
     def draw(self, item: Path) -> None:
@@ -1222,7 +1271,7 @@ class _MaskCanvas(Canvas):
         msg = "a mask canvas cannot open another mask"
         raise ValueError(msg)
 
-    def tag(
+    def tag(  # noqa: PLR0913 - the signature of Canvas.tag.
         self,
         role: TagRole | str,  # noqa: ARG002
         *,
@@ -1230,6 +1279,8 @@ class _MaskCanvas(Canvas):
         lang: str | None = None,  # noqa: ARG002
         title: str | None = None,  # noqa: ARG002
         actual_text: str | None = None,  # noqa: ARG002
+        scope: TableHeaderScope | str | None = None,  # noqa: ARG002
+        numbering: ListNumbering | str | None = None,  # noqa: ARG002
     ) -> AbstractContextManager[None]:
         """Refuse a tag scope, since a mask is no content of the structure tree."""
         msg = "a mask canvas cannot open tag scopes"
@@ -1242,6 +1293,6 @@ class _MaskCanvas(Canvas):
 
 
 # The package re-exports these classes; reprs, pickles, and documentation name them.
-for _type in (Canvas, PathBuilder, TagRole, TextFit):
+for _type in (Canvas, ListNumbering, PathBuilder, TableHeaderScope, TagRole, TextFit):
     _type.__module__ = "pylopdf"
 del _type

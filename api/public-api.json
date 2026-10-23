@@ -60,6 +60,7 @@
     "LineTo",
     "Link",
     "Links",
+    "ListNumbering",
     "MalformedPdfError",
     "MarkInfo",
     "MarkedContent",
@@ -113,6 +114,7 @@
     "Stroke",
     "Table",
     "TableDiagnostics",
+    "TableHeaderScope",
     "TagRole",
     "Target",
     "TextFit",
@@ -1348,6 +1350,18 @@
                 "default": null,
                 "kind": "keyword_only",
                 "name": "actual_text"
+              },
+              {
+                "annotation": "TableHeaderScope | str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "scope"
+              },
+              {
+                "annotation": "ListNumbering | str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "numbering"
               }
             ],
             "returns": "AbstractContextManager[None]"
@@ -4755,6 +4769,20 @@
           }
         ],
         "returns": "None"
+      }
+    },
+    "ListNumbering": {
+      "kind": "enum",
+      "members": {
+        "CIRCLE": "Circle",
+        "DECIMAL": "Decimal",
+        "DISC": "Disc",
+        "LOWER_ALPHA": "LowerAlpha",
+        "LOWER_ROMAN": "LowerRoman",
+        "NONE": "None",
+        "SQUARE": "Square",
+        "UPPER_ALPHA": "UpperAlpha",
+        "UPPER_ROMAN": "UpperRoman"
       }
     },
     "MalformedPdfError": {
@@ -8850,6 +8878,14 @@
           }
         ],
         "returns": "None"
+      }
+    },
+    "TableHeaderScope": {
+      "kind": "enum",
+      "members": {
+        "BOTH": "Both",
+        "COLUMN": "Column",
+        "ROW": "Row"
       }
     },
     "TagRole": {

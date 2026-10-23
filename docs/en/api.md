@@ -684,12 +684,17 @@ differences:
   European text needs `font` until krilla draws the Standard 14 fonts.
 - `canvas.page()` cannot place other pages yet; draw them on the finished
   document's pages.
-- `tag(role, *, alt=None, lang=None, title=None, actual_text=None)` makes
-  what the block draws a structure element. Roles are the `TagRole` members,
-  such as `PARAGRAPH`, `HEADING_1` to `HEADING_6`, `LIST` and `LIST_ITEM`,
-  `TABLE`, `TABLE_ROW`, and `TABLE_DATA`, and `FIGURE` with its `alt` text.
-  Scopes nest, each line of text inside one is a span of it, and content
-  outside every scope, or inside an `ARTIFACT` scope, is an artifact.
+- `tag(role, *, alt=None, lang=None, title=None, actual_text=None,
+  scope=None, numbering=None)` makes what the block draws a structure
+  element. Roles are the `TagRole` members, such as `PARAGRAPH`, `HEADING_1`
+  to `HEADING_6`, `LIST` and `LIST_ITEM`, `TABLE`, `TABLE_ROW`, and
+  `TABLE_DATA`, and `FIGURE` with its `alt` text. A `TABLE_HEADER` takes the
+  `TableHeaderScope` it heads (`ROW`, `COLUMN`, the default, or `BOTH`), and
+  a `LIST` the `ListNumbering` of its items (`NONE`, the default, `DISC`,
+  `CIRCLE`, `SQUARE`, `DECIMAL`, `LOWER_ROMAN`, `UPPER_ROMAN`,
+  `LOWER_ALPHA`, or `UPPER_ALPHA`). Scopes nest, each line of text inside
+  one is a span of it, and content outside every scope, or inside an
+  `ARTIFACT` scope, is an artifact.
 - `bookmark(title, *, level=1, at=(0, 0))` adds an outline entry that shows
   `at` on the page; a level can grow by one at a time.
 
@@ -983,7 +988,7 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `DocumentLimits`, `DocumentLimits.web()` | Resource limits for untrusted input; see [Security](security.md#untrusted-pdfs) |
 | `OcrEngine` | A reusable OCR engine; see [Offline OCR](ocr.md) |
 | `Canvas`, `PathBuilder`, `TextFit` | See [Canvas](#canvas) |
-| `create(...)`, `Builder`, `Standard`, `TagRole` | See [New documents](#create) |
+| `create(...)`, `Builder`, `Standard`, `TagRole`, `TableHeaderScope`, `ListNumbering` | See [New documents](#create) |
 | `Font`, `StandardFontName` | See [Font](#font) |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [Low-level objects](#low-level-objects) |
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |

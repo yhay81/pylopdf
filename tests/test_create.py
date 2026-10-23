@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 
 import pylopdf
-from pylopdf import BlendMode, Color, Matrix, PathBuilder, Stroke, TagRole
+from pylopdf import BlendMode, Color, ListNumbering, Matrix, PathBuilder, Stroke, TableHeaderScope, TagRole
 
 FONT_ROOT = Path(__file__).parents[1] / "fonts"
 NOTO_SANS_JP = FONT_ROOT / "pylopdf-fonts-jp" / "src" / "pylopdf_fonts_jp" / "NotoSansJP-Regular.otf"
@@ -244,6 +244,73 @@ def _structure_types(root: pylopdf.Dictionary) -> list[str]:
             if "K" in node:
                 stack.append(node["K"])
     return [name for name in found if name not in {"Document", "Part"}]
+
+
+def _elements(root: pylopdf.Dictionary) -> list[pylopdf.Dictionary]:
+    """Return the structure elements under the root, depth first."""
+    found: list[pylopdf.Dictionary] = []
+    stack = [root["K"]]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, pylopdf.Array):
+            stack.extend(reversed(list(node)))
+        elif isinstance(node, pylopdf.Dictionary) and "S" in node:
+            found.append(node)
+            if "K" in node:
+                stack.append(node["K"])
+    return found
+
+
+def test_table_header_scopes_and_list_numbering(font: pylopdf.Font) -> None:
+    builder = pylopdf.create(tagged=True, language="en")
+    with builder.page((300, 300)) as canvas:
+        with canvas.tag(TagRole.LIST, numbering=ListNumbering.DECIMAL), canvas.tag(TagRole.LIST_ITEM):
+            with canvas.tag(TagRole.LABEL):
+                canvas.text("1.", (20, 40), font=font)
+            with canvas.tag(TagRole.LIST_BODY):
+                canvas.text("First", (40, 40), font=font)
+        with canvas.tag(TagRole.LIST):
+            canvas.text("Plain", (20, 80), font=font)
+        with canvas.tag(TagRole.TABLE), canvas.tag(TagRole.TABLE_ROW):
+            with canvas.tag(TagRole.TABLE_HEADER, scope=TableHeaderScope.ROW):
+                canvas.text("Name", (20, 120), font=font)
+            with canvas.tag("TH", scope="Both"):
+                canvas.text("Both", (100, 120), font=font)
+            with canvas.tag(TagRole.TABLE_HEADER):
+                canvas.text("Column", (180, 120), font=font)
+    root = builder.finish().catalog["StructTreeRoot"]
+    elements = _elements(root)
+    lists = [_attribute(element, "List") for element in elements if element["S"] == "L"]
+    headers = [_attribute(element, "Table") for element in elements if element["S"] == "TH"]
+    assert lists[0] is not None
+    assert lists[0]["ListNumbering"] == "Decimal"
+    # No numbering is the default, which krilla writes as None or leaves out.
+    assert lists[1] is None or lists[1].get("ListNumbering", "None") == "None"
+    assert [None if header is None else header["Scope"] for header in headers] == ["Row", "Both", "Column"]
+
+
+def _attribute(element: pylopdf.Dictionary, owner: str) -> pylopdf.Dictionary | None:
+    """Return the attribute dictionary of a structure element that ``owner`` defines."""
+    attributes = element.get("A")
+    candidates = list(attributes) if isinstance(attributes, pylopdf.Array) else [attributes]
+    return next(
+        (item for item in candidates if isinstance(item, pylopdf.Dictionary) and item.get("O") == owner),
+        None,
+    )
+
+
+def test_tag_attributes_belong_to_their_roles(font: pylopdf.Font) -> None:
+    builder = pylopdf.create(tagged=True)
+    with builder.page() as canvas:
+        with pytest.raises(ValueError, match="only TABLE_HEADER tags take scope"):
+            canvas.tag(TagRole.TABLE_DATA, scope=TableHeaderScope.ROW)
+        with pytest.raises(ValueError, match="only LIST tags take numbering"):
+            canvas.tag(TagRole.LIST_ITEM, numbering=ListNumbering.DISC)
+        with pytest.raises(ValueError, match="scope must be a TableHeaderScope"):
+            canvas.tag(TagRole.TABLE_HEADER, scope="Rows")
+        with pytest.raises(ValueError, match="numbering must be a ListNumbering"):
+            canvas.tag(TagRole.LIST, numbering="roman")
+        canvas.text("x", (10, 10), font=font)
 
 
 def test_tag_scopes_need_a_tagged_new_document(font: pylopdf.Font) -> None:

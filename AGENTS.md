@@ -2107,7 +2107,10 @@ the concept and API overview.
   standard) wrap each text line in a `Span`, and each path or image in
   `Other` marked content, of the innermost tag scope, whose `TagGroup`s nest
   into the `TagTree` page by page; content outside every tag scope, or in a
-  `TagRole.ARTIFACT` scope, is a `Layout` artifact. Bookmarks become the
+  `TagRole.ARTIFACT` scope, is a `Layout` artifact. A `TH` scope carries its
+  `TableHeaderScope` (`Column` by default) and an `L` scope its
+  `ListNumbering` (`None` by default) into krilla's `Tag::TH` and `Tag::L`,
+  and other roles refuse both. Bookmarks become the
   outline, nesting each entry under the closest earlier one a level up; a
   level that grows by more than one is refused. `created` defaults to the
   current UTC time, since PDF/A and PDF/UA require a creation date. krilla's

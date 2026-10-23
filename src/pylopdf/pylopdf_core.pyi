@@ -226,6 +226,8 @@ class _Canvas:
         lang: str | None = None,
         title: str | None = None,
         actual_text: str | None = None,
+        scope: str | None = None,
+        numbering: str | None = None,
     ) -> int: ...
     def add_page(
         self,
