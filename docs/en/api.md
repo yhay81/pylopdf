@@ -358,7 +358,8 @@ listed. A handle reads the document on every access and has `type`, an
 `created` and `modified` as the PDF date strings stored, `color` and
 `interior_color` as `Color` records or `None`, `opacity`, `border`, a
 `Border` record or `None`, `blend_mode`, a `BlendMode` member or `None`,
-`flags`, an `AnnotationFlags` value, and `xref`, `obj`, and `page`.
+`flags`, an `AnnotationFlags` value, `vertices`, `strokes`, and
+`line_endings`, and `xref`, `obj`, and `page`.
 
 `page.annotations.add(specification)` adds the annotation that a
 specification describes, with its appearance, so every viewer draws it
@@ -371,6 +372,10 @@ time of their creation in `created` and `modified`.
 | `Highlight(rects, *, color=Color(1, 1, 0), opacity=0.4, contents=None)` | A highlight over one or more rectangles or quads, such as search results, drawn in multiply blending |
 | `Square(rect, *, color=Color(1, 0, 0), interior_color=None, border=Border(), opacity=1.0, blend_mode=None, contents=None)` | A rectangle whose border `color` strokes and `interior_color` fills; either may be `None` |
 | `Circle(rect, *, ...)` | The ellipse inscribed in `rect`, with the fields of `Square` |
+| `LineAnnotation(start, end, *, color=Color(1, 0, 0), interior_color=None, border=Border(), line_endings=(LineEnding.NONE, LineEnding.NONE), opacity=1.0, blend_mode=None, contents=None)` | A straight line with a shape at each end, whose closed shapes `interior_color` fills |
+| `Polygon(vertices, *, color=..., interior_color=None, border=..., opacity=..., blend_mode=..., contents=...)` | A closed polygon through two or more points |
+| `PolyLine(vertices, *, ..., line_endings=...)` | An open line through two or more points, with the fields of `LineAnnotation` |
+| `Ink(strokes, *, color=..., border=..., opacity=..., blend_mode=..., contents=...)` | Freehand strokes, each a sequence of one or more points, drawn with round caps and joins |
 
 A `Border(width=1.0, *, style=None, dashes=())` describes a border: its
 width in points, a `BorderStyle` (`SOLID`, `DASHED`, `BEVELED`, `INSET`, or
@@ -378,7 +383,16 @@ width in points, a `BorderStyle` (`SOLID`, `DASHED`, `BEVELED`, `INSET`, or
 without a style select `DASHED`. The border of a square or circle lies inside
 its rectangle, and widgets draw the beveled, inset, and underline styles that
 other annotations draw solid. `opacity` and `blend_mode` apply to every paint
-of the appearance.
+of the appearance. Points are `Point` values or pairs in display
+coordinates; the rectangle of a line, polygon, polyline, or ink annotation is
+the bounds of its points widened for the stroke and the line endings, and one
+annotation holds at most 65,536 points (`LimitError` code
+`annotation_point_count`). `LineEnding` names the shapes of ISO 32000-2:
+`NONE`, `SQUARE`, `CIRCLE`, `DIAMOND`, `OPEN_ARROW`, `CLOSED_ARROW`, `BUTT`,
+`REVERSED_OPEN_ARROW`, `REVERSED_CLOSED_ARROW`, and `SLASH`. A handle reads
+the points back as `vertices` (a line's two ends, or a polygon's or
+polyline's points) or `strokes` (an ink annotation's), and the shapes as
+`line_endings`; each is `None` for other types.
 
 The members of `AnnotationType` and `AnnotationFlags` keep the values of
 pymupdf's `PDF_ANNOT_*` and `PDF_ANNOT_IS_*` constants.
@@ -393,8 +407,8 @@ for annotation in page.annotations:
         print(annotation.author, annotation.contents)
 ```
 
-Rendering draws a square or circle that another producer wrote without an
-appearance from its dictionary, as it does a text-markup annotation from its
+Rendering draws a square, circle, line, polygon, polyline, or ink
+annotation that another producer wrote without an appearance from its dictionary, as it does a text-markup annotation from its
 quadrilaterals; neither changes the document.
 
 Annotation reads stop at 4,096 annotations and 1 MiB of text per page, and
@@ -1017,7 +1031,7 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |
 | `Colorspace` | The color spaces of a [`Pixmap`](#pixmap): `GRAY` and `RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [Outline and page labels](#outline) |
-| `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `AnnotationSpecification`, `Highlight`, `Square`, `Circle`, `Border`, `BorderStyle`, `Link`, `Links` | [Annotations and links](#page-annotations) |
+| `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `AnnotationSpecification`, `Highlight`, `Square`, `Circle`, `LineAnnotation`, `Polygon`, `PolyLine`, `Ink`, `Border`, `BorderStyle`, `LineEnding`, `Link`, `Links` | [Annotations and links](#page-annotations) |
 | `PageBoxes` | [Page geometry](#page-geometry) |
 | `Form`, `Field`, `FieldType`, `FieldFlags`, `FieldChoice` | [Forms](#forms) |
 | `FallbackFont`, `FallbackFonts` | [Rendering and images](#document-rendering) |
