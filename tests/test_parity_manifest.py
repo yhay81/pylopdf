@@ -42,7 +42,7 @@ def test_capability_map_is_classified_and_resolves() -> None:
         ("Document.is_dirty", {"pylopdf": "Document.is_closed"}, "instead of the pymupdf name"),
         ("Document.journal_undo", {"pylopdf": "Document.undo"}, "only an available entry names a pylopdf symbol"),
         ("Document.journal_undo", {"milestone": "M7"}, "unknown milestone"),
-        ("Document.get_outline_xrefs", {"milestone": None}, "a planned entry must name its milestone"),
+        ("Document.version_count", {"milestone": None}, "a planned entry must name its milestone"),
         ("set_log", {"hint": None}, "needs a hint for migrating callers"),
         ("Document.journal_undo", {"status": None}, "unclassified"),
     ],
