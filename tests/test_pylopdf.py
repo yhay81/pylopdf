@@ -523,10 +523,10 @@ def test_render_pages_rejects_non_positive_size_limits(
         doc.render(alpha=True, max_size=max_size)
 
 
-@pytest.mark.parametrize("scale", [0.0, -1.0, float("nan"), float("inf")])
+@pytest.mark.parametrize("scale", [0.0, float("nan"), float("inf")])
 def test_render_page_invalid_scale(one_page_pdf: bytes, scale: float) -> None:
     doc = pylopdf.open(one_page_pdf)
-    with pytest.raises(ValueError, match=r"finite|matrix must scale"):
+    with pytest.raises(ValueError, match=r"finite|matrix must be invertible"):
         doc.pages[0].pixmap(matrix=(scale, 0, 0, scale, 0, 0), alpha=True).to_bytes()
 
 

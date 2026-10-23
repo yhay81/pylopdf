@@ -81,7 +81,7 @@ python -m pylopdf.migrate src/
 | `page.find_tables()` | `page.tables()` | 返回`Table`记录列表：`table.rows`取代`extract()`，`len(table.rows)`取代`row_count`，`table.cells`逐行保存各单元格的框。尚无调优用的关键字参数、`header`和`to_pandas()` |
 | `page.get_textpage_ocr()` | `page.ocr()`、`page.apply_ocr()` | 内置离线OCR；参见[离线OCR](ocr.md) |
 | `pymupdf4llm.to_markdown(doc)` | `doc.markdown()` | 内置 |
-| `page.get_pixmap(matrix=…, dpi=…, annots=…)` | `page.pixmap(dpi=…, annotations=…)` | `dpi`和`matrix`只能传入其一；仅支持缩放矩阵；`colorspace=`接受`Colorspace.GRAY`或`Colorspace.RGB`，不支持CMYK；`doc.get_page_pixmap(i)`改为`doc.pages[i].pixmap()` |
+| `page.get_pixmap(matrix=…, dpi=…, annots=…)` | `page.pixmap(dpi=…, annotations=…)` | `dpi`和`matrix`只能传入其一；平移不会移动像素，pixmap没有原点；`colorspace=`接受`Colorspace.GRAY`或`Colorspace.RGB`，不支持CMYK；`doc.get_page_pixmap(i)`改为`doc.pages[i].pixmap()` |
 | `pix.samples`、`pix.samples_mv` | `bytes(pix)`、`memoryview(pix)` | `numpy.asarray(pix)`无需复制即可按`(height, width, channels)`形状读取像素 |
 | `pix.n` | `pix.channels` | |
 | `pix.tobytes(output, jpg_quality=…)`、`pix.save(path, output, jpg_quality=…)` | `pix.to_bytes(format, quality=…)`、`pix.save(path, format=…, quality=…)` | PNG和JPEG；其他格式交给Pillow |

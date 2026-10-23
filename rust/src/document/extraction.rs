@@ -990,8 +990,16 @@ pub(super) fn image_pixmap(
         py.detach(|| {
             let pdf = guarded_image_snapshot(xref, data)?;
             let cache = RenderCache::new();
-            render_pdf_page(&pdf, &cache, &settings, 1, (1.0, 1.0), background, None)
-                .map_err(PdfError::new_err)
+            render_pdf_page(
+                &pdf,
+                &cache,
+                &settings,
+                1,
+                (1.0, 0.0, 0.0, 1.0),
+                background,
+                None,
+            )
+            .map_err(PdfError::new_err)
         })
     })?;
     let width = u32::from(pixmap.width());

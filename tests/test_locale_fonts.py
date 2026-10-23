@@ -233,7 +233,7 @@ def test_locale_fallback_files_are_read_once_across_documents(one_page_pdf: byte
     third = _Document.load_bytes(one_page_pdf)
     assert third.set_fallback_font_locale_files(files) == 1
     assert _Document.load_bytes(one_page_pdf).set_fallback_font_locale_files(files) == 0
-    unit = (1.0, 1.0)
+    unit = (1.0, 0.0, 0.0, 1.0)
     assert first.render_page_png(1, unit, True, None, None) == third.render_page_png(1, unit, True, None, None)
 
 
@@ -243,7 +243,7 @@ def test_cached_locale_fallback_files_are_validated_atomically(tmp_path: Path) -
     pdf = build_nonembedded_cjk_pdf()
     doc = _Document.load_bytes(pdf)
     doc.set_fallback_font_locale_files(files)
-    baseline = doc.render_page_png(1, (1.0, 1.0), True, None, None)
+    baseline = doc.render_page_png(1, (1.0, 0.0, 0.0, 1.0), True, None, None)
     assert baseline == render_with_explicit_serif(SERIF)
 
     largest = max(Path(path).stat().st_size for _, sans, serif in files for path in (sans, serif))
@@ -257,7 +257,7 @@ def test_cached_locale_fallback_files_are_validated_atomically(tmp_path: Path) -
     with pytest.raises(FileNotFoundError) as not_found:
         doc.set_fallback_font_locale_files(files)
     assert not_found.value.filename == str(missing)
-    assert doc.render_page_png(1, (1.0, 1.0), True, None, None) == baseline
+    assert doc.render_page_png(1, (1.0, 0.0, 0.0, 1.0), True, None, None) == baseline
 
     # The failed calls left every other cached read in place.
     missing.write_bytes(data + b"\0")

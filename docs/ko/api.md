@@ -212,7 +212,7 @@ del doc.fallback_fonts            # back to the installed font extras
 | `svg(*, annotations=True, max_size=64 MiB)` | 텍스트를 패스로 그린 SVG 문자열로 렌더링 |
 | `resources` | 페이지의 리소스가 닿는 것. `resources.images`가 이미지 객체를 나열합니다. [이미지](#images) 참조 |
 
-pixmap은 기본적으로 72 dpi, 흰 바탕의 RGB이고, `alpha=True`이면 RGBA입니다. `dpi`와 `matrix` 중 하나만 전달합니다. 행렬은 `Matrix(2, 2)`처럼 배율만 바꾸는 것이어야 합니다. `clip`은 페이지의 일부만 렌더링하고, `annotations=False`는 주석과 폼 위젯을 그리지 않고, `colorspace="gray"`는 그레이 픽셀로 렌더링합니다.
+pixmap은 기본적으로 72 dpi, 흰 바탕의 RGB이고, `alpha=True`이면 RGBA입니다. `dpi`와 `matrix` 중 하나만 전달합니다. 역행렬이 있는 행렬이면 무엇이든 렌더링하며, pixmap은 변환된 페이지를 덮습니다. `Matrix(90) * Matrix(2, 2)`는 페이지를 시계 방향으로 90도 돌려 144 dpi로 렌더링하고, 평행 이동은 픽셀을 움직이지 않습니다. `clip`은 페이지의 일부만 렌더링하고, `annotations=False`는 주석과 폼 위젯을 그리지 않고, `colorspace="gray"`는 그레이 픽셀로 렌더링합니다.
 
 ### 페이지 기하 { #page-geometry }
 

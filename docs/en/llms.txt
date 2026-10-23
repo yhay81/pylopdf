@@ -62,7 +62,8 @@ Key facts:
 - page.content() returns every text run, path, and image a page paints, in
   paint order, as immutable values with glyph outline boxes, paints, strokes,
   and the clips, transparency groups, and marked content around each item.
-- page.pixmap(dpi= or matrix=) takes scaling matrices only.
+- page.pixmap(dpi= or matrix=) renders any invertible matrix; a translation
+  moves no pixels and a Pixmap has no origin.
 - DocumentLimits.web() and LimitError.code bound untrusted input.
 
 Migrating pymupdf and pylopdf 0.15 code:

@@ -571,7 +571,7 @@ class _Document:
     def render_page_pixmap(
         self,
         page_number: int,
-        scale: tuple[float, float],
+        matrix: tuple[float, float, float, float],
         gray: bool,
         alpha: bool,
         background: tuple[int, int, int, int] | None,
@@ -667,7 +667,7 @@ class _Document:
     def render_page_png(
         self,
         page_number: int,
-        scale: tuple[float, float],
+        matrix: tuple[float, float, float, float],
         alpha: bool,
         background: tuple[int, int, int, int] | None,
         max_output_size: int | None,
@@ -675,7 +675,7 @@ class _Document:
     def render_pages_encoded(
         self,
         page_numbers: list[int],
-        scale: tuple[float, float],
+        matrix: tuple[float, float, float, float],
         gray: bool,
         alpha: bool,
         background: tuple[int, int, int, int] | None,

@@ -211,7 +211,7 @@ del doc.fallback_fonts            # back to the installed font extras
 | `svg(*, annotations=True, max_size=64 MiB)` | テキストをパスで描いたSVG文字列へレンダリング |
 | `resources` | ページのリソースが届くもの。`resources.images`が画像オブジェクトを並べます。[画像](#images)を参照 |
 
-ピクセルマップは既定で72 dpi、白地のRGBで、`alpha=True`でRGBAです。`dpi`と`matrix`はどちらか一方を渡します。行列は`Matrix(2, 2)`のような拡大縮小だけのものでなければなりません。`clip`はページの一部だけをレンダリングし、`annotations=False`は注釈とフォームのウィジェットを描かず、`colorspace="gray"`はグレーの画素でレンダリングします。
+ピクセルマップは既定で72 dpi、白地のRGBで、`alpha=True`でRGBAです。`dpi`と`matrix`はどちらか一方を渡します。逆行列を持つ行列なら何でも描画でき、ピクセルマップは変換後のページを覆います。`Matrix(90) * Matrix(2, 2)`はページを時計回りに90度回して144 dpiで描画し、平行移動は画素を動かしません。`clip`はページの一部だけをレンダリングし、`annotations=False`は注釈とフォームのウィジェットを描かず、`colorspace="gray"`はグレーの画素でレンダリングします。
 
 ### ページの幾何情報 { #page-geometry }
 

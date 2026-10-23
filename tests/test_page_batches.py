@@ -144,7 +144,7 @@ def test_core_page_batches_are_bounded_by_the_page_count(large_pdf: bytes) -> No
     assert doc.extract_text([1] * LARGE_PAGE_COUNT) == "Page 0\n" * LARGE_PAGE_COUNT
     calls: list[Callable[[], object]] = [
         lambda: doc.extract_text(too_many),
-        lambda: doc.render_pages_encoded(too_many, (0.05, 0.05), False, True, None, True, "png", 95, 1, None),
+        lambda: doc.render_pages_encoded(too_many, (0.05, 0.0, 0.0, 0.05), False, True, None, True, "png", 95, 1, None),
         lambda: doc.select(too_many),
         lambda: doc.delete_pages(too_many),
         lambda: _Document().merge_pages(doc, too_many, None),
