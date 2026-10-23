@@ -565,6 +565,10 @@ enum Op {
         page: usize,
         rect: [f64; 4],
         keep_aspect: bool,
+        /// The part of the source page's display space that is shown, or
+        /// `None` for the whole page.
+        clip: Option<[f64; 4]>,
+        rotation: i64,
     },
     Push(Scope),
     Pop,
@@ -765,6 +769,63 @@ fn turned_box(rotation: i64, rect: [f64; 4]) -> PyResult<([f64; 4], Option<[f64;
         ),
         _ => (rect, None),
     })
+}
+
+/// The display-space transform that draws a placed page's Form, whose
+/// space is the source page's PDF user space, and the display rectangle
+/// that the shown part of the page fills. The shown part is `clip` in the
+/// source page's display space, or the whole page; it is turned clockwise
+/// by `rotation` about its centre and scaled into `rect`, at its aspect
+/// ratio and centred when `keep_aspect` is set.
+fn page_placement(
+    source_crop: [f64; 4],
+    source_rotation: i64,
+    clip: Option<[f64; 4]>,
+    rect: [f64; 4],
+    keep_aspect: bool,
+    rotation: i64,
+) -> ([f64; 6], [f64; 4]) {
+    let (e, f) = draw::pdf_to_display(source_crop, source_rotation, 0.0, 0.0);
+    let (ax, ay) = draw::pdf_to_display(source_crop, source_rotation, 1.0, 0.0);
+    let (cx, cy) = draw::pdf_to_display(source_crop, source_rotation, 0.0, 1.0);
+    let to_display = [ax - e, ay - f, cx - e, cy - f, e, f];
+    let (width, height) = draw::display_size(source_crop, source_rotation);
+    let [sx0, sy0, sx1, sy1] = clip.unwrap_or([0.0, 0.0, width, height]);
+    let (shown_width, shown_height) = if matches!(rotation, 90 | 270) {
+        (sy1 - sy0, sx1 - sx0)
+    } else {
+        (sx1 - sx0, sy1 - sy0)
+    };
+    let [x0, y0, x1, y1] = rect;
+    let (mut scale_x, mut scale_y) = ((x1 - x0) / shown_width, (y1 - y0) / shown_height);
+    if keep_aspect {
+        scale_x = scale_x.min(scale_y);
+        scale_y = scale_x;
+    }
+    let (centre_x, centre_y) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+    let (half_x, half_y) = (scale_x * shown_width / 2.0, scale_y * shown_height / 2.0);
+    let (cos, sin) = match rotation {
+        90 => (0.0, 1.0),
+        180 => (-1.0, 0.0),
+        270 => (0.0, -1.0),
+        _ => (1.0, 0.0),
+    };
+    let fit = concat(
+        concat(
+            [1.0, 0.0, 0.0, 1.0, -(sx0 + sx1) / 2.0, -(sy0 + sy1) / 2.0],
+            [cos, sin, -sin, cos, 0.0, 0.0],
+        ),
+        [scale_x, 0.0, 0.0, scale_y, centre_x, centre_y],
+    );
+    (
+        concat(to_display, fit),
+        [
+            centre_x - half_x,
+            centre_y - half_y,
+            centre_x + half_x,
+            centre_y + half_y,
+        ],
+    )
 }
 
 /// Refuse a font size or line height that is not a positive number.
@@ -1115,25 +1176,28 @@ impl CanvasRecording {
                     page,
                     rect,
                     keep_aspect,
+                    clip,
+                    rotation,
                 } => {
-                    let (source_crop, rotation) = placements.pages[*page];
-                    let placement = draw::placement_matrix(
-                        crop,
-                        0,
+                    let (source_crop, source_rotation) = placements.pages[*page];
+                    let (matrix, shown) = page_placement(
+                        source_crop,
+                        source_rotation,
+                        *clip,
                         *rect,
-                        &draw::PlacedContent::Form {
-                            crop: source_crop,
-                            rotation,
-                        },
                         *keep_aspect,
+                        *rotation,
                     );
-                    let mut joined = flip.clone().into_bytes();
-                    extend(
-                        &mut joined,
-                        &draw::draw_ops(placement, &format!("PyloP{page}")),
-                    )?;
-                    extend(&mut joined, b"Q\n")?;
-                    bytes = Some(joined);
+                    ops.push_str("q\n");
+                    if clip.is_some() {
+                        let [x0, y0, x1, y1] = shown;
+                        let [x, y, width, height] = [x0, y0, x1 - x0, y1 - y0].map(matrix_number);
+                        ops.push_str(&format!("{x} {y} {width} {height} re W n\n"));
+                    }
+                    ops.push_str(&format!(
+                        "{} cm\n/PyloP{page} Do\nQ\n",
+                        matrix.map(matrix_number).join(" ")
+                    ));
                 }
                 Op::Push(scope) => {
                     grow(&mut scopes, "scopes")?;
@@ -2147,7 +2211,11 @@ impl _Canvas {
     }
 
     /// Record a one-based page of `source` drawn into a display rectangle of
-    /// the `target` document's page.
+    /// the `target` document's page: the part inside `clip`, a rectangle of
+    /// the source page's display space, or the whole page, turned clockwise
+    /// by `rotation` degrees.
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (target, source, page_number, rect, keep_aspect, clip=None, rotation=0))]
     fn add_page(
         &mut self,
         target: &Bound<'_, _Document>,
@@ -2155,6 +2223,8 @@ impl _Canvas {
         page_number: u32,
         rect: (f64, f64, f64, f64),
         keep_aspect: bool,
+        clip: Option<(f64, f64, f64, f64)>,
+        rotation: i64,
     ) -> PyResult<()> {
         if self.new_document {
             return Err(PdfError::new_err(
@@ -2162,13 +2232,26 @@ impl _Canvas {
             ));
         }
         let rect = rect_array(rect)?;
-        let form_source = {
+        quarter_turn(rotation)?;
+        let (form_source, clip) = {
             let source = source.borrow();
-            source.check_page(page_number)?;
-            FormSource {
+            let (width, height) = source.page_extent(page_number)?;
+            let clip = clip
+                .map(|(x0, y0, x1, y1)| {
+                    for value in [x0, y0, x1, y1] {
+                        coordinate(value)?;
+                    }
+                    let shown = (x0.max(0.0), y0.max(0.0), x1.min(width), y1.min(height));
+                    rect_array(shown).map_err(|_| {
+                        PdfError::new_err("clip must overlap the source page with a positive area")
+                    })
+                })
+                .transpose()?;
+            let form_source = FormSource {
                 revision: source.revision(),
                 page: page_number,
-            }
+            };
+            (form_source, clip)
         };
         let page = match self
             .recording
@@ -2217,6 +2300,8 @@ impl _Canvas {
             page,
             rect,
             keep_aspect,
+            clip,
+            rotation,
         })
     }
 }

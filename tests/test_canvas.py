@@ -612,6 +612,143 @@ def test_pages_of_other_documents_are_stored_once() -> None:
     assert page.text().count("Source page") == 3
 
 
+def _marked_source(rotation: int = 0) -> pylopdf.Document:
+    """Return a 300 by 200 display-point page with a red and a blue square and a line of text."""
+    doc = pylopdf.Document()
+    page = doc.pages.new((300, 200) if rotation in (0, 180) else (200, 300))
+    page.rotation = rotation
+    with page.draw() as canvas:
+        canvas.rect((0, 0, 30, 30), fill=RED)
+        canvas.rect((200, 100, 260, 160), fill=BLUE)
+        canvas.text("Placed", (40, 120), size=12)
+    return pylopdf.open(doc.to_bytes())
+
+
+def _filled(page: pylopdf.Page, color: Color) -> list[pylopdf.Path]:
+    return [path for path in page.content().paths if path.fill == color]
+
+
+def _clipped_to(path: pylopdf.Path | pylopdf.TextRun, expected: tuple[float, float, float, float]) -> bool:
+    """Return whether one of the clips around a path is the rectangle ``expected``."""
+    return any(tuple(clip.bbox) == pytest.approx(expected, abs=0.01) for clip in path.context.clips)
+
+
+@pytest.mark.parametrize(
+    ("rotate", "rect", "red"),
+    [
+        (0, (0, 0, 300, 200), (0, 0, 30, 30)),
+        (90, (0, 0, 200, 300), (170, 0, 200, 30)),
+        (180, (0, 0, 300, 200), (270, 170, 300, 200)),
+        (270, (0, 0, 200, 300), (0, 270, 30, 300)),
+        (-90, (0, 0, 200, 300), (0, 270, 30, 300)),
+    ],
+)
+def test_a_placed_page_turns_clockwise(
+    rotate: int,
+    rect: tuple[float, float, float, float],
+    red: tuple[float, float, float, float],
+) -> None:
+    source = _marked_source()
+    _doc, page = _new_page(300, 300)
+    with page.draw() as canvas:
+        canvas.page(rect, source.pages[0], rotate=rotate)
+    (square,) = _filled(page, RED)
+    _assert_rect(square.bbox, red)
+    (run,) = page.content().text_runs
+    assert _direction(run.glyphs[0]) == pytest.approx(_TURNS[rotate % 360], abs=1e-6)
+    assert page.text() == "Placed\n"
+    x0, y0, x1, y1 = red
+    assert _pixel(page, (x0 + x1) / 2, (y0 + y1) / 2) == (255, 0, 0)
+
+
+def test_a_clip_draws_only_part_of_the_page_scaled_into_the_rectangle() -> None:
+    source = _marked_source()
+    _doc, page = _new_page(400, 400)
+    with page.draw() as canvas:
+        canvas.page((100, 100, 250, 250), source.pages[0], clip=(150, 50, 300, 200))
+    # The 150-point square clip fills the rectangle at scale 1.
+    (blue,) = _filled(page, BLUE)
+    _assert_rect(blue.bbox, (150, 150, 210, 210))
+    assert _clipped_to(blue, (100, 100, 250, 250))
+    assert _pixel(page, 180, 180) == (0, 0, 255)
+    # The red square lies outside the clip and maps outside the rectangle.
+    (red,) = _filled(page, RED)
+    _assert_rect(red.bbox, (-50, 50, -20, 80))
+    assert _clipped_to(red, (100, 100, 250, 250))
+    # Extraction keeps text outside clips, as hayro reports it, inside the clip's context.
+    (run,) = page.content().text_runs
+    assert _clipped_to(run, (100, 100, 250, 250))
+
+
+def test_a_clip_turns_with_the_page_and_may_stretch() -> None:
+    source = _marked_source()
+    _doc, page = _new_page(400, 400)
+    with page.draw() as canvas:
+        canvas.page((100, 100, 250, 250), source.pages[0], clip=(150, 50, 300, 200), rotate=90)
+        canvas.page((0, 300, 300, 375), source.pages[0], clip=(150, 50, 300, 200), keep_aspect=False)
+    turned, stretched = _filled(page, BLUE)
+    _assert_rect(turned.bbox, (140, 150, 200, 210))
+    # The 150 by 150 clip stretches to 300 by 75.
+    _assert_rect(stretched.bbox, (100, 325, 220, 355))
+    assert _clipped_to(stretched, (0, 300, 300, 375))
+    assert _pixel(page, 170, 180) == (0, 0, 255)
+    assert _pixel(page, 160, 340) == (0, 0, 255)
+
+
+def test_a_clip_is_cut_to_the_page_and_must_overlap_it() -> None:
+    source = _marked_source()
+    _doc, page = _new_page(400, 400)
+    with page.draw() as canvas:
+        # Only the 50-point corner (250, 150, 300, 200) lies on the page.
+        canvas.page((0, 0, 100, 100), source.pages[0], clip=(250, 150, 400, 300))
+        with pytest.raises(ValueError, match="overlap the source page"):
+            canvas.page((0, 0, 100, 100), source.pages[0], clip=(300, 0, 400, 100))
+        with pytest.raises(ValueError, match="clip must have x0 < x1"):
+            canvas.page((0, 0, 100, 100), source.pages[0], clip=(50, 50, 10, 10))
+        with pytest.raises(ValueError, match="multiple of 90"):
+            canvas.page((0, 0, 100, 100), source.pages[0], rotate=45)
+    (blue,) = _filled(page, BLUE)
+    # Blue's part from (250, 150) to (260, 160) at scale 2.
+    assert _clipped_to(blue, (0, 0, 100, 100))
+    assert blue.bbox.x0 == pytest.approx(-100, abs=0.01)
+    assert _pixel(page, 10, 10) == (0, 0, 255)
+    assert _pixel(page, 30, 30) == (255, 255, 255)
+
+
+def test_a_clip_uses_the_source_pages_display_space() -> None:
+    source = _marked_source(rotation=90)
+    _doc, page = _new_page(400, 400)
+    with page.draw() as canvas:
+        canvas.page((0, 0, 100, 100), source.pages[0], clip=(0, 0, 100, 100))
+    (red,) = _filled(page, RED)
+    _assert_rect(red.bbox, (0, 0, 30, 30))
+    assert _pixel(page, 15, 15) == (255, 0, 0)
+
+
+def test_clips_and_turns_of_one_page_share_its_form() -> None:
+    source = _marked_source()
+    single, single_page = _new_page(400, 400)
+    with single_page.draw() as canvas:
+        canvas.page((0, 0, 150, 100), source.pages[0])
+    several, several_page = _new_page(400, 400)
+    with several_page.draw() as canvas:
+        canvas.page((0, 0, 150, 100), source.pages[0])
+        canvas.page((0, 100, 100, 250), source.pages[0], rotate=90)
+        canvas.page((200, 0, 300, 100), source.pages[0], clip=(150, 50, 300, 200), rotate=180)
+    assert len(several.objects) == len(single.objects)
+    assert len(_filled(several_page, BLUE)) == 3
+
+
+def test_a_clipped_and_turned_page_survives_a_save() -> None:
+    source = _marked_source()
+    doc, page = _new_page(400, 400)
+    with page.draw() as canvas:
+        canvas.page((100, 100, 250, 250), source.pages[0], clip=(150, 50, 300, 200), rotate=270)
+    reopened = pylopdf.open(doc.to_bytes()).pages[0]
+    assert [path.bbox for path in reopened.content().paths] == [path.bbox for path in page.content().paths]
+    assert bytes(reopened.pixmap()) == bytes(page.pixmap())
+
+
 def test_a_page_is_drawn_as_it_was_recorded() -> None:
     doc = pylopdf.open(_one_page_pdf("Before"))
     target = doc.pages.new((300, 200))

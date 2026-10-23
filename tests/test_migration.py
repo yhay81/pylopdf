@@ -522,6 +522,15 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "    canvas.page(r, pylopdf.open(path).pages[0], keep_aspect=False)\n",
         ),
         ("import pylopdf\npage.show_pdf_page(r, src=other, pno=-1)\n", "    canvas.page(r, other.pages[-1])"),
+        # pymupdf turns the page anticlockwise, the canvas clockwise; both clip in the source page's coordinates.
+        (
+            "import fitz\npage.show_pdf_page(r, src, 1, clip=c, rotate=90, keep_proportion=False)\n",
+            "    canvas.page(r, src.pages[1], clip=c, keep_aspect=False, rotate=270)",
+        ),
+        (
+            "import fitz\npage.show_pdf_page(r, src, rotate=angle, clip=None)\n",
+            "    canvas.page(r, src.pages[0], rotate=-angle)",
+        ),
         (
             "import pylopdf\nwith page.draw() as canvas:\n    canvas.line(a, b)\npage.insert_image(r, stream=d)\n",
             "with page.draw() as canvas:\n    canvas.line(a, b)\nwith page.draw() as canvas:\n    canvas.image(r, d)\n",
@@ -920,8 +929,7 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import fitz\npage.insert_image(r, xref=x)\n", "Page.insert_image is Canvas.image"),
         ("import fitz\npage.insert_image(r, filename=f, stream=s)\n", "Page.insert_image is Canvas.image"),
         ("import fitz\nxref = doc.new_page().insert_image(r, stream=d)\n", "Page.insert_image is Canvas.image"),
-        ("import fitz\npage.show_pdf_page(r, src, clip=c)\n", "Page.show_pdf_page is Canvas.page"),
-        ("import fitz\npage.show_pdf_page(r, src, rotate=90)\n", "Page.show_pdf_page is Canvas.page"),
+        ("import fitz\npage.show_pdf_page(r, src, oc=5)\n", "Page.show_pdf_page is Canvas.page"),
         ("import fitz\nform = page.show_pdf_page(r, src)\n", "Page.show_pdf_page is Canvas.page"),
         ("import fitz\npage.insert_text(p, t, render_mode=3)\n", "Page.insert_text is Canvas.text"),
         ("import fitz\npage.insert_text(p, t, fontname='china-s')\n", "Page.insert_text is Canvas.text"),

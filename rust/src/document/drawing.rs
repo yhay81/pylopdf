@@ -736,9 +736,11 @@ impl _Document {
         self.revision
     }
 
-    /// Refuse a one-based page number that names no page.
-    pub(crate) fn check_page(&self, page_number: u32) -> PyResult<()> {
-        self.page_id(page_number).map(|_| ())
+    /// The display width and height of a one-based page; a page number that
+    /// names no page is refused.
+    pub(crate) fn page_extent(&self, page_number: u32) -> PyResult<(f64, f64)> {
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        Ok(draw::display_size(crop, rotation))
     }
 
     /// A copy of the editable document, as a canvas imports pages from it.

@@ -2023,10 +2023,14 @@ def _show_pdf_page(migrator: _Migrator, receiver: str, args: _Arguments) -> str 
     if bound is None or "rect" not in bound or "docsrc" not in bound:
         return None
     options = {key: value for key, value in bound.items() if value not in PAGE_PLACEMENT_DEFAULTS.get(key, ())}
-    if {"oc", "rotate", "clip"} & set(options) or options.get("overlay", "True") not in _FALSE | _TRUE:
+    if "oc" in options or options.get("overlay", "True") not in _FALSE | _TRUE:
         return None
     source = f"{_receiver(cst.parse_expression(options['docsrc']))}.pages[{options.get('pno', '0')}]"
-    keywords = [] if "keep_proportion" not in options else [f"keep_aspect={options['keep_proportion']}"]
+    keywords = [] if "clip" not in options else [f"clip={options['clip']}"]
+    if "keep_proportion" in options:
+        keywords.append(f"keep_aspect={options['keep_proportion']}")
+    if "rotate" in options and (rotate := _canvas_rotation(migrator, options["rotate"])) != "0":
+        keywords.append(f"rotate={rotate}")
     arguments = ", ".join([options["rect"], source, *keywords])
     return _canvas_block(migrator, receiver, options, lambda canvas: f"{canvas}.page({arguments})")
 

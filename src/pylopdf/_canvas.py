@@ -936,13 +936,27 @@ class Canvas:
             msg = f"source must be a path, bytes, or a Pixmap, not {type(source).__name__}"
             raise TypeError(msg)
 
-    def page(self, rect: Sequence[float], source: Page, *, keep_aspect: bool = True) -> None:
+    def page(
+        self,
+        rect: Sequence[float],
+        source: Page,
+        *,
+        clip: Sequence[float] | None = None,
+        keep_aspect: bool = True,
+        rotate: int = 0,
+    ) -> None:
         """Draw another page, of any open document or this one, into ``rect``.
 
-        The page is drawn as it was when this call was made, as vector
+        ``clip`` is a rectangle in the source page's display coordinates,
+        those of its :attr:`Page.rect`: only the part of the page inside it
+        is drawn, scaled into ``rect`` in place of the whole page, and a
+        clip must overlap the page. ``rotate`` turns the page, or its
+        clipped part, clockwise by 0, 90, 180, or 270 degrees, and
+        ``keep_aspect`` centres it in ``rect`` at its aspect ratio after the
+        turn. The page is drawn as it was when this call was made, as vector
         content with its fonts and images. A page drawn several times, or
         placed in this document before while its document was unchanged, is
-        stored once.
+        stored once, whatever its clip and rotation.
         """
         from pylopdf._page import Page  # noqa: PLC0415 - pylopdf._page imports this module.
 
@@ -954,12 +968,16 @@ class Canvas:
             msg = "a new document cannot place other pages yet; draw them on the finished document's pages"
             raise ValueError(msg)
         box = tuple(_rect(rect, "rect"))
+        shown = None if clip is None else tuple(_rect(clip, "clip"))
+        rotation = _quarter_turn(rotate)
         self._record.add_page(
             self._page.document._doc,
             source.document._doc,
             source._page_number(),
             box,
             bool(keep_aspect),
+            shown,
+            rotation,
         )
 
     def clip(self, path: PathLike, *, fill_rule: FillRule = FillRule.NONZERO) -> AbstractContextManager[None]:
