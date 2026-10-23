@@ -169,7 +169,9 @@ impl _Document {
         // derives its file key from the first element.
         if !cloned.trailer.has(b"ID") {
             let id = Object::String(request.document_id.to_vec(), StringFormat::Hexadecimal);
-            cloned.trailer.set("ID", Object::Array(vec![id.clone(), id]));
+            cloned
+                .trailer
+                .set("ID", Object::Array(vec![id.clone(), id]));
         }
         let version = match request.method {
             "aes-256" => {

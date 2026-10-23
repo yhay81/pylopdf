@@ -105,7 +105,6 @@ pub(crate) use self::forms::*;
 use self::geometry::*;
 pub(crate) use self::images::*;
 use self::incremental::IncrementalBase;
-use self::saving::EncryptionRequest;
 pub(crate) use self::input::*;
 use self::labels::*;
 use self::layers::*;
@@ -118,6 +117,7 @@ pub(crate) use self::objects::*;
 use self::outline::*;
 use self::page_tree::*;
 use self::rendering::*;
+use self::saving::EncryptionRequest;
 use self::saving::*;
 use self::streams::*;
 
