@@ -481,7 +481,7 @@ HINTS: dict[str, str] = {
     "Page.add_polygon_annot": "Page.add_polygon_annot is Annotations.add in pylopdf. page.annotations.add(Polygon(points, ...)) adds a closed polygon with its appearance and returns its Annotation.",
     "Page.add_polyline_annot": "Page.add_polyline_annot is Annotations.add in pylopdf. page.annotations.add(PolyLine(points, ...)) adds an open polyline with its appearance and returns its Annotation.",
     "Page.add_rect_annot": "Page.add_rect_annot is Annotations.add in pylopdf. page.annotations.add(Square(rect, color=..., interior_color=..., border=Border(...))) adds a rectangle with its appearance and returns its Annotation.",
-    "Page.add_redact_annot": "pylopdf plans the capability of pymupdf's Page.add_redact_annot in the Rewriting milestone of ROADMAP.md.",
+    "Page.add_redact_annot": "Page.add_redact_annot is Annotations.add in pylopdf. page.annotations.add(Redaction(quads, fill=Color(...), overlay_text=..., text_color=..., align=...)) marks areas for removal; applying them is page.redact (Rewriting).",
     "Page.add_squiggly_annot": "Page.add_squiggly_annot is Annotations.add in pylopdf. page.annotations.add(Squiggly(quads)) adds a squiggly underline with its appearance and returns its Annotation; color is a Color and content becomes contents.",
     "Page.add_stamp_annot": "Page.add_stamp_annot is Annotations.add in pylopdf. page.annotations.add(Stamp(rect, icon=StampIcon.APPROVED, rotate=...)) adds a stamp with its appearance and returns its Annotation.",
     "Page.add_strikeout_annot": "Page.add_strikeout_annot is Annotations.add in pylopdf. page.annotations.add(StrikeOut(quads)) adds a strikeout with its appearance and returns its Annotation; color is a Color and content becomes contents.",

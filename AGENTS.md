@@ -2442,6 +2442,11 @@ the concept and API overview.
   `annotation_file_write` reuse `attachments.rs`'s `filespec_info`,
   `embedded_stream_id`, and the `embfile_upd` stream rules for the
   annotation's `/FS`, direct or indirect.
+  A redaction (`/Redact`) outlines and crosses out each of its
+  `/QuadPoints`, or its `/Rect` without them, in `/C`; creation writes
+  `/IC` (the fill that applying it leaves), `/OverlayText`, `/DA`, and `/Q`
+  (`default_appearance_entries`, shared with free text). Applying belongs
+  to `page.redact` (Rewriting).
   `popup_rect`, `is_open`, and `in_reply_to` edit through
   `set_annotation_popup`, `set_annotation_open`, and `set_annotation_reply`,
   which validate first, then find the annotation with `edited_annotation`

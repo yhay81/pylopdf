@@ -113,6 +113,7 @@
     "PylopdfWarning",
     "Quad",
     "Rect",
+    "Redaction",
     "RemoteDestination",
     "Resources",
     "Segment",
@@ -380,7 +381,7 @@
     },
     "AnnotationSpecification": {
       "kind": "type-alias",
-      "target": "pylopdf.Highlight | pylopdf.Underline | pylopdf.StrikeOut | pylopdf.Squiggly | pylopdf.Note | pylopdf.FreeText | pylopdf.Stamp | pylopdf.Caret | pylopdf.FileAttachment | pylopdf.Square | pylopdf.Circle | pylopdf.LineAnnotation | pylopdf.Polygon | pylopdf.PolyLine | pylopdf.Ink"
+      "target": "pylopdf.Highlight | pylopdf.Underline | pylopdf.StrikeOut | pylopdf.Squiggly | pylopdf.Note | pylopdf.FreeText | pylopdf.Stamp | pylopdf.Caret | pylopdf.FileAttachment | pylopdf.Redaction | pylopdf.Square | pylopdf.Circle | pylopdf.LineAnnotation | pylopdf.Polygon | pylopdf.PolyLine | pylopdf.Ink"
     },
     "AnnotationType": {
       "kind": "enum",
@@ -9363,6 +9364,124 @@
           }
         ],
         "returns": "Self"
+      }
+    },
+    "Redaction": {
+      "annotations": {
+        "align": "Literal['left', 'center', 'right']",
+        "color": "Color",
+        "contents": "str | None",
+        "fill": "Color | None",
+        "font": "Font | None",
+        "overlay_text": "str | None",
+        "rects": "tuple[Rect, ...]",
+        "size": "float",
+        "text_color": "Color"
+      },
+      "dataclass_fields": [
+        "rects",
+        "color",
+        "fill",
+        "overlay_text",
+        "font",
+        "size",
+        "text_color",
+        "align",
+        "contents"
+      ],
+      "kind": "class",
+      "members": {
+        "align": {
+          "kind": "property"
+        },
+        "color": {
+          "kind": "property"
+        },
+        "contents": {
+          "kind": "property"
+        },
+        "fill": {
+          "kind": "property"
+        },
+        "font": {
+          "kind": "property"
+        },
+        "overlay_text": {
+          "kind": "property"
+        },
+        "rects": {
+          "kind": "property"
+        },
+        "size": {
+          "kind": "property"
+        },
+        "text_color": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Sequence[float] | Quad | Iterable[Sequence[float] | Quad]",
+            "kind": "positional_or_keyword",
+            "name": "rects"
+          },
+          {
+            "annotation": "Color",
+            "default": {
+              "repr": "Color(red=1.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "color"
+          },
+          {
+            "annotation": "Color | None",
+            "default": {
+              "repr": "Color(red=0.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "fill"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "overlay_text"
+          },
+          {
+            "annotation": "Font | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "font"
+          },
+          {
+            "annotation": "float",
+            "default": 11.0,
+            "kind": "keyword_only",
+            "name": "size"
+          },
+          {
+            "annotation": "Color",
+            "default": {
+              "repr": "Color(red=0.0, green=0.0, blue=0.0, alpha=1.0)"
+            },
+            "kind": "keyword_only",
+            "name": "text_color"
+          },
+          {
+            "annotation": "Literal['left', 'center', 'right']",
+            "default": "left",
+            "kind": "keyword_only",
+            "name": "align"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "contents"
+          }
+        ],
+        "returns": "None"
       }
     },
     "RemoteDestination": {

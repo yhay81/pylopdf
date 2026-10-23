@@ -1205,6 +1205,7 @@ def _annotation_results() -> dict[str, Any]:
         LineEnding,
         Note,
         NoteIcon,
+        Redaction,
         Square,
         Squiggly,
         Stamp,
@@ -1229,6 +1230,7 @@ def _annotation_results() -> dict[str, Any]:
         page.annotations.add(FreeText((110, 120, 190, 160), "Free", callout=[(150, 190), (150, 160)]))
         page.annotations.add(Stamp((100, 200, 195, 240), icon=StampIcon.TOP_SECRET))
         page.annotations.add(FileAttachment((170, 60), b"attached", filename="a.txt", icon=AttachmentIcon.TAG))
+        page.annotations.add(Redaction((20, 250, 90, 270), overlay_text="gone"))
         data = document.to_bytes()
     with pylopdf.open(data) as reopened:
         page = reopened.pages[0]
@@ -1264,7 +1266,7 @@ def _annotation_results() -> dict[str, Any]:
         inside = list(samples[(25 * pixmap.width + 35) * 3 : (25 * pixmap.width + 35) * 3 + 3])
     _require(
         [entry["type"] for entry in annotations]
-        == ["SQUARE", "CIRCLE", "LINE", "INK", "SQUIGGLY", "TEXT", "FREE_TEXT", "STAMP", "FILE_ATTACHMENT"],
+        == ["SQUARE", "CIRCLE", "LINE", "INK", "SQUIGGLY", "TEXT", "FREE_TEXT", "STAMP", "FILE_ATTACHMENT", "REDACT"],
         "annotation types changed",
     )
     _require(inside == [255, 255, 0], "the square's appearance did not render")

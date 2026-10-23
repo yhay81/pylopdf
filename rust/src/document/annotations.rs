@@ -766,6 +766,9 @@ pub(super) struct AnnotationSpec {
     /// The `/LE` ending at the shown point of a callout line.
     #[pyo3(default)]
     callout_ending: Option<String>,
+    /// The text that a redaction leaves where it removed content.
+    #[pyo3(default)]
+    overlay_text: Option<String>,
     /// The file that a file attachment embeds, its name and description,
     /// and the bound on its size, 64 MiB unless the caller passes another.
     #[pyo3(default)]
@@ -807,7 +810,8 @@ const NOTE_ICONS: [&str; 7] = [
 const FILE_ICONS: [&str; 4] = ["Graph", "PushPin", "Paperclip", "Tag"];
 
 /// The subtypes that `add_annotation` creates.
-const CREATED_SUBTYPES: [&str; 15] = [
+const CREATED_SUBTYPES: [&str; 16] = [
+    "Redact",
     "Text",
     "FileAttachment",
     "FreeText",
@@ -867,7 +871,9 @@ fn annotation_dictionary(
     )?;
     let subtype = spec.subtype.as_str();
     let mut geometry = Dictionary::new();
-    if spec.rects.is_some() != annotation_appearance::is_text_markup(subtype.as_bytes()) {
+    if spec.rects.is_some()
+        != (annotation_appearance::is_text_markup(subtype.as_bytes()) || subtype == "Redact")
+    {
         return Err(PdfError::new_err(format!(
             "rectangles place text markup, not a {subtype} annotation"
         )));
@@ -1108,17 +1114,32 @@ fn annotation_dictionary(
     if let Some(contents) = &spec.contents {
         dict.set("Contents", text_string(contents));
     }
-    let free_text = spec.text_color.is_some()
+    let text_style = spec.text_color.is_some()
         || spec.font_size.is_some()
         || spec.font_name.is_some()
-        || spec.align.is_some()
-        || spec.font.is_some()
-        || spec.callout.is_some()
-        || spec.callout_ending.is_some();
-    if free_text && subtype != "FreeText" {
+        || spec.align.is_some();
+    let free_text = spec.font.is_some() || spec.callout.is_some() || spec.callout_ending.is_some();
+    if free_text && subtype != "FreeText"
+        || text_style && !matches!(subtype, "FreeText" | "Redact")
+        || spec.overlay_text.is_some() && subtype != "Redact"
+    {
         return Err(PdfError::new_err(format!(
-            "text style and callouts belong to free text, not a {subtype} annotation"
+            "text style and callouts belong to free text and overlay text to redactions, not a {subtype} annotation"
         )));
+    }
+    if subtype == "Redact" {
+        validate_annotation_input(
+            [
+                spec.subtype.as_bytes(),
+                spec.contents.as_deref().unwrap_or_default().as_bytes(),
+                spec.overlay_text.as_deref().unwrap_or_default().as_bytes(),
+            ],
+            "subtype, contents, and overlay text",
+        )?;
+        if let Some(text) = &spec.overlay_text {
+            dict.set("OverlayText", text_string(text));
+        }
+        default_appearance_entries(spec, &mut dict)?;
     }
     if spec.rotate.is_some() && !matches!(subtype, "FreeText" | "Stamp") {
         return Err(PdfError::new_err(format!(
@@ -1217,14 +1238,9 @@ fn annotation_dictionary(
     Ok(dict)
 }
 
-/// Write the entries of a free text: `/DA`, `/Q`, `/Rotate`, and with a
-/// callout `/CL`, `/LE`, `/IT`, `/RD`, and a `/Rect` that holds the line and
-/// its ending as well as the box.
-fn free_text_entries(
-    spec: &AnnotationSpec,
-    (crop, rotation): ([f64; 4], i64),
-    dict: &mut Dictionary,
-) -> PyResult<()> {
+/// Write the `/DA` and `/Q` of a free text or redaction: its text colour,
+/// font, and size, and its alignment.
+fn default_appearance_entries(spec: &AnnotationSpec, dict: &mut Dictionary) -> PyResult<()> {
     let (red, green, blue) = spec.text_color.unwrap_or((0.0, 0.0, 0.0));
     rgb_array("text colour", (red, green, blue))?;
     let size = spec.font_size.unwrap_or(11.0);
@@ -1271,6 +1287,18 @@ fn free_text_entries(
         ));
     }
     dict.set("Q", i64::from(align));
+    Ok(())
+}
+
+/// Write the entries of a free text: `/DA`, `/Q`, `/Rotate`, and with a
+/// callout `/CL`, `/LE`, `/IT`, `/RD`, and a `/Rect` that holds the line and
+/// its ending as well as the box.
+fn free_text_entries(
+    spec: &AnnotationSpec,
+    (crop, rotation): ([f64; 4], i64),
+    dict: &mut Dictionary,
+) -> PyResult<()> {
+    default_appearance_entries(spec, dict)?;
     let Some(points) = &spec.callout else {
         if spec.callout_ending.is_some() {
             return Err(PdfError::new_err("a callout ending needs a callout line"));
