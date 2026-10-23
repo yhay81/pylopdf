@@ -89,7 +89,7 @@ limits = pylopdf.DocumentLimits(
 | `Page.content()` | グリフ、パスとクリップのセグメント、線の破線の長さ、項目で合わせて262,144 | `max_elements` |
 | `Canvas.text()`, `textbox()`, `Font.text_width()`, `text_height()` | テキスト1 MiBと4,096行 | `max_text_size` |
 | `Font.from_file()`, `from_bytes()`、フォームへのフォント入力 | フォント1つあたり64 MiB | `max_size`, `max_font_size` |
-| `Page.insert_image()` | 入力64 MiBと6,400万画素 | `max_size`, `max_pixels` |
+| `Canvas.image()` | 入力64 MiBと6,400万画素 | `max_size`, `max_pixels` |
 | `Page.replace_text()` | ページのコンテンツ64 MiB | `max_size` |
 | 添付ファイル: `add()`, `read()`, `write()` | ファイル1つあたり64 MiB | `max_size` |
 | `Stream.read()` | 64 MiB | `max_size` |

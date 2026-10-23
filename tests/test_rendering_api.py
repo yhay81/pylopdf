@@ -141,12 +141,16 @@ def test_rgb_pixmaps_insert_without_a_soft_mask() -> None:
     source = _page().pixmap(dpi=36)
     doc = pylopdf.open(build_pdf(["Target"]))
 
-    xref = doc.pages[0].insert_image((10, 10, 110, 60), pixmap=source)
+    with doc.pages[0].draw() as canvas:
+        canvas.image((10, 10, 110, 60), source)
+    xref = doc.pages[0].content(text_runs=False, paths=False, annotations=False).images[-1].xref
 
     image = doc.objects[xref]
     assert image["ColorSpace"] == "DeviceRGB"
     assert "SMask" not in image
-    with_alpha = doc.pages[0].insert_image((10, 70, 110, 120), pixmap=_page().pixmap(dpi=36, alpha=True))
+    with doc.pages[0].draw() as canvas:
+        canvas.image((10, 70, 110, 120), _page().pixmap(dpi=36, alpha=True))
+    with_alpha = doc.pages[0].content(text_runs=False, paths=False, annotations=False).images[-1].xref
     assert with_alpha != xref
     assert "SMask" in doc.objects[with_alpha]
 

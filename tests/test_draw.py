@@ -221,8 +221,10 @@ def _filter_chain_content_doc(count: int) -> pylopdf.Document:
 def _split_pixmap() -> pylopdf.Pixmap:
     """Render a wide image with red on the left and green on the right."""
     source = _new_page_doc(20, 10)
-    source.pages[0].insert_image((0, 0, 10, 10), stream=_solid_png(2, 2, RED), keep_proportion=False)
-    source.pages[0].insert_image((10, 0, 20, 10), stream=_solid_png(2, 2, GREEN), keep_proportion=False)
+    with source.pages[0].draw() as canvas:
+        canvas.image((0, 0, 10, 10), _solid_png(2, 2, RED), keep_aspect=False)
+    with source.pages[0].draw() as canvas:
+        canvas.image((10, 0, 20, 10), _solid_png(2, 2, GREEN), keep_aspect=False)
     return source.pages[0].pixmap(background=WHITE, alpha=True)
 
 
@@ -264,24 +266,20 @@ def test_drawing_preserves_content_shape_order_and_shared_pages(
     overlay: bool,
 ) -> None:
     doc = _content_shape_doc(shape, shared=shared)
-    doc.pages[0].insert_image(
-        (0, 0, 200, 100),
-        stream=_solid_png(2, 2, GREEN),
-        keep_proportion=False,
-        overlay=overlay,
-    )
+    with doc.pages[0].draw(underlay=not overlay) as canvas:
+        canvas.image((0, 0, 200, 100), _solid_png(2, 2, GREEN), keep_aspect=False)
 
     assert _pixel(doc.pages[0], 100, 50) == (GREEN if overlay else RED)
     if shared:
         assert _pixel(doc.pages[1], 100, 50) == RED
 
 
-def test_drawing_rejects_raw_contents_array_before_input_decode() -> None:
+def test_drawing_rejects_raw_contents_array_before_mutation() -> None:
     doc = _many_contents_doc(4097)
     before = doc.to_bytes()
 
-    with pytest.raises(pylopdf.PdfError, match="4096-entry"):
-        doc.pages[0].insert_image((0, 0, 10, 10), stream=b"not an image")
+    with pytest.raises(pylopdf.PdfError, match="4096-entry"), doc.pages[0].draw() as canvas:
+        canvas.image((0, 0, 10, 10), _solid_png(1, 1, RED))
     assert doc.to_bytes() == before
 
 
@@ -323,7 +321,8 @@ def test_drawing_preflights_resource_shape_before_mutation(
 
     def run_operation() -> None:
         if operation == "image":
-            doc.pages[0].insert_image((0, 0, 10, 10), stream=b"not an image")
+            with doc.pages[0].draw() as canvas:
+                canvas.image((0, 0, 10, 10), _solid_png(1, 1, RED))
         else:
             # The OCR text layer is the one drawing that registers a font in
             # the page's resources; the canvas keeps its fonts in its Form.
@@ -339,18 +338,15 @@ def test_drawing_rejects_full_resource_category_before_mutation() -> None:
     doc = _resource_shape_doc("4 0 R", f"<< /XObject << {entries} >> >>")
     before = doc.to_bytes()
 
-    with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
-        doc.pages[0].insert_image((0, 0, 10, 10), stream=b"not an image")
+    with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"), doc.pages[0].draw() as canvas:
+        canvas.image((0, 0, 10, 10), _solid_png(1, 1, RED))
     assert doc.to_bytes() == before
 
 
 def test_drawing_detaches_shared_resources_from_other_pages() -> None:
     doc = _shared_resource_doc()
-    doc.pages[0].insert_image(
-        (0, 0, 200, 100),
-        stream=_solid_png(2, 2, GREEN),
-        keep_proportion=False,
-    )
+    with doc.pages[0].draw() as canvas:
+        canvas.image((0, 0, 200, 100), _solid_png(2, 2, GREEN), keep_aspect=False)
     assert _pixel(doc.pages[0], 100, 50) == GREEN
     assert _pixel(doc.pages[1], 100, 50) == RED
 
@@ -393,22 +389,25 @@ def test_drawing_rejects_page_inheritance_amplification(
     assert doc.to_bytes() == before
 
 
-def test_show_pdf_page_rejects_source_inheritance_before_target_mutation() -> None:
+def test_placed_page_rejects_source_inheritance_before_target_mutation() -> None:
     target = _resource_shape_doc("<< >>")
     before = target.to_bytes()
 
-    with pytest.raises(pylopdf.PdfError, match="64-level safety limit"):
-        target.pages[0].show_pdf_page((0, 0, 100, 100), _page_parent_chain_doc(63))
+    with pytest.raises(pylopdf.PdfError, match="64-level safety limit"), target.pages[0].draw() as canvas:
+        canvas.page((0, 0, 100, 100), _page_parent_chain_doc(63).pages[0])
     assert target.to_bytes() == before
 
 
-def test_show_pdf_page_bounds_decompressed_source_content_before_target_mutation() -> None:
+def test_placed_page_bounds_decompressed_source_content_before_target_mutation() -> None:
     target = _resource_shape_doc("<< >>")
     before = target.to_bytes()
     source = _compressed_content_doc(64 * 1024 * 1024)
 
-    with pytest.raises(pylopdf.LimitError, match=r"Form source page content.*limit") as caught:
-        target.pages[0].show_pdf_page((0, 0, 100, 100), source)
+    with (
+        pytest.raises(pylopdf.LimitError, match=r"Form source page content.*limit") as caught,
+        target.pages[0].draw() as canvas,
+    ):
+        canvas.page((0, 0, 100, 100), source.pages[0])
     assert caught.value.code == "form_content_size"
     assert target.to_bytes() == before
 
@@ -425,7 +424,7 @@ def test_show_pdf_page_bounds_decompressed_source_content_before_target_mutation
         ),
     ],
 )
-def test_show_pdf_page_rejects_undecodable_source_content_before_target_mutation(
+def test_placed_page_rejects_undecodable_source_content_before_target_mutation(
     filter_name: str,
     payload: bytes,
     decode_params: str,
@@ -434,22 +433,26 @@ def test_show_pdf_page_rejects_undecodable_source_content_before_target_mutation
     before = target.to_bytes()
     source = _filtered_content_doc(filter_name, payload, decode_params=decode_params)
 
-    with pytest.raises(pylopdf.PdfError, match="failed to decode Form source page content"):
-        target.pages[0].show_pdf_page((0, 0, 100, 100), source)
+    with (
+        pytest.raises(pylopdf.PdfError, match="failed to decode Form source page content"),
+        target.pages[0].draw() as canvas,
+    ):
+        canvas.page((0, 0, 100, 100), source.pages[0])
     assert target.to_bytes() == before
 
 
-def test_show_pdf_page_decodes_abbreviated_source_content_filter() -> None:
+def test_placed_page_decodes_abbreviated_source_content_filter() -> None:
     target = _resource_shape_doc("<< >>")
     operators = b"q 1 0 0 rg 0 0 200 100 re f Q"
     source = _filtered_content_doc("Fl", zlib.compress(operators))
 
-    target.pages[0].show_pdf_page((0, 0, 200, 100), source, keep_proportion=False)
+    with target.pages[0].draw() as canvas:
+        canvas.page((0, 0, 200, 100), source.pages[0], keep_aspect=False)
     assert _pixel(target.pages[0], 100, 50) == RED
 
 
 @pytest.mark.parametrize("filter_name", ["ASCIIHexDecode", "AHx", "RunLengthDecode", "RL"])
-def test_show_pdf_page_decodes_ascii_hex_and_run_length_source_content(filter_name: str) -> None:
+def test_placed_page_decodes_ascii_hex_and_run_length_source_content(filter_name: str) -> None:
     """Form imports decode ASCIIHex and RunLength layers since lopdf 0.45."""
     target = _resource_shape_doc("<< >>")
     operators = b"q 1 0 0 rg 0 0 200 100 re f Q"
@@ -459,16 +462,17 @@ def test_show_pdf_page_decodes_ascii_hex_and_run_length_source_content(filter_na
         payload = bytes([len(operators) - 1]) + operators + b"\x80"
     source = _filtered_content_doc(filter_name, payload)
 
-    target.pages[0].show_pdf_page((0, 0, 200, 100), source, keep_proportion=False)
+    with target.pages[0].draw() as canvas:
+        canvas.page((0, 0, 200, 100), source.pages[0], keep_aspect=False)
     assert _pixel(target.pages[0], 100, 50) == RED
 
 
-def test_show_pdf_page_rejects_excessive_source_filter_chain_before_target_mutation() -> None:
+def test_placed_page_rejects_excessive_source_filter_chain_before_target_mutation() -> None:
     target = _resource_shape_doc("<< >>")
     before = target.to_bytes()
 
-    with pytest.raises(pylopdf.LimitError) as caught:
-        target.pages[0].show_pdf_page((0, 0, 100, 100), _filter_chain_content_doc(17))
+    with pytest.raises(pylopdf.LimitError) as caught, target.pages[0].draw() as canvas:
+        canvas.page((0, 0, 100, 100), _filter_chain_content_doc(17).pages[0])
     assert caught.value.code == "stream_filter_count"
     assert target.to_bytes() == before
 
@@ -499,11 +503,13 @@ def test_drawing_preflights_contents_before_mutation(operation: str) -> None:
 
     def run_operation() -> None:
         if operation == "image":
-            page.insert_image((0, 0, 10, 10), stream=b"not an image")
+            with page.draw() as canvas:
+                canvas.image((0, 0, 10, 10), _solid_png(1, 1, RED))
         elif operation == "ocr":
             page.apply_ocr(words=ocr_words([(10, 10, 50, 20, "Text")]), skip_existing=False)
         elif operation == "pdf":
-            page.show_pdf_page((0, 0, 10, 10), _new_page_doc())
+            with page.draw() as canvas:
+                canvas.page((0, 0, 10, 10), _new_page_doc().pages[0])
         elif operation == "text":
             with page.draw() as canvas:
                 canvas.text("Text", (10, 20))
@@ -519,7 +525,8 @@ def test_drawing_preflights_contents_before_mutation(operation: str) -> None:
 def test_insert_png_draws_at_rect() -> None:
     doc = _new_page_doc()
     page = doc.pages[0]
-    page.insert_image((20, 30, 60, 70), stream=_solid_png(4, 4, RED))
+    with page.draw() as canvas:
+        canvas.image((20, 30, 60, 70), _solid_png(4, 4, RED))
     assert _pixel(page, 40, 50) == RED  # Center of rect.
     assert _pixel(page, 10, 50) == WHITE  # Outside rect.
     assert _pixel(page, 40, 20) == WHITE
@@ -529,8 +536,10 @@ def test_insert_png_alpha_is_preserved() -> None:
     doc = _new_page_doc()
     page = doc.pages[0]
     # Fully transparent green leaves white; fully opaque green renders green.
-    page.insert_image((10, 10, 50, 50), stream=_solid_png(2, 2, GREEN, alpha=0))
-    page.insert_image((60, 10, 100, 50), stream=_solid_png(2, 2, GREEN, alpha=255))
+    with page.draw() as canvas:
+        canvas.image((10, 10, 50, 50), _solid_png(2, 2, GREEN, alpha=0))
+    with page.draw() as canvas:
+        canvas.image((60, 10, 100, 50), _solid_png(2, 2, GREEN, alpha=255))
     assert _pixel(page, 30, 30) == WHITE
     assert _pixel(page, 80, 30) == GREEN
 
@@ -538,25 +547,23 @@ def test_insert_png_alpha_is_preserved() -> None:
 def test_insert_grayscale_png_alpha_is_preserved() -> None:
     doc = _new_page_doc()
     page = doc.pages[0]
-    page.insert_image(
-        (10, 10, 50, 50),
-        stream=_solid_png_samples(2, 2, 4, bytes((128, 0))),
-    )
-    page.insert_image(
-        (60, 10, 100, 50),
-        stream=_solid_png_samples(2, 2, 4, bytes((128, 255))),
-    )
+    with page.draw() as canvas:
+        canvas.image((10, 10, 50, 50), _solid_png_samples(2, 2, 4, bytes((128, 0))))
+    with page.draw() as canvas:
+        canvas.image((60, 10, 100, 50), _solid_png_samples(2, 2, 4, bytes((128, 255))))
     assert _pixel(page, 30, 30) == WHITE
     assert _pixel(page, 80, 30) == (128, 128, 128)
 
 
 def test_insert_pixmap_directly_preserves_alpha() -> None:
     source = _new_page_doc(20, 10)
-    source.pages[0].insert_image((0, 0, 10, 10), stream=_solid_png(2, 2, RED), keep_proportion=False)
+    with source.pages[0].draw() as canvas:
+        canvas.image((0, 0, 10, 10), _solid_png(2, 2, RED), keep_aspect=False)
     pixmap = source.pages[0].pixmap(alpha=True)
 
     target = _new_page_doc(40, 20)
-    target.pages[0].insert_image((0, 0, 40, 20), pixmap=pixmap, keep_proportion=False)
+    with target.pages[0].draw() as canvas:
+        canvas.image((0, 0, 40, 20), pixmap, keep_aspect=False)
     assert _pixel(target.pages[0], 10, 10) == RED
     assert _pixel(target.pages[0], 30, 10) == WHITE
     reopened = pylopdf.open(target.to_bytes())
@@ -569,7 +576,8 @@ def test_insert_opaque_pixmap_omits_soft_mask() -> None:
     pixmap = source.pages[0].pixmap(background=GREEN, alpha=True)
 
     target = _new_page_doc(40, 20)
-    target.pages[0].insert_image((0, 0, 40, 20), pixmap=pixmap)
+    with target.pages[0].draw() as canvas:
+        canvas.image((0, 0, 40, 20), pixmap)
     assert _pixel(target.pages[0], 20, 10) == GREEN
     assert b"/SMask" not in target.to_bytes()
 
@@ -581,7 +589,8 @@ def test_insert_pixmap_on_rotated_page_uses_display_coordinates() -> None:
     target = pylopdf.Document()
     target.pages.new((100, 200))
     target.pages[0].rotation = 90
-    target.pages[0].insert_image((150, 25, 190, 75), pixmap=pixmap)
+    with target.pages[0].draw() as canvas:
+        canvas.image((150, 25, 190, 75), pixmap)
     assert _pixel(target.pages[0], 170, 50) == RED
     assert _pixel(target.pages[0], 50, 50) == WHITE
 
@@ -596,7 +605,7 @@ def test_insert_pixmap_on_rotated_page_uses_display_coordinates() -> None:
         (-90, (50, 70), (50, 30)),
     ],
 )
-def test_insert_image_rotates_clockwise(
+def test_image_rotates_clockwise(
     source_kind: str,
     rotate: int,
     red_point: tuple[int, int],
@@ -605,72 +614,64 @@ def test_insert_image_rotates_clockwise(
     pixmap = _split_pixmap()
     target = _new_page_doc(100, 100)
     if source_kind == "stream":
-        target.pages[0].insert_image(
-            (10, 10, 90, 90),
-            stream=pixmap.to_bytes(),
-            rotate=rotate,
-            keep_proportion=False,
-        )
+        with target.pages[0].draw() as canvas:
+            canvas.image((10, 10, 90, 90), pixmap.to_bytes(), keep_aspect=False, rotate=rotate)
     else:
-        target.pages[0].insert_image(
-            (10, 10, 90, 90),
-            pixmap=pixmap,
-            rotate=rotate,
-            keep_proportion=False,
-        )
+        with target.pages[0].draw() as canvas:
+            canvas.image((10, 10, 90, 90), pixmap, keep_aspect=False, rotate=rotate)
     assert _pixel(target.pages[0], *red_point) == RED
     assert _pixel(target.pages[0], *green_point) == GREEN
 
 
-def test_insert_image_rotation_preserves_rotated_aspect() -> None:
+def test_image_rotation_preserves_rotated_aspect() -> None:
     target = _new_page_doc(100, 100)
-    target.pages[0].insert_image((10, 10, 90, 90), pixmap=_split_pixmap(), rotate=90)
+    with target.pages[0].draw() as canvas:
+        canvas.image((10, 10, 90, 90), _split_pixmap(), rotate=90)
     assert _pixel(target.pages[0], 50, 30) == RED
     assert _pixel(target.pages[0], 50, 70) == GREEN
     assert _pixel(target.pages[0], 20, 50) == WHITE
     assert _pixel(target.pages[0], 80, 50) == WHITE
 
 
-def test_insert_image_rotation_composes_with_page_rotation() -> None:
+def test_image_rotation_composes_with_page_rotation() -> None:
     target = pylopdf.Document()
     target.pages.new((100, 200))
     target.pages[0].rotation = 90
-    target.pages[0].insert_image(
-        (110, 10, 190, 90),
-        pixmap=_split_pixmap(),
-        rotate=90,
-        keep_proportion=False,
-    )
+    with target.pages[0].draw() as canvas:
+        canvas.image((110, 10, 190, 90), _split_pixmap(), keep_aspect=False, rotate=90)
     assert _pixel(target.pages[0], 150, 30) == RED
     assert _pixel(target.pages[0], 150, 70) == GREEN
     assert _pixel(target.pages[0], 50, 50) == WHITE
 
 
-def test_insert_image_keep_proportion_centers() -> None:
+def test_image_keep_proportion_centers() -> None:
     doc = _new_page_doc()
     page = doc.pages[0]
     # A square in a 40×20 rect fits as a centered 20×20 image.
-    page.insert_image((100, 40, 140, 60), stream=_solid_png(2, 2, RED))
+    with page.draw() as canvas:
+        canvas.image((100, 40, 140, 60), _solid_png(2, 2, RED))
     assert _pixel(page, 120, 50) == RED  # Center.
     assert _pixel(page, 103, 50) == WHITE  # Side margin.
     assert _pixel(page, 137, 50) == WHITE
 
 
-def test_insert_image_fills_rect_without_keep_proportion() -> None:
+def test_image_fills_rect_without_keep_proportion() -> None:
     doc = _new_page_doc()
     page = doc.pages[0]
-    page.insert_image((100, 40, 140, 60), stream=_solid_png(2, 2, RED), keep_proportion=False)
+    with page.draw() as canvas:
+        canvas.image((100, 40, 140, 60), _solid_png(2, 2, RED), keep_aspect=False)
     assert _pixel(page, 103, 50) == RED
     assert _pixel(page, 137, 50) == RED
 
 
-def test_insert_image_on_rotated_page_uses_display_coordinates() -> None:
+def test_image_on_rotated_page_uses_display_coordinates() -> None:
     doc = pylopdf.Document()
     doc.pages.new((100, 200))  # Portrait page.
     page = doc.pages[0]
     page.rotation = 90  # Display is 200×100 landscape.
     assert page.rect.width == 200
-    page.insert_image((150, 25, 190, 75), stream=_solid_png(2, 2, RED))
+    with page.draw() as canvas:
+        canvas.image((150, 25, 190, 75), _solid_png(2, 2, RED))
     # Rendering uses display space, so the image appears at the specified point.
     assert _pixel(page, 170, 50) == RED
     assert _pixel(page, 50, 50) == WHITE
@@ -684,167 +685,172 @@ def test_insert_jpeg_roundtrips_bytes_exactly() -> None:
 
     doc = _new_page_doc(400, 400)
     page = doc.pages[0]
-    page.insert_image((0, 0, 400, 400), stream=original)
+    with page.draw() as canvas:
+        canvas.image((0, 0, 400, 400), original)
     extracted = drawn_images(page)
     assert len(extracted) == 1
     assert extracted[0]["ext"] == "jpeg"
     assert extracted[0]["image"] == original  # DCTDecode passthrough round trip.
 
 
-def test_insert_image_survives_save_roundtrip() -> None:
+def test_image_survives_save_roundtrip() -> None:
     doc = _new_page_doc()
-    doc.pages[0].insert_image((20, 30, 60, 70), stream=_solid_png(4, 4, RED))
+    with doc.pages[0].draw() as canvas:
+        canvas.image((20, 30, 60, 70), _solid_png(4, 4, RED))
     reopened = pylopdf.open(doc.to_bytes())
     assert _pixel(reopened.pages[0], 40, 50) == RED
 
 
-def test_insert_image_rejects_bad_input() -> None:
+def test_image_rejects_bad_input() -> None:
     doc = _new_page_doc()
     page = doc.pages[0]
-    with pytest.raises(ValueError, match="exactly one"):
-        page.insert_image((0, 0, 10, 10))
-    with pytest.raises(ValueError, match="exactly one"):
-        page.insert_image(
-            (0, 0, 10, 10),
-            stream=_solid_png(1, 1, RED),
-            pixmap=page.pixmap(alpha=True),
-        )
-    with pytest.raises(TypeError, match="pixmap must be a Pixmap"):
-        page.insert_image((0, 0, 10, 10), pixmap=b"not a pixmap")  # ty: ignore[invalid-argument-type]
     before = bytes(page.pixmap(background=WHITE, alpha=True))
-    with pytest.raises(TypeError, match="rotate must be a multiple of 90"):
-        page.insert_image((0, 0, 10, 10), stream=_solid_png(1, 1, RED), rotate=True)
-    with pytest.raises(ValueError, match="rotate must be a multiple of 90"):
-        page.insert_image((0, 0, 10, 10), stream=_solid_png(1, 1, RED), rotate=45)
+    with pytest.raises(TypeError, match="source must be a path, bytes, or a Pixmap"), page.draw() as canvas:
+        canvas.image((0, 0, 10, 10), 42)  # ty: ignore[invalid-argument-type]
+    with pytest.raises(ValueError, match="rotate must be a multiple of 90"), page.draw() as canvas:
+        canvas.image((0, 0, 10, 10), _solid_png(1, 1, RED), rotate=True)
+    with pytest.raises(ValueError, match="rotate must be a multiple of 90"), page.draw() as canvas:
+        canvas.image((0, 0, 10, 10), _solid_png(1, 1, RED), rotate=45)
+    with pytest.raises(ValueError, match="rect"), page.draw() as canvas:
+        canvas.image((50, 50, 10, 10), _solid_png(1, 1, RED))
+    with pytest.raises(pylopdf.PdfError, match="image format"), page.draw() as canvas:
+        canvas.image((0, 0, 10, 10), b"not an image")
+    truncated_jpeg = bytes([0xFF, 0xD8, 0xFF, 0xC0, 0, 8, 8, 0, 1, 0, 1])
+    with pytest.raises(pylopdf.PdfError, match="JPEG"), page.draw() as canvas:
+        canvas.image((0, 0, 10, 10), truncated_jpeg)
     assert bytes(page.pixmap(background=WHITE, alpha=True)) == before
     assert drawn_images(page) == []
-    with pytest.raises(ValueError, match="rect"):
-        page.insert_image((50, 50, 10, 10), stream=_solid_png(1, 1, RED))
-    with pytest.raises(pylopdf.PdfError, match="image format"):
-        page.insert_image((0, 0, 10, 10), stream=b"not an image")
-    truncated_jpeg = bytes([0xFF, 0xD8, 0xFF, 0xC0, 0, 8, 8, 0, 1, 0, 1])
-    with pytest.raises(pylopdf.PdfError, match="JPEG"):
-        page.insert_image((0, 0, 10, 10), stream=truncated_jpeg)
 
 
 @pytest.mark.parametrize("name", ["max_size", "max_pixels"])
 @pytest.mark.parametrize("value", [0, -1, True, 1.5])
-def test_insert_image_validates_resource_budgets(name: str, value: object) -> None:
+def test_image_validates_resource_budgets(name: str, value: object) -> None:
     page = _new_page_doc().pages[0]
     kwargs = {name: value}
 
-    with pytest.raises((TypeError, ValueError), match=name):
-        page.insert_image((0, 0, 10, 10), stream=_solid_png(1, 1, RED), **kwargs)  # ty: ignore[invalid-argument-type]
+    with pytest.raises((TypeError, ValueError), match=name), page.draw() as canvas:
+        canvas.image((0, 0, 10, 10), _solid_png(1, 1, RED), **kwargs)  # ty: ignore[invalid-argument-type]
 
 
-def test_insert_image_bounds_encoded_stream_before_core_copy() -> None:
+def test_image_bounds_encoded_stream_before_core_copy() -> None:
     png = _solid_png(2, 2, RED)
     rejected = _new_page_doc()
     before = rejected.complexity
 
-    with pytest.raises(pylopdf.LimitError) as caught:
-        rejected.pages[0].insert_image((0, 0, 10, 10), stream=png, max_size=len(png) - 1)
+    with pytest.raises(pylopdf.LimitError) as caught, rejected.pages[0].draw() as canvas:
+        canvas.image((0, 0, 10, 10), png, max_size=len(png) - 1)
 
     assert caught.value.code == "image_input_size"
     assert rejected.complexity == before
     assert drawn_images(rejected.pages[0]) == []
 
     boundary = _new_page_doc()
-    boundary.pages[0].insert_image((0, 0, 10, 10), stream=png, max_size=len(png))
+    with boundary.pages[0].draw() as canvas:
+        canvas.image((0, 0, 10, 10), png, max_size=len(png))
     assert len(drawn_images(boundary.pages[0])) == 1
 
 
-def test_insert_image_reads_filename_through_bounded_core_path(tmp_path: Path) -> None:
+def test_image_reads_filename_through_bounded_core_path(tmp_path: Path) -> None:
     png = _solid_png(2, 2, RED)
     path = tmp_path / "image.png"
     path.write_bytes(png)
     doc = _new_page_doc()
     before = doc.complexity
 
-    with pytest.raises(pylopdf.LimitError) as caught:
-        doc.pages[0].insert_image((0, 0, 10, 10), filename=path, max_size=len(png) - 1)
+    with pytest.raises(pylopdf.LimitError) as caught, doc.pages[0].draw() as canvas:
+        canvas.image((0, 0, 10, 10), path, max_size=len(png) - 1)
 
     assert caught.value.code == "image_input_size"
     assert doc.complexity == before
     assert drawn_images(doc.pages[0]) == []
 
-    doc.pages[0].insert_image((0, 0, 10, 10), filename=path, max_size=None)
+    with doc.pages[0].draw() as canvas:
+        canvas.image((0, 0, 10, 10), path, max_size=None)
     assert len(drawn_images(doc.pages[0])) == 1
 
 
-def test_insert_image_bounds_png_pixels_before_decode() -> None:
+def test_image_bounds_png_pixels_before_decode() -> None:
     oversized = _png_header(8_001, 8_000)
     rejected = _new_page_doc()
     before = rejected.complexity
 
-    with pytest.raises(pylopdf.LimitError) as caught:
-        rejected.pages[0].insert_image((0, 0, 10, 10), stream=oversized)
+    with pytest.raises(pylopdf.LimitError) as caught, rejected.pages[0].draw() as canvas:
+        canvas.image((0, 0, 10, 10), oversized)
 
     assert caught.value.code == "image_pixel_count"
     assert rejected.complexity == before
     assert drawn_images(rejected.pages[0]) == []
 
     png = _solid_png(2, 2, RED)
-    with pytest.raises(pylopdf.LimitError) as exact_rejection:
-        rejected.pages[0].insert_image((0, 0, 10, 10), stream=png, max_pixels=3)
+    with pytest.raises(pylopdf.LimitError) as exact_rejection, rejected.pages[0].draw() as canvas:
+        canvas.image((0, 0, 10, 10), png, max_pixels=3)
     assert exact_rejection.value.code == "image_pixel_count"
 
     boundary = _new_page_doc()
-    boundary.pages[0].insert_image((0, 0, 10, 10), stream=png, max_pixels=4)
+    with boundary.pages[0].draw() as canvas:
+        canvas.image((0, 0, 10, 10), png, max_pixels=4)
     assert len(drawn_images(boundary.pages[0])) == 1
 
 
-def test_insert_image_budgets_do_not_apply_to_pixmap() -> None:
+def test_image_budgets_do_not_apply_to_pixmap() -> None:
     pixmap = _new_page_doc(2, 2).pages[0].pixmap(alpha=True)
     target = _new_page_doc()
 
-    target.pages[0].insert_image((0, 0, 10, 10), pixmap=pixmap, max_size=1, max_pixels=1)
+    with target.pages[0].draw() as canvas:
+        canvas.image((0, 0, 10, 10), pixmap, max_size=1, max_pixels=1)
 
     assert len(drawn_images(target.pages[0])) == 1
 
 
-def test_show_pdf_page_overlays_vector_text() -> None:
+def test_placed_page_overlays_vector_text() -> None:
     stamp = pylopdf.open(build_pdf(["STAMPTEXT"]))
     doc = pylopdf.Document()
     doc.pages.new()  # A4-sized default page.
     page = doc.pages[0]
-    page.show_pdf_page((50, 50, 550, 700), stamp)
+    with page.draw() as canvas:
+        canvas.page((50, 50, 550, 700), stamp.pages[0])
     # Text remains vector/extractable after conversion to a Form XObject.
     assert "STAMPTEXT" in page.text()
 
 
-def test_show_pdf_page_draws_at_rect() -> None:
+def test_placed_page_draws_at_rect() -> None:
     # Stamp source: a red image covering a 100×100 page.
     stamp = _new_page_doc(100, 100)
-    stamp.pages[0].insert_image((0, 0, 100, 100), stream=_solid_png(2, 2, RED), keep_proportion=False)
+    with stamp.pages[0].draw() as canvas:
+        canvas.image((0, 0, 100, 100), _solid_png(2, 2, RED), keep_aspect=False)
 
     doc = _new_page_doc(200, 100)
     page = doc.pages[0]
-    page.show_pdf_page((120, 20, 180, 80), stamp)
+    with page.draw() as canvas:
+        canvas.page((120, 20, 180, 80), stamp.pages[0])
     assert _pixel(page, 150, 50) == RED  # Center of rect.
     assert _pixel(page, 60, 50) == WHITE  # Outside rect.
 
 
-def test_show_pdf_page_scales_source_crop_into_rect() -> None:
+def test_placed_page_scales_source_crop_into_rect() -> None:
     # A 50×100 portrait stamp fits centered at width 50 in a 100×100 rect.
     stamp = _new_page_doc(50, 100)
-    stamp.pages[0].insert_image((0, 0, 50, 100), stream=_solid_png(2, 2, RED), keep_proportion=False)
+    with stamp.pages[0].draw() as canvas:
+        canvas.image((0, 0, 50, 100), _solid_png(2, 2, RED), keep_aspect=False)
 
     doc = _new_page_doc(200, 120)
     page = doc.pages[0]
-    page.show_pdf_page((50, 10, 150, 110), stamp)
+    with page.draw() as canvas:
+        canvas.page((50, 10, 150, 110), stamp.pages[0])
     assert _pixel(page, 100, 60) == RED  # Center band is red.
     assert _pixel(page, 60, 60) == WHITE  # Sides are margins.
     assert _pixel(page, 140, 60) == WHITE
 
 
-def test_show_pdf_page_imports_another_page_from_same_document() -> None:
+def test_placed_page_imports_another_page_from_same_document() -> None:
     doc = _new_page_doc(100, 100)
-    doc.pages[0].insert_image((0, 0, 100, 100), stream=_solid_png(2, 2, RED), keep_proportion=False)
+    with doc.pages[0].draw() as canvas:
+        canvas.image((0, 0, 100, 100), _solid_png(2, 2, RED), keep_aspect=False)
     doc.attachments.add("keep.txt", b"reachable target attachment")
     target = doc.pages.new((200, 100))
 
-    target.show_pdf_page((120, 20, 180, 80), doc, pno=0)
+    with target.draw() as canvas:
+        canvas.page((120, 20, 180, 80), doc.pages[0])
 
     assert _pixel(target, 150, 50) == RED
     assert _pixel(target, 60, 50) == WHITE
@@ -852,19 +858,21 @@ def test_show_pdf_page_imports_another_page_from_same_document() -> None:
     assert doc.attachments["keep.txt"].read() == b"reachable target attachment"
 
 
-def test_show_pdf_page_imports_target_page_from_pre_edit_snapshot() -> None:
+def test_placed_page_imports_target_page_from_pre_edit_snapshot() -> None:
     doc = _new_page_doc(100, 100)
     page = doc.pages[0]
-    page.insert_image((0, 0, 50, 100), stream=_solid_png(2, 2, RED), keep_proportion=False)
+    with page.draw() as canvas:
+        canvas.image((0, 0, 50, 100), _solid_png(2, 2, RED), keep_aspect=False)
 
-    page.show_pdf_page((50, 0, 100, 100), doc, pno=0, keep_proportion=False)
+    with page.draw() as canvas:
+        canvas.page((50, 0, 100, 100), doc.pages[0], keep_aspect=False)
 
     assert _pixel(page, 25, 50) == RED
     assert _pixel(page, 62, 50) == RED
     assert _pixel(page, 87, 50) == WHITE
 
 
-def test_show_pdf_page_does_not_keep_unreachable_source_data() -> None:
+def test_placed_page_does_not_keep_unreachable_source_data() -> None:
     """Do not leak attachments unreachable from the imported Form."""
     secret = b"SECRET-UNREFERENCED-STAMP-ATTACHMENT-91af"
     source = pylopdf.Document()
@@ -873,31 +881,36 @@ def test_show_pdf_page_does_not_keep_unreachable_source_data() -> None:
     target = pylopdf.Document()
     page = target.pages.new((100, 100))
 
-    page.show_pdf_page((0, 0, 100, 100), source)
+    with page.draw() as canvas:
+        canvas.page((0, 0, 100, 100), source.pages[0])
 
     assert list(target.attachments) == []
     assert secret not in target.to_bytes()
 
 
-def test_show_pdf_page_accepts_negative_pno() -> None:
+def test_placed_page_accepts_negative_pno() -> None:
     stamp = pylopdf.open(build_pdf(["FIRST", "LAST"]))
     doc = pylopdf.Document()
     doc.pages.new()
     page = doc.pages[0]
-    page.show_pdf_page((50, 50, 550, 700), stamp, pno=-1)
+    with page.draw() as canvas:
+        canvas.page((50, 50, 550, 700), stamp.pages[-1])
     assert "LAST" in page.text()
     assert "FIRST" not in page.text()
 
 
-def test_show_pdf_page_underlay_draws_below() -> None:
+def test_placed_page_underlay_draws_below() -> None:
     # Opaque green overlay wins over a red underlay.
     red_stamp = _new_page_doc(100, 100)
-    red_stamp.pages[0].insert_image((0, 0, 100, 100), stream=_solid_png(2, 2, RED), keep_proportion=False)
+    with red_stamp.pages[0].draw() as canvas:
+        canvas.image((0, 0, 100, 100), _solid_png(2, 2, RED), keep_aspect=False)
 
     doc = _new_page_doc(100, 100)
     page = doc.pages[0]
-    page.insert_image((0, 0, 100, 100), stream=_solid_png(2, 2, GREEN), keep_proportion=False)
-    page.show_pdf_page((0, 0, 100, 100), red_stamp, overlay=False)
+    with page.draw() as canvas:
+        canvas.image((0, 0, 100, 100), _solid_png(2, 2, GREEN), keep_aspect=False)
+    with page.draw(underlay=True) as canvas:
+        canvas.page((0, 0, 100, 100), red_stamp.pages[0])
     assert _pixel(page, 50, 50) == GREEN
 
 
@@ -1070,7 +1083,8 @@ def test_text_embedded_font_multiline_and_rotation() -> None:
 def test_text_overlay_order(embedded: bool, underlay: bool) -> None:  # noqa: FBT001 - parametrized.
     font = pylopdf.Font.from_bytes(NOTO_SANS_JP.read_bytes()) if embedded else None
     doc = _new_page_doc(160, 80)
-    doc.pages[0].insert_image((0, 0, 160, 80), stream=_solid_png(2, 2, GREEN), keep_proportion=False)
+    with doc.pages[0].draw() as canvas:
+        canvas.image((0, 0, 160, 80), _solid_png(2, 2, GREEN), keep_aspect=False)
     with doc.pages[0].draw(underlay=underlay) as canvas:
         canvas.text("TEXT", (10, 55), font=font, size=48, fill=pylopdf.Color(1.0, 0.0, 0.0))
 
@@ -1173,7 +1187,8 @@ def test_textbox_tabs_custom_leading_and_bad_arguments(monkeypatch: pytest.Monke
 def test_textbox_underlay_stays_below_existing_content(fontfile: Path | None) -> None:
     doc = _new_page_doc(160, 80)
     page = doc.pages[0]
-    page.insert_image((0, 0, 160, 80), stream=_solid_png(2, 2, GREEN), keep_proportion=False)
+    with page.draw() as canvas:
+        canvas.image((0, 0, 160, 80), _solid_png(2, 2, GREEN), keep_aspect=False)
     font = None if fontfile is None else pylopdf.Font.from_file(fontfile)
 
     with page.draw(underlay=True) as canvas:
@@ -1188,7 +1203,8 @@ def test_drawn_image_bbox_on_rotated_page_is_display_space() -> None:
     doc.pages.new((100, 200))
     page = doc.pages[0]
     page.rotation = 90
-    page.insert_image((150, 25, 190, 75), stream=_solid_png(2, 2, RED), keep_proportion=False)
+    with page.draw() as canvas:
+        canvas.image((150, 25, 190, 75), _solid_png(2, 2, RED), keep_aspect=False)
     bbox = drawn_images(page)[0]["bbox"]
     assert abs(bbox.x0 - 150) < 1
     assert abs(bbox.y0 - 25) < 1

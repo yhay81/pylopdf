@@ -1118,7 +1118,7 @@ def _geometry_results() -> dict[str, Any]:
     }
 
 
-def _rectangle_results() -> dict[str, Any]:
+def _rectangle_results() -> dict[str, Any]:  # noqa: PLR0915 - explicit compatibility scenarios.
     """Check Rect, IRect, and Quad operators and their use with page geometry."""
     from pylopdf import INFINITE_RECT, Document, Font, Highlight, IRect, Matrix, Point, Quad, Rect  # noqa: PLC0415
 
@@ -1151,11 +1151,11 @@ def _rectangle_results() -> dict[str, Any]:
         trimmed = list(Rect(boxed.boxes.trim) * boxed.user_to_display)
         boxed.boxes.media = (0, 0, 200, 300)
         reset_cropbox = list(boxed.boxes.crop)
-        image_xref = boxed.insert_image(
-            (10, 10, 60, 60), pixmap=document.pages[0].pixmap(matrix=Matrix(0.1, 0.1), alpha=True)
-        )
-        form_xref = boxed.show_pdf_page((60, 60, 160, 160), document, 0)
-        placed = [document.objects[image_xref]["Subtype"], document.objects[form_xref]["Subtype"]]
+        with boxed.draw() as canvas:
+            canvas.image((10, 10, 60, 60), document.pages[0].pixmap(matrix=Matrix(0.1, 0.1), alpha=True))
+            canvas.page((60, 60, 160, 160), document.pages[0])
+        (image,) = boxed.content(text_runs=False, paths=False).images
+        placed = [document.objects[image.xref]["Subtype"], [round(value, 2) for value in image.bbox], boxed.text()]
         highlight = boxed.annotations.add(Highlight(Rect(20, 20, 80, 40), contents="note"))
         boxed.links.add(Rect(20, 50, 80, 70), "https://e.test/")
         annotations = [(annotation.type.name, annotation.contents) for annotation in boxed.annotations]
@@ -1168,7 +1168,8 @@ def _rectangle_results() -> dict[str, Any]:
     _require(display_matrix == [1, 0, 0, -1, -100, 750], "user_to_display changed")
     _require(trimmed == [10, 10, 390, 290], "the TrimBox did not map to display space")
     _require(reset_cropbox == [0, 0, 200, 300], "assigning the MediaBox kept the CropBox")
-    _require(placed == ["Image", "Form"], "placement did not return the placed XObject")
+    # The 20x30 pixmap of the rotated first page keeps its aspect ratio in the square.
+    _require(placed == ["Image", [18.33, 10, 51.67, 60], "Boxed\n"], "the canvas did not place the image and the page")
     _require(annotations == [("HIGHLIGHT", "note")], "annotation handles changed")
     _require(full_name, "Font.standard did not select its Standard 14 font")
     return {

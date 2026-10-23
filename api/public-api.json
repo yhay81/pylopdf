@@ -6006,71 +6006,6 @@
           "kind": "property",
           "returns": "int"
         },
-        "insert_image": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Sequence[float]",
-                "kind": "positional_or_keyword",
-                "name": "rect"
-              },
-              {
-                "annotation": "str | os.PathLike[str] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "filename"
-              },
-              {
-                "annotation": "bytes | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "stream"
-              },
-              {
-                "annotation": "Pixmap | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "pixmap"
-              },
-              {
-                "annotation": "int",
-                "default": 0,
-                "kind": "keyword_only",
-                "name": "rotate"
-              },
-              {
-                "annotation": "bool",
-                "default": true,
-                "kind": "keyword_only",
-                "name": "keep_proportion"
-              },
-              {
-                "annotation": "bool",
-                "default": true,
-                "kind": "keyword_only",
-                "name": "overlay"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_size"
-              },
-              {
-                "annotation": "int | None",
-                "default": 64000000,
-                "kind": "keyword_only",
-                "name": "max_pixels"
-              }
-            ],
-            "returns": "int"
-          }
-        },
         "label": {
           "kind": "property",
           "returns": "str"
@@ -6300,46 +6235,6 @@
               }
             ],
             "returns": "list[Rect]"
-          }
-        },
-        "show_pdf_page": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Sequence[float]",
-                "kind": "positional_or_keyword",
-                "name": "rect"
-              },
-              {
-                "annotation": "Document",
-                "kind": "positional_or_keyword",
-                "name": "docsrc"
-              },
-              {
-                "annotation": "int",
-                "default": 0,
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              },
-              {
-                "annotation": "bool",
-                "default": true,
-                "kind": "keyword_only",
-                "name": "keep_proportion"
-              },
-              {
-                "annotation": "bool",
-                "default": true,
-                "kind": "keyword_only",
-                "name": "overlay"
-              }
-            ],
-            "returns": "int"
           }
         },
         "svg": {

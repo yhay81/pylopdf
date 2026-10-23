@@ -303,6 +303,32 @@ def draw_textbox(
         return canvas.textbox(rect, text, **options)
 
 
+def draw_image(
+    page: pylopdf.Page,
+    rect: tuple[float, float, float, float],
+    source: object,
+    *,
+    underlay: bool = False,
+    **options: Any,  # noqa: ANN401
+) -> None:
+    """Draw an image with a canvas of its own."""
+    with page.draw(underlay=underlay) as canvas:
+        canvas.image(rect, source, **options)  # ty: ignore[invalid-argument-type]
+
+
+def draw_page(
+    page: pylopdf.Page,
+    rect: tuple[float, float, float, float],
+    source: pylopdf.Page,
+    *,
+    underlay: bool = False,
+    **options: Any,  # noqa: ANN401
+) -> None:
+    """Draw another page with a canvas of its own."""
+    with page.draw(underlay=underlay) as canvas:
+        canvas.page(rect, source, **options)
+
+
 def drawn_images(page: pylopdf.Page) -> list[dict[str, Any]]:
     """Decode each image drawn on ``page``, composited with its soft mask.
 

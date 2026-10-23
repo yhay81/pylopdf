@@ -1,5 +1,5 @@
 //! Page content and resource plumbing for drawing, Form XObject imports,
-//! `show_pdf_page`, and canvases.
+//! and canvases.
 
 use super::*;
 
@@ -89,12 +89,6 @@ pub(super) struct FormImportPlan {
     pub(super) new_max_id: u32,
     pub(super) crop: [f64; 4],
     pub(super) rotation: i64,
-}
-
-/// A page Form to place: one placed before, or a prepared import.
-pub(super) enum PageForm {
-    Placed(PlacedForm),
-    Import(FormImportPlan),
 }
 
 /// Resolve page `/Resources` or one of its categories under a bounded chain.
@@ -697,24 +691,15 @@ impl _Document {
         Ok(())
     }
 
-    /// Place a page Form, committing its prepared import first if it has one,
-    /// and return the placed Form.
+    /// Place a Form XObject on a page and return it.
     pub(super) fn place_pdf_page(
         &mut self,
         page_id: ObjectId,
         target_geometry: ([f64; 4], i64),
-        form: PageForm,
+        form: PlacedForm,
         placement: PagePlacement,
         drawing_plan: PageDrawingPlan,
     ) -> PyResult<PlacedForm> {
-        let form = match form {
-            PageForm::Placed(form) => form,
-            PageForm::Import(plan) => {
-                let len = plan.form.content.len();
-                let (form_id, crop, rotation) = commit_page_form_import(&mut self.doc, plan);
-                PlacedForm::new(form_id, len, crop, rotation)
-            }
-        };
         let content = draw::PlacedContent::Form {
             crop: form.crop(),
             rotation: form.rotation(),
@@ -731,91 +716,6 @@ impl _Document {
         self.push_page_content(page_id, ops, drawing_plan.content)?;
         Ok(form)
     }
-}
-
-/// Implements [`_Document::show_pdf_page`].
-#[allow(clippy::too_many_arguments)] // Mirrors the Python-facing method.
-pub(super) fn show_pdf_page(
-    this: &mut _Document,
-    py: Python<'_>,
-    page_number: u32,
-    rect: (f64, f64, f64, f64),
-    other: &_Document,
-    src_page_number: u32,
-    keep_proportion: bool,
-    overlay: bool,
-) -> PyResult<u32> {
-    let (crop, rotation) = this.page_display_geometry(page_number)?;
-    let (page_id, drawing_plan) =
-        py.detach(|| this.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject))?;
-    let placement = PagePlacement {
-        rect: [rect.0, rect.1, rect.2, rect.3],
-        keep_proportion,
-    };
-    let source = FormSource {
-        revision: other.revision,
-        page: src_page_number,
-    };
-    let form = match this.placements.form(&this.doc, source) {
-        Some(form) => PageForm::Placed(form),
-        None => PageForm::Import(py.detach(|| {
-            prepare_page_form_import(this.doc.max_id, other.doc.clone(), src_page_number)
-        })?),
-    };
-    let remember = matches!(form, PageForm::Import(_)) && this.placements.reserve_form();
-    this.invalidate_hayro_pdf_keeping_placements();
-    let form = py
-        .detach(|| this.place_pdf_page(page_id, (crop, rotation), form, placement, drawing_plan))?;
-    if remember {
-        this.placements.remember_form(source, form);
-    }
-    Ok(form.id().0)
-}
-
-/// Implements [`_Document::show_pdf_page_self`].
-pub(super) fn show_pdf_page_self(
-    this: &mut _Document,
-    py: Python<'_>,
-    page_number: u32,
-    rect: (f64, f64, f64, f64),
-    src_page_number: u32,
-    keep_proportion: bool,
-    overlay: bool,
-) -> PyResult<u32> {
-    let (crop, rotation) = this.page_display_geometry(page_number)?;
-    let (page_id, drawing_plan) =
-        py.detach(|| this.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject))?;
-    let placement = PagePlacement {
-        rect: [rect.0, rect.1, rect.2, rect.3],
-        keep_proportion,
-    };
-    let source = FormSource {
-        revision: this.revision,
-        page: src_page_number,
-    };
-    let form = match this.placements.form(&this.doc, source) {
-        Some(form) => PageForm::Placed(form),
-        None => PageForm::Import(py.detach(|| {
-            let source = this.doc.clone();
-            prepare_page_form_import(this.doc.max_id, source, src_page_number)
-        })?),
-    };
-    // This edit replaces the revision. Placing on another page leaves the
-    // source page and everything it reaches as they were, so its Form stays
-    // reusable under the new revision; a page placed on itself has changed.
-    this.placements.forget_form(source);
-    let remember = src_page_number != page_number && this.placements.reserve_form();
-    this.invalidate_hayro_pdf_keeping_placements();
-    let form = py
-        .detach(|| this.place_pdf_page(page_id, (crop, rotation), form, placement, drawing_plan))?;
-    if remember {
-        let source = FormSource {
-            revision: this.revision,
-            page: src_page_number,
-        };
-        this.placements.remember_form(source, form);
-    }
-    Ok(form.id().0)
 }
 
 impl _Document {
@@ -1012,6 +912,20 @@ impl _Document {
             },
         )?;
 
+        // Pages of this document that an earlier placement imported; the
+        // commit moves them to the revision of this edit with the new ones.
+        let mut reused_forms = Vec::new();
+        for (index, page) in pages.iter().enumerate() {
+            if let Some(form) = page
+                && recording.pages[index].source.revision == self.revision
+            {
+                reused_forms.try_reserve(1).map_err(|error| {
+                    PdfError::new_err(format!("failed to allocate canvas pages: {error}"))
+                })?;
+                reused_forms.push((index, *form));
+            }
+        }
+
         // Every fallible step on the input is done; change the document.
         let target_revision = self.revision;
         self.invalidate_hayro_pdf_keeping_placements();
@@ -1151,7 +1065,7 @@ impl _Document {
             self.place_pdf_page(
                 page_id,
                 (crop, rotation),
-                PageForm::Placed(PlacedForm::new(form_id, len, form_crop, 0)),
+                PlacedForm::new(form_id, len, form_crop, 0),
                 PagePlacement {
                     rect: form_crop,
                     keep_proportion: false,
@@ -1163,8 +1077,10 @@ impl _Document {
 
         // Remember the new images and pages for later placements. A page of
         // this document as it was before the canvas stays as it was unless
-        // the canvas drew on that page, so its Form is remembered under the
-        // revision of this edit.
+        // the canvas drew on that page, so its Form, imported now or before,
+        // is remembered under the revision of this edit, which every later
+        // lookup names, and so consecutive placements of one page on other
+        // pages share one Form.
         for (index, id) in new_images {
             if let Some(placed) = PlacedImage::read(&self.doc, id)
                 && let Some(digest) = recording.images[index].digest().copied()
@@ -1174,9 +1090,10 @@ impl _Document {
             }
         }
         let target_page = page_number;
-        for (index, form) in new_forms {
+        for (index, form) in new_forms.into_iter().chain(reused_forms) {
             let mut source = recording.pages[index].source;
             if source.revision == target_revision {
+                self.placements.forget_form(source);
                 if source.page == target_page {
                     continue;
                 }

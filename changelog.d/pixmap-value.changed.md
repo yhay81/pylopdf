@@ -12,7 +12,7 @@ replaces `samples`; `Pixmap.from_array(array)` builds a pixmap from a
 `tobytes()` and writes PNG or JPEG, `save(path, /, *, format=None,
 quality=95)` writes either, by the extension unless `format` names it, and
 `doc.render(format="jpeg", quality=...)` encodes a batch as JPEG; JPEG
-refuses alpha. A gray Pixmap placed with `insert_image(pixmap=)` becomes a
+refuses alpha. A gray Pixmap placed with `canvas.image()` becomes a
 DeviceGray image, and an opaque one needs no soft mask. The codemod rewrites
 `samples`, `samples_mv`, `tobytes(output, jpg_quality=...)`,
 `save(path, output, jpg_quality=...)`, and the color space constants.

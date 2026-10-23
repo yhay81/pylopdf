@@ -104,8 +104,8 @@ python -m pylopdf.migrate src/
 | `font.text_length(text, fontsize)`, `pymupdf.get_text_length(text, fontname, fontsize)` | `font.text_width(text, size)` | `size`에는 기본값이 없음. `font.text_height(text, size, width=...)`는 줄바꿈한 텍스트를 `canvas.textbox`가 그리는 대로 잼 |
 | `font.has_glyph(ord(c))` | `font.has_glyph(c)` | 문자 자체를 받고, 글리프 번호가 아니라 불리언을 반환 |
 | `pymupdf.Base14_fontnames`, `Base14_fontdict` | `typing.get_args(pylopdf.StandardFontName)` | `Font.standard()`가 받는 14개의 PostScript 이름 |
-| `page.insert_image(rect, filename=/stream=/pixmap=)` | 같음 | JPEG, PNG, `Pixmap`. 다른 형식은 Pillow로 변환. 같은 이미지를 두 번 삽입해도 한 번만 저장되므로 `xref=`가 필요 없음 |
-| `page.show_pdf_page(rect, docsrc, pno)` | 같음 | 원본이 같은 문서여도 됨 |
+| `page.insert_image(rect, filename=/stream=/pixmap=)` | `canvas.image(rect, source)` | `with page.draw() as canvas:` 안에서 호출함. source는 경로, JPEG나 PNG bytes, 또는 `Pixmap`이고, `keep_proportion=`은 `keep_aspect=`가 됨. `rotate=`는 시계 방향이며 pymupdf는 반시계 방향임. 같은 이미지를 두 번 그려도 한 번만 저장되므로 `xref=`가 필요 없고, 각 배치의 `xref`는 `page.content().images`로 알 수 있음 |
+| `page.show_pdf_page(rect, docsrc, pno)` | `canvas.page(rect, docsrc.pages[pno])` | 같은 문서의 페이지여도 됨. `clip=`과 `rotate=`는 아직 없음 |
 | `page.new_shape()`, `shape.draw_*`, `finish()`, `insert_text()`, `commit()` | `with page.draw() as canvas:` | 캔버스는 경로와 텍스트를 호출한 순서대로 그리고 블록이 끝날 때 기록함. `finish()`의 스타일은 각 호출의 `fill=`과 `stroke=`가 됨. [캔버스](api.md#canvas) 참고 |
 | `page.draw_line()`, `draw_rect()`, `draw_circle()`, `draw_oval()`, `draw_polyline()`, `draw_bezier()` | `canvas.line()`, `rect()`, `circle()`, `ellipse()`, `polygon(close=False)`, `bezier()` | `color=`, `width=`, `dashes=`, `lineCap=`, `lineJoin=`는 `stroke=Stroke(paint=Color(...), ...)`가, `fill=`은 `Color`가, 불투명도는 `Color`의 알파가 됨. `rect(radius=)`는 포인트 단위이며 pymupdf에서는 짧은 변에 대한 비율임 |
 | `page.draw_quad()`, `draw_sector()`, `draw_curve()`, `draw_squiggle()`, `draw_zigzag()` | `canvas.polygon()`, `canvas.path(PathBuilder().sector(...))`, `canvas.bezier()`, `PathBuilder().wave()`, `PathBuilder().zigzag()` | `PathBuilder`로 형상을 만듦. 부채꼴 각도는 x축에서 시계 방향으로 잰 도(degree) |

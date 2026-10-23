@@ -348,25 +348,25 @@ def test_single_render_output_limit_is_repeated_in_core(one_page_pdf: bytes) -> 
         doc.render_page_png(1, (1.0, 1.0), True, None, 0)
 
 
-def test_image_insertion_limits_are_repeated_in_core(one_page_pdf: bytes, tmp_path: Path) -> None:
+def test_image_limits_are_repeated_in_core(one_page_pdf: bytes, tmp_path: Path) -> None:
     doc = _Document.load_bytes(one_page_pdf)
-    before = doc.save_bytes()
+    canvas = _Canvas(200.0, 100.0)
     rect = (0.0, 0.0, 10.0, 10.0)
 
     with pytest.raises(LimitError) as input_limit:
-        doc.insert_image(1, rect, b"too large", 0, True, True, 1, 64_000_000)
+        canvas.add_image(doc, b"too large", rect, True, 0, 1, 64_000_000)
     assert input_limit.value.args[0] == "image_input_size"
 
     with pytest.raises(LimitError) as pixel_limit:
-        doc.insert_image(1, rect, _oversized_png_header(), 0, True, True, 64 * 1024 * 1024, 64_000_000)
+        canvas.add_image(doc, _oversized_png_header(), rect, True, 0, 64 * 1024 * 1024, 64_000_000)
     assert pixel_limit.value.args[0] == "image_pixel_count"
 
     image_path = tmp_path / "image.png"
     image_path.write_bytes(b"too large")
     with pytest.raises(LimitError) as file_limit:
-        doc.insert_image_file(1, rect, str(image_path), 0, True, True, 1, 64_000_000)
+        canvas.add_image_file(doc, str(image_path), rect, True, 0, 1, 64_000_000)
     assert file_limit.value.args[0] == "image_input_size"
-    assert doc.save_bytes() == before
+    assert canvas.is_empty()
 
 
 def test_font_input_limits_are_repeated_in_core(one_page_pdf: bytes, tmp_path: Path) -> None:

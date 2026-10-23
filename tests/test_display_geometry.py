@@ -202,7 +202,8 @@ def test_annotations_and_links_share_the_display_space(name: str, rotation: int)
 def test_images_and_shapes_land_on_their_display_rectangles(name: str, rotation: int) -> None:
     page = _page(name, rotation)
 
-    page.insert_image((200, 100, 260, 160), stream=_png(4, 4))
+    with page.draw() as canvas:
+        canvas.image((200, 100, 260, 160), _png(4, 4))
     with page.draw() as canvas:
         canvas.rect((100, 100, 150, 130), fill=pylopdf.Color(0.0, 0.0, 1.0))
 
@@ -218,7 +219,8 @@ def test_a_placed_page_shows_what_rendering_shows_of_it(name: str, rotation: int
     target = pylopdf.Document()
     page = target.pages.new((width, height))
 
-    page.show_pdf_page((0, 0, width, height), source, 0)
+    with page.draw() as canvas:
+        canvas.page((0, 0, width, height), source.pages[0])
 
     # The Form clips to the source page's visible box, so "Hello" keeps its
     # display position, and the page stays the size of the placed page.

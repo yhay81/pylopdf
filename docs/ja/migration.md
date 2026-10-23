@@ -104,8 +104,8 @@ python -m pylopdf.migrate src/
 | `font.text_length(text, fontsize)`, `pymupdf.get_text_length(text, fontname, fontsize)` | `font.text_width(text, size)` | `size`に既定値はありません。`font.text_height(text, size, width=...)`は、折り返したテキストを`canvas.textbox`が描くとおりに測ります |
 | `font.has_glyph(ord(c))` | `font.has_glyph(c)` | 文字そのものを受け取り、グリフ番号ではなく真偽値を返します |
 | `pymupdf.Base14_fontnames`, `Base14_fontdict` | `typing.get_args(pylopdf.StandardFontName)` | `Font.standard()`が受け付ける14のPostScript名 |
-| `page.insert_image(rect, filename=/stream=/pixmap=)` | 同じ | JPEG、PNG、`Pixmap`。ほかの形式はPillowで変換してください。同じ画像を2回挿入しても1回だけ格納されるので、`xref=`は不要です |
-| `page.show_pdf_page(rect, docsrc, pno)` | 同じ | 取り込み元は同じ文書でもかまいません |
+| `page.insert_image(rect, filename=/stream=/pixmap=)` | `canvas.image(rect, source)` | `with page.draw() as canvas:`の中で呼びます。sourceはパス、JPEGまたはPNGのbytes、`Pixmap`で、`keep_proportion=`は`keep_aspect=`になります。`rotate=`は時計回りで、pymupdfは反時計回りです。同じ画像を2回描いても1回だけ格納されるので`xref=`は不要で、各配置の`xref`は`page.content().images`で分かります |
+| `page.show_pdf_page(rect, docsrc, pno)` | `canvas.page(rect, docsrc.pages[pno])` | 同じ文書のページでもかまいません。`clip=`と`rotate=`はまだありません |
 | `page.new_shape()`, `shape.draw_*`, `finish()`, `insert_text()`, `commit()` | `with page.draw() as canvas:` | キャンバスはパスとテキストを呼び出した順に描き、ブロックが終わったときに書き込みます。`finish()`のスタイルは各呼び出しの`fill=`と`stroke=`になります。[キャンバス](api.md#canvas)を参照 |
 | `page.draw_line()`, `draw_rect()`, `draw_circle()`, `draw_oval()`, `draw_polyline()`, `draw_bezier()` | `canvas.line()`, `rect()`, `circle()`, `ellipse()`, `polygon(close=False)`, `bezier()` | `color=`、`width=`、`dashes=`、`lineCap=`、`lineJoin=`は`stroke=Stroke(paint=Color(...), ...)`に、`fill=`は`Color`に、不透明度は`Color`のアルファになります。`rect(radius=)`はポイント単位で、pymupdfでは短い辺に対する割合です |
 | `page.draw_quad()`, `draw_sector()`, `draw_curve()`, `draw_squiggle()`, `draw_zigzag()` | `canvas.polygon()`, `canvas.path(PathBuilder().sector(...))`, `canvas.bezier()`, `PathBuilder().wave()`, `PathBuilder().zigzag()` | 形状は`PathBuilder`で組み立てます。扇形の角度はx軸から時計回りの度数です |

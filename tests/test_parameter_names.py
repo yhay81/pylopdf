@@ -36,18 +36,6 @@ def test_tables_takes_keyword_only_strategy_with_lines_default() -> None:
     assert len(page.tables(clip=(0, 0, 340, 300), strategy="lines")) == 1
 
 
-def test_show_pdf_page_takes_pymupdf_docsrc_keyword() -> None:
-    source = pylopdf.open(build_pdf(["Stamp"]))
-    target = pylopdf.open(build_pdf([""]))
-
-    target.pages[0].show_pdf_page((0, 0, 300, 200), docsrc=source)
-    with pytest.raises(TypeError, match="src"):
-        target.pages[0].show_pdf_page((0, 0, 300, 200), src=source)  # ty: ignore[unknown-argument, missing-argument]
-
-    reopened = pylopdf.open(target.to_bytes())
-    assert "Stamp" in reopened.pages[0].text()
-
-
 def test_pixmap_save_takes_its_path_positionally(tmp_path: Path) -> None:
     pixmap = pylopdf.open(build_pdf(["Pixels"])).pages[0].pixmap(matrix=pylopdf.Matrix(0.25, 0.25), alpha=True)
     target = tmp_path / "page.png"

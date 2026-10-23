@@ -220,6 +220,50 @@ TEXTBOX_PARAMETERS = (
     "max_text_size",
     "text",
 )
+#: pymupdf's ``insert_image`` parameters, of which only the rectangle is positional, and pylopdf 0.15's limits.
+IMAGE_PARAMETERS = (
+    "rect",
+    "alpha",
+    "filename",
+    "height",
+    "keep_proportion",
+    "mask",
+    "oc",
+    "overlay",
+    "pixmap",
+    "rotate",
+    "stream",
+    "width",
+    "xref",
+    "max_size",
+    "max_pixels",
+)
+#: ``insert_image`` options whose value changes nothing.
+IMAGE_DEFAULTS = {
+    "alpha": frozenset({"-1"}),
+    "height": frozenset({"0"}),
+    "width": frozenset({"0"}),
+    "mask": frozenset({"None"}),
+    "oc": frozenset({"0"}),
+    "xref": frozenset({"0"}),
+    "rotate": frozenset({"0"}),
+    "keep_proportion": frozenset({"True"}),
+    "overlay": frozenset({"True"}),
+    "filename": frozenset({"None"}),
+    "stream": frozenset({"None"}),
+    "pixmap": frozenset({"None"}),
+}
+#: pymupdf's ``show_pdf_page`` parameters; pylopdf 0.15 named ``docsrc`` ``src``.
+PAGE_PLACEMENT_PARAMETERS = ("rect", "docsrc", "pno", "keep_proportion", "overlay", "oc", "rotate", "clip")
+#: ``show_pdf_page`` options whose value changes nothing.
+PAGE_PLACEMENT_DEFAULTS = {
+    "pno": frozenset({"0"}),
+    "keep_proportion": frozenset({"True"}),
+    "overlay": frozenset({"True"}),
+    "oc": frozenset({"0"}),
+    "rotate": frozenset({"0"}),
+    "clip": frozenset({"None"}),
+}
 #: Text options whose value changes nothing, and the options that the canvas has no counterpart for.
 TEXT_DEFAULTS = {
     "set_simple": frozenset({"0", "False"}),
@@ -302,15 +346,12 @@ def _same_code(replacement: str, node: cst.CSTNode) -> bool:
     return ast.dump(ast.parse(replacement, mode="eval")) == ast.dump(ast.parse(_code(node).strip(), mode="eval"))
 
 
-def _repeatable(call: cst.BaseExpression) -> bool:
-    """Return whether the receiver of ``call`` names the same page when evaluated again.
+def _repeatable(node: cst.BaseExpression) -> bool:
+    """Return whether ``node`` names the same page when evaluated again.
 
     That is a name, or attributes and subscripts by names and literals of one;
     a call such as ``doc.pages.new()`` makes a new page each time.
     """
-    if not isinstance(call, cst.Call) or not isinstance(call.func, cst.Attribute):
-        return False
-    node = call.func.value
     while isinstance(node, (cst.Attribute, cst.Subscript)):
         if isinstance(node, cst.Subscript) and not all(
             isinstance(element.slice, cst.Index)
@@ -1899,6 +1940,72 @@ def _insert_textbox(target: str | None) -> Callable[[_Migrator, str, _Arguments]
     return rule
 
 
+def _insert_image(target: str | None) -> Callable[[_Migrator, str, _Arguments], str | None]:
+    """Rewrite an ``insert_image`` statement to a canvas that draws the same image.
+
+    An assignment of the xref it returned becomes the canvas block and an
+    assignment of the xref that the page's content reports for the image,
+    the last one it draws or, below the content, the first; that reads the
+    page again, so the page must be a name, attribute, or subscript. pymupdf
+    turns the image anticlockwise and the canvas, like pylopdf 0.15,
+    clockwise, so an angle from pymupdf is negated.
+    """
+
+    def rule(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+        block = _image_block(migrator, receiver, args)
+        if block is None or target is None:
+            return block
+        if not _repeatable(cst.parse_expression(receiver)):
+            return None
+        index = 0 if args.keywords.get("overlay", "True") in _FALSE else -1
+        images = f"{receiver}.content(text_runs=False, paths=False, annotations=False).images"
+        return f"{block}{target} = {images}[{index}].xref\n"
+
+    return rule
+
+
+def _image_block(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Return the canvas block that draws the image of an ``insert_image`` call, or None."""
+    bound = args.bind(IMAGE_PARAMETERS)
+    if bound is None or len(args.positional) > 1 or "rect" not in bound:
+        return None
+    options = {key: value for key, value in bound.items() if value not in IMAGE_DEFAULTS.get(key, ())}
+    sources = [key for key in ("filename", "stream", "pixmap") if key in options]
+    unsupported = {"alpha", "height", "width", "mask", "oc", "xref"} & set(options)
+    if len(sources) != 1 or unsupported or options.get("overlay", "True") not in _FALSE | _TRUE:
+        return None
+    keywords = []
+    if "keep_proportion" in options:
+        keywords.append(f"keep_aspect={options['keep_proportion']}")
+    if "rotate" in options:
+        rotate = options["rotate"]
+        if migrator.pymupdf():
+            angle = _int_literal(rotate)
+            rotate = f"-{_receiver(cst.parse_expression(rotate))}" if angle is None else str(-angle % 360)
+        if rotate != "0":
+            keywords.append(f"rotate={rotate}")
+    keywords.extend(f"{key}={options[key]}" for key in ("max_size", "max_pixels") if key in options)
+    arguments = ", ".join([options["rect"], options[sources[0]], *keywords])
+    return _canvas_block(migrator, receiver, options, lambda canvas: f"{canvas}.image({arguments})")
+
+
+def _show_pdf_page(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite a ``show_pdf_page`` statement to a canvas that draws the same page."""
+    bound = args.bind(PAGE_PLACEMENT_PARAMETERS)
+    if bound is None and "src" in args.keywords:
+        keywords = {"docsrc" if key == "src" else key: value for key, value in args.keywords.items()}
+        bound = _Arguments(args.positional, keywords).bind(PAGE_PLACEMENT_PARAMETERS)
+    if bound is None or "rect" not in bound or "docsrc" not in bound:
+        return None
+    options = {key: value for key, value in bound.items() if value not in PAGE_PLACEMENT_DEFAULTS.get(key, ())}
+    if {"oc", "rotate", "clip"} & set(options) or options.get("overlay", "True") not in _FALSE | _TRUE:
+        return None
+    source = f"{_receiver(cst.parse_expression(options['docsrc']))}.pages[{options.get('pno', '0')}]"
+    keywords = [] if "keep_proportion" not in options else [f"keep_aspect={options['keep_proportion']}"]
+    arguments = ", ".join([options["rect"], source, *keywords])
+    return _canvas_block(migrator, receiver, options, lambda canvas: f"{canvas}.page({arguments})")
+
+
 #: Calls rewritten only as a statement of their own: pymupdf's in-place
 #: geometry methods become assignments of pylopdf's immutable results, and
 #: page deletions become ``del`` statements.
@@ -1937,10 +2044,13 @@ STATEMENT_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] =
     **{method: _page_drawing(method) for method in PAGE_DRAWINGS},
     "insert_text": _insert_text,
     "insert_textbox": _insert_textbox(None),
+    "insert_image": _insert_image(None),
+    "show_pdf_page": _show_pdf_page,
 }
 #: Calls rewritten when one name or attribute is assigned their result.
 ASSIGNMENT_RULES: dict[str, Callable[[str], Callable[[_Migrator, str, _Arguments], str | None]]] = {
     "insert_textbox": _insert_textbox,
+    "insert_image": _insert_image,
 }
 #: Statement rules that assign to their receiver, which must therefore be a name or an attribute.
 ASSIGNING_RULES = frozenset(
@@ -2372,13 +2482,14 @@ class _Scanner(cst.CSTVisitor):
         function = node.func
         if not isinstance(function, cst.Attribute):
             return "other"
-        if (function.attr.value in PAGE_METHODS and self.is_document(function.value)) or (
-            function.attr.value == "new" and self.is_pages(function.value)
+        name = function.attr.value
+        if (name in PAGE_METHODS and self.is_document(function.value)) or (
+            name == "new" and self.is_pages(function.value)
         ):
             return "page"
-        if function.attr.value == "new_shape":
-            return "shape"
-        return "tables" if function.attr.value == "find_tables" else "other"
+        if name == "draw" and all(arg.keyword is not None and arg.keyword.value == "underlay" for arg in node.args):
+            return "canvas"
+        return {"new_shape": "shape", "find_tables": "tables"}.get(name, "other")
 
     def bind(self, target: cst.BaseExpression | cst.BaseAssignTargetExpression, kind: str) -> None:
         if isinstance(target, cst.Name):
@@ -2507,6 +2618,8 @@ class _Migrator(cst.CSTTransformer):
         self._targets: set[int] = set()
         #: Canvas blocks that statement rules wrote, by identity; consecutive ones on one page are joined.
         self._canvas_blocks: dict[int, cst.With] = {}
+        #: The names of the canvas blocks that enclose the statement being rewritten.
+        self._open_canvases: list[str] = []
 
     # Hint comments ------------------------------------------------------
 
@@ -2571,9 +2684,13 @@ class _Migrator(cst.CSTTransformer):
         )
 
     def canvas_name(self) -> str:
-        """Return the name that a rewrite binds a canvas to: ``canvas``, unless the module uses that name."""
+        """Return the name that a rewrite binds a canvas to: ``canvas`` where that is free.
+
+        The module must bind the name to canvases only, and no enclosing canvas
+        block may use it, which the new block would rebind.
+        """
         name = "canvas"
-        while name in self._scan.bindings:
+        while self._scan.bindings.get(name, {"canvas"}) != {"canvas"} or name in self._open_canvases:
             name = f"page_{name}"
         return name
 
@@ -2657,7 +2774,7 @@ class _Migrator(cst.CSTTransformer):
 
     def leave_SimpleStatementLine(
         self, original_node: cst.SimpleStatementLine, updated_node: cst.SimpleStatementLine
-    ) -> cst.SimpleStatementLine | cst.BaseCompoundStatement:
+    ) -> cst.SimpleStatementLine | cst.BaseCompoundStatement | cst.FlattenSentinel[cst.BaseStatement]:
         statement = original_node.body[0] if len(original_node.body) == 1 else None
         target = None
         if isinstance(statement, cst.Assign) and isinstance(updated_node.body[0], cst.Assign):
@@ -2681,17 +2798,40 @@ class _Migrator(cst.CSTTransformer):
                 self._member_todo(name)
             else:
                 self.rewrites += 1
-                new_statement = cst.parse_statement(replacement)
-                if not isinstance(new_statement, cst.SimpleStatementLine):
+                first, *rest = cst.parse_module(replacement).body
+                if rest or not isinstance(first, cst.SimpleStatementLine):
                     # A canvas block replaces the statement and keeps its comments.
-                    compound = self._pop(new_statement.with_changes(leading_lines=updated_node.leading_lines))
-                    if isinstance(compound, cst.With):
+                    # An assignment of what it placed may follow it, and reads the
+                    # page as this block alone leaves it, so no other block joins it.
+                    compound = self._pop(first.with_changes(leading_lines=updated_node.leading_lines))
+                    if isinstance(compound, cst.With) and not rest:
                         self._canvas_blocks[id(compound)] = compound
+                    if rest:
+                        return cst.FlattenSentinel([cast("cst.BaseStatement", compound), *rest])
                     return cast("cst.BaseCompoundStatement", compound)
-                updated_node = updated_node.with_changes(body=[new_statement.body[0]])
+                updated_node = updated_node.with_changes(body=[first.body[0]])
         result = self._pop(updated_node)
         assert isinstance(result, cst.SimpleStatementLine)  # noqa: S101 - _pop only adds comments.
         return result
+
+    def visit_With(self, node: cst.With) -> None:
+        self._open_canvases.extend(
+            item.asname.name.value
+            for item in node.items
+            if item.asname is not None
+            and isinstance(item.asname.name, cst.Name)
+            and self._scan.kind(item.item) == "canvas"
+        )
+
+    def leave_With(self, original_node: cst.With, updated_node: cst.With) -> cst.With:
+        for item in original_node.items:
+            if (
+                item.asname is not None
+                and isinstance(item.asname.name, cst.Name)
+                and self._scan.kind(item.item) == "canvas"
+            ):
+                self._open_canvases.pop()
+        return updated_node
 
     def leave_IndentedBlock(
         self, original_node: cst.IndentedBlock, updated_node: cst.IndentedBlock
@@ -2704,10 +2844,11 @@ class _Migrator(cst.CSTTransformer):
     def _join_canvas_blocks(self, body: Sequence[cst.BaseStatement]) -> list[cst.BaseStatement]:
         """Join consecutive canvas blocks that rules wrote for one page, so that one canvas draws them all.
 
-        A joined block commits once, after its last call, so a later call's
-        arguments must not be able to read what an earlier one drew: they may
+        A joined block commits once, after its last call, so a later call
+        must not be able to read what an earlier one drew: its arguments may
         hold names, attributes, literals, and the package's own constructors,
-        but no other call. Blank lines and comments keep blocks apart.
+        but no other call, and it places no page, which could be this one.
+        Blank lines and comments keep blocks apart.
         """
         joined: list[cst.BaseStatement] = []
         for statement in body:
@@ -2719,7 +2860,9 @@ class _Migrator(cst.CSTTransformer):
                 and id(statement) in self._canvas_blocks
                 and not statement.leading_lines
                 and _code(previous.items[0]) == _code(statement.items[0])
-                and _repeatable(previous.items[0].item)
+                and isinstance(header := previous.items[0].item, cst.Call)
+                and isinstance(header.func, cst.Attribute)
+                and _repeatable(header.func.value)
                 and isinstance(previous.body, cst.IndentedBlock)
                 and isinstance(statement.body, cst.IndentedBlock)
                 and self._reads_no_page(statement)
@@ -2734,11 +2877,13 @@ class _Migrator(cst.CSTTransformer):
         return joined
 
     def _reads_no_page(self, block: cst.With) -> bool:
-        """Return whether ``block`` calls only its canvas, string methods, and the package's own names."""
+        """Return whether ``block`` calls only its canvas but ``page``, string methods, and the package's names."""
         alias = block.items[0].asname
         canvas = alias.name if alias is not None else None
         for call in _calls(block.body):
             function = call.func
+            if isinstance(function, cst.Attribute) and function.attr.value == "page":
+                return False
             root = function.value if isinstance(function, cst.Attribute) else function
             while isinstance(root, cst.Attribute):
                 root = root.value

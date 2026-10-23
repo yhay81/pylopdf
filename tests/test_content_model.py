@@ -278,7 +278,9 @@ def test_images_report_their_object_mask_and_placement() -> None:
     pixmap = source.pages[0].pixmap(background=(10, 20, 30, 40), alpha=True)
     doc = pylopdf.Document()
     doc.pages.new((200, 100))
-    xref = doc.pages[0].insert_image((10, 20, 50, 40), pixmap=pixmap)
+    with doc.pages[0].draw() as canvas:
+        canvas.image((10, 20, 50, 40), pixmap)
+    xref = doc.pages[0].content(text_runs=False, paths=False, annotations=False).images[-1].xref
 
     (image,) = doc.pages[0].content().images
     assert image.xref == xref

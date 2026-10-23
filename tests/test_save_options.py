@@ -275,14 +275,17 @@ def test_drawing_after_compaction_isolates_page_content_once() -> None:
 def test_images_placed_after_merging_save_and_merge_again() -> None:
     pixmap = pylopdf.open(REAL_WORLD / "pdf20-simple.pdf").pages[0].pixmap(dpi=24, alpha=True)
     doc = pylopdf.open(build_pdf(["A", "B"]))
-    doc.pages[0].insert_image((10, 10, 60, 60), pixmap=pixmap)
+    with doc.pages[0].draw() as canvas:
+        canvas.image((10, 10, 60, 60), pixmap)
     doc.to_bytes(dedupe=True, renumber=True)
-    doc.pages[1].insert_image((10, 10, 60, 60), pixmap=pixmap)
+    with doc.pages[1].draw() as canvas:
+        canvas.image((10, 10, 60, 60), pixmap)
 
     saved = doc.to_bytes(dedupe=True, renumber=True)
 
     once = pylopdf.open(build_pdf(["A", "B"]))
-    once.pages[0].insert_image((10, 10, 60, 60), pixmap=pixmap)
+    with once.pages[0].draw() as canvas:
+        canvas.image((10, 10, 60, 60), pixmap)
     expected = len(re.findall(rb"/Subtype\s*/Image", once.to_bytes(dedupe=True, renumber=True)))
     assert len(re.findall(rb"/Subtype\s*/Image", saved)) == expected
     reopened = pylopdf.open(saved)

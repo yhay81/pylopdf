@@ -1,8 +1,8 @@
 //! Place the images and pages that drawing placed in a document again.
 //!
-//! `insert_image` and `show_pdf_page` used to add a new Image or Form XObject
-//! for every call, so a logo or letterhead placed on every page was embedded
-//! once per page, and every page import cloned its complete source document.
+//! Drawing an image or a page used to add a new Image or Form XObject every
+//! time, so a logo or letterhead placed on every page was embedded once per
+//! page, and every page import cloned its complete source document.
 //! A document now remembers what it placed and places the same XObject again:
 //!
 //! - An image is identified by the SHA-256 digest of the input that decides

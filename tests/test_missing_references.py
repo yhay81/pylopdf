@@ -165,7 +165,8 @@ def test_page_import_starts_a_null_xobject_category(value: str) -> None:
     """Registering a Form XObject raised `PdfError` for every null-equivalent category."""
     doc = pylopdf.open(_pdf(page=f"/Resources << /Font << /F1 4 0 R >> /XObject {value} >>"))
 
-    doc.pages[0].show_pdf_page((0, 300, 612, 792), pylopdf.open(build_pdf(["SOURCE"])), 0)
+    with doc.pages[0].draw() as canvas:
+        canvas.page((0, 300, 612, 792), pylopdf.open(build_pdf(["SOURCE"])).pages[0])
 
     for current in _with_reloaded(doc):
         assert sorted(current.pages[0].text().splitlines()) == ["SOURCE", "TARGET PAGE"]

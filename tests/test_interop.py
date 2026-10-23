@@ -80,7 +80,7 @@ def test_pdfa_claim_reads_typst_output() -> None:
         assert doc.pdfa_claim is None
 
 
-def test_typst_japanese_watermark_via_show_pdf_page() -> None:
+def test_typst_japanese_watermark_via_a_placed_page() -> None:
     """Apply a Japanese watermark built with typst and fonts-jp to every page.
 
     typst subset-embeds the font, so watermark text extracts and renders without
@@ -98,7 +98,8 @@ def test_typst_japanese_watermark_via_show_pdf_page() -> None:
     doc = pylopdf.Document()
     doc.pages.new()  # A4-sized default page.
     page = doc.pages[0]
-    page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
+    with page.draw() as canvas:
+        canvas.page((0, 0, page.rect.width, page.rect.height), stamp.pages[0])
 
     # Vector overlay leaves the CJK watermark directly extractable.
     assert "社外秘" in page.text()

@@ -299,7 +299,8 @@ Workstream Writing.
   operators; an opacity scope is a transparency group Form; text in an
   OpenType face is a krilla page, one per run of text items, imported as a
   Form; Standard 14 text is pylopdf's own text operators; and images and
-  placed pages are drawn as `insert_image` and `show_pdf_page` draw them. Scopes must
+  placed pages are Image XObjects and imported Forms drawn through their
+  placement matrices. Scopes must
   enclose images and pages that already live in the target document, which a
   krilla page cannot reference, so the scopes are pylopdf's operators.
 - `draw(item)` for text runs and images needs the font and image identity
@@ -321,8 +322,8 @@ Workstream Writing.
   import; and emitting a page as a Form XObject that pylopdf adds to lopdf's
   graph directly, so `generated_pdf.rs` and the import parse go away.
 - In the [API reset](#api-reset), the canvas replaces `Shape` and
-  `Page.draw_*` (done), `insert_text` and `insert_textbox` (done), and
-  `insert_image` and `show_pdf_page`.
+  `Page.draw_*`, `insert_text` and `insert_textbox`, and `insert_image`
+  and `show_pdf_page` (done).
 
 Acceptance: drawing every item of `page.content()` onto a blank page of the
 same size renders, for every page of the bundled corpus, within a published
@@ -427,9 +428,13 @@ the canvas.
   `TEXT_ALIGN_*` constants; the codemod rewrites both calls, and assignments
   of a textbox's spare height, into canvas blocks, joins consecutive blocks
   on one page into one, and marks the options a canvas does not take.
-- Still to come, each with its codemod rules: forms and widgets, the
-  canvas in place of `insert_image` and `show_pdf_page`, and the remaining
-  constants and records.
+- Done: image and page placement. `Canvas.image` and `Canvas.page`
+  replace `Page.insert_image` and `Page.show_pdf_page`; the codemod rewrites
+  both calls, and assignments of the image xref, into canvas blocks, negates
+  pymupdf's anticlockwise image rotation, and marks masks, layers, clipping,
+  and page rotation.
+- Still to come, each with its codemod rules: forms and widgets, and the
+  remaining constants and records.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs

@@ -125,7 +125,7 @@ def _source_with_unreachable_objects() -> pylopdf.Document:
     return pylopdf.open(build_raw_pdf(objects))
 
 
-def test_show_pdf_page_moves_only_the_objects_its_form_reaches() -> None:
+def test_a_placed_page_moves_only_the_objects_its_form_reaches() -> None:
     """Placement imports the source objects its Form XObject reaches, not the rest.
 
     The source page's own content stream, annotations, outline, attachments,
@@ -136,7 +136,8 @@ def test_show_pdf_page_moves_only_the_objects_its_form_reaches() -> None:
     doc = pylopdf.open(_structural_edit_pdf())
     objects = doc.complexity["object_count"]
 
-    doc.pages[0].show_pdf_page((0, 0, 50, 50), _source_with_unreachable_objects())
+    with doc.pages[0].draw() as canvas:
+        canvas.page((0, 0, 50, 50), _source_with_unreachable_objects().pages[0])
 
     saved = doc.to_bytes(prune=False)
     # The Form copies the source content, and its resources keep the font.
@@ -144,9 +145,10 @@ def test_show_pdf_page_moves_only_the_objects_its_form_reaches() -> None:
         assert kept in saved
     for dropped in (b"SOURCE-ANNOT", b"SOURCE-ATTACHED", b"SOURCE-OUTLINE", b"SOURCE-ORPHAN"):
         assert b"DROPPED-" + dropped not in saved
-    # The font, the Form XObject, the new content stream, and the q/Q pair
-    # that isolates the page's existing content.
-    assert doc.complexity["object_count"] == objects + 5
+    # The font, the page's Form XObject, the canvas's Form and its resources,
+    # the new content stream, and the q/Q pair that isolates the page's
+    # existing content.
+    assert doc.complexity["object_count"] == objects + 7
     assert list(doc.attachments) == []
     assert [entry.title for entry in doc.outline.entries()] == ["OLD-OUTLINE-TITLE"]
     assert b"ORPHAN-OBJECT" not in doc.to_bytes()

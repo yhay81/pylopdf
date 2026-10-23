@@ -1365,7 +1365,7 @@ the concept and API overview.
   fallibly; refusal raises `PdfError` before any object is removed. Pruning
   still runs after the edit it follows has committed, so a refusal there leaves
   that edit and its unreachable objects in place. Form-XObject imports
-  (`show_pdf_page`, embedded-font text, and widget appearances) never sweep
+  (placed pages, embedded-font text, and widget appearances) never sweep
   the target: before mutation, `prepare_page_form_import` keeps only the
   source objects that `reachable_object_ids` reaches from the Form dictionary,
   with source Catalog, Pages, and Page objects treated as absent. A placement
@@ -1395,7 +1395,7 @@ the concept and API overview.
   Merging and renumbering change object IDs and therefore forget placements
   and remap `isolated_content_pages`; pruning alone keeps placements. Add any
   new per-owner structure to the identity lists before it can be merged.
-- Page imports (`merge_pages`), `show_pdf_page`, and generated text and form appearances
+- Page imports (`merge_pages`), placed pages, and generated text and form appearances
   renumber their disposable source copy with `renumber_objects` in
   `rust/src/renumber.rs` before any target mutation. Never call lopdf's
   `Document::renumber_objects_with`: it walks the graph with a `Vec` of visited
@@ -1415,10 +1415,10 @@ the concept and API overview.
   never fills it; outline writes clear it. Refusal raises `PdfError` and may
   leave the copy partly rewritten.
 - `rust/src/placement_reuse.rs` places an image or page that a document
-  already holds again instead of embedding another copy. `insert_image` keys
+  already holds again instead of embedding another copy. `canvas.image` keys
   Image XObjects by the SHA-256 digest of the accepted encoded bytes, or of a
   Pixmap's dimensions and RGBA samples; the rectangle and rotation stay in the
-  placement matrix. `show_pdf_page` keys Form XObjects by the source
+  placement matrix. `canvas.page` keys Form XObjects by the source
   document's revision and one-based page. Every `_Document` takes a
   process-unique revision at construction and a new one on every edit, so a
   Form is reused only while its source is unchanged and never for another
@@ -1440,10 +1440,10 @@ the concept and API overview.
   `decompress`, `rewrite_images`, `replace_text`, and `set_form_field`
   forget. Both replace the revision.
   Classify a new editing method before giving it the keeping variant. A
-  same-document `show_pdf_page` re-keys its Form under the revision of its own
-  edit unless it placed the source page on itself, so consecutive placements
-  of one page on other pages share one Form; any other edit imports the page
-  again. Each document remembers at most 4,096 images and 4,096 Forms, and a
+  canvas that places a page of its own document re-keys that page's Form,
+  imported now or before, under the revision of its own commit unless it drew
+  on the source page, so consecutive placements of one page on other pages
+  share one Form; any other edit imports the page again. Each document remembers at most 4,096 images and 4,096 Forms, and a
   full map starts over, which keeps output deterministic. Room for an entry is
   reserved before mutation, and a refused allocation leaves the placement
   unremembered instead of failing the edit. Nothing is remembered across save
@@ -1762,29 +1762,30 @@ the concept and API overview.
   shows nothing. `resolve_display_geometry` (`document/geometry.rs`) gives
   that box to drawing, annotations, link destinations, the OCR text layer,
   and `Page.rect` (through `page_display_size`), and Form imports take the
-  source page's box as their BBox, so `show_pdf_page` places what rendering
+  source page's box as their BBox, so `canvas.page` places what rendering
   shows of the source. pymupdf's `insert_text` measures from the unclipped
   CropBox corner instead and draws off the visible page; pylopdf keeps one
   display space. `Page.boxes` reports the stored boxes, as the next
   bullet describes.
-  `insert_image(pixmap=)` Flate-compresses an RGB Pixmap's storage as it is
+  `canvas.image` with a Pixmap Flate-compresses an RGB Pixmap's storage as it is
   and splits straight-alpha RGBA8 storage through fallibly allocated RGB and
   optional alpha planes, then Flate-compresses through a fallible writer; fully opaque
   Pixmaps must not create a mask. Encoded JPEG insertion moves the admitted
   input directly into its XObject. PNG alpha separation compacts decoded color
   samples in place and fallibly allocates only the separate alpha plane.
-  Encoded `insert_image` input defaults to 64 MiB and PNG decode to 64,000,000
-  pixels. `filename=` reads through a bounded Rust path with the GIL released
-  and fallible 64 KiB retained-buffer growth; `stream=` is checked in Python
-  before PyO3 copying and again in Rust. Preflight PNG IHDR dimensions before
+  Encoded `canvas.image` input defaults to 64 MiB and PNG decode to 64,000,000
+  pixels. A path reads through a bounded Rust path with the GIL released
+  and fallible 64 KiB retained-buffer growth; bytes are checked in Python
+  before the PyO3 copy and again in Rust. Preflight PNG IHDR dimensions before
   allocating decoded storage. `max_size=None` and `max_pixels=None` are explicit
   trusted-input opt-outs; failures use `image_input_size` and
   `image_pixel_count`.
-  `insert_image(rotate=)` rotates every source clockwise in normalized
-  right-angle steps, swaps the aspect ratio for 90/270, and composes with target
-  page rotation in display space. Same-document `show_pdf_page` must clone the
-  lopdf graph before importing the source Form XObject so the target page can
-  safely source itself without serialization or mutable aliasing. Form source
+  `canvas.image(rotate=)` rotates every source clockwise in normalized
+  right-angle steps, where pymupdf's `insert_image` turns anticlockwise,
+  swaps the aspect ratio for 90/270, and composes with target page rotation
+  in display space. A canvas that places a page of its own document records a
+  clone of the lopdf graph, so the target page can safely source itself
+  without serialization or mutable aliasing. Form source
   page content is strictly decoded under its aggregate boundary before target
   invalidation or mutation; decoder errors and unsupported filters must not
   fall back to encoded bytes, and size refusal uses `form_content_size`.
@@ -2050,8 +2051,8 @@ the concept and API overview.
   and repeats their clips, group opacities, and blend modes, not soft
   masks. Limits: 1,048,576 path points of paths and clips together
   (`path_point_count`) and 16 open scopes (`canvas_scope_depth`); text keeps
-  the 1 MiB and 4,096-line text budget, and images the per-call limits of
-  `insert_image`.
+  the 1 MiB and 4,096-line text budget, and each image its 64 MiB and
+  64,000,000-pixel input limits.
   `tests/test_canvas.py` reads every behavior back through `Page.content()`.
 - `pylopdf.create()` (`src/pylopdf/_create.py`, `_Builder` in
   `rust/src/builder.rs`) collects the recordings of canvases made with
