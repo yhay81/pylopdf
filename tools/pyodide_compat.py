@@ -1450,7 +1450,7 @@ def _create_results(root: Path) -> dict[str, Any]:
     import datetime as dt  # noqa: PLC0415
 
     import pylopdf  # noqa: PLC0415
-    from pylopdf import Color, TagRole  # noqa: PLC0415
+    from pylopdf import Color, ListNumbering, TagRole  # noqa: PLC0415
 
     font_path = root / "fonts/pylopdf-fonts-jp/src/pylopdf_fonts_jp/NotoSansJP-Regular.otf"
     font = pylopdf.Font.from_bytes(font_path.read_bytes())
@@ -1464,6 +1464,11 @@ def _create_results(root: Path) -> dict[str, Any]:
             canvas.text(_JAPANESE, (20, 80), font=font)
         with canvas.tag(TagRole.FIGURE, alt="A red square"), canvas.opacity(0.5):
             canvas.rect((20, 100, 80, 160), fill=Color(1, 0, 0))
+        with canvas.tag(TagRole.LIST, numbering=ListNumbering.DECIMAL), canvas.tag(TagRole.LIST_ITEM):
+            with canvas.tag(TagRole.LABEL):
+                canvas.text("1.", (100, 180), font=font)
+            with canvas.tag(TagRole.LIST_BODY):
+                canvas.text("Item", (120, 180), font=font)
     first = builder.to_bytes()
     _require(first == builder.to_bytes(), "a fixed creation date did not make the output reproducible")
     document = builder.finish()
@@ -1475,8 +1480,33 @@ def _create_results(root: Path) -> dict[str, Any]:
         "outline": [[entry.level, entry.title, entry.page] for entry in document.outline.entries()],
         "text": _digest(document.pages[0].text()),
         "struct_tree": str(document.catalog["StructTreeRoot"]["Type"]),
+        "list_numbering": _list_numberings(document.catalog["StructTreeRoot"]),
         "ua_claim": "pdfuaid" in (document.xmp or ""),
     }
+
+
+def _list_numberings(root: Any) -> list[str]:  # noqa: ANN401 - a low-level dictionary.
+    """Return the ListNumbering attribute of each list element in the structure tree, depth first."""
+    import pylopdf  # noqa: PLC0415
+
+    found: list[str] = []
+    stack = [root["K"]]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, pylopdf.Array):
+            stack.extend(reversed(list(node)))
+        elif isinstance(node, pylopdf.Dictionary) and "S" in node:
+            if node["S"] == "L":
+                attributes = node.get("A")
+                items = list(attributes) if isinstance(attributes, pylopdf.Array) else [attributes]
+                found.extend(
+                    str(item["ListNumbering"])
+                    for item in items
+                    if isinstance(item, pylopdf.Dictionary) and "ListNumbering" in item
+                )
+            if "K" in node:
+                stack.append(node["K"])
+    return found
 
 
 def collect_results(root: Path) -> dict[str, Any]:

@@ -27,7 +27,7 @@ from pylopdf._annotations import (
 )
 from pylopdf._attachments import Attachment, Attachments
 from pylopdf._boxes import PageBoxes
-from pylopdf._canvas import Canvas, PathBuilder, TagRole, TextFit
+from pylopdf._canvas import Canvas, ListNumbering, PathBuilder, TableHeaderScope, TagRole, TextFit
 from pylopdf._content import (
     BlendMode,
     Clip,
@@ -154,6 +154,7 @@ __all__ = [
     "LineTo",
     "Link",
     "Links",
+    "ListNumbering",
     "MalformedPdfError",
     "MarkInfo",
     "MarkedContent",
@@ -205,6 +206,7 @@ __all__ = [
     "Stroke",
     "Table",
     "TableDiagnostics",
+    "TableHeaderScope",
     "TagRole",
     "Target",
     "TextFit",

@@ -430,7 +430,31 @@ struct TagSpec {
     lang: Option<String>,
     title: Option<String>,
     actual_text: Option<String>,
+    /// What a table header cell heads, for `TH`.
+    scope: TableHeaderScope,
+    /// How a list numbers its items, for `L`.
+    numbering: ListNumbering,
 }
+
+/// The table header scopes, by their PDF names.
+const TABLE_HEADER_SCOPES: [(&str, TableHeaderScope); 3] = [
+    ("Row", TableHeaderScope::Row),
+    ("Column", TableHeaderScope::Column),
+    ("Both", TableHeaderScope::Both),
+];
+
+/// The list numbering styles, by their PDF names.
+const LIST_NUMBERINGS: [(&str, ListNumbering); 9] = [
+    ("None", ListNumbering::None),
+    ("Disc", ListNumbering::Disc),
+    ("Circle", ListNumbering::Circle),
+    ("Square", ListNumbering::Square),
+    ("Decimal", ListNumbering::Decimal),
+    ("LowerRoman", ListNumbering::LowerRoman),
+    ("UpperRoman", ListNumbering::UpperRoman),
+    ("LowerAlpha", ListNumbering::LowerAlpha),
+    ("UpperAlpha", ListNumbering::UpperAlpha),
+];
 
 impl TagSpec {
     fn is_artifact(&self) -> bool {
@@ -467,13 +491,13 @@ impl TagSpec {
             "H4" => heading(4),
             "H5" => heading(5),
             "H6" => heading(6),
-            "L" => with_attributes!(Tag::L(ListNumbering::None)),
+            "L" => with_attributes!(Tag::L(self.numbering)),
             "LI" => with_attributes!(Tag::LI),
             "Lbl" => with_attributes!(Tag::Lbl),
             "LBody" => with_attributes!(Tag::LBody),
             "Table" => with_attributes!(Tag::Table),
             "TR" => with_attributes!(Tag::TR),
-            "TH" => with_attributes!(Tag::TH(TableHeaderScope::Column)),
+            "TH" => with_attributes!(Tag::TH(self.scope)),
             "TD" => with_attributes!(Tag::TD),
             "THead" => with_attributes!(Tag::THead),
             "TBody" => with_attributes!(Tag::TBody),
@@ -2065,8 +2089,11 @@ impl _Canvas {
     }
 
     /// Open a tag scope of a new document's structure tree and return its
-    /// depth. `role` is the PDF name of a structure type, or `Artifact`.
-    #[pyo3(signature = (role, alt=None, lang=None, title=None, actual_text=None))]
+    /// depth. `role` is the PDF name of a structure type, or `Artifact`;
+    /// `scope` names what a `TH` cell heads (`Column` by default) and
+    /// `numbering` how an `L` list numbers its items (`None` by default).
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (role, alt=None, lang=None, title=None, actual_text=None, scope=None, numbering=None))]
     fn push_tag(
         &mut self,
         role: &str,
@@ -2074,6 +2101,8 @@ impl _Canvas {
         lang: Option<String>,
         title: Option<String>,
         actual_text: Option<String>,
+        scope: Option<&str>,
+        numbering: Option<&str>,
     ) -> PyResult<usize> {
         if !self.new_document {
             return Err(PdfError::new_err(
@@ -2087,6 +2116,30 @@ impl _Canvas {
             .iter()
             .position(|known| *known == role)
             .ok_or_else(|| PdfError::new_err(format!("unknown structure role {role:?}")))?;
+        if scope.is_some() && TAG_ROLES[role] != "TH" {
+            return Err(PdfError::new_err(
+                "only a table header cell (TH) takes a scope",
+            ));
+        }
+        if numbering.is_some() && TAG_ROLES[role] != "L" {
+            return Err(PdfError::new_err("only a list (L) takes a numbering"));
+        }
+        let scope = match scope {
+            None => TableHeaderScope::Column,
+            Some(name) => TABLE_HEADER_SCOPES
+                .iter()
+                .find(|(known, _)| *known == name)
+                .map(|(_, scope)| *scope)
+                .ok_or_else(|| PdfError::new_err(format!("unknown table header scope {name:?}")))?,
+        };
+        let numbering = match numbering {
+            None => ListNumbering::None,
+            Some(name) => LIST_NUMBERINGS
+                .iter()
+                .find(|(known, _)| *known == name)
+                .map(|(_, numbering)| *numbering)
+                .ok_or_else(|| PdfError::new_err(format!("unknown list numbering {name:?}")))?,
+        };
         let size: usize = [&alt, &lang, &title, &actual_text]
             .iter()
             .map(|text| text.as_ref().map_or(0, String::len))
@@ -2104,6 +2157,8 @@ impl _Canvas {
                 lang,
                 title,
                 actual_text,
+                scope,
+                numbering,
             }),
             None,
         )
