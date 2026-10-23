@@ -34,6 +34,7 @@ from pylopdf._fonts import (
 from pylopdf._form import Form
 from pylopdf._hints import hinted_getattr, hinted_protocol
 from pylopdf._images import Images
+from pylopdf._layers import Layers
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
     _DEFAULT_MAX_MARKDOWN_SIZE,
@@ -850,6 +851,18 @@ class Document:
         """
         self._ensure_open()
         return Attachments(self)
+
+    @property
+    def layers(self) -> Layers:
+        """Return the live sequence of optional-content groups (layers).
+
+        This replaces pymupdf's ``get_ocgs``, ``add_ocg``, and the
+        ``PDF_OC_*`` states: ``doc.layers`` lists :class:`Layer` handles in
+        ``/OCGs`` order, ``doc.layers.add(name)`` adds one, and assigning
+        ``layer.is_visible`` shows or hides it in rendering and extraction.
+        """
+        self._ensure_open()
+        return Layers(self)
 
     def text(self, pages: Iterable[int] | None = None) -> str:
         """Return the plain text of the given pages in one batched call.

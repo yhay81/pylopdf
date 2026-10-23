@@ -197,6 +197,40 @@ doc.page_labels = [PageLabelRange(0, PageLabelStyle.LOWER_ROMAN), PageLabelRange
 print([page.label for page in doc.pages])  # ['i', 'ii', 'iii', 'iv', 'A-1', 'A-2']
 ```
 
+### Layers { #layers }
+
+`doc.layers` is the sequence of the document's optional-content groups, the
+layers that a viewer can show or hide, in the order that
+`/OCProperties /OCGs` lists them. Each is a `Layer` handle that reads the
+document on every access.
+
+| `Layer` member | Purpose |
+|---|---|
+| `name` | The name a viewer shows; assignable |
+| `intent` | A tuple of intents, `("View",)` unless the group sets others such as `"Design"`; assignable |
+| `is_visible` | Whether the default configuration shows the group; assignable |
+| `xref`, `obj` | The group's object number and its dictionary in the [object model](#low-level-objects) |
+
+`is_visible` is the state that rendering and extraction use: content marked
+for a hidden group is neither drawn nor extracted. Assigning it edits the
+default configuration (`/OCProperties /D`), so `page.pixmap()`,
+`page.text()`, and the other readers follow at once and the state is saved.
+Showing a group hides the other groups of a radio-button group that holds it,
+as viewers do. `doc.layers.add(name, *, visible=True, intent=("View",))`
+adds a group, creating the optional-content properties when the document has
+none.
+
+```python
+notes = doc.layers.add("Reviewer notes", visible=False)
+for layer in doc.layers:
+    print(layer.name, layer.is_visible)
+doc.layers[0].is_visible = False
+```
+
+Reads stop at 65,536 groups in one array (`LimitError` code `layer_count`)
+and 1 MiB of name and intent text per group (`layer_text_size`); a name above
+1 MiB is refused before it is written (`layer_input_size`).
+
 ### Text and Markdown { #document-text }
 
 | Member | Purpose |

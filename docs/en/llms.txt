@@ -141,6 +141,7 @@ replacement, and the migration hint):
 - Document.__delitem__ -> Pages.__delitem__: Use del doc.pages[i] or del doc.pages[a:b].
 - Document.__getitem__ -> Pages.__getitem__: Use doc.pages[i]; doc.pages also takes slices.
 - Document.__len__ -> Pages.__len__: Use len(doc.pages).
+- Document.add_ocg -> Layers.add: Use doc.layers.add(name, visible=on, intent=("View",)); intent is a tuple of names, and the handle replaces the returned xref.
 - Document.authenticate -> Document.unlock: Use doc.unlock(password), which returns Access.USER or Access.OWNER and raises PasswordError for a wrong password.
 - Document.bake -> Document.flatten: doc.flatten(annotations=True, widgets=True) draws appearances into page content and removes the annotations, keeping links; the codemod rewrites bake() calls.
 - Document.copy_page -> Pages.insert: Use doc.pages.insert(to, doc.pages[i]); the copy is a new page object, not a second reference.
@@ -158,6 +159,7 @@ replacement, and the migration hint):
 - Document.extract_image -> ImageObject.extract: Use doc.images[xref].extract(), which returns an EncodedImage with format, data, and resolution; the size, color space, filters, and masks are properties of doc.images[xref].
 - Document.fullcopy_page -> Pages.insert: Use doc.pages.insert(to, doc.pages[i]), or doc.pages.extend(doc.pages[i]) to append.
 - Document.get_new_xref -> Objects.add: Call doc.objects.add(value), which creates the object and returns its object number.
+- Document.get_ocgs -> Document.layers: Use doc.layers: Layer handles with name, intent, is_visible, and xref, in /OCGs order, instead of a dictionary keyed by xref.
 - Document.get_outline_xrefs -> OutlineItem.xref: Use [item.xref for item in doc.outline.walk()].
 - Document.get_page_images -> Page.resources: Use doc.pages[i].resources.images.
 - Document.get_page_labels -> Document.page_labels: Read doc.page_labels, a list of PageLabelRange(start, style, prefix, first) records.
@@ -294,6 +296,7 @@ replacement, and the migration hint):
 - PDF_CH_FIELD_IS_* -> FieldFlags: Choice field flags such as PDF_CH_FIELD_IS_COMBO and PDF_CH_FIELD_IS_MULTI_SELECT are FieldFlags members such as FieldFlags.COMBO and MULTI_SELECT.
 - PDF_ENCRYPT_* -> Encryption: Pass encryption=Encryption(user_password=..., owner_password=..., permissions=...) to save() or to_bytes(), which writes AES-256 encryption; encryption=None writes none.
 - PDF_FIELD_IS_* -> FieldFlags: PDF_FIELD_IS_READ_ONLY, PDF_FIELD_IS_REQUIRED, and PDF_FIELD_IS_NO_EXPORT are FieldFlags.READ_ONLY, REQUIRED, and NO_EXPORT, which doc.form[name].flags returns.
+- PDF_OC_* -> Layer.is_visible: Assign layer.is_visible = True or False; toggle with layer.is_visible = not layer.is_visible.
 - PDF_PAGE_LABEL_* -> PageLabelStyle: PageLabelStyle members name the label styles, such as PageLabelStyle.LOWER_ROMAN for PDF_PAGE_LABEL_ROMAN_LC; PageLabelRange(style=None) labels with the prefix only, for PDF_PAGE_LABEL_NONE.
 - PDF_PERM_* -> Permissions: PDF_PERM_PRINT is Permissions.PRINT, and so on.
 - PDF_TX_FIELD_IS_* -> FieldFlags: Text field flags such as PDF_TX_FIELD_IS_MULTILINE and PDF_TX_FIELD_IS_COMB are FieldFlags members such as FieldFlags.MULTILINE and COMB.
