@@ -157,6 +157,7 @@ replacement, and the migration hint):
 - Document.embfile_names -> Document.attachments: Use list(doc.attachments).
 - Document.embfile_upd -> Document.attachments: Use doc.attachments[name].write(data).
 - Document.extract_image -> ImageObject.extract: Use doc.images[xref].extract(), which returns an EncodedImage with format, data, and resolution; the size, color space, filters, and masks are properties of doc.images[xref].
+- Document.ez_save -> Document.save: Use doc.save(path, dedupe=True, renumber=True, object_streams=True), the options that ez_save's defaults stand for.
 - Document.fullcopy_page -> Pages.insert: Use doc.pages.insert(to, doc.pages[i]), or doc.pages.extend(doc.pages[i]) to append.
 - Document.get_new_xref -> Objects.add: Call doc.objects.add(value), which creates the object and returns its object number.
 - Document.get_outline_xrefs -> OutlineItem.xref: Use [item.xref for item in doc.outline.walk()].
@@ -194,6 +195,7 @@ replacement, and the migration hint):
 - Document.reload_page -> Pages.__getitem__: Fetch the page again with doc.pages[page.index].
 - Document.resolve_link -> Document.destinations: For a named destination, doc.destinations[name]; for '#page=N', Destination(N - 1); links and the outline already read their targets resolved.
 - Document.resolve_names -> Document.destinations: doc.destinations maps each named destination to its Destination(page, point, zoom), or None when it names no page.
+- Document.saveIncr -> Document.save: Use doc.save(path, incremental=True), which appends one update to the bytes the document was opened from and may write to any path.
 - Document.search_page_for -> Page.search: Call doc.pages[i].search(text).
 - Document.select -> Pages.select: Use doc.pages.select(indexes).
 - Document.set_language -> Document.language: Assign doc.language = tag, or del doc.language to remove it; pylopdf keeps the complete BCP 47 tag, such as zh-TW, where pymupdf keeps at most three letters.

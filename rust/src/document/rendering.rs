@@ -5,12 +5,12 @@ use super::*;
 /// Original unencrypted input retained for the first render or extraction.
 pub(super) enum HayroSource {
     Unavailable,
-    Bytes(Vec<u8>),
+    Bytes(Arc<Vec<u8>>),
     TooLarge { actual: usize, limit: usize },
 }
 
 impl HayroSource {
-    pub(super) fn from_owned(data: Vec<u8>, max_size: Option<usize>) -> Self {
+    pub(super) fn from_shared(data: Arc<Vec<u8>>, max_size: Option<usize>) -> Self {
         match max_size {
             Some(limit) if data.len() > limit => Self::TooLarge {
                 actual: data.len(),
@@ -20,30 +20,7 @@ impl HayroSource {
         }
     }
 
-    pub(super) fn from_optional_owned(data: Option<Vec<u8>>, max_size: Option<usize>) -> Self {
-        data.map_or(Self::Unavailable, |data| Self::from_owned(data, max_size))
-    }
-
-    pub(super) fn from_borrowed(data: &[u8], max_size: Option<usize>) -> PyResult<Self> {
-        if let Some(limit) = max_size
-            && data.len() > limit
-        {
-            return Ok(Self::TooLarge {
-                actual: data.len(),
-                limit,
-            });
-        }
-        let mut owned = Vec::new();
-        owned.try_reserve_exact(data.len()).map_err(|error| {
-            PdfError::new_err(format!(
-                "failed to allocate rendering and extraction source: {error}"
-            ))
-        })?;
-        owned.extend_from_slice(data);
-        Ok(Self::Bytes(owned))
-    }
-
-    pub(super) fn take_bytes(&mut self) -> Option<Vec<u8>> {
+    pub(super) fn take_bytes(&mut self) -> Option<Arc<Vec<u8>>> {
         match std::mem::replace(self, Self::Unavailable) {
             Self::Bytes(data) => Some(data),
             Self::Unavailable | Self::TooLarge { .. } => None,

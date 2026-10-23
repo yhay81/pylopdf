@@ -71,6 +71,8 @@ mod fonts;
 mod forms;
 mod geometry;
 mod images;
+/// Incremental saves that append one update to the original bytes.
+mod incremental;
 /// The page index lives in its own module so that only `DerefMut`,
 /// `replace`, and the page-tree-neutral edits below can reach the wrapped
 /// document mutably.
@@ -101,6 +103,7 @@ pub(crate) use self::fonts::*;
 pub(crate) use self::forms::*;
 use self::geometry::*;
 pub(crate) use self::images::*;
+use self::incremental::IncrementalBase;
 pub(crate) use self::input::*;
 use self::labels::*;
 use self::limits::*;
@@ -162,6 +165,9 @@ pub struct _Document {
     /// thousands of member tables is used only when the serialized graph
     /// cannot be built, as `object_stream_work` decides.
     hayro_source: HayroSource,
+    /// The original bytes that an incremental save extends, kept for the
+    /// document's lifetime when they describe the loaded graph exactly.
+    incremental_base: Option<IncrementalBase>,
     /// Whether the current hayro snapshot was parsed from the original input
     /// rather than from a serialization of the graph; meaningful only while
     /// `hayro_pdf` is set. Tests read it through `snapshot_source`.
@@ -221,14 +227,14 @@ impl _Document {
     /// Construct from lopdf with no fallback fonts configured.
     fn from_doc(
         doc: Document,
-        hayro_source: Option<Vec<u8>>,
         max_text_size: Option<usize>,
         max_interpretation_size: Option<usize>,
         max_text_glyphs: Option<usize>,
     ) -> Self {
         Self::from_loaded_doc(
             doc,
-            HayroSource::from_optional_owned(hayro_source, max_interpretation_size),
+            HayroSource::Unavailable,
+            None,
             max_text_size,
             max_interpretation_size,
             max_text_glyphs,
@@ -240,6 +246,7 @@ impl _Document {
     fn from_loaded_doc(
         doc: Document,
         hayro_source: HayroSource,
+        incremental_base: Option<IncrementalBase>,
         max_text_size: Option<usize>,
         max_interpretation_size: Option<usize>,
         max_text_glyphs: Option<usize>,
@@ -253,6 +260,7 @@ impl _Document {
             fallback_fonts: FallbackFonts::default(),
             hayro_pdf: None,
             hayro_source,
+            incremental_base,
             hayro_pdf_from_original: false,
             content_guard: ContentGuard::default(),
             pages_too_deep: Vec::new(),
@@ -670,6 +678,27 @@ impl _Document {
     ) -> PyResult<Vec<u8>> {
         self.invalidate_hayro_pdf_keeping_placements();
         py.detach(|| serialize_pdf(&mut self.doc, Some(modern_save_options()), max_size))
+    }
+
+    /// Whether an incremental save can extend the original bytes.
+    fn can_save_incrementally(&self) -> bool {
+        self.incremental_base.is_some()
+    }
+
+    /// Write the original bytes and one update section to `path`.
+    fn save_incremental(&self, py: Python<'_>, path: &str, compress: bool) -> PyResult<()> {
+        incremental::save_incremental(self, py, path, compress)
+    }
+
+    /// Return the original bytes and one update section.
+    #[pyo3(signature = (compress, max_size=None))]
+    fn save_bytes_incremental(
+        &self,
+        py: Python<'_>,
+        compress: bool,
+        max_size: Option<usize>,
+    ) -> PyResult<Vec<u8>> {
+        incremental::save_bytes_incremental(self, py, compress, max_size)
     }
 
     /// Return the page count, walking the page tree once per edit.

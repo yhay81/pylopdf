@@ -106,7 +106,7 @@ the concept and API overview.
   append-only registrations):
   - Objects: `garbage.rs`, `prune.rs`, `renumber.rs`, `recovery.rs`,
     `object_recovery.rs`, `object_stream_work.rs`, `unallocated.rs`;
-    `document/{loading,saving,limits,streams,lowlevel}.rs`;
+    `document/{loading,saving,incremental,limits,streams,lowlevel}.rs`;
     `src/pylopdf/_objects.py`.
   - Structure: `page_cleanup.rs`, `structure_prune.rs`;
     `document/{page_tree,navigation,outline,labels,metadata,attachments}.rs`;
@@ -533,9 +533,10 @@ the concept and API overview.
   rendering copy (missing text-markup appearances, the flattened page tree, or
   the cut nesting). Under a finite limit, serialize before constructing the
   rendering copy. The bounded writer must not
-  install a partial hayro cache. Original input above a finite limit retains
-  only its size and limit until first-interpretation refusal; admitted
-  in-memory input copies use fallible exact allocation. Failures use
+  install a partial hayro cache. The rendering source of original input
+  above a finite limit records only its size and limit until
+  first-interpretation refusal, though the incremental-save baseline below
+  keeps the bytes; in-memory input copies use fallible exact allocation. Failures use
   `interpretation_size`. Its
   compatible default is `None`, while `DocumentLimits.web()` sets 64 MiB.
 - hayro-syntax 0.8 reads no array or dictionary nested more than 64 levels
@@ -1534,6 +1535,27 @@ the concept and API overview.
   `PdfError` hierarchy instead of introducing plain `ValueError` exceptions. Since lopdf 0.45, wrapped causes
   appear only through `Error::source`; format lopdf errors through
   `LopdfErrorChain` so limit and decoder details stay in messages.
+- Incremental saves (`rust/src/document/incremental.rs`) never ask an editing
+  method what it changed: `save(..., incremental=True)` reads the retained
+  original bytes again through the same load, `object_recovery`
+  reconciliation, and `normalize_object_numbers` that opening ran, compares
+  every object of the graph with that baseline (streams by dictionary and
+  data, not by read position), and appends through lopdf's
+  `IncrementalDocument` what is new or differs, plus an indirect null for a
+  baseline object that the graph removed while something still refers to
+  it. Removed objects that nothing refers to stay in the earlier revision,
+  and an unchanged graph and trailer write the original bytes exactly. The
+  update keeps the input's cross-reference form, takes the graph's trailer
+  without its section keys (`/Prev`, `/XRefStm`, `/Size`, and the stream
+  keys), and raises a higher version through the catalog's `/Version`.
+  `_Document.incremental_base` holds the input as an `Arc<Vec<u8>>` shared
+  with the original-byte rendering source, kept for the document's lifetime
+  whenever loading kept the original bytes: no cross-reference recovery, no
+  encryption, `object_recovery` matched, and no object moved. `compress`
+  compresses clones of the written streams only; `prune` runs as for a full
+  save; `dedupe`, `renumber`, `object_streams`, and `encryption` refuse
+  before any change. `tests/test_interop.py` validates pyHanko signatures
+  after incremental form fills and metadata edits.
 - Encryption during `save` operates on a clone, so the in-memory document always
   remains plaintext. Python generates the key with `os.urandom(32)`. Open,
   unlock, fast metadata probe, and `Encryption` passwords stop at the PDF 2.0

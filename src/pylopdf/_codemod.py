@@ -746,13 +746,14 @@ SAVE_PARAMETERS = (
     *TOBYTES_PARAMETERS[15:],
 )
 #: Save options of pymupdf that pylopdf leaves out; their default values change nothing.
-_UNSUPPORTED_SAVE_OPTIONS = ("clean", "incremental", "ascii", "expand", "linear", "no_new_id", "appearance", "pretty")
+_UNSUPPORTED_SAVE_OPTIONS = ("clean", "ascii", "expand", "linear", "no_new_id", "appearance", "pretty")
 _FALSE = frozenset({"False", "0", "None"})
 _TRUE = frozenset({"True", "1"})
 SAVE_MESSAGE = (
     "save() and to_bytes() take compress, prune, dedupe, renumber, object_streams, and "
     "encryption=Encryption(user_password=..., owner_password=..., permissions=...); "
-    "pylopdf writes AES-256 encryption only and has no clean, incremental, linear, or ascii option."
+    "pylopdf writes AES-256 encryption only and has no clean, linear, or ascii option; incremental=True "
+    "takes neither dedupe, renumber, object_streams, nor encryption."
 )
 UNLOCK_MESSAGE = (
     "unlock() returns Access.USER or Access.OWNER and raises PasswordError for a wrong password, "
@@ -860,6 +861,14 @@ def _save_options(migrator: _Migrator, bound: dict[str, str]) -> list[str] | Non
         return None
     if options is None or encryption is None:
         return None
+    incremental = bound.get("incremental", "False")
+    if incremental not in _FALSE | _TRUE:
+        return None
+    if incremental in _TRUE:
+        # pylopdf refuses the options that would rewrite objects the update leaves alone.
+        if encryption or any(option.startswith(("dedupe", "renumber", "object_streams")) for option in options):
+            return None
+        options.append("incremental=True")
     return [*options, encryption] if encryption else options
 
 
@@ -896,6 +905,23 @@ def _save(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
         # Another class's save, such as Pixmap.save(filename, output), which keeps its own rules.
         return None
     options = _save_options(migrator, bound)
+    if options is None:
+        migrator.todo(SAVE_MESSAGE)
+        return None
+    return f"{receiver}.save({', '.join([bound['filename'], *options])})"
+
+
+#: The save options that pymupdf's ``ez_save`` sets unless the call gives its own.
+EZ_SAVE_DEFAULTS = {"garbage": "3", "use_objstms": "1"}
+
+
+def _ez_save(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    # ez_save orders its parameters differently from save, so only the file name binds by position.
+    bound = None if len(args.positional) > 1 else args.bind((*SAVE_PARAMETERS, "compression_effort"))
+    if bound is None or "filename" not in bound or bound.pop("compression_effort", "0") != "0":
+        migrator.todo(SAVE_MESSAGE)
+        return None
+    options = _save_options(migrator, {**EZ_SAVE_DEFAULTS, **bound})
     if options is None:
         migrator.todo(SAVE_MESSAGE)
         return None
@@ -1813,6 +1839,9 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "xref_stream_raw": _one_argument("xref", "{receiver}.objects[{value}].read(decode=False)"),
     "update_stream": _update_stream,
     "save": _save,
+    "ez_save": _ez_save,
+    "saveIncr": _no_arguments("{receiver}.save({receiver}.path, incremental=True)"),
+    "can_save_incrementally": _no_arguments("{receiver}.can_save_incrementally"),
     "tobytes": _tobytes,
     "write": _tobytes,
     "authenticate": _unlock(note=True),

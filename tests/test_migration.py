@@ -252,6 +252,14 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "doc.save('out.pdf', prune=False, object_streams=True)",
         ),
         ("import fitz\ndoc.save('out.pdf', incremental=False, deflate_images=True)\n", "doc.save('out.pdf')"),
+        ("import fitz\ndoc.save(path, incremental=True, garbage=0)\n", "doc.save(path, prune=False, incremental=True)"),
+        ("import fitz\ndoc.saveIncr()\n", "doc.save(doc.path, incremental=True)"),
+        ("import fitz\nif doc.can_save_incrementally():\n    pass\n", "if doc.can_save_incrementally:"),
+        (
+            "import fitz\ndoc.ez_save('out.pdf')\n",
+            "doc.save('out.pdf', dedupe=True, renumber=True, object_streams=True)",
+        ),
+        ("import fitz\ndoc.ez_save('out.pdf', garbage=0, use_objstms=0)\n", "doc.save('out.pdf', prune=False)"),
         (
             "import fitz\ndoc.save(path, encryption=fitz.PDF_ENCRYPT_AES_256, user_pw='u', owner_pw='o')\n",
             "doc.save(path, encryption=pylopdf.Encryption(user_password='u', owner_password='o'))",
@@ -973,6 +981,8 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import fitz.utils\n", "pylopdf has no fitz.utils module"),
         ("from fitz import Rect\nm.prerotate(90)\n", "pylopdf.Matrix(deg) * m"),
         ("import fitz\ndoc.save(path, garbage=4, clean=True)\n", "pylopdf writes AES-256 encryption only"),
+        ("import fitz\ndoc.save(path, garbage=3, incremental=True)\n", "incremental=True takes neither"),
+        ("import fitz\ndoc.ez_save(path, compression_effort=50)\n", "pylopdf writes AES-256 encryption only"),
         ("import fitz\ndoc.save(path, encryption=fitz.PDF_ENCRYPT_RC4_128)\n", "encryption=Encryption("),
         ("import fitz\ndoc.save(path, encryption=method)\n", "encryption=Encryption("),
         ("import fitz\ndata = doc.tobytes(encryption=method)\n", "encryption=Encryption("),

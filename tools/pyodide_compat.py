@@ -1156,6 +1156,18 @@ def _save_option_results() -> dict[str, Any]:
         }
     _require(results["plain"]["objects"] == 9, "prune=False removed objects")  # noqa: PLR2004 - the input's objects.
     _require(results["dedupe"] == {"objects": 6, "fonts": 1, "pages": 2}, "dedupe did not merge duplicates")
+    document = pylopdf.open(data)
+    _require(document.can_save_incrementally, "an intact input cannot be saved incrementally")
+    _require(document.to_bytes(incremental=True) == data, "an unedited incremental save changed the input")
+    document.metadata["title"] = "Incremental"
+    saved = document.to_bytes(incremental=True)
+    _require(saved[: len(data)] == data, "an incremental save changed the original bytes")
+    with pylopdf.open(saved) as reopened:
+        results["incremental"] = {
+            "update_objects": saved[len(data) :].count(b" 0 obj"),
+            "title": reopened.metadata["title"],
+            "texts": [page.text().strip() for page in reopened.pages],
+        }
     return results
 
 
