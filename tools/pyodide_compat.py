@@ -1414,6 +1414,8 @@ def _canvas_results(root: Path) -> dict[str, Any]:
         with canvas.transform(Matrix(1, 0, 0, 1, 150, 100)):
             canvas.image((0, 0, 40, 20), swatch)
             canvas.page((50, 0, 150, 100), source.pages[0])
+        clipped = source.pages[0].rect & pylopdf.Rect(0, 0, 200, 150)
+        canvas.page((220, 140, 290, 195), source.pages[0], clip=clipped, rotate=90)
         fit = canvas.textbox((10, 140, 140, 190), "Wrapped text " * 20, size=8)
         height = font.text_height(_JAPANESE * 3, 10, width=60)
         exact = canvas.textbox((150, 100, 210, 100 + height), _JAPANESE * 3, font=font, size=10)
@@ -1423,6 +1425,7 @@ def _canvas_results(root: Path) -> dict[str, Any]:
     return {
         "kinds": [type(item).__name__ for item in content],
         "boxes": [[round(value, 1) for value in item.bbox] for item in content][:6],
+        "all_boxes": [[round(value, 1) for value in item.bbox] for item in content],
         "opacities": [round(float(item.context.opacity), 2) for item in content][:6],
         "text": _digest(page.text()),
         "spare_height": round(fit.spare_height, 2),

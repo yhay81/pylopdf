@@ -319,8 +319,8 @@ Workstream Writing.
   `layer`, and `tag`; and `draw(item)`, which paints a content item again
   (done for paths). `textbox` places lines as `text` does, and
   `Font.text_height` measures the height it needs before drawing, and
-  `rotate` turns text clockwise in right angles (both done). Still to come:
-  `clip` and `rotate` for placed pages.
+  `rotate` turns text clockwise in right angles, and `page` takes a `clip`
+  and a `rotate` (all done).
 - One commit places one Form XObject whose content pylopdf composes in
   display space (done). Paths, clips, transforms, and blend modes are
   operators; an opacity scope is a transparency group Form; text in an
@@ -564,8 +564,8 @@ Workstream Writing. Depends on the canvas.
   information for the Standard 14 fonts and OpenType faces.
 - Images: JPEG 2000 passthrough, masks and alpha, and replacing or removing an
   image object.
-- Placement of pages with a clip and rotation, and optional-content layers on
-  everything the canvas draws.
+- Placement of pages with a clip and rotation (done), and optional-content
+  layers on everything the canvas draws.
 - Conversion of images (JPEG, PNG, and JPEG 2000 directly, other formats
   through Pillow) and CBZ archives to PDF, and of scans to searchable PDF with
   OCR.

@@ -1162,10 +1162,22 @@
                 "name": "source"
               },
               {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              },
+              {
                 "annotation": "bool",
                 "default": true,
                 "kind": "keyword_only",
                 "name": "keep_aspect"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "rotate"
               }
             ],
             "returns": "None"

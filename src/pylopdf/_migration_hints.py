@@ -587,7 +587,7 @@ HINTS: dict[str, str] = {
     "Page.set_mediabox": "Page.set_mediabox is Page.boxes in pylopdf. Assign page.boxes.media = rect; as in pymupdf, the other boxes are removed.",
     "Page.set_rotation": "Page.set_rotation is Page.rotation in pylopdf. Assign page.rotation = angle, a multiple of 90; another angle raises ValueError, where pymupdf sets 0.",
     "Page.set_trimbox": "Page.set_trimbox is Page.boxes in pylopdf. Assign page.boxes.trim = rect, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.",
-    "Page.show_pdf_page": "Page.show_pdf_page is Canvas.page in pylopdf. Inside with page.draw() as canvas:, call canvas.page(rect, docsrc.pages[pno], keep_aspect=...), which draws the page as vectors, from any open document or this one.",
+    "Page.show_pdf_page": "Page.show_pdf_page is Canvas.page in pylopdf. Inside with page.draw() as canvas:, call canvas.page(rect, docsrc.pages[pno], clip=..., keep_aspect=..., rotate=...), which draws the page as vectors, from any open document or this one; clip is in the source page's display coordinates, and rotate turns clockwise, so pymupdf's rotate=90 is rotate=270.",
     "Page.this": "pylopdf does not provide pymupdf's Page.this.",
     "Page.thisown": "pylopdf does not provide pymupdf's Page.thisown.",
     "Page.to_markdown": "Page.to_markdown is Page.markdown in pylopdf. Call page.markdown(...).",

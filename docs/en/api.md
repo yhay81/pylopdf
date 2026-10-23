@@ -562,7 +562,7 @@ with page.draw() as canvas:
 | `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None, rotate=0)` | Lines whose first baseline starts at `at`, turned clockwise about `at` by `rotate` |
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, rotate=0, ...)` | Text wrapped inside `rect`, turned clockwise by `rotate`; returns a `TextFit` |
 | `image(rect, source, *, keep_aspect=True, rotate=0)` | A JPEG or PNG path, encoded bytes, or a `Pixmap`, turned clockwise by `rotate` |
-| `page(rect, source, *, keep_aspect=True)` | A page of any open document, this one included, as vectors |
+| `page(rect, source, *, clip=None, keep_aspect=True, rotate=0)` | A page of any open document, this one included, as vectors: the part inside `clip`, a rectangle of the source page's display coordinates, turned clockwise by `rotate` |
 | `draw(item)` | A `Path` item that [`page.content()`](#content) returned |
 
 Paths take a `Color` fill and a stroke: a `Stroke` with width, cap, join,
@@ -614,9 +614,11 @@ Four context managers apply to everything drawn inside them, and nest:
 
 `page.draw(underlay=True)` writes below the page's existing content. An image
 or page that a canvas draws several times, or that the document placed
-before, is stored once. A page is drawn as it was when `canvas.page()` was
-called. `draw(item)` repeats an item's clips, group opacities, and blend
-modes, but not its soft masks; text runs, images, and pattern paints cannot
+before, is stored once, whatever its rotation or clip. A page is drawn as it
+was when `canvas.page()` was called; a `clip` fills `rect` in place of the
+whole page, at its own aspect ratio unless `keep_aspect=False`, and nothing
+outside it is painted. `draw(item)` repeats an item's clips, group
+opacities, and blend modes, but not its soft masks; text runs, images, and pattern paints cannot
 be drawn yet. A canvas holds at most 1,048,576 path points and nests at most
 16 scopes; beyond that, `LimitError` has the code `path_point_count` or
 `canvas_scope_depth`.

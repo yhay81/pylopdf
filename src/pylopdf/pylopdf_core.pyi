@@ -232,6 +232,8 @@ class _Canvas:
         page_number: int,
         rect: tuple[float, float, float, float],
         keep_aspect: bool,
+        clip: tuple[float, float, float, float] | None = None,
+        rotation: int = 0,
     ) -> None: ...
 
 class Pixmap:
