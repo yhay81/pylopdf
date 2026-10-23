@@ -48,7 +48,16 @@ MODULE_RENAMES = {
 }
 #: pymupdf module attributes that pylopdf names otherwise; pylopdf's own ``Outline`` is the item sequence.
 PYMUPDF_MODULE_RENAMES = {"Outline": "OutlineItem", "Annot": "Annotation"}
-#: Module constants that became enum members.
+#: pymupdf's geometry constructors, called without arguments, and the class attributes that replace them.
+GEOMETRY_CONSTANTS = {
+    "IdentityMatrix": "Matrix.IDENTITY",
+    **{
+        f"{kind}_{shape.upper()}": f"{shape}.{kind}"
+        for kind in ("EMPTY", "INFINITE")
+        for shape in ("Rect", "IRect", "Quad")
+    },
+}
+#: Module constants that became enum members or class attributes.
 MODULE_MEMBER_RENAMES = {
     "csRGB": "Colorspace.RGB",
     "csGRAY": "Colorspace.GRAY",
@@ -62,6 +71,11 @@ MODULE_MEMBER_RENAMES = {
     "PDF_ANNOT_3D": "AnnotationType.THREE_D",
     **{f"PDF_ANNOT_IS_{member.name}": f"AnnotationFlags.{member.name}" for member in pylopdf.AnnotationFlags},
     **{f"PDF_PERM_{member.name}": f"Permissions.{member.name}" for member in pylopdf.Permissions},
+    "Identity": "Matrix.IDENTITY",
+    "planish_line": "Matrix.planish",
+    "FZ_MIN_INF_RECT": "Rect.INFINITE.x0",
+    "FZ_MAX_INF_RECT": "Rect.INFINITE.x1",
+    **GEOMETRY_CONSTANTS,
 }
 #: Document properties that the API reset renamed; only pymupdf's and pylopdf 0.15's Document had them.
 DOCUMENT_PROPERTY_RENAMES = {
@@ -1079,7 +1093,9 @@ def _extract_image(migrator: _Migrator, receiver: str, args: _Arguments) -> str 
 #: The RGB color space, which ``pixmap()`` renders by default, as module constants become enum members.
 _RGB_COLORSPACES = frozenset({"pylopdf.Colorspace.RGB", "Colorspace.RGB", "csRGB"})
 #: pymupdf's identity matrix, the only one that ``svg()`` draws with.
-_IDENTITY_MATRICES = frozenset({"pymupdf.Identity", "fitz.Identity", "pylopdf.Identity", "Identity"})
+_IDENTITY_MATRICES = frozenset(
+    {"pymupdf.Identity", "fitz.Identity", "pylopdf.Identity", "Identity", "pylopdf.Matrix.IDENTITY", "Matrix.IDENTITY"}
+)
 
 
 def _render_keywords(args: _Arguments, names: Sequence[str]) -> list[str] | None:
@@ -2276,6 +2292,11 @@ def _get_text_length(migrator: _Migrator, prefix: str | None, _: str, args: _Arg
     return f'{font}.standard("{name}").text_width({bound["text"]}, {bound.get("fontsize", "11")})'
 
 
+def _geometry_constant(_: _Migrator, __: str | None, function: str, args: _Arguments) -> str | None:
+    """Rewrite a call of ``EMPTY_RECT()`` or ``IdentityMatrix()``, already renamed, to the class attribute."""
+    return None if args.positional or args.keywords else function
+
+
 #: Module calls whose arguments changed, keyed by their name in the module.
 MODULE_CALL_RULES: dict[str, Callable[[_Migrator, str | None, str, _Arguments], str | None]] = {
     "open": _open_document,
@@ -2283,6 +2304,7 @@ MODULE_CALL_RULES: dict[str, Callable[[_Migrator, str | None, str, _Arguments], 
     "peek_metadata": _probe,
     "Font": _font,
     "get_text_length": _get_text_length,
+    **dict.fromkeys(GEOMETRY_CONSTANTS, _geometry_constant),
 }
 
 

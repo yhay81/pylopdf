@@ -178,16 +178,22 @@ replacement, and the migration hint):
 - DocumentWriter.begin_page -> Builder.page: Use `with builder.page(size) as canvas:`; the canvas draws the page and the block adds it.
 - DocumentWriter.close -> Builder.to_bytes: Write the document with builder.to_bytes(), or open it with builder.finish().
 - DocumentWriter.end_page -> Builder.page: The `with builder.page(size) as canvas:` block adds the page when it ends.
+- EMPTY_* -> Rect.EMPTY: EMPTY_RECT(), EMPTY_IRECT(), and EMPTY_QUAD() are the class attributes Rect.EMPTY, IRect.EMPTY, and Quad.EMPTY.
 - EmptyFileError -> MalformedPdfError: Catch MalformedPdfError, which empty input raises.
+- FZ_MAX_INF_RECT -> Rect.INFINITE: Read Rect.INFINITE.x1, the upper coordinate bound of the infinite rectangle.
+- FZ_MIN_INF_RECT -> Rect.INFINITE: Read Rect.INFINITE.x0, the lower coordinate bound of the infinite rectangle.
 - FileDataError -> MalformedPdfError: Catch MalformedPdfError, a PdfError and thus a ValueError, which empty input raises as well.
 - FileNotFoundError -> FileNotFoundError: Catch Python's built-in FileNotFoundError, which pylopdf raises for a missing file.
 - Font.text_length -> Font.text_width: font.text_width(text, size) measures one line with the shaping that drawing uses; size has no default, and a line break raises.
+- INFINITE_* -> Rect.INFINITE: INFINITE_RECT(), INFINITE_IRECT(), and INFINITE_QUAD() are the class attributes Rect.INFINITE, IRect.INFINITE, and Quad.INFINITE.
 - IRect.__setitem__ -> IRect: IRect values are immutable; build a new IRect instead.
 - IRect.include_point -> IRect.__or__: Use r | p, which returns a new IRect.
 - IRect.include_rect -> IRect.__or__: Use r | other, which returns a new IRect.
 - IRect.intersect -> IRect.__and__: Use r & other, which returns a new IRect.
 - IRect.normalize -> IRect.normalized: Use r.normalized(), which returns a new IRect.
 - IRect.transform -> IRect.__mul__: Use r * m, which returns a new IRect.
+- Identity -> Matrix.IDENTITY: Use Matrix.IDENTITY.
+- IdentityMatrix -> Matrix.IDENTITY: IdentityMatrix() is Matrix.IDENTITY, an ordinary Matrix.
 - LINK_FLAG_* -> Destination: A Destination's point and zoom are None where the destination leaves them unset.
 - LINK_GOTO -> Destination: isinstance(link.target, Destination) marks a link to a page of this document.
 - LINK_GOTOR -> RemoteDestination: isinstance(link.target, RemoteDestination) marks a link to another PDF file.
@@ -350,6 +356,7 @@ replacement, and the migration hint):
 - get_pdf_str -> String: Write a Python str into the object model, which encodes it as a PDF text string, or read String.text.
 - get_text_length -> Font.text_width: Font.standard("Helvetica").text_width(text, size) measures Standard 14 text; an OpenType face measures with its own Font.text_width.
 - linkDest -> Destination: link.target holds a URI string, Destination(page, point, zoom), RemoteDestination(file, page), Launch(file), or NamedAction(name).
+- planish_line -> Matrix.planish: Matrix.planish(p1, p2) returns the same matrix.
 - set_log -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
 - set_messages -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
 
@@ -396,11 +403,23 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - DrawingInfo.type -> Path.fill: A path fills when path.fill is not None and strokes when path.stroke is not None.
 - DrawingInfo.width -> Stroke.width: Read path.stroke.width.
 - DrawingItem -> Segment: path.segments holds MoveTo, LineTo, CurveTo, and ClosePath records.
+- EMPTY_IRECT -> IRect.EMPTY: EMPTY_IRECT() is the class attribute IRect.EMPTY.
+- EMPTY_QUAD -> Quad.EMPTY: EMPTY_QUAD() is the class attribute Quad.EMPTY.
+- EMPTY_RECT -> Rect.EMPTY: EMPTY_RECT() is the class attribute Rect.EMPTY.
 - FormFieldInfo -> Field: doc.form lists Field handles instead of FormFieldInfo dictionaries.
 - FormFieldInfo.name -> Field.name: Read field.name, or iterate over the keys of doc.form.
 - FormFieldInfo.type -> Field.type: field.type is a FieldType member; the "button" type is FieldType.PUSHBUTTON.
 - FormFieldInfo.value -> Field.value: Read field.value.
 - FormFieldType -> FieldType: Use the FieldType enum; its members compare equal to the old strings, except "button", which is "pushbutton".
+- INFINITE_IRECT -> IRect.INFINITE: INFINITE_IRECT() is the class attribute IRect.INFINITE.
+- INFINITE_QUAD -> Quad.INFINITE: INFINITE_QUAD() is the class attribute Quad.INFINITE.
+- INFINITE_RECT -> Rect.INFINITE: INFINITE_RECT() is the class attribute Rect.INFINITE.
+- IdentityMatrix.a -> Matrix.IDENTITY: Read Matrix.IDENTITY.a.
+- IdentityMatrix.b -> Matrix.IDENTITY: Read Matrix.IDENTITY.b.
+- IdentityMatrix.c -> Matrix.IDENTITY: Read Matrix.IDENTITY.c.
+- IdentityMatrix.d -> Matrix.IDENTITY: Read Matrix.IDENTITY.d.
+- IdentityMatrix.e -> Matrix.IDENTITY: Read Matrix.IDENTITY.e.
+- IdentityMatrix.f -> Matrix.IDENTITY: Read Matrix.IDENTITY.f.
 - ImageInfo -> Image: page.content(text_runs=False, paths=False).images lists drawn images as Image records; doc.images[xref].extract() returns an image's data.
 - ImageInfo.bbox -> Image.bbox: Read image.bbox of page.content().images.
 - ImageInfo.ext -> EncodedImage.format: doc.images[xref].extract() returns an EncodedImage whose format is jpeg or png; page.content(text_runs=False, paths=False).images describes placements.

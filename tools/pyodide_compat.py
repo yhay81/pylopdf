@@ -1119,7 +1119,7 @@ def _geometry_results() -> dict[str, Any]:
 
 def _rectangle_results() -> dict[str, Any]:  # noqa: PLR0915 - explicit compatibility scenarios.
     """Check Rect, IRect, and Quad operators and their use with page geometry."""
-    from pylopdf import INFINITE_RECT, Document, Font, Highlight, IRect, Matrix, Point, Quad, Rect  # noqa: PLC0415
+    from pylopdf import Document, Font, Highlight, IRect, Matrix, Point, Quad, Rect  # noqa: PLC0415
 
     rect = Rect(1, 2, 3, 4)
     _require(rect | Point(10, 10) == (1, 2, 10, 10), "rectangle union with a point changed")
@@ -1127,7 +1127,7 @@ def _rectangle_results() -> dict[str, Any]:  # noqa: PLR0915 - explicit compatib
     _require(rect * Matrix(90) == (-4, 1, -2, 3), "rectangle rotation changed")
     _require(Rect(3, 4, 1, 2).width == 0, "rectangle width must not be negative")
     _require(Point(1, 2) in rect and Point(3, 4) not in rect, "point containment changed")
-    _require((INFINITE_RECT() * Matrix(30)).is_infinite, "infinite rectangle changed under rotation")
+    _require((Rect.INFINITE * Matrix(30)).is_infinite, "infinite rectangle changed under rotation")
     _require(IRect(1.5, 2.5, 3.5, 4.5) == (1, 2, 4, 5), "integer rectangle rounding changed")
     _require(Rect(-0.5, -1.5, 2.0001, 3.9999).round() == (-1, -2, 2, 4), "rectangle rounding changed")
     quad = rect.quad * Matrix(90)

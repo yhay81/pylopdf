@@ -69,24 +69,7 @@ from pylopdf._errors import (
 from pylopdf._fallback_fonts import FallbackFont, FallbackFonts
 from pylopdf._fonts import Font
 from pylopdf._form import Field, FieldChoice, FieldFlags, FieldType, Form
-from pylopdf._geometry import (
-    EMPTY_IRECT,
-    EMPTY_QUAD,
-    EMPTY_RECT,
-    FZ_MAX_INF_RECT,
-    FZ_MIN_INF_RECT,
-    INFINITE_IRECT,
-    INFINITE_QUAD,
-    INFINITE_RECT,
-    Identity,
-    IdentityMatrix,
-    IRect,
-    Matrix,
-    Point,
-    Quad,
-    Rect,
-    planish_line,
-)
+from pylopdf._geometry import IRect, Matrix, Point, Quad, Rect
 from pylopdf._hints import missing_attribute
 from pylopdf._images import EncodedImage, ImageObject, Images, Resources
 from pylopdf._limits import DocumentLimits
@@ -112,14 +95,6 @@ from pylopdf.pylopdf_core import LimitError, OcrError, PasswordError, PdfError, 
 
 __version__ = "0.15.0"
 __all__ = [
-    "EMPTY_IRECT",
-    "EMPTY_QUAD",
-    "EMPTY_RECT",
-    "FZ_MAX_INF_RECT",
-    "FZ_MIN_INF_RECT",
-    "INFINITE_IRECT",
-    "INFINITE_QUAD",
-    "INFINITE_RECT",
     "Access",
     "Annotation",
     "AnnotationFlags",
@@ -165,8 +140,6 @@ __all__ = [
     "GraphicsContext",
     "Highlight",
     "IRect",
-    "Identity",
-    "IdentityMatrix",
     "Image",
     "ImageCompressionResult",
     "ImageMask",
@@ -242,7 +215,6 @@ __all__ = [
     "Word",
     "create",
     "open",
-    "planish_line",
     "probe",
 ]
 __all__ += ["Pixmap", "PylopdfWarning"]

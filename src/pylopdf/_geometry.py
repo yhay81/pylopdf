@@ -11,6 +11,9 @@ from typing import TYPE_CHECKING, Any, NamedTuple, Self, TypeGuard, overload
 from pylopdf._hints import hinted_getattr
 from pylopdf.pylopdf_core import PdfError
 
+if TYPE_CHECKING:
+    from typing import ClassVar
+
 _RECTILINEAR_TOLERANCE = 1e-5
 _SHEAR_ARGUMENTS = 3
 _POINT_COORDINATES = 2
@@ -21,14 +24,10 @@ _EPSILON = 1e-5
 # MuPDF treats a transform as axis-preserving when its other two
 # coefficients are below single precision's epsilon.
 _FLT_EPSILON = 2.0**-23
-#: Lower coordinate bound of MuPDF's infinite rectangle, the smallest
-#: 32-bit integer.
-FZ_MIN_INF_RECT = -2147483648
-#: Upper coordinate bound of MuPDF's infinite rectangle, the largest
-#: single-precision value below 2**31.
-FZ_MAX_INF_RECT = 2147483520
-_INFINITE_MIN = float(FZ_MIN_INF_RECT)
-_INFINITE_MAX = float(FZ_MAX_INF_RECT)
+# The coordinate bounds of MuPDF's infinite rectangle: the smallest 32-bit
+# integer and the largest single-precision value below 2**31.
+_INFINITE_MIN = -2147483648.0
+_INFINITE_MAX = 2147483520.0
 # Rect.round() tolerates this much float noise at each edge and clamps to
 # the range in which single precision still represents every integer.
 _ROUND_TOLERANCE = 0.001
@@ -116,6 +115,10 @@ class Matrix(_MatrixTuple):
     """
 
     __slots__ = ()
+
+    if TYPE_CHECKING:
+        #: The identity matrix ``(1, 0, 0, 1, 0, 0)``.
+        IDENTITY: ClassVar[Matrix]
 
     if not TYPE_CHECKING:
         __getattr__ = hinted_getattr
@@ -258,26 +261,19 @@ class Matrix(_MatrixTuple):
             abs(self.a) < _RECTILINEAR_TOLERANCE and abs(self.d) < _RECTILINEAR_TOLERANCE
         )
 
+    @staticmethod
+    def planish(p1: Sequence[float], p2: Sequence[float]) -> Matrix:
+        """Return the matrix that moves ``p1`` to the origin and ``p2`` onto the positive x axis.
 
-class IdentityMatrix(Matrix):
-    """The identity matrix ``(1, 0, 0, 1, 0, 0)``, constructed without arguments.
-
-    Operations on it return ordinary :class:`Matrix` values.
-    """
-
-    __slots__ = ()
-
-    def __new__(cls) -> Self:
-        """Construct the identity matrix."""
-        return _MatrixTuple.__new__(cls, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
-
-    def __getnewargs__(self) -> tuple[()]:
-        """Pickle without the six coordinates that the constructor refuses."""
-        return ()
-
-
-#: The identity matrix.
-Identity = IdentityMatrix()
+        The matrix only translates and rotates, so lengths are kept. Equal
+        points give the zero matrix.
+        """
+        start, end = _point_argument(p1), _point_argument(p2)
+        length = abs(end - start)
+        if length == 0:
+            return Matrix()
+        cosine, sine = (end.x - start.x) / length, (end.y - start.y) / length
+        return Matrix(1, 0, 0, 1, -start.x, -start.y) * Matrix(cosine, -sine, sine, cosine, 0, 0)
 
 
 class _PointTuple(NamedTuple):
@@ -735,7 +731,7 @@ class _Rectangle:
     def morph(self, p: Sequence[float], m: Sequence[float]) -> Quad:
         """Transform the corners by ``m`` around the fixed point ``p``."""
         if self.is_infinite:
-            return INFINITE_QUAD()
+            return Quad.INFINITE
         return self.quad.morph(p, m)
 
     def torect(self, r: Sequence[float]) -> Matrix:
@@ -772,6 +768,12 @@ class Rect(_Rectangle, _RectTuple):
     """
 
     __slots__ = ()
+
+    if TYPE_CHECKING:
+        #: MuPDF's empty rectangle, the infinite one with its corners exchanged.
+        EMPTY: ClassVar[Rect]
+        #: MuPDF's infinite rectangle, from -2147483648 to 2147483520 on both axes.
+        INFINITE: ClassVar[Rect]
 
     @overload
     def __new__(cls) -> Self: ...
@@ -860,6 +862,12 @@ class IRect(_Rectangle, _IRectTuple):
     """
 
     __slots__ = ()
+
+    if TYPE_CHECKING:
+        #: :attr:`Rect.EMPTY` as an integer rectangle.
+        EMPTY: ClassVar[IRect]
+        #: :attr:`Rect.INFINITE` as an integer rectangle.
+        INFINITE: ClassVar[IRect]
 
     @overload
     def __new__(cls) -> Self: ...
@@ -951,6 +959,12 @@ class Quad(_QuadTuple):
     """
 
     __slots__ = ()
+
+    if TYPE_CHECKING:
+        #: The quad of :attr:`Rect.EMPTY`.
+        EMPTY: ClassVar[Quad]
+        #: The quad of :attr:`Rect.INFINITE`.
+        INFINITE: ClassVar[Quad]
 
     if not TYPE_CHECKING:
         __getattr__ = hinted_getattr
@@ -1132,64 +1146,20 @@ class Quad(_QuadTuple):
         return self * (Matrix(1, 0, 0, 1, -x, -y) * _matrix(m) * Matrix(1, 0, 0, 1, x, y))
 
 
-def planish_line(p1: Sequence[float], p2: Sequence[float]) -> Matrix:
-    """Return the matrix that moves ``p1`` to the origin and ``p2`` onto the positive x axis.
-
-    The matrix only translates and rotates, so lengths are kept. Equal
-    points give the zero matrix.
-    """
-    start, end = _point_argument(p1), _point_argument(p2)
-    length = abs(end - start)
-    if length == 0:
-        return Matrix()
-    cosine, sine = (end.x - start.x) / length, (end.y - start.y) / length
-    return Matrix(1, 0, 0, 1, -start.x, -start.y) * Matrix(cosine, -sine, sine, cosine, 0, 0)
-
-
-def EMPTY_RECT() -> Rect:  # noqa: N802 - pymupdf's name.
-    """Return MuPDF's empty rectangle, the infinite one with its corners exchanged."""
-    return Rect(_INFINITE_MAX, _INFINITE_MAX, _INFINITE_MIN, _INFINITE_MIN)
-
-
-def INFINITE_RECT() -> Rect:  # noqa: N802 - pymupdf's name.
-    """Return MuPDF's infinite rectangle."""
-    return Rect(_INFINITE_MIN, _INFINITE_MIN, _INFINITE_MAX, _INFINITE_MAX)
-
-
-def EMPTY_IRECT() -> IRect:  # noqa: N802 - pymupdf's name.
-    """Return :func:`EMPTY_RECT` as an :class:`IRect`."""
-    return IRect(EMPTY_RECT())
-
-
-def INFINITE_IRECT() -> IRect:  # noqa: N802 - pymupdf's name.
-    """Return :func:`INFINITE_RECT` as an :class:`IRect`."""
-    return IRect(INFINITE_RECT())
-
-
-def EMPTY_QUAD() -> Quad:  # noqa: N802 - pymupdf's name.
-    """Return the quad of :func:`EMPTY_RECT`."""
-    return EMPTY_RECT().quad
-
-
-def INFINITE_QUAD() -> Quad:  # noqa: N802 - pymupdf's name.
-    """Return the quad of :func:`INFINITE_RECT`."""
-    return INFINITE_RECT().quad
-
+Matrix.IDENTITY = Matrix(1, 0, 0, 1, 0, 0)
+Rect.EMPTY = Rect(_INFINITE_MAX, _INFINITE_MAX, _INFINITE_MIN, _INFINITE_MIN)
+Rect.INFINITE = Rect(_INFINITE_MIN, _INFINITE_MIN, _INFINITE_MAX, _INFINITE_MAX)
+IRect.EMPTY = IRect(Rect.EMPTY)
+IRect.INFINITE = IRect(Rect.INFINITE)
+Quad.EMPTY = Rect.EMPTY.quad
+Quad.INFINITE = Rect.INFINITE.quad
 
 # Reprs, pickles, and type hints use the public package.
 for _public in (
     Point,
     Matrix,
-    IdentityMatrix,
-    planish_line,
     Rect,
     IRect,
     Quad,
-    EMPTY_RECT,
-    INFINITE_RECT,
-    EMPTY_IRECT,
-    INFINITE_IRECT,
-    EMPTY_QUAD,
-    INFINITE_QUAD,
 ):
     _public.__module__ = "pylopdf"

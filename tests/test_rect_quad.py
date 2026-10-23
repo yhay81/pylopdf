@@ -17,12 +17,6 @@ import pytest
 
 import pylopdf
 from pylopdf import (
-    EMPTY_IRECT,
-    EMPTY_QUAD,
-    EMPTY_RECT,
-    INFINITE_IRECT,
-    INFINITE_QUAD,
-    INFINITE_RECT,
     IRect,
     Matrix,
     Point,
@@ -107,24 +101,49 @@ def test_size_and_validity() -> None:
     assert not Rect(1, 2, 3, 4).is_empty
 
 
+def test_constants_are_class_attributes() -> None:
+    for name in (
+        "EMPTY_RECT",
+        "EMPTY_IRECT",
+        "EMPTY_QUAD",
+        "INFINITE_RECT",
+        "INFINITE_IRECT",
+        "INFINITE_QUAD",
+        "FZ_MIN_INF_RECT",
+        "FZ_MAX_INF_RECT",
+        "Identity",
+        "IdentityMatrix",
+        "planish_line",
+    ):
+        assert not hasattr(pylopdf, name)
+        assert name not in pylopdf.__all__
+    with pytest.raises(AttributeError, match=r"class attribute Rect\.EMPTY"):
+        _ = pylopdf.EMPTY_RECT  # ty: ignore[unresolved-attribute]
+    with pytest.raises(AttributeError, match=r"Rect\.INFINITE\.x0"):
+        _ = pylopdf.FZ_MIN_INF_RECT  # ty: ignore[unresolved-attribute]
+    assert (Rect.INFINITE.x0, Rect.INFINITE.x1) == (LIMIT_LOW, LIMIT_HIGH)
+    assert type(Rect.EMPTY) is Rect
+    assert type(Quad.EMPTY) is Quad
+
+
 def test_constants() -> None:
-    assert INFINITE_RECT() == (LIMIT_LOW, LIMIT_LOW, LIMIT_HIGH, LIMIT_HIGH)
-    assert EMPTY_RECT() == (LIMIT_HIGH, LIMIT_HIGH, LIMIT_LOW, LIMIT_LOW)
-    assert INFINITE_IRECT() == INFINITE_RECT()
-    assert EMPTY_IRECT() == EMPTY_RECT()
-    assert type(INFINITE_IRECT()) is IRect
-    assert INFINITE_QUAD() == INFINITE_RECT().quad
-    assert EMPTY_QUAD() == EMPTY_RECT().quad
-    assert INFINITE_RECT().is_infinite
-    assert INFINITE_IRECT().is_infinite
-    assert INFINITE_QUAD().is_infinite
-    assert not INFINITE_RECT().is_empty
-    assert INFINITE_RECT().is_valid
-    assert EMPTY_RECT().is_empty
-    assert not EMPTY_RECT().is_valid
+    assert Rect.INFINITE == (LIMIT_LOW, LIMIT_LOW, LIMIT_HIGH, LIMIT_HIGH)
+    assert Rect.EMPTY == (LIMIT_HIGH, LIMIT_HIGH, LIMIT_LOW, LIMIT_LOW)
+    assert IRect.INFINITE == Rect.INFINITE
+    assert IRect.EMPTY == Rect.EMPTY
+    assert type(IRect.INFINITE) is IRect
+    assert Rect.INFINITE.quad == Quad.INFINITE
+    assert Rect.EMPTY.quad == Quad.EMPTY
+    assert Rect.INFINITE.is_infinite
+    assert IRect.INFINITE.is_infinite
+    assert Quad.INFINITE.is_infinite
+    assert not Rect.INFINITE.is_empty
+    assert Rect.INFINITE.is_valid
+    assert Rect.EMPTY.is_empty
+    assert not Rect.EMPTY.is_valid
     assert not Rect(LIMIT_LOW, LIMIT_LOW, LIMIT_HIGH, LIMIT_HIGH + 1).is_infinite
     # pymupdf measures a quad by its edges, so the empty quad is not empty.
-    assert not EMPTY_QUAD().is_empty
+    assert not Quad.EMPTY.is_empty
 
 
 def test_rect_corners_keep_the_stored_order() -> None:
@@ -205,10 +224,10 @@ def test_general_rotation_returns_the_bounding_box() -> None:
 
 def test_infinite_rect_stays_infinite_under_any_matrix() -> None:
     for matrix in (Matrix(2, 2), Matrix(90), Matrix(30), Matrix(1, 0, 0, 1, 5, 5)):
-        assert (INFINITE_RECT() * matrix).is_infinite
-    assert not (INFINITE_RECT() * 2).is_infinite
-    assert not (INFINITE_RECT() + 1).is_infinite
-    assert EMPTY_RECT() * Matrix(2, 2) == (2 * LIMIT_HIGH, 2 * LIMIT_HIGH, 2 * LIMIT_LOW, 2 * LIMIT_LOW)
+        assert (Rect.INFINITE * matrix).is_infinite
+    assert not (Rect.INFINITE * 2).is_infinite
+    assert not (Rect.INFINITE + 1).is_infinite
+    assert Rect.EMPTY * Matrix(2, 2) == (2 * LIMIT_HIGH, 2 * LIMIT_HIGH, 2 * LIMIT_LOW, 2 * LIMIT_LOW)
 
 
 def test_rect_division_by_matrix() -> None:
@@ -230,18 +249,18 @@ def test_union() -> None:
     assert rect | (0, 0, 2, 2) == (0, 0, 3, 4)
     # A point extends every rectangle, even an empty or invalid one.
     assert Rect() | Point(5, 5) == (0, 0, 5, 5)
-    assert EMPTY_RECT() | Point(1, 2) == (1, 2, 1, 2)
+    assert Rect.EMPTY | Point(1, 2) == (1, 2, 1, 2)
     assert Rect(3, 4, 1, 2) | Point(5, 5) == (3, 4, 5, 5)
     # An empty rectangle contributes nothing to a union of rectangles.
     assert Rect() | Rect(1, 1, 2, 2) == (1, 1, 2, 2)
     assert Rect(0, 0, 0, 5) | Rect(1, 1, 2, 2) == (1, 1, 2, 2)
     assert rect | Rect(3, 4, 1, 2) == rect
     assert rect | Rect() == rect
-    assert EMPTY_RECT() | rect == rect
-    assert (INFINITE_RECT() | rect).is_infinite
-    assert (rect | INFINITE_RECT()).is_infinite
-    assert (INFINITE_RECT() | Point(1e12, 1e12)).is_infinite
-    assert (INFINITE_RECT() | EMPTY_RECT()).is_infinite
+    assert Rect.EMPTY | rect == rect
+    assert (Rect.INFINITE | rect).is_infinite
+    assert (rect | Rect.INFINITE).is_infinite
+    assert (Rect.INFINITE | Point(1e12, 1e12)).is_infinite
+    assert (Rect.INFINITE | Rect.EMPTY).is_infinite
     assert IRect(1, 2, 3, 4) | Point(10.5, 10.5) == (1, 2, 11, 11)
     assert IRect(1, 2, 3, 4) | Rect(0.5, 0.5, 1, 1) == (0, 0, 3, 4)
 
@@ -258,11 +277,11 @@ def test_intersection() -> None:
     assert Rect(3, 4, 1, 2) & rect == (3, 4, 1, 2)
     assert rect & Rect(3, 4, 1, 2) == (3, 4, 1, 2)
     assert Rect(1, 1, 1, 5) & Rect(0, 0, 3, 3) == (1, 1, 1, 5)
-    assert INFINITE_RECT() & rect == rect
-    assert INFINITE_RECT() & EMPTY_RECT() == EMPTY_RECT()
+    assert Rect.INFINITE & rect == rect
+    assert Rect.INFINITE & Rect.EMPTY == Rect.EMPTY
     # With both operands empty, the right one is the result.
     assert Rect(14, 4, 17, -20) & Rect(4, 5, 0, 20) == (4, 5, 0, 20)
-    assert EMPTY_RECT() & Rect() == Rect()
+    assert Rect.EMPTY & Rect() == Rect()
     assert IRect(1, 2, 3, 4) & Rect(1.5, 2.5, 2.5, 3.5) == (1, 2, 3, 4)
 
 
@@ -304,9 +323,9 @@ def test_containment_in_degenerate_and_infinite_rects() -> None:
     assert Point(1, 1) not in Rect(1, 1, 1, 1)
     assert Point(2, 3) not in Rect(3, 4, 1, 2)
     assert Rect(1, 2, 3, 4) not in Rect(3, 4, 1, 2)
-    assert Rect(1, 2, 3, 4) in INFINITE_RECT()
-    assert INFINITE_RECT() in INFINITE_RECT()
-    assert Point(1e12, 0) not in INFINITE_RECT()
+    assert Rect(1, 2, 3, 4) in Rect.INFINITE
+    assert Rect.INFINITE in Rect.INFINITE
+    assert Point(1e12, 0) not in Rect.INFINITE
 
 
 def test_intersects_requires_two_finite_areas() -> None:
@@ -319,7 +338,7 @@ def test_intersects_requires_two_finite_areas() -> None:
     assert not rect.intersects(Rect())
     assert not rect.intersects(Rect(3, 4, 1, 2))
     assert not Rect(3, 4, 1, 2).intersects(rect)
-    assert not rect.intersects(INFINITE_RECT())
+    assert not rect.intersects(Rect.INFINITE)
     with pytest.raises(pylopdf.PdfError):
         rect.intersects(Point(2, 3))
 
@@ -327,12 +346,12 @@ def test_intersects_requires_two_finite_areas() -> None:
 def test_area_norm_and_truth() -> None:
     assert abs(Rect(1, 2, 3, 4)) == 4
     assert abs(Rect(3, 4, 1, 2)) == 0
-    assert abs(INFINITE_RECT()) == 0
+    assert abs(Rect.INFINITE) == 0
     assert Rect(1, 2, 3, 4).get_area() == 4
     assert IRect(1, 2, 3, 4).get_area() == 4
     assert type(IRect(1, 2, 3, 4).get_area()) is float
     assert Rect(1, 2, 1, 4).get_area() == 0
-    assert INFINITE_RECT().get_area() == (LIMIT_HIGH - LIMIT_LOW) ** 2
+    assert Rect.INFINITE.get_area() == (LIMIT_HIGH - LIMIT_LOW) ** 2
     square_inch = Rect(0, 0, 72, 72)
     assert square_inch.get_area("px") == 5184
     assert square_inch.get_area("in") == pytest.approx(1)
@@ -358,7 +377,7 @@ def test_area_norm_and_truth() -> None:
         (Rect(1.0005, 2.0009, 3.0005, 3.9995), (1, 2, 3, 4)),
         (Rect(1.002, 2, 3.002, 4), (1, 2, 4, 4)),
         (Rect(3.5, 4.5, 1.2, 2.2), (3, 4, 2, 3)),
-        (INFINITE_RECT(), (-16777216, -16777216, 16777216, 16777216)),
+        (Rect.INFINITE, (-16777216, -16777216, 16777216, 16777216)),
     ],
 )
 def test_round_tolerates_float_noise_and_clamps(rect: Rect, expected: tuple[int, ...]) -> None:
@@ -376,7 +395,7 @@ def test_torect_maps_one_rectangle_onto_another() -> None:
     for source, target in [
         (Rect(1, 1, 1, 1), Rect(0, 0, 10, 10)),
         (Rect(1, 2, 3, 4), Rect(3, 4, 1, 2)),
-        (INFINITE_RECT(), Rect(0, 0, 1, 1)),
+        (Rect.INFINITE, Rect(0, 0, 1, 1)),
     ]:
         with pytest.raises(pylopdf.PdfError, match="finite and not empty"):
             source.torect(target)
@@ -389,8 +408,8 @@ def test_morph_turns_corners_around_a_fixed_point() -> None:
     assert Rect(1, 2, 3, 4).morph(Point(2, 3), Matrix()) == (Point(2, 3),) * 4
     assert IRect(1, 2, 3, 4).morph(Point(2, 3), Matrix(90)) == ((3, 2), (3, 4), (1, 2), (1, 4))
     assert UNIT_QUAD.morph(Point(2, 3), (0, 1, -1, 0, 0, 0)) == ((3, 2), (3, 4), (1, 2), (1, 4))
-    assert INFINITE_RECT().morph(Point(), Matrix(90)) == INFINITE_QUAD()
-    assert INFINITE_QUAD().morph(Point(1, 1), Matrix(2, 2)) == INFINITE_QUAD()
+    assert Rect.INFINITE.morph(Point(), Matrix(90)) == Quad.INFINITE
+    assert Quad.INFINITE.morph(Point(1, 1), Matrix(2, 2)) == Quad.INFINITE
 
 
 @pytest.mark.parametrize(
@@ -429,7 +448,7 @@ def test_quad_measurements() -> None:
     assert abs(kite) == 2 * math.sqrt(2)
     assert abs(UNIT_QUAD) == 4
     assert abs(Quad()) == 0
-    assert abs(INFINITE_QUAD()) == (LIMIT_HIGH - LIMIT_LOW) ** 2
+    assert abs(Quad.INFINITE) == (LIMIT_HIGH - LIMIT_LOW) ** 2
 
 
 @pytest.mark.parametrize(
@@ -454,7 +473,7 @@ def test_quad_measurements() -> None:
         (Quad(Point(0, 0), Point(2, 0), Point(0.0046, 1), Point(2.0046, 1)), False, True, False),
         (Quad(Point(0, 0), Point(2, 0), Point(0, 1), Point(2.004, 1)), True, True, False),
         (Quad(Point(0, 0), Point(2, 0), Point(0, 1), Point(2.01, 1)), False, True, False),
-        (INFINITE_QUAD(), True, True, False),
+        (Quad.INFINITE, True, True, False),
     ],
 )
 def test_quad_shape(quad: Quad, *, rectangular: bool, convex: bool, empty: bool) -> None:
@@ -483,7 +502,7 @@ def test_quad_arithmetic() -> None:
     rotated = UNIT_QUAD * Matrix(45)
     assert rotated.is_rectangular
     assert rotated.rect == pytest.approx(Rect(1, 2, 3, 4) * Matrix(45))
-    assert not (INFINITE_QUAD() * Matrix(2, 2)).is_infinite
+    assert not (Quad.INFINITE * Matrix(2, 2)).is_infinite
 
 
 @pytest.mark.parametrize(
@@ -602,32 +621,26 @@ def test_rectangles_drive_drawing_and_search_on_rotated_pages(rotation: int) -> 
 
 
 def test_identity_and_infinite_bounds() -> None:
-    assert pylopdf.FZ_MIN_INF_RECT == -2147483648
-    assert pylopdf.FZ_MAX_INF_RECT == 2147483520
-    assert type(pylopdf.FZ_MIN_INF_RECT) is int
-    assert INFINITE_RECT() == (pylopdf.FZ_MIN_INF_RECT,) * 2 + (pylopdf.FZ_MAX_INF_RECT,) * 2
-    identity = pylopdf.Identity
-    assert identity == pylopdf.IdentityMatrix() == Matrix(1, 1)
-    assert isinstance(identity, Matrix)
-    assert repr(identity).startswith("IdentityMatrix(")
+    assert Rect.INFINITE == (LIMIT_LOW,) * 2 + (LIMIT_HIGH,) * 2
+    identity = Matrix.IDENTITY
+    assert identity == Matrix(1, 1)
+    assert repr(identity).startswith("Matrix(")
     assert type(identity * Matrix(2, 2)) is Matrix
     assert pickle.loads(pickle.dumps(identity)) == identity  # noqa: S301 - locally serialized value.
-    assert type(copy.deepcopy(identity)) is pylopdf.IdentityMatrix
-    with pytest.raises(TypeError):
-        pylopdf.IdentityMatrix(2, 2)  # ty: ignore[too-many-positional-arguments]
+    assert type(copy.deepcopy(identity)) is Matrix
 
 
 @pytest.mark.parametrize(
     ("start", "end"),
     [((1, 1), (4, 5)), (Point(0, 0), Point(-3, 0)), ((0, 0), (0, 3)), ((-2, 7), (5, -1))],
 )
-def test_planish_line_moves_a_line_onto_the_x_axis(start: tuple[float, float], end: tuple[float, float]) -> None:
-    matrix = pylopdf.planish_line(start, end)
+def test_planish_moves_a_line_onto_the_x_axis(start: tuple[float, float], end: tuple[float, float]) -> None:
+    matrix = Matrix.planish(start, end)
     assert Point(start) * matrix == pytest.approx((0, 0), abs=1e-12)
     assert Point(end) * matrix == pytest.approx((abs(Point(end) - start), 0), abs=1e-12)
     assert matrix.is_rectilinear or abs(matrix.a * matrix.d - matrix.b * matrix.c) == pytest.approx(1)
 
 
-def test_planish_line_of_one_point_is_zero() -> None:
-    assert pylopdf.planish_line((1, 1), Point(1, 1)) == Matrix()
-    assert pylopdf.planish_line((1, 1), (4, 5)) == pytest.approx((0.6, -0.8, 0.8, 0.6, -1.4, 0.2))
+def test_planish_of_one_point_is_zero() -> None:
+    assert Matrix.planish((1, 1), Point(1, 1)) == Matrix()
+    assert Matrix.planish((1, 1), (4, 5)) == pytest.approx((0.6, -0.8, 0.8, 0.6, -1.4, 0.2))

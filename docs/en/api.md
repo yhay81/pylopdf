@@ -899,7 +899,8 @@ original = position / transform      # Point(x=10.0, y=20.0)
 | `m.is_rectilinear` | Whether the transform keeps edges horizontal and vertical |
 
 Because y points down, `Matrix(90)` turns `(1, 0)` into `(0, 1)`.
-`IdentityMatrix` (also `Identity`) is the identity.
+`Matrix.IDENTITY` is the identity, and `Matrix.planish(p1, p2)` moves `p1`
+to the origin and `p2` onto the positive x axis.
 
 ### Rect, IRect, and Quad { #rectangles }
 
@@ -933,9 +934,9 @@ quad = area.morph(area.tl, Matrix(30))       # turned 30 degrees around a corner
 | `r.morph(point, m)`, `q.morph(point, m)` | A `Quad` transformed around a fixed point |
 | `q * m`, `p in q`, `q.is_rectangular`, `q.is_convex` | Quad transforms and tests |
 
-`EMPTY_RECT()`, `INFINITE_RECT()`, their `IRECT` and `QUAD` forms, and
-`planish_line(p1, p2)` are pymupdf's helpers. Unlike pymupdf, checking whether
-a rectangle lies inside a quad tests all four corners.
+`Rect.EMPTY` and `Rect.INFINITE` are MuPDF's empty and infinite rectangles,
+and `IRect` and `Quad` have the same class attributes. Unlike pymupdf,
+checking whether a rectangle lies inside a quad tests all four corners.
 
 ## Pixmap { #pixmap }
 
