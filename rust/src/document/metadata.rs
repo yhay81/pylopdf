@@ -875,7 +875,9 @@ pub(super) fn set_viewer_preferences(
                         .collect(),
                 )
             }
-            ("Enforce", _, ViewerValue::Ranges(empty)) if empty.is_empty() => Object::Array(Vec::new()),
+            ("Enforce", _, ViewerValue::Ranges(empty)) if empty.is_empty() => {
+                Object::Array(Vec::new())
+            }
             (_, None, ViewerValue::Bool(flag))
                 if !matches!(*key, "NumCopies" | "PrintPageRange" | "Enforce") =>
             {
