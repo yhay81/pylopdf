@@ -3172,7 +3172,15 @@ holds the API rules and the target surface.
   read, interpreted, created, edited with its dependent structures kept
   consistent, and preserved, and the specification map (`api/spec-map.json`,
   which the Verification milestone builds) records each of the five dimensions
-  with the tests that prove it. Writing raw objects counts as reading, not as
+  with the tests that prove it. Completeness claims name the scope,
+  exclusions, and ecosystem dependencies and require every applicable
+  in-scope dimension to be `done`; a v1.0 release is not that claim.
+  `partial` remains unfinished work, `non-goal` records an exclusion, and
+  `n/a` needs a specification-based reason that the dimension has no meaning.
+  Deprecated creation is `non-goal`, never `n/a`. Exact persistence retains
+  source decimal tokens or exact decimals, independently of approximate
+  `float`, `f32`, or `f64` views; its tests compare against an independent
+  exact oracle. Writing raw objects counts as reading, not as
   control. pymupdf's capabilities are the floor, measured by the capability
   map in `api/pymupdf-parity.json`, with an API of its own that follows the
   engines. Running scripts, playing media, and displaying 3D artwork stay
@@ -3240,7 +3248,10 @@ holds the API rules and the target surface.
   entries, every engine workaround removed or justified, the canonical
   workflows documented and tested, independent field reports, and the
   published stability policy. Roughly 1,000 GitHub stars is an indicative
-  adoption signal, not a mechanical release trigger.
+  adoption signal, not a mechanical release trigger. A reviewed `partial`
+  requires published missing behavior and a follow-up issue and milestone;
+  it may be a release exception but blocks a completeness claim within that
+  scope. Exclusions and justified `n/a` entries remain visible in coverage.
 - lopdf 0.45 includes the upstream lopdf#535 fix (lopdf#537). pylopdf has
   extracted through hayro since v0.7, so the fix matters only to lopdf's own
   content parser.

@@ -23,9 +23,10 @@ available everywhere Python runs.
   interpreted for what it means, created, edited, and preserved when other
   parts of the document change. The [specification map](#specification-map)
   records each feature in each dimension, with the tests that prove it, and
-  pylopdf calls itself complete only when that map says so. pymupdf's
-  capabilities are the floor: one that pymupdf has and pylopdf lacks is a
-  gap, never a scope decision, and the [capability map](#capability-map)
+  any completeness claim must pass the [claim criteria](#completeness-claims)
+  and name its scope and exclusions. A version number is not such a claim.
+  pymupdf's capabilities are the floor: one that pymupdf has and pylopdf
+  lacks is a gap, never a scope decision, and the [capability map](#capability-map)
   measures it. Covering pymupdf is not completeness.
 - **Consistent.** Rewriting objects is not control. An edit keeps every
   structure that depends on what it changes valid (appearances, font widths
@@ -177,7 +178,11 @@ Measured against complete control of PDF rather than against pymupdf, main
    repair, such as a signature or a conformance claim, reports it.
 9. **Lossless by default.** What no edit touched, a save writes back exactly:
    every number, string, and name with its value, every stream with its
-   decoded data, and, in an incremental save, the original bytes. The
+   decoded data, and, in an incremental save, the original bytes. Untouched
+   real numbers retain their source decimal tokens or an exact decimal
+   representation; a conversion to `f32`, `f64`, or Python `float` cannot
+   establish equality. Approximate values used for rendering or arithmetic
+   stay separate from the values that persistence keeps. The
    defaults only recompress streams without changing their data and drop
    objects that nothing reaches ([D6](#decisions)); renumbering,
    deduplication, and any other change of values or numbers happen only when
@@ -239,12 +244,21 @@ dimensions:
 
 A status is `done` with the tests that prove it, `partial` with what is
 missing, `planned` with its milestone, `engine` with the upstream change it
-waits for, `n/a` when the dimension means nothing for the feature (creating
-what PDF 2.0 deprecates, for example), or `non-goal` with the decision that
-excludes it. Running, playing, or displaying what a viewer acts on (scripts,
-media, and 3D artwork) and device-dependent controls such as halftones are
-`non-goal` for interpretation only; their structures are read, created,
-edited, and preserved like any other.
+waits for, `n/a` only when the dimension has no meaning for the feature,
+or `non-goal` for an intentional exclusion. Each `n/a` needs a
+clause-based explanation; deprecation, missing implementation, and a policy
+against creating a feature do not make its creation inapplicable. Each
+`non-goal` names the affected feature and dimension, the decision and its
+reason, and the public exclusion. A `partial` entry keeps its missing
+behavior, follow-up issue, and milestone even when accepted for a release;
+it remains unfinished work and earns no completion credit.
+
+Running, playing, or displaying what a viewer acts on (scripts, media, and
+3D artwork) and device-dependent controls such as halftones are `non-goal`
+for interpretation only. Their data structures remain in scope; creation
+of deprecated features is a separate `non-goal` under [Non-goals](#non-goals),
+never `n/a`. Scope changes require a decision and a published change to the
+exclusions; changing a status cannot silently narrow a claim.
 
 Evidence comes from pylopdf's tests, from the preservation and consistency
 harnesses of [Verification](#verification), and from independent tools in
@@ -256,6 +270,35 @@ coverage per clause and dimension. The map holds clause numbers, pylopdf's
 own short descriptions, and the names of Arlington objects, which the
 Apache-2.0 model allows; never copy text from ISO 32000-2, whose copyright ISO
 holds although the PDF Association distributes it at no cost.
+
+### Completeness claims
+
+A release and a completeness claim have separate gates. The [v1.0](#v10)
+criteria allow reviewed limitations when the API is ready to stabilize;
+those limitations do not become complete because the release ships.
+
+A claim of complete control within a declared scope requires all of:
+
+- A published scope naming the PDF versions, the dated errata baseline,
+  extensions and profile parts and conformance levels, every excluded
+  feature and dimension, and any required ecosystem tools.
+- Every applicable dimension inside that scope is `done`, with named tests
+  that pass for the claimed release. `partial`, `planned`, and `engine`
+  entries block the claim; `non-goal` entries are explicit exclusions, never
+  completed features. Every `n/a` has a reviewed clause-based explanation.
+- The preservation and consistency harnesses, round-trip checks, and the
+  independent validators required for that scope pass on that release.
+- Coverage reports show the full inventory and counts of all statuses per
+  clause and dimension. Only `done` earns completion credit; a percentage
+  that excludes `non-goal` entries is labeled as coverage of the declared
+  scope and is shown beside the exclusions and the full inventory.
+
+An unqualified claim to support every PDF specification is not permitted
+while any applicable feature or dimension is excluded or incomplete, or a
+required capability depends on an external tool. The current non-goals
+therefore require a qualified claim even after the declared scope is done.
+The specification map and its checker are planned in [Verification](#verification);
+this document does not claim that they or these gates are implemented today.
 
 ## Capability map
 
@@ -351,7 +394,7 @@ their acceptance criteria.
 | --- | --- | --- |
 | 1 — foundations (current) | [Content model](#content-model), [Canvas](#canvas), [API reset](#api-reset), and the first [engine work](#engine-work) | The three milestones are accepted; the next release ships them together |
 | 2 — capabilities | [Verification](#verification), [Reading](#reading), [Rendering](#rendering), [Writing](#writing), [Interaction](#interaction), [Rewriting](#rewriting), [Structure](#structure), [Persistence](#persistence), [Conformance](#conformance), and [Understanding](#understanding) | Each milestone's acceptance |
-| 3 — specification | [Specification completion](#specification-completion) | The specification map has no `planned` or `engine` entry |
+| 3 — specification | [Specification completion](#specification-completion) | The specification map has no `planned` or `engine` entry, and remaining limitations are published; this is not a completeness claim |
 | 4 — 1.0 | [v1.0 criteria](#v10) | Every criterion |
 
 Verification starts at once, alongside phase 1, because every other
@@ -381,6 +424,9 @@ sub-issues, and the roadmap is complete when all of them are closed:
   sends upstream, scope questions for the maintainer, what pylopdf gives
   back, and the workarounds the work removes.
 - The 1.0 release gates and the continuous tracks with the watchlist.
+
+Closing the release roadmap establishes release readiness, not complete
+coverage; a completeness claim still requires its [own gate](#completeness-claims).
 
 Work on an item starts as a sub-issue of its tracker. GitHub milestones
 `Phase 1`, `Phase 2`, `Phase 3`, and `1.0` group the trackers; labels name the
@@ -644,7 +690,7 @@ engine's maintainer.
 | lopdf | A bounded, iterative page-tree walk with inherited attributes | pylopdf's own walker |
 | lopdf | Release of the rebuilt-trailer cleanup merged as J-F-Liu/lopdf#609 | the `/Prev` and `/XRefStm` removal after reconstruction |
 | lopdf | Linearization facts and the number of revisions | pymupdf's `is_fast_webaccess` and `version_count` |
-| lopdf | Real numbers kept exactly, as `f64` or as the token that was read, and written back as read, reversing the `f32` choice of J-F-Liu/lopdf#190 | the precision that every save loses today (`35.6812345` becomes `35.681236`), a Preserve gap of every feature with real-valued entries |
+| lopdf | Untouched real numbers kept as their source decimal tokens or in an exact decimal representation and written without rounding; `f64` alone is insufficient, and approximate numeric views stay separate | the precision that every save loses today (`35.6812345` becomes `35.681236`), a Preserve gap of every feature with real-valued entries |
 | lopdf | The revision and byte range of each object in an incrementally updated file | incremental saves that write only changed objects, earlier revisions as documents, and signed byte ranges checked before an edit |
 | lopdf | Writing linearized and hybrid-reference files, the public-key security handler, AES-GCM (ISO/TS 32003), and integrity protection (ISO/TS 32004) | the Create entries of file structure and encryption in the specification map |
 | krilla | The items listed under [Canvas](#canvas) | the Standard 14 writer, the font renaming, and the import parse |
@@ -664,15 +710,24 @@ because every other milestone records its features in the map it builds.
   profiles it names, every object of the Arlington PDF Model assigned to a
   feature, `tools/check_spec_map.py` in CI, and coverage per clause and
   dimension published in the documentation.
+- Separate release and completeness checks: enforce the status evidence,
+  exclusions, full-inventory counts, and [claim criteria](#completeness-claims).
+  A release exception cannot satisfy a completeness check, and the checker
+  rejects `n/a` used for deprecated creation or a policy exclusion.
 - First statuses from evidence: each dimension of each feature is set from
-  the tests that exist today, and a dimension without a test is `planned`
-  with a milestone, never `done`. Features that no milestone covers go to
+  the tests that exist today. An applicable in-scope dimension without a
+  test is `planned` with a milestone, never `done`; exclusions and `n/a`
+  require their recorded reasons. Features that no milestone covers go to
   [Specification completion](#specification-completion).
 - The preservation harness: every editing operation of the public API is
   applied to every corpus document and saved in full and, once
   [Persistence](#persistence) adds it, incrementally. Every object that the
   operation did not touch must read back equal, values exactly, and the
-  rendering and extracted text of untouched pages must not change.
+  rendering and extracted text of untouched pages must not change. Numeric
+  comparisons use the source tokens or exact decimal values independently
+  of the parser under test, never two already-rounded float readings. Cases
+  include decimals beyond `f64` precision, small fractions, large
+  coordinates, and unrelated edits as well as saves without edits.
 - The consistency harness: after every editing test, the document passes the
   Arlington model's checks, qpdf reports no error, and, once
   [Conformance](#conformance) adds it, pylopdf's structural check finds
@@ -686,8 +741,10 @@ because every other milestone records its features in the map it builds.
   names today.
 
 Acceptance: every feature-defining clause and every Arlington object maps to
-an entry; no status is `done` without a named test; both harnesses run in
-CI over the bundled corpus; and the documentation publishes the coverage.
+an entry; no status is `done` without a named test; the checker distinguishes
+release exceptions from complete coverage and rejects unsupported `n/a`
+statuses; both harnesses run in CI over the bundled corpus, including exact
+numeric comparisons; and the documentation publishes coverage and exclusions.
 
 ### Reading
 
@@ -880,8 +937,11 @@ Workstream Objects.
   stream, or hybrid); the filters of each stream, kept as read or chosen; and
   linearized output.
 - Lossless saving: every value that no edit touched is written back as it
-  was read. lopdf's `f32` real numbers are the first gap
-  ([Engine work](#engine-work)).
+  was read. Untouched decimal tokens are retained or represented exactly,
+  including values beyond `f64` precision; approximate numeric views do not
+  replace them. Exact numeric access and assignment must not require a
+  round trip through Python `float`. lopdf's `f32` real numbers are the
+  first gap ([Engine work](#engine-work)).
 - Revisions: the revisions of an incrementally updated file as documents of
   their own, with the objects that each revision changed, so that a program
   can see what was signed and what changed after it.
@@ -893,7 +953,8 @@ Acceptance: pyHanko signatures stay valid after incremental edits; pikepdf in
 the interop group accepts every output; subsetting reduces size without
 changing extracted text or rendering; and opening and saving every corpus
 document without edits keeps every value of every object it reaches exactly,
-which the preservation harness checks.
+which the preservation harness checks against source tokens or independent
+exact decimals, including values beyond `f64` precision and unrelated edits.
 
 ### Conformance
 
@@ -975,18 +1036,26 @@ every edit and save.
   document timestamps, read, kept valid, and written for pyHanko to sign; and
   the unencrypted wrapper documents of PDF 2.0.
 - Deprecated features (XFA forms, movie and sound annotations and actions,
-  and RC4 encryption among them): read, preserved, and removable; creating
-  them is `n/a`.
+  and RC4 encryption among them): read, interpreted as data, edited or
+  removed, and preserved. Creating them is an explicit `non-goal` under
+  [Non-goals](#non-goals); deprecation is not an `n/a` justification.
 
 Acceptance: the specification map has no `planned` or `engine` entry, and
 every feature of this milestone has a save-and-reopen test and, where a
-renderer shows it, a rendering test.
+renderer shows it, a rendering test; any `partial` or `non-goal` entries are
+published separately and do not pass the [completeness claim](#completeness-claims).
 
 ## v1.0
 
+These are release and API-stability gates. Shipping v1.0 does not establish
+complete control; that requires the separate [claim criteria](#completeness-claims).
+
 - The specification map has no `planned` or `engine` entry: every feature of
   ISO 32000-2 is `done` in each dimension that applies to it, or `partial` or
-  `non-goal` under a recorded decision.
+  `non-goal` under a recorded release decision. Every `partial` lists its
+  missing behavior and follow-up issue and milestone; every exclusion is
+  published, and `n/a` is justified by the specification. Release notes
+  name these limitations without claiming complete coverage.
 - The preservation and consistency harnesses pass for every editing
   operation; the round trip of [Canvas](#canvas) lists no exception; and the
   [Conformance](#conformance) acceptance holds.
@@ -1027,10 +1096,15 @@ renderer shows it, a rendering test.
   chapters, and locations). Convert them to PDF with their own tools.
 - **Viewer behaviors.** pylopdf does not run JavaScript or XFA, play media,
   or display 3D artwork, and it does not reproduce device-dependent controls
-  such as halftones. It reads, creates, edits, preserves, and removes the
-  structures behind them. XFA is deprecated in PDF 2.0.
-- **RC4 output.** It is insecure; reading RC4-encrypted files stays
-  supported.
+  such as halftones. Their data structures remain in scope for reading,
+  interpretation as data, editing, preservation, and removal; creation is
+  in scope except for the deprecated features below.
+- **Creating deprecated features.** XFA forms, movie and sound annotations
+  and actions, and RC4 encryption are not generated. Their Create entries
+  are `non-goal`, with this policy recorded per feature, not `n/a`.
+  Deprecation does not exclude reading, interpretation as data, editing or
+  removal, or preservation. RC4 output remains refused because it is
+  insecure; that is a deliberate limit on writing, not complete support.
 - **MuPDF's runtime internals**: its store, message stream, memory pools,
   bindings, and helpers, which have no capability at the PDF level.
 - **Compatibility layers**: no `fitz` module, no aliases, no reproduction of
@@ -1107,6 +1181,20 @@ Three capabilities stay with ecosystem tools, through tested recipes:
   cover are designed would have to break after 1.0; so 1.0 requires a map
   without `planned` or `engine` entries, and phase 3 completes the features
   that pymupdf does not reach.
+- **D11** (2026-10-24): release readiness and completeness are separate.
+  A reviewed `partial` may ship in 1.0 with its missing behavior and
+  follow-up work published, but never satisfies a completeness claim.
+  Claims name their scope, exclusions, and ecosystem dependencies, and
+  require `done` in every applicable dimension inside that scope.
+- **D12** (2026-10-24): intentional exclusions use `non-goal`; `n/a`
+  requires that the dimension has no meaning under the specification.
+  Deprecated creation remains an explicit policy exclusion, refining D9,
+  and cannot inflate completion counts.
+- **D13** (2026-10-24): exact persistence retains source decimal tokens or
+  exact decimal values. Increasing floating-point precision does not meet
+  this requirement. Preservation tests compare against source tokens or an
+  independent exact-decimal oracle so matching rounded readings cannot
+  conceal a loss.
 
 ## Evidence log
 
