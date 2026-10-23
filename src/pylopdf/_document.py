@@ -30,18 +30,13 @@ from pylopdf._fallback_fonts import (
 )
 from pylopdf._fonts import (
     _font_input_limit_error,
-    _form_generation_font,
-    _normalize_font_language,
-    _package_face_weight,
-    _resolve_font_source,
-    _validate_form_font,
 )
+from pylopdf._form import Form
 from pylopdf._hints import hinted_getattr, hinted_protocol
 from pylopdf._images import Images
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
     _DEFAULT_MAX_MARKDOWN_SIZE,
-    _UINT32_MAX,
     DocumentLimits,
     _document_limit_args,
     _validate_cumulative_pdf_text_input,
@@ -86,9 +81,6 @@ if TYPE_CHECKING:
     from pylopdf._types import (
         CjkFontLanguage,
         DocumentComplexity,
-        FontLanguage,
-        FormFieldInfo,
-        FormFieldType,
         ImageCompressionResult,
     )
 
@@ -96,7 +88,6 @@ if TYPE_CHECKING:
 _DEFAULT_MAX_XMP_METADATA_SIZE = 1024 * 1024
 _DEFAULT_MAX_RENDER_BATCH_SIZE = 512 * 1024 * 1024
 _DEFAULT_MAX_PDF_OUTPUT_SIZE = 512 * 1024 * 1024
-_MAX_FORM_FIELD_INPUT_SIZE = 1024 * 1024
 _MAX_METADATA_INPUT_TEXT_SIZE = 1024 * 1024
 _MAX_PASSWORD_INPUT_BYTES = 127
 # Explicit page iterables may repeat pages up to the larger of the page count
@@ -345,6 +336,8 @@ class Document:
         # configured language's FallbackFont, or None for its installed extra.
         self._fallback_configured = False
         self._fallback_state: dict[CjkFontLanguage, FallbackFont | None] | None = None
+        # The face that form fills draw with; None selects one per value.
+        self._form_font: Font | None = None
         # Structural generation; changes invalidate existing Page views.
         self._generation = 0
         # Object-numbering epoch; renumbering or reloading the objects
@@ -799,134 +792,16 @@ class Document:
             rendered.append(page_markdown)
         return "\n\n".join(rendered)
 
-    def get_form_fields(self) -> list[FormFieldInfo]:
-        """Return AcroForm fields.
+    @property
+    def form(self) -> Form:
+        """Return the interactive form's terminal fields, a :class:`Form` mapping by full name.
 
-        Each item is ``{"name", "type", "value"}``. ``name`` is the fully
-        qualified dotted name; ``type`` is text, checkbox, radio, button,
-        combobox, listbox, or signature; and ``value`` is the current value.
-        Button values are appearance state names such as ``"Yes"`` or ``"Off"``.
-        Reads reject partial output above 4,096 entries/nodes, 8,192 edges,
-        64 levels, 1 MiB of field names or values, or 4,096 choice-value items.
+        ``doc.form[name].value = "..."`` fills a field and regenerates its
+        appearances, and ``doc.form.font`` chooses the face that fills draw
+        with.
         """
         self._ensure_open()
-        return [
-            {"name": name, "type": cast("FormFieldType", kind), "value": value}
-            for name, kind, value in self._doc.get_form_fields()
-        ]
-
-    def set_form_field(  # noqa: C901, PLR0912, PLR0913 - Keep validation and font bounds adjacent.
-        self,
-        name: str,
-        value: str | bool,  # noqa: FBT001 - Match pymupdf's bool API.
-        *,
-        font: Font | None = None,
-        fontfile: str | os.PathLike[str] | None = None,
-        fontbuffer: bytes | None = None,
-        fontindex: int = 0,
-        font_language: FontLanguage | None = None,
-        max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
-    ) -> None:
-        """Set an AcroForm field value and regenerate its widget appearance.
-
-        Pass strings for text/choice fields. For checkboxes and radio buttons,
-        pass an appearance state such as ``"Yes"``/``"Off"`` or a bool. ``True``
-        resolves the on state from widget appearances; ``False`` becomes
-        ``"Off"``. Text, choice, checkbox, and radio appearances render in
-        pylopdf as well as external viewers. Existing non-empty button
-        appearances are preserved; missing ones use native vector marks.
-        Missing appearances on other WinAnsi fields are completed in the same
-        operation, and ``NeedAppearances`` is cleared once every fillable widget
-        has a usable normal appearance. Comb text fields honor inherited
-        ``MaxLen`` and alignment, center Unicode graphemes in their positions,
-        and reject overlength values without changing the document. Field-tree
-        and 1 MiB name/value input limits are checked without leaving a partial
-        update; caller input refusals use ``form_field_input_size``. Text and
-        choice appearances stop at 4,096 layout lines. Button handling
-        additionally caps widgets, appearance states, and state names before
-        resolving booleans or generating missing appearances.
-
-        WinAnsi text uses Helvetica. Pass exactly one of ``fontfile`` or
-        ``fontbuffer`` to subset-embed an arbitrary OpenType font, a variable
-        font at its default instance. Pass a :class:`Font` with an OpenType
-        face as ``font`` to draw with a face loaded once, such as the bold
-        instance that ``Font.from_file(path, weight=700)`` selects on a
-        variable font's weight axis; text is fitted, aligned, and placed in
-        comb positions with the advances that :meth:`Font.text_width` returns.
-        ``font`` cannot be combined with ``fontfile``, ``fontbuffer``,
-        ``fontindex``, or ``font_language``, and a Standard 14 :class:`Font`
-        raises :class:`PdfError`. Locale font extras can supply Unicode
-        appearances automatically; use ``font_language`` for ambiguous Han
-        text. Otherwise the value is still
-        stored with ``NeedAppearances`` for viewer compatibility, but its
-        appearance cannot be rendered by pylopdf.
-        Explicit and automatically selected font input defaults to a 64 MiB
-        boundary; ``max_font_size=None`` opts trusted workloads out. Refusal
-        raises :class:`LimitError` with code ``font_input_size``.
-        Rich text, pushbuttons, and signature fields are unsupported; use the
-        pyHanko integration for signatures.
-        """
-        self._ensure_open()
-        _validate_optional_positive_int("max_font_size", max_font_size)
-        if not isinstance(name, str):
-            msg = f"name must be a string: {type(name).__name__}"
-            raise TypeError(msg)
-        if not name:
-            msg = "name must be at least 1 character"
-            raise ValueError(msg)
-        _validate_utf8_text_input(
-            name,
-            _MAX_FORM_FIELD_INPUT_SIZE,
-            limit_code="form_field_input_size",
-            input_label="form field name",
-        )
-        if not isinstance(value, (str, bool)):
-            msg = f"value must be a string or bool: {value!r}"
-            raise TypeError(msg)
-        if isinstance(value, str):
-            _validate_utf8_text_input(
-                value,
-                _MAX_FORM_FIELD_INPUT_SIZE,
-                limit_code="form_field_input_size",
-                input_label="form field value",
-            )
-        core_font = _validate_form_font(font, fontfile, fontbuffer, fontindex, font_language)
-        normalized_font_language = _normalize_font_language(font_language)
-        font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
-        package_font: tuple[FontLanguage, str] | None = None
-        if font_data is not None:
-            if normalized_font_language is not None:
-                msg = "font_language cannot be combined with fontfile or fontbuffer"
-                raise ValueError(msg)
-            if isinstance(fontindex, bool) or not isinstance(fontindex, int) or not 0 <= fontindex <= _UINT32_MAX:
-                msg = f"fontindex must be an integer from 0 through 4294967295: {fontindex!r}"
-                raise ValueError(msg)
-        elif fontindex != 0:
-            msg = "fontindex requires fontfile or fontbuffer"
-            raise ValueError(msg)
-        if isinstance(value, bool):
-            if value:
-                states = self._doc.form_button_states(name)
-                on_states = [s for s in states if s != "Off"]
-                resolved = on_states[0] if on_states else "Yes"
-            else:
-                resolved = "Off"
-        else:
-            resolved = value
-            if font_data is None and core_font is None:
-                bundled_font = _form_generation_font(resolved, normalized_font_language)
-                if bundled_font is not None:
-                    font_data, package_font = bundled_font
-        if core_font is not None:
-            self._doc.set_form_field_font(name, resolved, core_font)
-            return
-        weight = _package_face_weight(package_font)
-        if isinstance(font_data, Path):
-            self._doc.set_form_field_file(
-                name, resolved, str(font_data), fontindex, max_font_size, package_font, weight
-            )
-        else:
-            self._doc.set_form_field(name, resolved, font_data, fontindex, max_font_size, weight)
+        return Form(self)
 
     @property
     def page_labels(self) -> list[PageLabelRange]:

@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from conftest import annotation_subtypes, build_pdf, build_raw_pdf, drawn_images, with_xref_entry_offset
+from conftest import annotation_subtypes, build_pdf, build_raw_pdf, drawn_images, form_entries, with_xref_entry_offset
 
 import pylopdf
 
@@ -821,7 +821,7 @@ def test_f1040_page_deletion_drops_the_page_from_the_structure_tree(edit: str) -
     reopened = pylopdf.open(saved)
     assert len(reopened.pages) == 1
     assert reopened.pages[0].text() == first_page
-    assert len(reopened.get_form_fields()) == 128
+    assert len(form_entries(reopened)) == 128
 
 
 def test_f1040_bordered_table() -> None:

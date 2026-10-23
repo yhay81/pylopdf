@@ -170,8 +170,7 @@ del doc.fallback_fonts            # back to the installed font extras
 
 | 成员 | 用途 |
 |---|---|
-| `get_form_fields()` | 所有表单字段及其名称、类型、值和选项 |
-| `set_form_field(name, value, *, font=, fontfile=, fontbuffer=, fontindex=, font_language=)` | 填写字段并重新生成其外观；参见[表单](#forms) |
+| `form` | 以从完整名称到`Field`句柄的映射给出表单字段；参见[表单](#forms) |
 | `attachments` | 以映射形式访问嵌入文件；参见[附件](#attachments) |
 | `pdfa_claim` | 文件声明的PDF/A部分和一致性级别，为`PdfaClaim(part=2, conformance="B")`记录，或为`None`。这只读取声明，并不进行验证 |
 | `xmp` | 以文本形式表示的XMP元数据包，或为`None`。赋值字符串即写入，`del doc.xmp`将其删除。读写均以1 MiB为上限；更大的数据包可用`doc.catalog["Metadata"].read(max_size=None)`读取。`metadata`不会修改它 |
@@ -519,7 +518,7 @@ pylopdf.Font.installed(*, language=None, family=None, serif=False, weight=None, 
 
 字体按[画布](#canvas)的绘制方式测量文本。`text_width(text, size)`是一行的宽度，含字距调整和连字。`text_height(text, size, *, width, line_height=None)`是文本按`width`点宽度换行时`canvas.textbox`所需的高度，因此这个高度的textbox正好容纳该文本。属性有`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`、`units_per_em`、`ascender`和`descender`；`has_glyph(char)`返回字体是否有该字符的字形。`typing.get_args(pylopdf.StandardFontName)`列出`Font.standard()`接受的14个名称。Standard 14字体不嵌入，只能书写西欧（WinAnsi）字符。
 
-不指定`weight`加载的可变字体使用其默认实例，而默认实例不一定是常规字重：可变字体Noto Sans CJK JP的默认实例是Thin。要使用常规字重，请传入`weight=400`。`set_form_field`的`fontfile`和`fontbuffer`参数同样使用默认实例；要以其他字重填写字段，请将`Font`作为`font=`传入。
+不指定`weight`加载的可变字体使用其默认实例，而默认实例不一定是常规字重：可变字体Noto Sans CJK JP的默认实例是Thin。要使用常规字重，请传入`weight=400`。填写表单所用的字体（`doc.form.font`）也是如此。
 
 阿拉伯语、希伯来语、印地语和泰语的extra提供可变字体，因此字重轴上的任意字重都可以使用（100–900；Noto Naskh Arabic为400–700）。CJK extra每种样式只提供一个常规字重的字体：`Font.installed(language="ja", weight=700)`会抛出`PdfError`，请用`Font.from_file()`加载Noto Sans JP Bold等粗体字体。pylopdf从不通过扭曲字形来模仿粗体或斜体。
 
@@ -527,7 +526,20 @@ pylopdf不搜索系统字体目录，也没有全局字体注册表，因此输�
 
 ### 表单 { #forms }
 
-`set_form_field`可填写文本框、组合框、列表框、复选框和单选按钮字段，并重新生成每个字段的外观。西欧（WinAnsi）文本会用Helvetica自动缩放以适应字段。其他字符请传入`fontfile`、`fontbuffer`或已加载的`font`，或者安装字体extra。梳状字段（comb）、对齐方式和最大长度都会被遵守；值过长时会抛出异常，文档保持不变。不支持富文本、按钮动作和签名；签名请参阅[生态系统方案](ecosystem.md#signatures)。
+`doc.form`是按名称排序、从`person.first`这样的完全限定字段名到`Field`句柄的映射。句柄每次访问都读取文档，具有`name`、`type`（`FieldType.TEXT`、`CHECKBOX`、`RADIO`、`PUSHBUTTON`、`COMBOBOX`、`LISTBOX`、`SIGNATURE`等`FieldType`成员）、`value`、`flags`（从父字段继承的`FieldFlags`）、`choices`（选择字段的`FieldChoice(value=, label=)`选项），以及`xref`和`obj`。
+
+```python
+from pylopdf import Font
+
+for name, field in doc.form.items():
+    print(name, field.type, field.value)
+doc.form["customer"].value = "Alice"   # 写入值及其显示外观
+doc.form["agree"].value = True         # 复选框的选中状态
+doc.form.font = Font.from_file("NotoSansJP-Regular.otf")
+doc.form["name"].value = "山田 太郎"
+```
+
+给`value`赋值可填写文本框、组合框、列表框、复选框和单选按钮字段，并重新生成每个字段的外观。`True`和`False`选择按钮的选中状态和`"Off"`。西欧（WinAnsi）文本会用Helvetica自动缩放以适应字段，其他字符使用已安装的字体extra。给`doc.form.font`设置一个OpenType `Font`后，之后的每次填写都使用该字体，例如中文文本可用`Font.installed(language="zh-CN")`。此设置属于`Document`对象，不会被保存。梳状字段（comb）、对齐方式和最大长度都会被遵守；值过长时会抛出异常，文档保持不变。不支持富文本、按钮动作和签名；签名请参阅[生态系统方案](ecosystem.md#signatures)。
 
 ## 附件 { #attachments }
 
@@ -664,11 +676,12 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [书签与页码标签](#outline) |
 | `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `Highlight`, `Link`, `Links` | [批注与链接](#page-annotations) |
 | `PageBoxes` | [页面几何](#page-geometry) |
+| `Form`, `Field`, `FieldType`, `FieldFlags`, `FieldChoice` | [表单](#forms) |
 | `FallbackFont`, `FallbackFonts` | [渲染与图像](#document-rendering) |
 
 常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`AnnotationType`（`PDF_ANNOT_*`）和`AnnotationFlags`（`PDF_ANNOT_IS_*`）。`Access`的成员是`USER`和`OWNER`，`Encryption`描述如何加密保存的文件。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
 
-文本、表格、OCR和页面内容的结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`和书签目标等不可变的数据类（frozen dataclass）。API返回的其他字典都是普通的`dict`对象，并通过`FormFieldInfo`等`TypedDict`类向类型检查器描述。
+文本、表格、OCR和页面内容的结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`和书签目标等不可变的数据类（frozen dataclass）。API返回的其他字典都是普通的`dict`对象，并通过`DocumentComplexity`等`TypedDict`类向类型检查器描述。
 
 ## 异常与警告 { #exceptions }
 

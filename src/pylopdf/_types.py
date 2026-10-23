@@ -78,26 +78,6 @@ class ImageCompressionResult(TypedDict):
     bytes_saved: int
 
 
-FormFieldType: TypeAlias = Literal[
-    "text",
-    "checkbox",
-    "radio",
-    "button",
-    "combobox",
-    "listbox",
-    "signature",
-    "unknown",
-]
-
-
-class FormFieldInfo(TypedDict):
-    """One AcroForm field returned by :meth:`Document.get_form_fields`."""
-
-    name: str
-    type: FormFieldType
-    value: str | None
-
-
 class DocumentComplexity(TypedDict):
     """Cheap structural facts that require no stream decoding or rendering."""
 
@@ -113,7 +93,6 @@ for _public in (
     Permissions,
     Access,
     ImageCompressionResult,
-    FormFieldInfo,
     DocumentComplexity,
 ):
     _public.__module__ = "pylopdf"

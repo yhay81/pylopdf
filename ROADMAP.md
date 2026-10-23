@@ -433,8 +433,14 @@ the canvas.
   both calls, and assignments of the image xref, into canvas blocks, negates
   pymupdf's anticlockwise image rotation, and marks masks, layers, clipping,
   and page rotation.
-- Still to come, each with its codemod rules: forms and widgets, and the
-  remaining constants and records.
+- Done: form fields. `doc.form` maps full field names to `Field` handles
+  with `name`, `type` (`FieldType`), `value`, assigned to fill the field,
+  `flags` (`FieldFlags`), and `choices` (`FieldChoice` records), and
+  `doc.form.font` chooses the face that fills draw with; `get_form_fields()`,
+  `set_form_field()`, `FormFieldInfo`, and `FormFieldType` are gone. Widget
+  handles, field creation, and `reset()` come with the Interaction milestone.
+- Still to come, each with its codemod rules: the remaining constants and
+  records.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs

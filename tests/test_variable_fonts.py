@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import build_raw_pdf
+from conftest import build_raw_pdf, form_entries
 
 import pylopdf
 from pylopdf.pylopdf_core import _Document
@@ -465,13 +465,13 @@ def test_form_appearances_use_the_regular_instance() -> None:
     )
     doc = pylopdf.open(pdf)
 
-    doc.set_form_field("name", HEBREW)
-    doc.set_form_field("code", "שלום")
+    doc.form["name"].value = HEBREW
+    doc.form["code"].value = "שלום"
 
     saved = doc.to_bytes()
     assert {match.decode() for match in SUBSET_NAME.findall(saved)} == {"NotoSansHebrew-Regular"}
     reopened = pylopdf.open(saved)
-    assert {field["name"]: field["value"] for field in reopened.get_form_fields()} == {"name": HEBREW, "code": "שלום"}
+    assert {field["name"]: field["value"] for field in form_entries(reopened)} == {"name": HEBREW, "code": "שלום"}
 
 
 def _aligned_form_pdf() -> bytes:
@@ -501,11 +501,14 @@ def _fill_aligned_form(doc: pylopdf.Document, source: str, font: pylopdf.Font | 
     """Fill both fields with ``font``, or without one through Noto Sans Hebrew's file or bytes."""
     for name, value in (("name", HEBREW), ("code", "A12")):
         if font is not None:
-            doc.set_form_field(name, value, font=font)
+            doc.form.font = font
+            doc.form[name].value = value
         elif source == "fontfile":
-            doc.set_form_field(name, value, fontfile=HEBREW_SANS)
+            doc.form.font = pylopdf.Font.from_file(HEBREW_SANS)
+            doc.form[name].value = value
         else:
-            doc.set_form_field(name, value, fontbuffer=HEBREW_SANS.read_bytes())
+            doc.form.font = pylopdf.Font.from_bytes(HEBREW_SANS.read_bytes())
+            doc.form[name].value = value
 
 
 @pytest.mark.parametrize("source", EXPLICIT_SOURCES)
@@ -538,7 +541,7 @@ def test_form_appearances_draw_a_bold_instance_with_its_advances(source: str) ->
     expected = [22 + (1 + index) * cell + (cell - bold.text_width(char, 12)) / 2 for index, char in enumerate("A12")]
     assert [char["origin"][0] for char in comb] == pytest.approx(expected, abs=1e-3)
     reopened = pylopdf.open(saved)
-    assert {field["name"]: field["value"] for field in reopened.get_form_fields()} == {"name": HEBREW, "code": "A12"}
+    assert {field["name"]: field["value"] for field in form_entries(reopened)} == {"name": HEBREW, "code": "A12"}
 
 
 @pytest.mark.parametrize("source", EXPLICIT_SOURCES)
@@ -558,8 +561,9 @@ def test_form_font_of_an_installed_extra_draws_what_automatic_selection_draws() 
     pytest.importorskip("pylopdf_fonts_he")
     automatic, explicit = (pylopdf.open(_aligned_form_pdf()) for _ in range(2))
 
-    automatic.set_form_field("name", HEBREW)
-    explicit.set_form_field("name", HEBREW, font=pylopdf.Font.installed(language="he"))
+    automatic.form["name"].value = HEBREW
+    explicit.form.font = pylopdf.Font.installed(language="he")
+    explicit.form["name"].value = HEBREW
 
     assert explicit.to_bytes() == automatic.to_bytes()
 

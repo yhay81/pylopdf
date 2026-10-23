@@ -1405,16 +1405,17 @@ impl _Document {
     }
 }
 
-/// Implements [`_Document::get_form_fields`].
-pub(super) fn get_form_fields(
-    this: &_Document,
-    py: Python<'_>,
-) -> PyResult<Vec<(String, String, Option<String>)>> {
+/// One field as `form_fields` returns it: full name, object number, kind,
+/// value, and inherited flags.
+pub(crate) type FormFieldTuple = (String, u32, &'static str, Option<String>, i64);
+
+/// Implements [`_Document::form_fields`].
+pub(super) fn form_fields(this: &_Document, py: Python<'_>) -> PyResult<Vec<FormFieldTuple>> {
     py.detach(|| {
         Ok(this
             .collect_form_fields()?
             .into_iter()
-            .map(|(name, _, ft, ff, value)| {
+            .map(|(name, id, ft, ff, value)| {
                 let kind = match ft.as_str() {
                     "Tx" => "text",
                     "Sig" => "signature",
@@ -1427,7 +1428,7 @@ pub(super) fn get_form_fields(
                     }
                     "Btn" => {
                         if ff & (1 << 16) != 0 {
-                            "button"
+                            "pushbutton"
                         } else if ff & (1 << 15) != 0 {
                             "radio"
                         } else {
@@ -1436,9 +1437,76 @@ pub(super) fn get_form_fields(
                     }
                     _ => "unknown",
                 };
-                (name, kind.to_owned(), value.map(|value| value.to_string()))
+                (name, id.0, kind, value.map(|value| value.to_string()), ff)
             })
             .collect())
+    })
+}
+
+/// Implements [`_Document::form_field_choices`].
+///
+/// `/Opt` is read along the bounded `/Parent` chain, as MuPDF reads it. An
+/// option is a text string, which is both the export value and the label, or
+/// an array of the export value and the label; other entries are skipped.
+/// The options stop at the field-value limits: 4,096 items and 1 MiB of
+/// encoded and of decoded text.
+pub(super) fn form_field_choices(
+    this: &_Document,
+    py: Python<'_>,
+    xref: u32,
+) -> PyResult<Vec<(String, String)>> {
+    py.detach(|| {
+        let Some(field_id) = this
+            .collect_form_fields()?
+            .into_iter()
+            .find(|(_, id, ..)| id.0 == xref)
+            .map(|(_, id, ..)| id)
+        else {
+            return Err(PdfError::new_err(format!("form field not found: {xref}")));
+        };
+        let Some(options) = this.resolve_field_attr(field_id, b"Opt") else {
+            return Ok(Vec::new());
+        };
+        let Ok(options) = deref_object(&this.doc, &options).as_array() else {
+            return Ok(Vec::new());
+        };
+        if options.len() > MAX_FORM_FIELD_VALUE_ITEMS {
+            return Err(PdfError::new_err(format!(
+                "AcroForm choice options exceed the {MAX_FORM_FIELD_VALUE_ITEMS}-item safety limit"
+            )));
+        }
+        let mut encoded = 0usize;
+        let mut decoded = 0usize;
+        let mut text = |object: &Object| {
+            bounded_form_text(
+                &this.doc,
+                object,
+                &mut encoded,
+                &mut decoded,
+                MAX_FORM_FIELD_VALUE_BYTES,
+                "choice-option",
+            )
+        };
+        let mut choices = Vec::new();
+        for option in options {
+            let choice = match deref_object(&this.doc, option) {
+                Object::Array(pair) if pair.len() == 2 => {
+                    match (text(&pair[0])?, text(&pair[1])?) {
+                        (Some(value), Some(label)) => (value, label),
+                        _ => continue,
+                    }
+                }
+                object => match text(object)? {
+                    Some(value) => {
+                        let label = try_clone_form_string(&value, "choice label")?;
+                        (value, label)
+                    }
+                    None => continue,
+                },
+            };
+            try_push_form(&mut choices, choice, "choice options")?;
+        }
+        Ok(choices)
     })
 }
 

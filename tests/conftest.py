@@ -77,6 +77,11 @@ def annotation_subtypes(page: pylopdf.Page) -> list[str | None]:
     return [None if entry is None else entry.get("Subtype") for entry in annots]
 
 
+def form_entries(doc: pylopdf.Document) -> list[dict[str, Any]]:
+    """Return every field of ``doc.form`` as ``{"name", "type", "value"}`` in name order."""
+    return [{"name": name, "type": str(field.type), "value": field.value} for name, field in doc.form.items()]
+
+
 def outline_tuples(doc: pylopdf.Document) -> list[tuple[int, str, int | None]]:
     """Return ``(level, title, page)`` for every outline item, the shape tests compare."""
     return [(entry.level, entry.title, entry.page) for entry in doc.outline.entries()]

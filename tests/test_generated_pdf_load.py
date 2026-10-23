@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from conftest import build_raw_pdf
+from conftest import build_raw_pdf, form_entries
 
 import pylopdf
 from pylopdf.pylopdf_core import _Document
@@ -210,17 +210,18 @@ def test_generated_imports_parse_on_the_calling_thread() -> None:
             )
         output = doc.to_bytes()
     with pylopdf.open(_form_pdf()) as doc:
-        doc.set_form_field("name", "山田 太郎", fontfile=NOTO_SANS_JP)
-        doc.set_form_field("notes", "一行目\n二行目の長い説明文", fontfile=NOTO_SANS_JP)
-        doc.set_form_field("code", "日本", fontfile=NOTO_SANS_JP)
-        doc.set_form_field("level", "上級", fontfile=NOTO_SANS_JP)
+        doc.form.font = pylopdf.Font.from_file(NOTO_SANS_JP)
+        doc.form["name"].value = "山田 太郎"
+        doc.form["notes"].value = "一行目\n二行目の長い説明文"
+        doc.form["code"].value = "日本"
+        doc.form["level"].value = "上級"
         form_output = doc.to_bytes()
     assert _Document.generated_pdf_loads() == (sequential + 7, fallback, mismatched)
     with pylopdf.open(output) as reopened:
         assert "日本語テキスト" in reopened.pages[0].text()
         assert "回転したページ" in reopened.pages[1].text()
     with pylopdf.open(form_output) as reopened:
-        values = {field["name"]: field["value"] for field in reopened.get_form_fields()}
+        values = {field["name"]: field["value"] for field in form_entries(reopened)}
     assert values["code"] == "日本"
     assert values["level"] == "上級"
 

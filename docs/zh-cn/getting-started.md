@@ -178,8 +178,8 @@ with pylopdf.open("scan.pdf") as doc:
     doc.save("searchable.pdf")
 
 with pylopdf.open("form.pdf") as doc:
-    print(doc.get_form_fields())
-    doc.set_form_field("customer", "Alice")   # 写入值及其显示外观
+    print(dict(doc.form))
+    doc.form["customer"].value = "Alice"   # 写入值及其显示外观
     doc.save("filled.pdf")
 
 with pylopdf.open("input.pdf") as doc:

@@ -604,6 +604,14 @@ def test_codemod_joins_consecutive_canvas_blocks_of_one_page(migrate_source: Mig
             'page.links.add(r, pylopdf.Launch("a.txt"))',
         ),
         ("import pylopdf\ndoc = pylopdf.open(path)\ndoc.set_fallback_font(None)\n", "doc.fallback_fonts = {}"),
+        ("import pylopdf\ndoc.set_form_field('name', value=True)\n", "doc.form['name'].value = True"),
+        (
+            "import pylopdf\nfields = doc.get_form_fields()\n",
+            (
+                'fields = [{"name": name, "type": str(field.type), "value": field.value} '
+                "for name, field in doc.form.items()]"
+            ),
+        ),
         ("import pylopdf\ndoc = pylopdf.open(path)\ndoc[0].set_rotation(90)\n", "doc.pages[0].rotation = 90"),
         (
             "import pylopdf\npage.set_cropbox((0, 0, 10, 10))\ncrop = page.cropbox\n",

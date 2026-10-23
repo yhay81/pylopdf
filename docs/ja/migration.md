@@ -113,7 +113,7 @@ python -m pylopdf.migrate src/
 | `page.add_highlight_annot(quads)`, `page.delete_annot(annot)` | `page.annotations.add(Highlight(quads))`、`del page.annotations[i]` | `color`は`Color`で、`content`は`contents`になります。注釈を削除するとそのポップアップも削除されます |
 | `page.get_links()`, `page.links()`, `page.first_link`, `page.load_links()` | `page.links` | 辞書や`Link`オブジェクトの連鎖ではなく、`rect`と`target`を持つ`Link`ハンドルのシーケンス |
 | `page.insert_link(link)`, `page.update_link(link)`, `page.delete_link(link)` | `page.links.add(rect, target)`、`link.rect`と`link.target`への代入、`del page.links[i]` | リンク先はしおりと同じで、URI文字列、`Destination(page, point, zoom)`、`RemoteDestination(file, page)`、`Launch(file)`、`NamedAction(name)`のいずれかです。`LINK_*`の種類の代わりにリンク先に`isinstance`を使います |
-| `page.widgets()` | `doc.get_form_fields()`, `doc.set_form_field(name, value)` | フォームは文書単位で扱います |
+| `page.widgets()`, `widget.field_name`, `field_type`, `field_value`, `field_flags`, `choice_values`, `widget.update()` | `doc.form`, `field.name`, `type`, `value`, `flags`, `choices`, `doc.form[name].value`への代入 | フィールドは文書単位の`Field`ハンドルで扱います。`value`に代入するとその場で見た目を生成し直し、`doc.form.font`で書体を選びます。ウィジェットのハンドルはInteractionマイルストーンで加わります |
 
 ### 幾何型 { #mapping-geometry }
 

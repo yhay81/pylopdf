@@ -80,7 +80,7 @@ signed_pdf: bytes = out.getvalue()
 ```
 
 Sign as the last step: saving with pylopdf afterwards rewrites the file and
-invalidates the signature. `set_form_field()` refuses to fill signature fields.
+invalidates the signature. Assigning the value of a signature field in `doc.form` raises.
 
 ## OCR with another engine { #ocr }
 

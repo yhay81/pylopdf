@@ -15,8 +15,11 @@ def test_public_type_contracts_are_runtime_importable() -> None:
         "DocumentComplexity",
         "DocumentLimits",
         "Metadata",
-        "FormFieldInfo",
-        "FormFieldType",
+        "Field",
+        "FieldChoice",
+        "FieldFlags",
+        "FieldType",
+        "Form",
         "ImageCompressionResult",
         "LimitError",
         "Link",
@@ -60,7 +63,6 @@ def test_public_names_report_the_package_rather_than_a_private_module() -> None:
 def test_typed_dict_required_and_optional_keys() -> None:
     typed_dicts = (
         pylopdf.DocumentComplexity,
-        pylopdf.FormFieldInfo,
         pylopdf.ImageCompressionResult,
     )
     assert all(is_typeddict(contract) for contract in typed_dicts)
@@ -75,7 +77,7 @@ def test_public_return_annotations_describe_real_values() -> None:
     metadata: pylopdf.Metadata = doc.metadata
     complexity: pylopdf.DocumentComplexity = doc.complexity
     labels: list[pylopdf.PageLabelRange] = doc.page_labels
-    fields: list[pylopdf.FormFieldInfo] = doc.get_form_fields()
+    fields: pylopdf.Form = doc.form
     content: pylopdf.Content = doc.pages[0].content()
     compression: pylopdf.ImageCompressionResult = doc.rewrite_images(quality=75)
 
@@ -83,6 +85,6 @@ def test_public_return_annotations_describe_real_values() -> None:
     assert isinstance(metadata, pylopdf.Metadata)
     assert complexity["page_count"] == 1
     assert labels == []
-    assert fields == []
+    assert dict(fields) == {}
     assert content.paths == ()
     assert compression["rewritten"] == 0

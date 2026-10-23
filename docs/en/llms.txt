@@ -227,7 +227,12 @@ replacement, and the migration hint):
 - Outline.uri -> OutlineItem.destination: Read item.destination: a URI target reads as its string.
 - Outline.x -> OutlineItem.destination: Read item.destination.point.x of a Destination with a point.
 - Outline.y -> OutlineItem.destination: Read item.destination.point.y of a Destination with a point.
+- PDF_BTN_FIELD_IS_* -> FieldFlags: Button field flags such as PDF_BTN_FIELD_IS_RADIO and PDF_BTN_FIELD_IS_PUSHBUTTON are FieldFlags members such as FieldFlags.RADIO and PUSHBUTTON.
+- PDF_CH_FIELD_IS_* -> FieldFlags: Choice field flags such as PDF_CH_FIELD_IS_COMBO and PDF_CH_FIELD_IS_MULTI_SELECT are FieldFlags members such as FieldFlags.COMBO and MULTI_SELECT.
 - PDF_ENCRYPT_* -> Encryption: Pass encryption=Encryption(user_password=..., owner_password=..., permissions=...) to save() or to_bytes(), which writes AES-256 encryption; encryption=None writes none.
+- PDF_FIELD_IS_* -> FieldFlags: PDF_FIELD_IS_READ_ONLY, PDF_FIELD_IS_REQUIRED, and PDF_FIELD_IS_NO_EXPORT are FieldFlags.READ_ONLY, REQUIRED, and NO_EXPORT, which doc.form[name].flags returns.
+- PDF_TX_FIELD_IS_* -> FieldFlags: Text field flags such as PDF_TX_FIELD_IS_MULTILINE and PDF_TX_FIELD_IS_COMB are FieldFlags members such as FieldFlags.MULTILINE and COMB.
+- PDF_WIDGET_TYPE_* -> FieldType: doc.form[name].type is a FieldType member: TEXT, CHECKBOX, RADIO, PUSHBUTTON, COMBOBOX, LISTBOX, SIGNATURE, or UNKNOWN.
 - Page.add_highlight_annot -> Annotations.add: page.annotations.add(Highlight(quads)) adds a highlight and returns its Annotation; color is a Color and content becomes contents.
 - Page.annot_names -> Annotation.name: [annotation.name for annotation in page.annotations]
 - Page.annot_xrefs -> Annotation.xref: [(annotation.xref, annotation.type) for annotation in page.annotations]
@@ -331,6 +336,12 @@ replacement, and the migration hint):
 - TEXT_ALIGN_JUSTIFY -> Canvas.textbox: canvas.textbox(rect, text, align="justify") takes the alignment as a string.
 - TEXT_ALIGN_LEFT -> Canvas.textbox: canvas.textbox(rect, text, align="left") takes the alignment as a string.
 - TEXT_ALIGN_RIGHT -> Canvas.textbox: canvas.textbox(rect, text, align="right") takes the alignment as a string.
+- Widget.choice_values -> Field.choices: Read doc.form[name].choices, FieldChoice records with value and label.
+- Widget.field_flags -> Field.flags: Read doc.form[name].flags, a FieldFlags value.
+- Widget.field_name -> Field.name: Read doc.form[name].name, or iterate over the keys of doc.form.
+- Widget.field_type -> Field.type: Read doc.form[name].type, a FieldType member.
+- Widget.field_type_string -> Field.type: Read doc.form[name].type, a FieldType member whose value is a lowercase name such as text.
+- Widget.field_value -> Field.value: Read or assign doc.form[name].value; assignment regenerates the appearances at once, so no update() follows.
 - csGRAY -> Colorspace: Use pylopdf.Colorspace.GRAY.
 - csRGB -> Colorspace: Use pylopdf.Colorspace.RGB.
 - get_pdf_str -> String: Write a Python str into the object model, which encodes it as a PDF text string, or read String.text.
@@ -348,12 +359,14 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - BlockEntry -> Block: page.layout().blocks holds Block records with text, bbox, and lines.
 - Document.__iter__ -> Pages.__iter__: Iterate over doc.pages.
 - Document.compress_images -> Document.rewrite_images: Use doc.rewrite_images(dpi_threshold=..., dpi_target=..., quality=...).
+- Document.get_form_fields -> Document.form: doc.form maps full field names to Field handles with name, type, value, flags, and choices; iterate over doc.form.values().
 - Document.get_pdfa_claim -> Document.pdfa_claim: doc.pdfa_claim returns a PdfaClaim record with part and conformance, or None, instead of a tuple.
 - Document.get_text -> Document.text: Call doc.text(pages).
 - Document.render_page -> Page.pixmap: Use doc.pages[i].pixmap(dpi=72 * scale, alpha=True).to_bytes() for the PNG.
 - Document.render_page_svg -> Page.svg: Use doc.pages[i].svg().
 - Document.render_pages -> Document.render: Use doc.render(pages, ...), which takes dpi or matrix, not both.
 - Document.set_fallback_font -> Document.fallback_fonts: Assign doc.fallback_fonts[language] = FallbackFont(Font.from_file(path)), with Font.from_bytes(data) for bytes and serif= for the serif slot; doc.fallback_fonts = {} turns fallback off.
+- Document.set_form_field -> Field.value: Assign doc.form[name].value = value; to draw with a face, set doc.form.font = Font.from_file(path) first, which replaces font, fontfile, fontbuffer, fontindex, and font_language.
 - Document.to_markdown -> Document.markdown: Call doc.markdown(...).
 - DocumentMetadata -> Metadata: doc.metadata returns a Metadata mapping of the entries present; doc.version and doc.encryption_method replace format and encryption.
 - DocumentMetadata.author -> Metadata: Read doc.metadata.get("author", "").
@@ -380,6 +393,11 @@ pylopdf 0.15 name map (replaced names that the capability map does not list):
 - DrawingInfo.type -> Path.fill: A path fills when path.fill is not None and strokes when path.stroke is not None.
 - DrawingInfo.width -> Stroke.width: Read path.stroke.width.
 - DrawingItem -> Segment: path.segments holds MoveTo, LineTo, CurveTo, and ClosePath records.
+- FormFieldInfo -> Field: doc.form lists Field handles instead of FormFieldInfo dictionaries.
+- FormFieldInfo.name -> Field.name: Read field.name, or iterate over the keys of doc.form.
+- FormFieldInfo.type -> Field.type: field.type is a FieldType member; the "button" type is FieldType.PUSHBUTTON.
+- FormFieldInfo.value -> Field.value: Read field.value.
+- FormFieldType -> FieldType: Use the FieldType enum; its members compare equal to the old strings, except "button", which is "pushbutton".
 - ImageInfo -> Image: page.content(text_runs=False, paths=False).images lists drawn images as Image records; doc.images[xref].extract() returns an image's data.
 - ImageInfo.bbox -> Image.bbox: Read image.bbox of page.content().images.
 - ImageInfo.ext -> EncodedImage.format: doc.images[xref].extract() returns an EncodedImage whose format is jpeg or png; page.content(text_runs=False, paths=False).images describes placements.

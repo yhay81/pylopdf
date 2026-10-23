@@ -113,7 +113,7 @@ python -m pylopdf.migrate src/
 | `page.add_highlight_annot(quads)`, `page.delete_annot(annot)` | `page.annotations.add(Highlight(quads))`, `del page.annotations[i]` | `color`는 `Color`이고 `content`는 `contents`가 됩니다. 주석을 제거하면 팝업도 함께 제거됩니다 |
 | `page.get_links()`, `page.links()`, `page.first_link`, `page.load_links()` | `page.links` | 딕셔너리와 `Link` 객체의 연결 대신 `rect`와 `target`을 가진 `Link` 핸들의 시퀀스 |
 | `page.insert_link(link)`, `page.update_link(link)`, `page.delete_link(link)` | `page.links.add(rect, target)`, `link.rect`와 `link.target`에 대입, `del page.links[i]` | 대상은 목차와 같아서 URI 문자열, `Destination(page, point, zoom)`, `RemoteDestination(file, page)`, `Launch(file)`, `NamedAction(name)` 중 하나이며, `LINK_*` 종류 대신 대상에 `isinstance`를 씁니다 |
-| `page.widgets()` | `doc.get_form_fields()`, `doc.set_form_field(name, value)` | 폼은 문서 단위로 다룸 |
+| `page.widgets()`, `widget.field_name`, `field_type`, `field_value`, `field_flags`, `choice_values`, `widget.update()` | `doc.form`, `field.name`, `type`, `value`, `flags`, `choices`, `doc.form[name].value`에 대입 | 필드는 문서 단위의 `Field` 핸들로 다룸. `value`에 대입하면 즉시 표시 모양을 다시 생성하고, `doc.form.font`로 글꼴을 고름. 위젯 핸들은 Interaction 마일스톤에서 추가됨 |
 
 ### 기하 { #mapping-geometry }
 

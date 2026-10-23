@@ -107,6 +107,7 @@ from pylopdf._errors import (
 )
 from pylopdf._fallback_fonts import FallbackFont, FallbackFonts
 from pylopdf._fonts import Font
+from pylopdf._form import Field, FieldChoice, FieldFlags, FieldType, Form
 from pylopdf._geometry import (
     EMPTY_IRECT,
     EMPTY_QUAD,
@@ -151,7 +152,6 @@ from pylopdf._types import (
     PDF_PERM_PRINT_HQ,
     Access,
     DocumentComplexity,
-    FormFieldInfo,
     ImageCompressionResult,
     Permissions,
 )
@@ -246,12 +246,15 @@ __all__ = [
     "Encryption",
     "FallbackFont",
     "FallbackFonts",
+    "Field",
+    "FieldChoice",
+    "FieldFlags",
+    "FieldType",
     "FillRule",
     "Font",
     "FontLanguage",
     "FontRef",
-    "FormFieldInfo",
-    "FormFieldType",
+    "Form",
     "Glyph",
     "GraphicsContext",
     "Highlight",
@@ -345,7 +348,6 @@ OcrRotation: TypeAlias = _types.OcrRotation
 FontLanguage: TypeAlias = _types.FontLanguage
 CjkFontLanguage: TypeAlias = _types.CjkFontLanguage
 StandardFontName: TypeAlias = _types.StandardFontName
-FormFieldType: TypeAlias = _types.FormFieldType
 ContentItem: TypeAlias = _content.ContentItem
 Paint: TypeAlias = _content.Paint
 Segment: TypeAlias = _content.Segment
