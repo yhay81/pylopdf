@@ -1370,7 +1370,7 @@ fn is_membership(dict: &Dictionary) -> bool {
 }
 
 /// A checked `/OC` value, ready to store.
-enum PreparedLayer {
+pub(super) enum PreparedLayer {
     Remove,
     Group(ObjectId),
     Membership(Dictionary),
@@ -1462,7 +1462,7 @@ fn expression_object(doc: &Document, entries: &[ExpressionEntry]) -> PyResult<Ob
 }
 
 /// Check an `/OC` value from Python and build what it stores.
-fn prepare_layer(doc: &Document, value: &LayerValue) -> PyResult<PreparedLayer> {
+pub(super) fn prepare_layer(doc: &Document, value: &LayerValue) -> PyResult<PreparedLayer> {
     let (kind, id, policy, groups, expression) = value;
     match kind {
         0 => Ok(PreparedLayer::Remove),

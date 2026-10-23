@@ -130,7 +130,7 @@ HINTS: dict[str, str] = {
     "Document.get_char_widths": "pylopdf plans the capability of pymupdf's Document.get_char_widths in the Reading milestone of ROADMAP.md.",
     "Document.get_form_fields": "Document.get_form_fields is Document.form in pylopdf. doc.form maps full field names to Field handles with name, type, value, flags, and choices; iterate over doc.form.values().",
     "Document.get_layer": "Document.get_layer is LayerConfiguration in pylopdf. Read doc.layers.configurations[i]: base_state, on, off, locked, and radio_groups hold Layer handles; index 0 is the default configuration, where pymupdf used -1.",
-    "Document.get_layers": "pylopdf plans the capability of pymupdf's Document.get_layers in the Structure milestone of ROADMAP.md.",
+    "Document.get_layers": "Document.get_layers is Layers.configurations in pylopdf. Use doc.layers.configurations: LayerConfiguration handles with name and creator, the default configuration first, instead of dictionaries numbered from 0 that leave the default out.",
     "Document.get_new_xref": "Document.get_new_xref is Objects.add in pylopdf. Call doc.objects.add(value), which creates the object and returns its object number.",
     "Document.get_oc": 'Document.get_oc is ImageObject.layer in pylopdf. Read doc.images[xref].layer for an image; for a Form XObject read doc.objects[xref].get("OC").',
     "Document.get_ocgs": "Document.get_ocgs is Document.layers in pylopdf. Use doc.layers: Layer handles with name, intent, is_visible, and xref, in /OCGs order, instead of a dictionary keyed by xref.",

@@ -1712,6 +1712,7 @@ def _optional_content_results() -> dict[str, Any]:
         "resources": sorted(saved.pages[0].resources.layers),
         "link_layer": repr(saved.pages[0].links[0].layer),
         "imported": _imported_layer_states(saved),
+        "canvas": _canvas_layer_text(),
         "configurations": [
             [config.name, str(config.base_state), [layer.name for layer in config.on], repr(config.order)]
             for config in saved.layers.configurations
@@ -1802,6 +1803,22 @@ def _open_document_tag_results() -> dict[str, Any]:
         "mcids": [kid["MCID"] for element in root["K"] for kid in element["K"]],
         "text": saved.pages[0].text().split(),
     }
+
+
+def _canvas_layer_text() -> list[list[str]]:
+    """Draw text in a hidden layer and read the page before and after showing it."""
+    import pylopdf  # noqa: PLC0415
+
+    document = pylopdf.Document()
+    page = document.pages.new((200, 200))
+    layer = document.layers.add("Overlay", visible=False)
+    with page.draw() as canvas:
+        canvas.text("Base", (20, 40))
+        with canvas.layer(layer):
+            canvas.text("Layered", (20, 80))
+    before = page.text().split()
+    layer.is_visible = True
+    return [before, page.text().split()]
 
 
 def _imported_layer_states(source: Any) -> list[list[Any]]:  # noqa: ANN401 - pylopdf imports lazily.

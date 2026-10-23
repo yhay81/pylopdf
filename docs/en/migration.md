@@ -108,6 +108,7 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `doc.stream` | The bytes passed to `pylopdf.open`, or `doc.to_bytes()` | pylopdf does not keep the input bytes |
 | `doc.get_ocgs()`, `add_ocg(name, on=, intent=)` | `doc.layers`, `doc.layers.add(name, visible=, intent=)` | `Layer` handles instead of a dictionary keyed by xref; `intent` is a tuple of names |
 | `PDF_OC_ON`, `PDF_OC_OFF`, `PDF_OC_TOGGLE` | `layer.is_visible = True`, `False`, `not layer.is_visible` | |
+| `doc.get_layers()` | `doc.layers.configurations` | `LayerConfiguration` handles, the default configuration first |
 | `doc.get_layer(config)`, `set_layer(config, ...)` | `doc.layers.configurations[i]` and its assignable `base_state`, `on`, `off`, `locked`, `radio_groups` | Index 0 is the default configuration, where pymupdf used -1; arrays hold `Layer` handles |
 | `doc.add_layer(name, creator, on)`, `switch_layer(config)` | `doc.layers.configurations.add(name, creator=, on=)`, `configuration.apply()` | |
 | `doc.get_ocmd(xref)`, `set_ocmd(...)` | `LayerMembership(layers, policy=, expression=)` read from and assigned to `layer` properties | A value instead of an xref; `ve=` is `expression=LayerExpression(...)` |
