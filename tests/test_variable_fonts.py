@@ -73,12 +73,14 @@ def _spans(page: pylopdf.Page) -> list[dict[str, Any]]:
 
 
 def _chars(page: pylopdf.Page) -> list[dict[str, Any]]:
+    """Return the glyphs of the page's layout, without the spaces inferred between them."""
     return [
         char
         for block in page.layout(chars=True).to_dict()["blocks"]
         for line in block["lines"]
         for span in line["spans"]
         for char in span["chars"]
+        if not char["synthetic"]
     ]
 
 

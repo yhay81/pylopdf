@@ -4,8 +4,9 @@ Run ``uv run --group bench python bench/interaction.py``. The optional
 benchmark group supplies pymupdf; it is never a runtime dependency of
 pylopdf. The report compares how MuPDF and pylopdf render every annotation
 type that pylopdf creates, what pymupdf reads of pylopdf's links and fields,
-whether pymupdf can fill those fields for pylopdf to read back, and how a
-flattened page renders in both.
+whether pymupdf can fill those fields for pylopdf to read back, whether the
+links and fields of pages that pylopdf imports from another document keep
+working in both, and how a flattened page renders in both.
 """
 
 from __future__ import annotations
@@ -190,6 +191,45 @@ def _form_rows() -> list[str]:
     return rows
 
 
+def _import_rows() -> list[str]:
+    """Import pages with links and fields into a document with a clashing field, then use them in both libraries."""
+    source = pylopdf.Document()
+    source.pages.new((300, 300))
+    source.pages.new((300, 300))
+    first = source.pages[0]
+    first.links.add((10, 10, 100, 30), Destination(1, pylopdf.Point(10, 20)))
+    first.links.add((10, 40, 100, 60), "https://example.test/")
+    first.widgets.add(TextField("name", (20, 100, 200, 124), value="Ada"))
+    first.widgets.add(CheckBox("agree", (20, 140, 36, 156)))
+    target = pylopdf.Document()
+    target.pages.new((300, 300)).widgets.add(TextField("name", (20, 20, 200, 44), value="Existing"))
+    target.pages.extend(source.pages)
+    imported = target.pages[1]
+    saved = target.to_bytes()
+
+    reference = pymupdf.open("pdf", saved)
+    mupdf_page = reference[1]
+    mupdf_links = mupdf_page.get_links()
+    widgets = {widget.field_name: widget for widget in mupdf_page.widgets()}
+    for widget in widgets.values():
+        widget.field_value = "Grace" if widget.field_type_string == "Text" else widget.on_state()
+        widget.update()
+    filled = pylopdf.open(reference.tobytes())
+
+    goto = imported.links[0].target
+    goto_page = goto.page if isinstance(goto, Destination) else goto
+    pylopdf_values = f"`{filled.form['name+1'].value!r}`, `{filled.form['agree'].value!r}`"
+    mupdf_values = f"`{widgets['name+1'].field_value!r}`, `{widgets['agree'].field_value!r}`"
+    kept = next(widget.field_value for widget in reference[0].widgets())
+    return [
+        f"| Internal link page | `{goto_page!r}` | `{mupdf_links[0].get('page')}` |",
+        f"| URI link | `{imported.links[1].target}` | `{mupdf_links[1].get('uri')}` |",
+        f"| Imported field names | `{sorted(target.form)}` | `{sorted(widgets)}` |",
+        f"| Values after pymupdf fills them | {pylopdf_values} | {mupdf_values} |",
+        f"| Receiving field kept | `{filled.form['name'].value!r}` | `{kept!r}` |",
+    ]
+
+
 def _flatten_row() -> str:
     doc = pylopdf.Document()
     page = doc.pages.new((300, 300))
@@ -263,6 +303,19 @@ def main() -> None:
         "| Field | pymupdf type | pymupdf value | pylopdf reads |",
         "| --- | --- | --- | --- |",
         *_form_rows(),
+        "",
+        "## Imported pages",
+        "",
+        (
+            "pylopdf imports two pages, the first with an internal link, a URI link, a text field `name`, "
+            "and a check box, into a one-page document that already has a field `name`, so the imported "
+            "one becomes `name+1`. pymupdf reads the links of the imported page and fills its fields, and "
+            "pylopdf reads the filled values back."
+        ),
+        "",
+        "| Check | pylopdf | pymupdf |",
+        "| --- | --- | --- |",
+        *_import_rows(),
         "",
         "## Flattening",
         "",

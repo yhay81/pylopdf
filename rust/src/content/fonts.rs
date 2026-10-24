@@ -25,6 +25,11 @@ pub(crate) type Decoder<'d> = dyn Fn(&Stream) -> Result<Vec<u8>, ContentError> +
 #[derive(Debug)]
 pub(super) struct FontMetrics {
     kind: Kind,
+    /// A box in glyph space, 1000 units per em, that the glyph's ink stays
+    /// inside vertically: the descriptor's `/Descent` and `/Ascent`, or its
+    /// `/FontBBox`, or 200 below and 800 above the baseline. A Type 3 font
+    /// gives its `/FontBBox` through `/FontMatrix` for both axes.
+    extent: [f64; 4],
     /// Whether some advance had to be guessed because it lives only in an
     /// embedded font program.
     approximate: bool,
@@ -70,18 +75,22 @@ impl FontMetrics {
         let subtype = name_of(doc, font.get(b"Subtype").ok()?)?;
         match subtype {
             b"Type0" => Composite::read(doc, font, decode).map(|composite| Self {
+                extent: composite_extent(doc, font),
                 kind: Kind::Composite(Box::new(composite)),
                 approximate: false,
             }),
             b"Type3" => {
-                let scale = font
+                let matrix = font
                     .get(b"FontMatrix")
                     .ok()
-                    .and_then(|matrix| number_array(doc, matrix))
+                    .and_then(|matrix| number_array(doc, matrix));
+                let scale = matrix
+                    .as_ref()
                     .and_then(|values| values.first().copied())
                     .unwrap_or(0.001);
                 let widths = SimpleWidths::read(doc, font, None);
                 Some(Self {
+                    extent: type3_extent(doc, font, matrix.as_deref()),
                     kind: Kind::Type3 { widths, scale },
                     approximate: false,
                 })
@@ -107,6 +116,7 @@ impl FontMetrics {
                 let approximate = widths.table.is_none()
                     && (standard.is_none() || !(symbolic || encoding_is_known(doc, font)));
                 Some(Self {
+                    extent: descriptor_extent(doc, descriptor),
                     kind: Kind::Simple(widths),
                     approximate,
                 })
@@ -121,6 +131,7 @@ impl FontMetrics {
         let mut names: Box<[Option<String>; 256]> = Box::new(std::array::from_fn(|_| None));
         fill_from_afm(&mut names, Base14Font::Helvetica);
         Self {
+            extent: DEFAULT_EXTENT,
             kind: Kind::Simple(SimpleWidths {
                 table: None,
                 missing: 0.0,
@@ -177,6 +188,26 @@ impl FontMetrics {
         }
     }
 
+    /// The glyph's horizontal width in 1/1000 em, also for vertical writing,
+    /// where it is the width of the column.
+    pub(super) fn width(&self, code: u32) -> f64 {
+        match &self.kind {
+            Kind::Composite(composite) => {
+                f64::from(composite.horizontal_width(composite.cid(code)))
+            }
+            Kind::Simple(_) | Kind::Type3 { .. } => self.advance(code).0,
+        }
+    }
+
+    /// A box in glyph space that the glyph's ink stays inside, as
+    /// `[x0, y0, x1, y1]`: from the origin to the glyph's width across, and
+    /// the font's extent up and down.
+    pub(super) fn glyph_box(&self, code: u32) -> [f64; 4] {
+        let width = self.width(code);
+        let [x0, y0, x1, y1] = self.extent;
+        [x0.min(0.0).min(width), y0, x1.max(width).max(0.0), y1]
+    }
+
     /// The vector from the text origin to the glyph origin, in 1/1000 em;
     /// nonzero only for vertical writing.
     pub(super) fn displacement(&self, code: u32) -> (f64, f64) {
@@ -185,6 +216,96 @@ impl FontMetrics {
             Kind::Simple(_) | Kind::Type3 { .. } => (0.0, 0.0),
         }
     }
+}
+
+/// The vertical extent that a font without usable metrics gets.
+const DEFAULT_EXTENT: [f64; 4] = [0.0, -200.0, 0.0, 800.0];
+
+/// The extent of a simple or descendant font from its descriptor.
+fn descriptor_extent(doc: &Document, descriptor: Option<&Dictionary>) -> [f64; 4] {
+    let Some(descriptor) = descriptor else {
+        return DEFAULT_EXTENT;
+    };
+    let value = |key: &[u8]| {
+        descriptor
+            .get(key)
+            .ok()
+            .and_then(|value| number(doc, value))
+            .map(f64::from)
+            .filter(|value| value.is_finite())
+    };
+    if let (Some(ascent), Some(descent)) = (value(b"Ascent"), value(b"Descent"))
+        && ascent > descent
+    {
+        return [0.0, descent.min(0.0), 0.0, ascent.max(0.0)];
+    }
+    if let Some([_, y0, _, y1]) = descriptor
+        .get(b"FontBBox")
+        .ok()
+        .and_then(|value| number_array(doc, value))
+        .and_then(|values| <[f32; 4]>::try_from(values).ok())
+        .map(|values| values.map(f64::from))
+        && y1.max(y0) > y1.min(y0)
+        && y0.is_finite()
+        && y1.is_finite()
+    {
+        return [0.0, y0.min(y1).min(0.0), 0.0, y0.max(y1).max(0.0)];
+    }
+    DEFAULT_EXTENT
+}
+
+fn composite_extent(doc: &Document, font: &Dictionary) -> [f64; 4] {
+    let descriptor = font
+        .get(b"DescendantFonts")
+        .ok()
+        .and_then(|value| array_of(doc, value))
+        .and_then(|fonts| fonts.iter().find_map(|value| dict_of(doc, Some(value))))
+        .and_then(|descendant| dict_of(doc, descendant.get(b"FontDescriptor").ok()));
+    descriptor_extent(doc, descriptor)
+}
+
+/// A Type 3 font's `/FontBBox` mapped by `/FontMatrix` into 1000 units per
+/// em; its glyph procedures may paint anywhere inside it.
+fn type3_extent(doc: &Document, font: &Dictionary, matrix: Option<&[f32]>) -> [f64; 4] {
+    let bbox = font
+        .get(b"FontBBox")
+        .ok()
+        .and_then(|value| number_array(doc, value))
+        .and_then(|values| <[f32; 4]>::try_from(values).ok());
+    let [a, b, c, d] = match matrix {
+        Some([a, b, c, d, ..]) => [*a, *b, *c, *d].map(f64::from),
+        _ => [0.001, 0.0, 0.0, 0.001],
+    };
+    let Some([x0, y0, x1, y1]) = bbox.map(|values| values.map(f64::from)) else {
+        return DEFAULT_EXTENT;
+    };
+    let corners = [(x0, y0), (x1, y0), (x0, y1), (x1, y1)].map(|(x, y)| {
+        (
+            (a * x + c * y) * UNITS_PER_EM,
+            (b * x + d * y) * UNITS_PER_EM,
+        )
+    });
+    let min_x = corners.iter().map(|p| p.0).fold(f64::INFINITY, f64::min);
+    let max_x = corners
+        .iter()
+        .map(|p| p.0)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let min_y = corners.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
+    let max_y = corners
+        .iter()
+        .map(|p| p.1)
+        .fold(f64::NEG_INFINITY, f64::max);
+    if !(min_x.is_finite() && max_x.is_finite() && min_y.is_finite() && max_y.is_finite())
+        || max_y <= min_y
+    {
+        return DEFAULT_EXTENT;
+    }
+    [
+        min_x.min(0.0),
+        min_y.min(0.0),
+        max_x.max(0.0),
+        max_y.max(0.0),
+    ]
 }
 
 impl SimpleWidths {

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypeAlias, TypedDict
 
 from pylopdf._content import Color, TextRenderMode
 from pylopdf._geometry import Point, Rect
+from pylopdf._limits import _validate_rect
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -25,10 +26,54 @@ if TYPE_CHECKING:
     #: The core's layout with glyphs: as above, except that a span holds
     #: ``(text, chars)`` in place of its text, and a char is
     #: ``(text, bbox, origin)``.
-    _CoreChar = tuple[str, _Box, tuple[float, float]]
+    _CoreChar = tuple[str, _Box, tuple[float, float], bool]
     _CoreRawSpan = tuple[_Box, tuple[str, list[_CoreChar]], float, tuple[float, float], str, int, _CoreStyle]
     _CoreRawLine = tuple[_Box, list[_CoreRawSpan], list[tuple[_Box, str]], tuple[float, float], int]
     _CoreRawBlock = tuple[_Box, list[_CoreRawLine]]
+
+Unmapped: TypeAlias = Literal["skip", "replacement", "glyph_id"]
+"""What text extraction makes of a glyph without Unicode: ``"skip"`` leaves it
+out with a :class:`PylopdfWarning`, ``"replacement"`` gives U+FFFD, and
+``"glyph_id"`` gives the character whose code point is the glyph ID."""
+
+_UNMAPPED_CODES = {"skip": 0, "replacement": 1, "glyph_id": 2}
+
+# The core's text options: (clip, keep clipped glyphs, unmapped code, exact
+# boxes, expand ligatures, normalize whitespace, dehyphenate).
+_TextOptions: TypeAlias = tuple[tuple[float, float, float, float] | None, bool, int, bool, bool, bool, bool]
+
+
+def text_options(  # noqa: PLR0913 - the shared options of the text views.
+    *,
+    clip: Sequence[float] | None,
+    clipped: bool,
+    ligatures: bool,
+    whitespace: bool,
+    dehyphenate: bool,
+    unmapped: Unmapped,
+    exact_bboxes: bool = False,
+) -> _TextOptions | None:
+    """Validate the options of the text views; ``None`` stands for the defaults."""
+    for name, value in (
+        ("clipped", clipped),
+        ("ligatures", ligatures),
+        ("whitespace", whitespace),
+        ("dehyphenate", dehyphenate),
+        ("exact_bboxes", exact_bboxes),
+    ):
+        if not isinstance(value, bool):
+            msg = f"{name} must be True or False: {value!r}"
+            raise TypeError(msg)
+    code = _UNMAPPED_CODES.get(unmapped) if isinstance(unmapped, str) else None
+    if code is None:
+        msg = f"unmapped must be 'skip', 'replacement', or 'glyph_id': {unmapped!r}"
+        raise ValueError(msg)
+    box = None if clip is None else _validate_rect(clip, name="clip")
+    options = (box, clipped, code, exact_bboxes, not ligatures, not whitespace, dehyphenate)
+    return None if options == _DEFAULT_TEXT_OPTIONS else options
+
+
+_DEFAULT_TEXT_OPTIONS: _TextOptions = (None, False, 0, False, False, False, False)
 
 # The span flags that pymupdf reports and that the core computes.
 _ITALIC = 2
@@ -63,13 +108,17 @@ class Char:
 
     ``text`` is the glyph's complete Unicode mapping, which can hold several
     characters, such as the two of an ``fi`` ligature. ``origin`` is its point
-    on the baseline; ``bbox`` approximates the glyph from its advance and the
-    font size rather than from its outline.
+    on the baseline; ``bbox`` spans the glyph's advance and the font's
+    ascender and descender, or its outline with ``exact_bboxes=True``.
     """
 
     text: str
     bbox: Rect
     origin: Point
+    is_synthetic: bool = False
+    """Whether the char is a space that pylopdf inferred from the gap between
+    two glyphs, as ``Span.text`` holds it, rather than a glyph; its box spans
+    the gap."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -153,9 +202,10 @@ class Layout:
         The shape is that of pymupdf's ``get_text("dict")``: blocks with
         ``number``, ``type`` (0 for text), ``bbox``, and ``lines``; lines with
         ``bbox``, ``wmode``, ``dir``, and ``spans``; and spans with ``bbox``,
-        ``origin``, ``size``, ``font``, ``flags``, and ``text``. When the
-        layout holds characters, each span has ``chars`` in place of ``text``,
-        a list of ``c``, ``bbox``, and ``origin``, as in pymupdf's
+        ``origin``, ``size``, ``font``, ``flags``, ``char_flags``, ``color``,
+        ``alpha``, ``ascender``, ``descender``, and ``text``. When the layout
+        holds characters, each span has ``chars`` in place of ``text``, a list
+        of ``c``, ``bbox``, ``origin``, and ``synthetic``, as in pymupdf's
         ``"rawdict"``.
         """
         return {
@@ -211,7 +261,8 @@ def _span_dict(span: Span) -> dict[str, Any]:
         result["text"] = span.text
     else:
         result["chars"] = [
-            {"c": char.text, "bbox": tuple(char.bbox), "origin": tuple(char.origin)} for char in span.chars
+            {"c": char.text, "bbox": tuple(char.bbox), "origin": tuple(char.origin), "synthetic": char.is_synthetic}
+            for char in span.chars
         ]
     return result
 
@@ -241,7 +292,7 @@ def _point(point: Sequence[float]) -> Point:
     return _new_tuple(Point, point) if _isfinite(point[0] + point[1]) else Point(*point)
 
 
-def _char(text: str, bbox: Rect, origin: Point) -> Char:
+def _char(text: str, bbox: Rect, origin: Point, is_synthetic: bool) -> Char:  # noqa: FBT001 - one core tuple.
     """Return a :class:`Char` for every glyph of a layout with characters.
 
     The ``__init__`` of a frozen dataclass sets each field through
@@ -252,6 +303,7 @@ def _char(text: str, bbox: Rect, origin: Point) -> Char:
     _set_char_text(char, text)
     _set_char_bbox(char, bbox)
     _set_char_origin(char, origin)
+    _set_char_synthetic(char, is_synthetic)
     return char
 
 
@@ -261,6 +313,7 @@ _new_object = object.__new__
 _set_char_text = Char.text.__set__
 _set_char_bbox = Char.bbox.__set__
 _set_char_origin = Char.origin.__set__
+_set_char_synthetic = Char.is_synthetic.__set__
 
 
 def build_words(blocks: Sequence[_CoreBlock]) -> list[Word]:
@@ -318,7 +371,10 @@ def _build_span(  # noqa: PLR0913, PLR0917 - unpacks one core span tuple.
         text, chars = content, ()
     else:
         text, glyphs = content
-        chars = tuple(_char(char, _rect(char_bbox), _point(char_origin)) for char, char_bbox, char_origin in glyphs)
+        chars = tuple(
+            _char(char, _rect(char_bbox), _point(char_origin), synthetic)
+            for char, char_bbox, char_origin, synthetic in glyphs
+        )
     components, render_mode, is_clipped, ascender, descender = style
     if components is None:
         color = None
