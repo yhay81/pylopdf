@@ -793,7 +793,8 @@ _TRUE = frozenset({"True", "1"})
 SAVE_MESSAGE = (
     "save() and to_bytes() take compress, prune, dedupe, renumber, object_streams, and "
     "encryption=Encryption(user_password=..., owner_password=..., permissions=...); "
-    "pylopdf writes AES-256 encryption only and has no clean, linear, or ascii option; incremental=True "
+    "pylopdf writes AES-256 and AES-128 encryption only and has no clean, linear, or ascii option; "
+    "incremental=True "
     "takes neither dedupe, renumber, object_streams, nor encryption."
 )
 UNLOCK_MESSAGE = (
@@ -824,8 +825,9 @@ def _encryption_method(text: str) -> str | None:
 def _encryption_option(migrator: _Migrator, bound: dict[str, str]) -> str | None:
     """Return the ``encryption=`` option, ``""`` for none, or ``None`` when it cannot be migrated.
 
-    pymupdf encrypts only with ``encryption=PDF_ENCRYPT_AES_256`` and ignores
-    the passwords otherwise; pylopdf 0.15 encrypted whenever a password was
+    pymupdf encrypts with ``encryption=PDF_ENCRYPT_AES_256`` or ``AES_128``,
+    keeps the input's encryption with ``KEEP``, and ignores the passwords
+    otherwise; pylopdf 0.15 encrypted whenever a password was
     given. An unrecognized value can already use pylopdf's ``Encryption``
     API; a pymupdf module needs a manual review of such a value.
     """
@@ -836,8 +838,8 @@ def _encryption_option(migrator: _Migrator, bound: dict[str, str]) -> str | None
         return None if passwords or migrator.pymupdf() else f"encryption={value}"
     if method is None:
         encrypts = not migrator.pymupdf() and any(bound.get(key, "None") != "None" for key in ("user_pw", "owner_pw"))
-    elif method in {"AES_256", "NONE"}:
-        encrypts = method == "AES_256"
+    elif method in {"AES_256", "AES_128", "NONE", "KEEP"}:
+        encrypts = method != "NONE"
     else:
         return None
     if not encrypts:
@@ -845,12 +847,17 @@ def _encryption_option(migrator: _Migrator, bound: dict[str, str]) -> str | None
     name = migrator.class_name("Encryption")
     if name is None:
         return None
+    if method == "KEEP":
+        # pymupdf ignores the passwords when it keeps the encryption.
+        return f"encryption={name}.KEEP"
     fields = (("user_pw", "user_password"), ("owner_pw", "owner_password"), ("permissions", "permissions"))
     arguments = [
         f"{field}={bound[key]}"
         for key, field in fields
         if key in bound and not (key in {"user_pw", "owner_pw"} and bound[key] == "None")
     ]
+    if method == "AES_128":
+        arguments.append('method="aes-128"')
     return f"encryption={name}({', '.join(arguments)})"
 
 
@@ -1003,12 +1010,14 @@ def _unlock(note: bool) -> Callable[[_Migrator, str, _Arguments], str | None]:  
 
 
 #: ``get_text`` options and their replacements; ``words`` and ``blocks`` return records now.
+#: The text views of ``get_text`` options: the page method, its arguments
+#: before ``clip=``, and what reads the result.
 TEXT_OPTIONS = {
-    "text": "{receiver}.text()",
-    "words": "{receiver}.words()",
-    "blocks": "{receiver}.layout().blocks",
-    "dict": "{receiver}.layout().to_dict()",
-    "rawdict": "{receiver}.layout(chars=True).to_dict()",
+    "text": ("text", (), ""),
+    "words": ("words", (), ""),
+    "blocks": ("layout", (), ".blocks"),
+    "dict": ("layout", (), ".to_dict()"),
+    "rawdict": ("layout", ("chars=True",), ".to_dict()"),
 }
 RECORD_MESSAGES = {
     "words": "page.words() returns Word records with text, bbox, block, line, and index instead of tuples.",
@@ -1055,27 +1064,40 @@ def _get_text(migrator: _Migrator, receiver: str, args: _Arguments) -> str | Non
         bound = args.bind(("pages",))
         return None if bound is None else _call(receiver, "text", args)
     bound = args.bind(("option", "clip", "flags", "textpage", "sort", "delimiters", "tolerance"))
-    if bound is None or set(bound) - {"option", "sort"}:
+    if bound is None or set(bound) - {"option", "sort", "clip"}:
         return None
     option = _string_literal(bound.get("option", '"text"'))
     if option not in TEXT_OPTIONS:
         return None
     if option in RECORD_MESSAGES:
         migrator.todo(RECORD_MESSAGES[option])
-    return TEXT_OPTIONS[option].format(receiver=receiver)
+    method, arguments, suffix = TEXT_OPTIONS[option]
+    if bound.get("clip", "None") != "None":
+        arguments = (f"clip={bound['clip']}", *arguments)
+    return f"{receiver}.{method}({', '.join(arguments)}){suffix}"
+
+
+def _get_textbox(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``get_textbox(rect)`` to ``text(clip=rect)``."""
+    bound = args.bind(("rect", "textpage"))
+    if bound is None or "rect" not in bound or "textpage" in bound:
+        return None
+    return f"{receiver}.text(clip={bound['rect']})"
 
 
 def _search_for(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
-    """Rewrite ``search_for(needle, ...)`` to ``search(text, ...)``; clip and quads come with Reading."""
+    """Rewrite ``search_for(needle, ...)`` to ``search(text, ...)``; quads come with Reading."""
     keywords = {"needle" if key == "text" else key: value for key, value in args.keywords.items()}
     bound = _Arguments(args.positional, keywords).bind(
         ("needle", "clip", "quads", "flags", "textpage", "hit_max", "max_hits")
     )
-    if bound is None or "needle" not in bound or {"clip", "flags", "textpage"} & set(bound):
+    if bound is None or "needle" not in bound or {"flags", "textpage"} & set(bound):
         return None
     if bound.get("quads", "False") not in _FALSE or ("hit_max" in bound and "max_hits" in bound):
         return None
     arguments = [bound["needle"]]
+    if bound.get("clip", "None") != "None":
+        arguments.append(f"clip={bound['clip']}")
     if "hit_max" in bound or "max_hits" in bound:
         arguments.append(f"max_hits={bound.get('max_hits', bound.get('hit_max'))}")
     return f"{receiver}.search({', '.join(arguments)})"
@@ -1890,6 +1912,7 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "authenticate": _unlock(note=True),
     "get_text": _get_text,
     "search_for": _search_for,
+    "get_textbox": _get_textbox,
     "to_markdown": _renamed("markdown"),
     "find_tables": _find_tables,
     "get_text_ocr": _get_text_ocr,

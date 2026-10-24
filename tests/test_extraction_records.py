@@ -56,7 +56,7 @@ def test_layout_dictionaries_keep_pymupdfs_shape() -> None:
     style = {"char_flags", "color", "alpha", "ascender", "descender"}
     assert set(span) == {"bbox", "origin", "size", "font", "flags", "text"} | style
     assert set(raw_span) == {"bbox", "origin", "size", "font", "flags", "chars"} | style
-    assert set(raw_span["chars"][0]) == {"c", "bbox", "origin"}
+    assert set(raw_span["chars"][0]) == {"c", "bbox", "origin", "synthetic"}
     assert json.loads(json.dumps(raw))["blocks"][0]["number"] == 0
     # The names of pylopdf 0.15's records stay free.
     for name in ("TextPage", "TextPageDict", "RawTextPageDict", "WordEntry", "BlockEntry"):

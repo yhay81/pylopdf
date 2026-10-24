@@ -201,8 +201,22 @@ the concept and API overview.
   the clip paths in force, which the collector tracks for every sink) before
   each run's glyphs and `stroke_completes_fill` when a stroke repaints the
   latest fill run; spans split where the paint, render mode, or clipping
-  changes, and a glyph is clipped only when the clip box leaves none of its
-  box visible. `bench/reading.py` compares span colors and box IoU with
+  changes, and a glyph is clipped only when the page box and the clip box
+  leave none of its font box visible. The text options split in two:
+  `CollectOptions` (keep clipped glyphs, unmapped placeholders, exact ink
+  boxes, which the sink then receives from `ContentCollector::outline_box`)
+  decide what an interpretation collects and key the `TextPage` cache
+  together with the page, while `ViewOptions` (clip, ligature expansion,
+  whitespace normalization, dehyphenation) turn the cached lines into a
+  fallibly copied view and leave the borrowed lines untouched without them.
+  Reading order and paint layers use `font_bbox`, never the ink box, so the
+  box option cannot reorder text. A page's text budget admission is the
+  largest of its interpretations, so variants never charge twice. Dehyphenated
+  lines mark the next line's first glyph `joins_previous`: plain text joins
+  them, the merged word stays on the first line, and search treats joined
+  lines as one unit. `layout(chars=True)` emits each space that `span_text`
+  infers as a synthetic char across the gap, so a span's chars join to its
+  text. `bench/reading.py` compares span colors and box IoU with
   pymupdf.
   Overlapping paint runs on one baseline are split into source-order logical
   layers before inline geometry sorting; preserve distinct overprints rather
@@ -1313,7 +1327,14 @@ the concept and API overview.
   `pHYs` in whole pixels per metre, which round-trips every integer dpi, and
   as JPEG JFIF density in inches; `Document.render` writes the same.
   `Pixmap.from_array` of a Pixmap clones its `Arc` instead of copying the
-  samples, which is how a resolution changes. `Pixmap.to_bytes` defaults to a
+  samples, which is how a resolution changes. `Pixmap.from_file` and
+  `from_bytes` decode PNG (png's `normalize_to_color8`, keeping gray, RGB,
+  and alpha) and JPEG (zune-jpeg to gray or RGB, CMYK and YCCK converted,
+  inside `catch_unwind`) under `canvas.image`'s 64 MiB `image_input_size` and
+  64,000,000-pixel `image_pixel_count` limits, sharing `read_image_input` and
+  `validate_image_input`; the pixel and 65,535-pixel side checks read the
+  headers before any sample is allocated, and a buffer that is not `bytes` is
+  measured before PyO3 copies it. `Pixmap.to_bytes` defaults to a
   64 MiB encoded-output boundary; the bounded writer refuses the write
   crossing the limit before Python bytes conversion and grows its retained
   output fallibly. `max_size=None` is the explicit trusted-output opt-out.
@@ -1592,7 +1613,15 @@ the concept and API overview.
   before any change. `tests/test_interop.py` validates pyHanko signatures
   after incremental form fills and metadata edits.
 - Encryption during `save` operates on a clone, so the in-memory document always
-  remains plaintext. Python generates the key with `os.urandom(32)`. Open,
+  remains plaintext. Python generates the AES-256 file key with
+  `os.urandom(32)` and, for a document without `/ID`, the ID that the clone
+  gains with `os.urandom(16)`: an encrypted file needs one, and AES-128
+  (revision 4, `AESV2` crypt filters) derives its key from it.
+  `Encryption.KEEP` re-encrypts the clone with lopdf's retained
+  `encryption_state`, which keeps the file key, `/O`, `/U`, and `/P`, and
+  only for `Standard V4 R4 128-bit AES` and `Standard V5 R6 256-bit AES`:
+  RC4 and revision 5 are read but never written. `tests/assets/encrypted`
+  holds a fixture for every standard handler revision. Open,
   unlock, fast metadata probe, and `Encryption` passwords stop at the PDF 2.0
   boundary of 127 UTF-8 bytes before PyO3 copying or KDF work; `Encryption`
   checks its passwords on construction. Direct Rust entry points repeat the

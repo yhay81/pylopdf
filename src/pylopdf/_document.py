@@ -16,7 +16,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Literal, TypeGuard, cast
+from typing import TYPE_CHECKING, ClassVar, Literal, TypeGuard, cast
 
 from pylopdf import _fonts, _markdown, _text
 from pylopdf._attachments import Attachments
@@ -80,6 +80,7 @@ if TYPE_CHECKING:
 
     from pylopdf._fonts import Font
     from pylopdf._geometry import Matrix
+    from pylopdf._text import Unmapped
     from pylopdf._types import CjkFontLanguage
 
 
@@ -877,7 +878,17 @@ class Document:
         self._ensure_open()
         return Layers(self)
 
-    def text(self, pages: Iterable[int] | None = None) -> str:
+    def text(  # noqa: PLR0913 - the shared text options are keyword-only.
+        self,
+        pages: Iterable[int] | None = None,
+        *,
+        clip: Sequence[float] | None = None,
+        clipped: bool = False,
+        ligatures: bool = True,
+        whitespace: bool = True,
+        dehyphenate: bool = False,
+        unmapped: Unmapped = "skip",
+    ) -> str:
         """Return the plain text of the given pages in one batched call.
 
         ``pages`` is a sequence of zero-based page numbers extracted in the
@@ -888,30 +899,43 @@ class Document:
         in chunks of 4,096 entries, each sharing one interpreter font cache, so
         a font reused across pages is parsed once per chunk rather than once
         per page; the returned text equals joining :meth:`Page.text` of each
-        page in the same order.
+        page in the same order, and the options are those of
+        :meth:`Page.text`, applied to every page.
         """
+        options = _text.text_options(
+            clip=clip,
+            clipped=clipped,
+            ligatures=ligatures,
+            whitespace=whitespace,
+            dehyphenate=dehyphenate,
+            unmapped=unmapped,
+        )
         count = self._page_count()
         page_numbers = list(range(1, count + 1)) if pages is None else self._page_entries(pages, "pages", count)
-        text = self._doc.extract_text(page_numbers)
+        text = self._doc.extract_text(page_numbers, options)
         self._emit_warnings()
         return text
 
-    def _page_text(self, pno: int) -> str:
+    def _page_text(self, pno: int, options: _text._TextOptions | None = None) -> str:
         """Return the text of zero-based page ``pno`` for :meth:`Page.text`."""
-        text = self._doc.extract_text([self._lopdf_page_number(pno)])
+        text = self._doc.extract_text([self._lopdf_page_number(pno)], options)
         self._emit_warnings(stacklevel=4)
         return text
 
-    def _page_layout(self, page_number: int) -> tuple[float, float, list[Any]]:
+    def _page_layout(
+        self, page_number: int, options: _text._TextOptions | None = None
+    ) -> tuple[float, float, list[Any]]:
         """Return the core's layout of a validated one-based page."""
-        layout = self._doc.extract_layout(page_number)
+        layout = self._doc.extract_layout(page_number, options)
         # Attribute warnings to the public caller rather than this helper.
         self._emit_warnings(stacklevel=4)
         return layout
 
-    def _page_raw_layout(self, page_number: int) -> tuple[float, float, list[Any]]:
+    def _page_raw_layout(
+        self, page_number: int, options: _text._TextOptions | None = None
+    ) -> tuple[float, float, list[Any]]:
         """Return the core's layout with glyphs of a validated one-based page."""
-        layout = self._doc.extract_raw_layout(page_number)
+        layout = self._doc.extract_raw_layout(page_number, options)
         self._emit_warnings(stacklevel=4)
         return layout
 
@@ -1259,10 +1283,12 @@ class Document:
             if encryption is not None:
                 writer = functools.partial(
                     self._doc.save_encrypted,
+                    method=encryption.method,
                     user_password=encryption.user_password,
                     owner_password=_owner_password(encryption),
                     permissions=int(encryption.permissions),
                     file_encryption_key=os.urandom(32),
+                    document_id=os.urandom(16),
                 )
             elif object_streams:
                 writer = self._doc.save_with_object_streams
@@ -1310,10 +1336,12 @@ class Document:
             self._apply_save_options(compress=compress, prune=prune, dedupe=dedupe, renumber=renumber)
             if encryption is not None:
                 return self._doc.save_bytes_encrypted(
+                    encryption.method,
                     encryption.user_password,
                     _owner_password(encryption),
                     int(encryption.permissions),
                     os.urandom(32),
+                    os.urandom(16),
                     max_size,
                 )
             if object_streams:
@@ -1364,7 +1392,7 @@ class Document:
                     ("dedupe", dedupe),
                     ("renumber", renumber),
                     ("object_streams", object_streams),
-                    ("encryption", encryption is not None),
+                    ("encryption", encryption is not None and encryption is not Encryption.KEEP),
                 )
                 if value
             ]
@@ -1570,6 +1598,10 @@ def probe(
     )
 
 
+#: RC4 methods, which pylopdf reads but never writes.
+_RC4_METHODS = frozenset({"rc4", "rc4-40", "rc4-128"})
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Encryption:
     """How :meth:`Document.save` and :meth:`Document.to_bytes` encrypt the file.
@@ -1579,14 +1611,27 @@ class Encryption:
     defaults to ``user_password``. An empty user password lets anyone open
     the document while ``permissions`` still restricts it; that restriction
     holds only as long as the owner password is not empty too. Each password
-    is capped at 127 UTF-8 bytes. ``method`` is ``"aes-256"``, the AES-256
-    encryption of PDF 2.0, the one method that pylopdf writes.
+    is capped at 127 UTF-8 bytes.
+
+    ``method`` is ``"aes-256"``, the AES-256 encryption of PDF 2.0
+    (revision 6), or ``"aes-128"``, AES-128 with crypt filters (revision 4),
+    which PDF 1.6 readers open too. pylopdf reads RC4 encryption but refuses
+    to write it, because RC4 is insecure and PDF 2.0 deprecates it.
+
+    :attr:`Encryption.KEEP` keeps the encryption that the document was opened
+    with, its file key, passwords, and permissions included, so the passwords
+    that opened the input open the output; a document that was not encrypted
+    is written without encryption. It keeps AES-128 and AES-256 and refuses
+    RC4 and the deprecated revision 5 of AES-256.
     """
+
+    #: Keep the encryption that the document was opened with.
+    KEEP: ClassVar[Encryption]
 
     user_password: str = ""
     owner_password: str | None = None
     permissions: Permissions = Permissions.ALL
-    method: Literal["aes-256"] = "aes-256"
+    method: Literal["aes-256", "aes-128", "keep"] = "aes-256"
 
     def __post_init__(self) -> None:
         """Validate the passwords, permissions, and method."""
@@ -1602,9 +1647,31 @@ class Encryption:
             msg = f"permissions must be Permissions flags: {self.permissions!r}"
             raise TypeError(msg)
         object.__setattr__(self, "permissions", Permissions(int(self.permissions) & Permissions.ALL))
-        if self.method != "aes-256":
-            msg = f"method must be 'aes-256': {self.method!r}"
+        if isinstance(self.method, str) and self.method.lower() in _RC4_METHODS:
+            msg = (
+                f"pylopdf does not write {self.method} encryption, which is insecure and deprecated "
+                "in PDF 2.0; use method='aes-256' or 'aes-128'"
+            )
             raise ValueError(msg)
+        if self.method not in ("aes-256", "aes-128", "keep"):
+            msg = f"method must be 'aes-256' or 'aes-128': {self.method!r}"
+            raise ValueError(msg)
+        defaults = (self.user_password, self.owner_password, self.permissions) == ("", None, Permissions.ALL)
+        if self.method == "keep" and not defaults:
+            msg = "Encryption.KEEP takes the passwords and permissions of the document; pass none"
+            raise ValueError(msg)
+
+    def __repr__(self) -> str:
+        """Return ``Encryption.KEEP`` for the constant, else the fields."""
+        if self.method == "keep":
+            return "Encryption.KEEP"
+        return (
+            f"Encryption(user_password={self.user_password!r}, owner_password={self.owner_password!r}, "
+            f"permissions={self.permissions!r}, method={self.method!r})"
+        )
+
+
+Encryption.KEEP = Encryption(method="keep")
 
 
 # The package re-exports these names; reprs, pickles, and documentation name it.

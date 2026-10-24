@@ -356,3 +356,13 @@ def test_a_raised_version_goes_into_the_catalog() -> None:
     assert 1 in _objects_of(_update(saved, original))
     with pylopdf.open(saved) as reopened:
         assert reopened.catalog["Version"] == "1.5"
+
+
+def test_keeping_the_encryption_is_what_an_incremental_save_does() -> None:
+    original = build_pdf(["Base"])
+    doc = pylopdf.open(original)
+    doc.metadata["title"] = "Kept"
+
+    kept = doc.to_bytes(incremental=True, encryption=pylopdf.Encryption.KEEP)
+
+    assert kept == doc.to_bytes(incremental=True)

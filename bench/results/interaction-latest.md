@@ -73,6 +73,18 @@ Fields created by pylopdf, filled by pymupdf, and read back by pylopdf. pymupdf'
 | `go` | Button | `''` | `None` |
 | `sign` | Signature | `''` | `None` |
 
+## Imported pages
+
+pylopdf imports two pages, the first with an internal link, a URI link, a text field `name`, and a check box, into a one-page document that already has a field `name`, so the imported one becomes `name+1`. pymupdf reads the links of the imported page and fills its fields, and pylopdf reads the filled values back.
+
+| Check | pylopdf | pymupdf |
+| --- | --- | --- |
+| Internal link page | `2` | `2` |
+| URI link | `https://example.test/` | `https://example.test/` |
+| Imported field names | `['agree', 'name', 'name+1']` | `['agree', 'name+1']` |
+| Values after pymupdf fills them | `'Grace'`, `'Yes'` | `'Grace'`, `'Yes'` |
+| Receiving field kept | `'Existing'` | `'Existing'` |
+
 ## Flattening
 
 0.00% of samples differ between pylopdf's flatten() and pymupdf's bake(), both rendered by MuPDF.

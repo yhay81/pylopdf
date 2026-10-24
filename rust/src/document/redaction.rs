@@ -126,6 +126,17 @@ pub(super) fn redact_page(
             format!("a redaction applies at most {MAX_REDACTION_AREAS} areas"),
         ));
     }
+    let no_areas = match &areas {
+        Some(areas) => areas.is_empty(),
+        None => !this.page_annotation_items(page_id)?.unwrap_or_default().iter().any(|item| {
+            crate::redact::resolve(&this.doc, item)
+                .and_then(|item| item.as_dict().ok())
+                .is_some_and(|dict| matches!(dict.get(b"Subtype"), Ok(Object::Name(name)) if name == b"Redact"))
+        }),
+    };
+    if no_areas {
+        return Ok((Vec::new(), 0, 0, 0, 0, 0, 0, 0));
+    }
     let original = this.doc.clone();
     let isolated = this.isolated_content_pages.clone();
     let result = redact_inner(this, py, page_number, page_id, areas, options, &original);
@@ -1061,16 +1072,25 @@ fn verify(
         let layout = this.contain_renderer_panics(|this| {
             let settings = this.interpreter_settings();
             py.detach(|| {
-                this.text_page(page_number, settings)?
-                    .raw_layout()
-                    .map_err(super::extraction::text_page_limit_err)
+                this.text_page(
+                    (
+                        page_number,
+                        crate::extract::CollectOptions {
+                            keep_clipped: true,
+                            ..Default::default()
+                        },
+                    ),
+                    settings,
+                )?
+                .raw_layout(&crate::extract::ViewOptions::default())
+                .map_err(super::extraction::text_page_limit_err)
             })
         })?;
         for (_, lines) in &layout.2 {
             for (_, spans, ..) in lines {
                 for (_, (_, chars), ..) in spans {
-                    for (_, bbox, origin) in chars {
-                        if touches(rect(*bbox)) {
+                    for (_, bbox, origin, synthetic) in chars {
+                        if !synthetic && touches(rect(*bbox)) {
                             leftovers.glyphs.push(Point::new(origin.0, origin.1));
                         }
                     }

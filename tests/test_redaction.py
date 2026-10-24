@@ -56,6 +56,7 @@ def _origins(page: pylopdf.Page) -> list[tuple[str, float, float]]:
         for line in block.lines
         for span in line.spans
         for char in span.chars
+        if not char.is_synthetic
     ]
 
 
@@ -120,6 +121,7 @@ def _chars(page: pylopdf.Page) -> list[tuple[int, pylopdf.Char]]:
         for line in block.lines
         for span in line.spans
         for char in span.chars
+        if not char.is_synthetic
     ]
     return list(enumerate(chars))
 
@@ -510,4 +512,22 @@ def test_a_redaction_with_nothing_to_apply_keeps_incremental_saves() -> None:
     doc = pylopdf.open(_page("BT /F1 12 Tf 20 250 Td (Hello) Tj ET"))
     doc.pages[0].redact()
 
+    assert doc.can_save_incrementally
+
+
+def test_a_noop_redaction_keeps_direct_annotations_and_clean_state() -> None:
+    doc = pylopdf.open(
+        _page(
+            "BT /F1 12 Tf 20 250 Td (Hello) Tj ET",
+            page="/Annots [<< /Type /Annot /Subtype /Square /Rect [10 10 30 30] >>]",
+        )
+    )
+    page = doc.pages[0]
+    assert page.annotations[0].xref == 0
+
+    report = page.redact()
+
+    assert report.areas == ()
+    assert not doc.is_dirty
+    assert page.annotations[0].xref == 0
     assert doc.can_save_incrementally

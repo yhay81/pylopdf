@@ -533,6 +533,14 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
         lambda: decrypted.to_bytes(object_streams=True, encryption=pylopdf.Encryption())
     )
     _require(object_streams_error == "ValueError", "encryption with object streams was not refused")
+    aes_128 = decrypted.to_bytes(encryption=pylopdf.Encryption(user_password="user", method="aes-128"))  # noqa: S106
+    aes_128_method = pylopdf.open(aes_128, password="user").encryption_method  # noqa: S106
+    _require(aes_128_method == "Standard V4 R4 128-bit AES", "AES-128 output described the wrong encryption")
+    kept = pylopdf.open(decrypted.to_bytes(encryption=pylopdf.Encryption.KEEP), password="ownerpw")  # noqa: S106
+    _require(kept.encryption_method == encryption_description, "Encryption.KEEP changed the encryption")
+    _require("Encrypted page one" in kept.pages[0].text(), "Encryption.KEEP lost the text")
+    rc4_error = _exception_name(lambda: pylopdf.Encryption(method="rc4-128"))  # ty: ignore[invalid-argument-type]
+    _require(rc4_error == "ValueError", "RC4 output was not refused")
 
     return {
         "pdf20": {
@@ -651,7 +659,7 @@ def _layout_results() -> dict[str, Any]:
             span.ascender,
             span.descender,
         ]
-        for block in painted.layout().blocks
+        for block in painted.layout(clipped=True).blocks
         for line in block.lines
         for span in line.spans
     }
@@ -665,6 +673,16 @@ def _layout_results() -> dict[str, Any]:
         },
         "span paint, render modes, or clipping changed",
     )
+    text_options = {
+        "default": painted.text(),
+        "clipped": painted.text(clipped=True),
+        "clip": painted.text(clip=(0, 0, 400, 75)),
+        "dehyphenated": columns.text(dehyphenate=True, ligatures=False, whitespace=False),
+        "exact_word": [round(value, 3) for value in columns.words(exact_bboxes=True)[0].bbox],
+    }
+    _require(text_options["default"] == "Red\nOutline\nHidden\n", "hidden glyphs were extracted by default")
+    _require(text_options["clipped"].endswith("Clipped\n"), "clipped=True left out a clipped glyph")
+    _require(text_options["clip"] == "Red\nOutline\n", "clip= kept other text")
     limited_columns = pylopdf.open(_build_multicolumn_pdf(), limits=pylopdf.DocumentLimits(max_text_size=8))
     try:
         limited_columns.pages[0].text()
@@ -690,6 +708,7 @@ def _layout_results() -> dict[str, Any]:
             "line_origins": raw_origins,
         },
         "span_styles": span_styles,
+        "text_options": text_options,
         "text_limit_code": text_limit_code,
     }
 
@@ -856,7 +875,7 @@ def _variable_font_form_results(bold: Any) -> dict[str, Any]:  # noqa: ANN401 - 
         "a right-aligned form appearance did not end its text at the measured advance",
     )
     cell = 256 / 6
-    origins = sorted(char["origin"][0] for span in code["spans"] for char in span["chars"])
+    origins = sorted(char["origin"][0] for span in code["spans"] for char in span["chars"] if not char["synthetic"])
     expected = [22 + (1 + index) * cell + (cell - bold.text_width(char, 12)) / 2 for index, char in enumerate("A12")]
     _require(
         len(origins) == len(expected) and all(abs(a - b) < 0.01 for a, b in zip(origins, expected, strict=True)),  # noqa: PLR2004 - PDF real precision.
