@@ -8,21 +8,21 @@ description: 抽出・結合・ラスタライズ・PNGエンコードの再現�
 このベンチマークでは、14件の実際のPDFでpylopdfをpymupdf、pypdf、pdfplumberと比較し、pylopdfが速いケースだけでなく遅いケースも示します。1台のマシンと1つのコーパスでの結果なので、順位としてではなく、自分の文書で何を測るべきかの目安として扱ってください。
 
 !!! info "最新の実行"
-    **2026-10-17 17:29 UTC** · macOS 27.0.1 · Python 3.14.8 · Apple M2 Pro（arm64）<br>
-    thin LTOのrelease profileでビルドしたpylopdf 0.14.0 · pymupdf 1.28.0 · pypdf 6.15.0 · pdfplumber 0.11.10<br>ウォームアップ1回 + 計測7回。表は中央値（ミリ秒）です。
+    **2026-10-24 00:29 UTC** · macOS 27.0.1 · Python 3.14.8 · Apple M2 Pro（arm64）<br>
+    Renderingマイルストーンのブランチ（hayro 0.8.0）からthin LTOのrelease profileでビルドしたpylopdf · pymupdf 2.0 (MuPDF 1.28.5) · pypdf 6.21.1 · pdfplumber 0.11.10<br>ウォームアップ1回 + 計測7回。表は中央値（ミリ秒）です。
 
 ## 概要 { #overview }
 
 | ワークロード | 最新コーパスで分かったこと |
 |---|---|
-| 実世界PDF 14件を結合 | pylopdf **15.4 ms**、pymupdf 111.2 ms、pypdf 141.5 ms |
-| 先頭ページを2倍PNGへ（一連の処理） | 14ファイルすべてでpylopdfが高速。合計は**212.9 ms**対573.9 ms |
-| ラスタライズのみ | 14ファイル中、coldでは9件、warmでは12件でpymupdfが高速（warmの1件は同値）。warmの合計はpylopdf 145.9 ms、pymupdf **78.8 ms** |
-| PNGエンコード | pylopdfは約9倍高速（**44.4 ms**対397.4 ms）ですが、出力は40%大きくなります（4,645 KiB対**3,318 KiB**） |
-| 12ページを2倍で描画 | `doc.render()`は1 workerの163.7 msから8 workersの34.6 msへ短縮し、**4.74倍高速化**。pymupdfの逐次処理は425.3 ms |
-| 全ページのテキスト抽出 | 14ファイル中12件でpylopdf、残る2件ではpymupdfとpypdfが1件ずつ高速 |
+| 実世界PDF 14件を結合 | pylopdf **19.7 ms**、pymupdf 136.0 ms、pypdf 120.7 ms |
+| 先頭ページを2倍PNGへ（一連の処理） | 14ファイルすべてでpylopdfが高速。合計は**143.5 ms**対514.5 ms |
+| ラスタライズのみ | coldでは14ファイル中10件でpylopdfが高速（2件は同値）、warmでは5件。合計はcold **103.4** / 186.1 ms、warm 87.8 / **81.0** ms（pylopdf / pymupdf） |
+| PNGエンコード | pylopdfは約8倍高速（**38.6 ms**対319.0 ms）ですが、出力は55%大きくなります（5,132 KiB対**3,318 KiB**） |
+| 12ページを2倍で描画 | `doc.render()`は1 workerの109.4 msから8 workersの33.1 msへ短縮し、**3.30倍高速化**。pymupdfの逐次処理は332.7 ms |
+| 全ページのテキスト抽出 | 14ファイルすべてでpylopdfが高速。合計は**117.1 ms**対229.7 ms |
 | 抽出精度の代理指標 | 両ライブラリがテキストを抽出したファイルでは類似度0.443〜1.000。Type 3のfixtureからpylopdfはテキストを抽出しません |
-| LinuxとWindowsのCI runner | pylopdfの抽出のリードは小さく、MuPDFはcoldのラスタライズでも高速。[他のプラットフォーム](#other-platforms)を参照 |
+| LinuxとWindowsのCI runner | pylopdf 0.14.0での計測。pylopdfの抽出のリードは小さく、MuPDFはcoldのラスタライズでも高速。[他のプラットフォーム](#other-platforms)を参照 |
 
 ## テキスト抽出 { #text-extraction }
 
@@ -30,21 +30,21 @@ description: 抽出・結合・ラスタライズ・PNGエンコードの再現�
 
 | ファイル | pylopdf | pymupdf | pypdf | pdfplumber |
 |---|---:|---:|---:|---:|
-| bill-hr815.pdf | **71.3** | 298.5 | 407.8 | 4295.0 |
-| bunka-kokugo-series-019-p4.pdf | **0.17** | 0.25 | 0.30 | 0.45 |
-| f1040.pdf | **8.9** | 28.2 | 68.6 | 201.8 |
-| mhlw-doc.pdf | **8.0** | 9.1 | 34.0 | 70.1 |
-| nics-background-checks-2015-11.pdf | **4.8** | 7.5 | 51.4 | 119.7 |
-| patent-us223898.pdf | 16.9 | **11.3** | 39.6 | 165.3 |
-| pdf20-simple.pdf | **0.17** | 0.62 | 0.54 | 0.80 |
-| pdfium-jpx-lzw.pdf | **0.14** | 0.26 | 0.16 | 0.31 |
-| pdfium-links-highlights-annots.pdf | 0.33 | 0.69 | **0.32** | 1.4 |
-| pdfium-smask-blend.pdf | **0.07** | 0.27 | 0.18 | 0.51 |
-| pdfium-type3.pdf | **0.08** | 0.29 | 0.29 | 0.48 |
-| senate-expenditures.pdf | **2.8** | 6.6 | 49.9 | 110.3 |
-| usrguide.pdf | **27.4** | 64.5 | 279.1 | 799.3 |
-| wdl6812-manuscript.pdf | **0.15** | 0.58 | 0.53 | 0.93 |
-| **合計** | **141.2** | 428.6 | 932.6 | 5766.4 |
+| bill-hr815.pdf | **59.4** | 127.5 | 376.9 | 4865.3 |
+| bunka-kokugo-series-019-p4.pdf | **0.05** | 0.29 | 0.44 | 0.52 |
+| f1040.pdf | **17.3** | 34.6 | 156.1 | 414.1 |
+| mhlw-doc.pdf | **9.6** | 9.9 | 49.9 | 76.9 |
+| nics-background-checks-2015-11.pdf | **3.4** | 5.6 | 56.8 | 131.1 |
+| patent-us223898.pdf | **4.7** | 6.1 | 46.6 | 168.3 |
+| pdf20-simple.pdf | **0.05** | 0.48 | 0.69 | 0.84 |
+| pdfium-jpx-lzw.pdf | **0.02** | 0.28 | 0.25 | 0.34 |
+| pdfium-links-highlights-annots.pdf | **0.12** | 0.74 | 0.45 | 1.4 |
+| pdfium-smask-blend.pdf | **0.04** | 0.31 | 0.29 | 0.55 |
+| pdfium-type3.pdf | **0.03** | 0.32 | 0.39 | 0.50 |
+| senate-expenditures.pdf | **2.4** | 4.7 | 52.0 | 114.2 |
+| usrguide.pdf | **19.7** | 38.1 | 312.9 | 821.2 |
+| wdl6812-manuscript.pdf | **0.21** | 0.68 | 0.77 | 0.97 |
+| **合計** | **117.1** | 229.7 | 1054.4 | 6596.2 |
 
 ## 抽出内容 { #extraction-content }
 
@@ -71,11 +71,11 @@ description: 抽出・結合・ラスタライズ・PNGエンコードの再現�
 
 | タスク | pylopdf | pymupdf | pypdf |
 |---|---:|---:|---:|
-| コーパス14件をすべて結合 | **15.4** | 111.2 | 141.5 |
+| コーパス14件をすべて結合 | **19.7** | 136.0 | 120.7 |
 
 ## レンダリング { #rendering }
 
-先頭ページを2倍で描画。単位ms、小さいほど高速です。どちらも計測したリリースの既定の設定を使い、pylopdf 0.14.0は透明背景のstraight-alpha RGBA8、pymupdfは白背景のRGBを生成しました。現在のpylopdfは、pymupdfと同じく白背景のRGBが既定です。
+先頭ページを2倍で描画。単位ms、小さいほど高速です。どちらも既定の設定で、白背景の不透明なRGBを生成します。
 
 ### 一連の処理 { #rendering-end-to-end }
 
@@ -83,67 +83,67 @@ description: 抽出・結合・ラスタライズ・PNGエンコードの再現�
 
 | ファイル | pylopdf | pymupdf |
 |---|---:|---:|
-| bill-hr815.pdf | **19.4** | 57.0 |
-| bunka-kokugo-series-019-p4.pdf | **19.6** | 82.9 |
-| f1040.pdf | **25.7** | 65.3 |
-| mhlw-doc.pdf | **18.4** | 48.5 |
-| nics-background-checks-2015-11.pdf | **28.8** | 50.6 |
-| patent-us223898.pdf | **15.4** | 50.4 |
-| pdf20-simple.pdf | **3.3** | 13.4 |
-| pdfium-jpx-lzw.pdf | **10.0** | 37.3 |
-| pdfium-links-highlights-annots.pdf | **6.0** | 26.1 |
-| pdfium-smask-blend.pdf | **0.77** | 3.2 |
-| pdfium-type3.pdf | **0.55** | 1.7 |
-| senate-expenditures.pdf | **28.9** | 38.3 |
-| usrguide.pdf | **15.9** | 37.0 |
-| wdl6812-manuscript.pdf | **20.1** | 62.3 |
-| **合計** | **212.9** | 573.9 |
+| bill-hr815.pdf | **13.2** | 45.4 |
+| bunka-kokugo-series-019-p4.pdf | **15.8** | 78.5 |
+| f1040.pdf | **18.5** | 62.1 |
+| mhlw-doc.pdf | **13.3** | 41.9 |
+| nics-background-checks-2015-11.pdf | **16.7** | 44.0 |
+| patent-us223898.pdf | **10.4** | 43.6 |
+| pdf20-simple.pdf | **1.6** | 9.2 |
+| pdfium-jpx-lzw.pdf | **7.3** | 30.3 |
+| pdfium-links-highlights-annots.pdf | **2.8** | 16.7 |
+| pdfium-smask-blend.pdf | **0.34** | 2.6 |
+| pdfium-type3.pdf | **0.24** | 1.2 |
+| senate-expenditures.pdf | **15.5** | 32.9 |
+| usrguide.pdf | **12.5** | 39.1 |
+| wdl6812-manuscript.pdf | **15.3** | 66.8 |
+| **合計** | **143.5** | 514.5 |
 
 この差の大部分はラスタライズではなくPNGエンコードによるものです。次の2つの表で同じ処理を分けて示します。
 
 ### ラスタライズ { #rasterization }
 
-coldは繰り返しごとに新しくドキュメントを開き、warmは開いたままのドキュメントで同じページを再びラスタライズします。MuPDFのプロセス全体のglyph cacheのようにドキュメントより長く残るcacheは、coldでも有効です。MuPDFは開いているドキュメントの読み込み済みフォントと描画済みglyphも保持するため、テキストの多いページで特に差が出ます。pylopdfはドキュメントを開いたスレッドで解析済みのフォントとglyph outlineを再利用しますが、glyphのラスタライズと画像のデコードは毎回やり直すため、warmでの短縮幅はMuPDFよりはるかに小さくなります。
+coldは繰り返しごとに新しくドキュメントを開き、warmは開いたままのドキュメントで同じページを再びラスタライズします。MuPDFのプロセス全体のglyph cacheのようにドキュメントより長く残るcacheは、coldでも有効です。pylopdfはドキュメントを開いたスレッドでドキュメントごとに1つのhayroのrender cacheを保持し、フォント、glyph outline、画像の解析は1回で済みます。MuPDFは描画済みglyphのビットマップも保持するため、テキストの多いページではwarmでもMuPDFが高速です（`usrguide.pdf`で4.5 ms対0.74 ms）が、スキャンや画像の多いページではpylopdfが高速です。この差を埋めるglyph cacheは上流でスコープを相談中で（[LaurenzV/hayro#1613](https://github.com/LaurenzV/hayro/issues/1613)）、ページ全体を覆うCropBoxのクリップを省く[LaurenzV/hayro#1612](https://github.com/LaurenzV/hayro/pull/1612)はhayro単体でwarmの合計を9%短縮します。
 
 | ファイル | pylopdf cold | pymupdf cold | pylopdf warm | pymupdf warm |
 |---|---:|---:|---:|---:|
-| bill-hr815.pdf | 12.9 | **8.3** | 11.5 | **4.0** |
-| bunka-kokugo-series-019-p4.pdf | **15.2** | 49.6 | **14.4** | **14.4** |
-| f1040.pdf | **19.3** | 26.1 | 15.8 | **15.6** |
-| mhlw-doc.pdf | 14.0 | **12.5** | 9.8 | **3.3** |
-| nics-background-checks-2015-11.pdf | 22.9 | **7.3** | 21.5 | **4.8** |
-| patent-us223898.pdf | **11.3** | 21.9 | 11.0 | **10.9** |
-| pdf20-simple.pdf | 2.1 | **0.71** | 2.0 | **0.26** |
-| pdfium-jpx-lzw.pdf | **8.5** | 14.2 | **8.1** | 9.5 |
-| pdfium-links-highlights-annots.pdf | 4.3 | **2.0** | 3.9 | **1.2** |
-| pdfium-smask-blend.pdf | 0.60 | **0.57** | 0.47 | **0.36** |
-| pdfium-type3.pdf | 0.42 | **0.25** | 0.26 | **0.03** |
-| senate-expenditures.pdf | 24.4 | **5.0** | 23.1 | **3.3** |
-| usrguide.pdf | 12.5 | **7.4** | 8.0 | **0.67** |
-| wdl6812-manuscript.pdf | **16.4** | 21.1 | 16.2 | **10.7** |
-| **合計** | **164.7** | 177.1 | 145.9 | **78.8** |
+| bill-hr815.pdf | **7.8** | **7.8** | 6.4 | **3.2** |
+| bunka-kokugo-series-019-p4.pdf | **12.3** | 51.7 | **12.0** | 15.0 |
+| f1040.pdf | **13.1** | 28.3 | **8.8** | 16.8 |
+| mhlw-doc.pdf | **9.7** | 12.1 | 5.4 | **3.0** |
+| nics-background-checks-2015-11.pdf | 11.3 | **8.0** | 9.8 | **4.8** |
+| patent-us223898.pdf | **7.0** | 22.2 | **7.1** | 11.7 |
+| pdf20-simple.pdf | **0.65** | 0.82 | 0.60 | **0.28** |
+| pdfium-jpx-lzw.pdf | **6.0** | 14.9 | **5.8** | 9.9 |
+| pdfium-links-highlights-annots.pdf | **1.4** | **1.4** | 1.2 | **0.56** |
+| pdfium-smask-blend.pdf | **0.23** | 0.56 | **0.19** | 0.32 |
+| pdfium-type3.pdf | **0.14** | 0.30 | 0.10 | **0.04** |
+| senate-expenditures.pdf | 12.1 | **5.5** | 11.3 | **3.6** |
+| usrguide.pdf | **8.8** | 9.6 | 4.5 | **0.74** |
+| wdl6812-manuscript.pdf | **12.9** | 23.0 | 14.6 | **11.0** |
+| **合計** | **103.4** | 186.1 | 87.8 | **81.0** |
 
 ### PNGエンコード { #png-encoding }
 
-どちらのエンコーダにも描画済みのラスタを渡します。pylopdfはRGBA8出力に高速なfdeflate圧縮を使い、ファイルサイズより速度を優先します。pymupdfはRGB出力にzlibの既定レベルを使います。エンコード時間よりファイルサイズが重要な場合は、pylopdfの出力を外部で再圧縮してください。
+どちらのエンコーダにも描画済みのラスタを渡します。pylopdfは高速なfdeflate圧縮を使い、ファイルサイズより速度を優先します。pymupdfはzlibの既定レベルを使います。エンコード時間よりファイルサイズが重要な場合は、pylopdfの出力を外部で再圧縮してください。
 
 | ファイル | pylopdf ms | pymupdf ms | pylopdf KiB | pymupdf KiB |
 |---|---:|---:|---:|---:|
-| bill-hr815.pdf | **5.7** | 49.2 | 328.3 | **276.1** |
-| bunka-kokugo-series-019-p4.pdf | **4.0** | 33.1 | 438.8 | **249.4** |
-| f1040.pdf | **5.8** | 39.5 | 841.3 | **360.9** |
-| mhlw-doc.pdf | **4.1** | 36.2 | 340.5 | **301.4** |
-| nics-background-checks-2015-11.pdf | **5.8** | 43.0 | 737.1 | **343.0** |
-| patent-us223898.pdf | **3.9** | 27.7 | 245.0 | **154.6** |
-| pdf20-simple.pdf | **1.1** | 12.0 | 28.4 | **14.6** |
-| pdfium-jpx-lzw.pdf | **1.3** | 23.1 | 39.9 | **9.4** |
-| pdfium-links-highlights-annots.pdf | **1.6** | 23.8 | 53.5 | **21.5** |
-| pdfium-smask-blend.pdf | **0.12** | 2.6 | 4.2 | **2.6** |
-| pdfium-type3.pdf | **0.10** | 1.4 | 3.5 | **1.1** |
-| senate-expenditures.pdf | **4.0** | 33.1 | 332.8 | **253.8** |
-| usrguide.pdf | **3.3** | 29.5 | 188.8 | **138.0** |
-| wdl6812-manuscript.pdf | **3.6** | 43.4 | **1062.9** | 1191.3 |
-| **合計** | **44.4** | 397.4 | 4645.1 | **3317.7** |
+| bill-hr815.pdf | **5.8** | 36.8 | 535.8 | **276.1** |
+| bunka-kokugo-series-019-p4.pdf | **3.5** | 25.9 | 420.7 | **249.4** |
+| f1040.pdf | **5.0** | 34.0 | 816.8 | **360.9** |
+| mhlw-doc.pdf | **3.8** | 30.0 | 581.9 | **301.4** |
+| nics-background-checks-2015-11.pdf | **5.0** | 35.0 | 689.9 | **343.0** |
+| patent-us223898.pdf | **3.2** | 21.1 | 232.4 | **154.6** |
+| pdf20-simple.pdf | **0.85** | 8.1 | 27.2 | **14.6** |
+| pdfium-jpx-lzw.pdf | **1.1** | 15.3 | 31.8 | **9.4** |
+| pdfium-links-highlights-annots.pdf | **1.2** | 15.0 | 54.9 | **21.5** |
+| pdfium-smask-blend.pdf | **0.10** | 2.0 | 3.4 | **2.6** |
+| pdfium-type3.pdf | **0.08** | 0.90 | 3.0 | **1.1** |
+| senate-expenditures.pdf | **3.4** | 27.8 | 578.7 | **253.8** |
+| usrguide.pdf | **2.8** | 22.6 | 253.3 | **138.0** |
+| wdl6812-manuscript.pdf | **2.8** | 44.6 | **901.7** | 1191.3 |
+| **合計** | **38.6** | 319.0 | 5131.6 | **3317.7** |
 
 ## 並列レンダリング { #parallel-rendering }
 
@@ -151,14 +151,16 @@ coldは繰り返しごとに新しくドキュメントを開き、warmは開い
 
 | Workers | 時間 | 1 worker比 |
 |---:|---:|---:|
-| 1 | 163.7 | 1.00倍 |
-| 2 | 88.4 | 1.85倍 |
-| 4 | 47.4 | 3.45倍 |
-| 8 | 34.6 | 4.74倍 |
+| 1 | 109.4 | 1.00x |
+| 2 | 63.3 | 1.73x |
+| 4 | 45.5 | 2.41x |
+| 8 | 33.1 | 3.30x |
 
-実際の並列度は、指定worker数と推定512 MBの描画作業メモリの両方で制限されます。参考として、pymupdfは同じ12ページを1つの新しいドキュメントで逐次描画・エンコードし、425.3 msかかりました。
+実際の並列度は、指定worker数と推定512 MBの描画作業メモリの両方で制限されます。参考として、pymupdfは同じ12ページを1つの新しいドキュメントで逐次描画・エンコードし、332.7 msかかりました。
 
 ## 他のプラットフォーム { #other-platforms }
+
+これらはhayro 0.7上のpylopdf 0.14.0、render cacheを保持する前の計測です。上のmacOSのスナップショットのほうが新しい結果です。
 
 上のスナップショットは1台のmacOS arm64マシンの結果です。2026-10-17に同じ`bench/run.py`を、thin LTOのabi3 wheelでGitHub-hosted release runnerごとに1回実行しました（Python 3.14.8、macOS x86_64のみ3.14.7。ウォームアップ1回 + 計測5回）。各セルはpylopdf / pymupdfのコーパス合計（ミリ秒）です。共有runnerはスナップショットよりノイズが大きいため、小さな差はノイズとして扱ってください。
 
