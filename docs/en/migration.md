@@ -78,6 +78,10 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `doc.saveIncr()`, `doc.save(name, incremental=True)` | `doc.save(path, incremental=True)` | Any path, including the file the document came from; refuses `dedupe`, `renumber`, `object_streams`, and `encryption` |
 | `doc.can_save_incrementally()` | `doc.can_save_incrementally` | A property |
 | `doc.ez_save(path)` | `doc.save(path, dedupe=True, renumber=True, object_streams=True)` | |
+| `doc.journal_enable()`, `journal_start_op(name)` … `journal_stop_op()` | `with doc.transaction(name):` | Always available; a block that raises is undone |
+| `doc.journal_undo()`, `journal_redo()`, `journal_can_do()` | `doc.history.undo()`, `redo()`, `can_undo`, `can_redo` | |
+| `doc.journal_position()`, `journal_op_name(i)` | `doc.history.position`, `doc.history.steps[i]` | |
+| `doc.journal_save()`, `journal_load()`, `save_snapshot()` | None | Steps stay in memory, within `doc.history.max_size` |
 | `doc.select(indexes)` | `doc.pages.select(indexes)` | Also removes form fields and tagged-PDF structure of the pages left out |
 | `doc.delete_page(i)`, `delete_pages(a, b)`, `del doc[i]` | `del doc.pages[i]`, `del doc.pages[a:b + 1]` | Keep the other pages of a list with `doc.pages.select(...)` |
 | `doc.new_page(pno, width=, height=)` | `doc.pages.new((width, height), index=pno)` | Appended unless `index` is given |

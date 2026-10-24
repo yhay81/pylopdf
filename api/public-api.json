@@ -58,6 +58,7 @@
     "Glyph",
     "GraphicsContext",
     "Highlight",
+    "History",
     "IRect",
     "Image",
     "ImageCompressionResult",
@@ -2896,6 +2897,10 @@
           "kind": "property",
           "returns": "Form"
         },
+        "history": {
+          "kind": "property",
+          "returns": "History"
+        },
         "images": {
           "kind": "property",
           "returns": "Images"
@@ -3328,6 +3333,24 @@
         "trailer": {
           "kind": "property",
           "returns": "Dictionary"
+        },
+        "transaction": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "default": "",
+                "kind": "positional_or_keyword",
+                "name": "name"
+              }
+            ],
+            "returns": "Generator[None]"
+          }
         },
         "unlock": {
           "kind": "method",
@@ -4821,6 +4844,77 @@
             "default": null,
             "kind": "keyword_only",
             "name": "contents"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "History": {
+      "kind": "class",
+      "members": {
+        "can_redo": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "can_undo": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "clear": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "max_size": {
+          "kind": "property",
+          "returns": "int | None"
+        },
+        "position": {
+          "kind": "property",
+          "returns": "int"
+        },
+        "redo": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "steps": {
+          "kind": "property",
+          "returns": "tuple[str, ...]"
+        },
+        "undo": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "None"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
           }
         ],
         "returns": "None"
