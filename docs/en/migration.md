@@ -92,6 +92,7 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `doc.get_outline_xrefs()` | `[item.xref for item in doc.outline.walk()]` | |
 | `doc.get_page_numbers(label)` | `doc.pages.labeled(label)` | |
 | `page.set_rotation(deg)` | `page.rotation = deg` | |
+| `page.remove_rotation()` | Same | Returns the matrix from the old user space to the new one, where pymupdf returned its inverse |
 | `page.mediabox`, `set_mediabox(r)` | `page.boxes.media`, `page.boxes.media = r` | |
 | `page.cropbox`, `artbox`, `bleedbox`, `trimbox`, `set_cropbox(r)`, `set_artbox(r)`, ..., `doc.page_cropbox(pno)` | `page.boxes.crop`, `.art`, `.bleed`, `.trim`, each assignable | PDF user space as stored, where pymupdf flips y against the top of the MediaBox |
 | `page.transformation_matrix`, `rotation_matrix`, `derotation_matrix` | `page.user_to_display` | Maps PDF user space to display space, the rotation included |

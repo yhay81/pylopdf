@@ -1921,6 +1921,24 @@ the concept and API overview.
   `draw::pdf_to_display`, so it maps exactly as drawing, extraction, and
   rendering do. `Page.rotation` is assigned in multiples of 90 and stored
   normalized to 0 through 270.
+- `Page.remove_rotation` (`rust/src/document/page_rotation.rs`) maps the
+  old user space by `M(p) = (dx, H - dy)`, the display point flipped
+  upright, so `/Rotate 0` shows what the page showed. It plans everything
+  first: the materialized page dictionary with every box mapped,
+  `draw::prepare_transform_content` (an opening `q M cm` plus the isolation
+  `q`s, the existing streams, and a closing stream with the isolation `Q`s
+  and one more `Q`, balanced as drawing balances), each annotation's
+  `/Rect`, `/RD`, `/QuadPoints`, `/Vertices`, `/L`, `/CL`, and `/InkList`,
+  turned copies of its appearance streams (`/Matrix` composed with the
+  rotation, one copy per original stream), `/Rotate` and widget `/MK /R`
+  lowered by the rotation, NoRotate annotations pinned at their upper-left
+  corner and left upright, bead `/R` and viewport `/BBox`, and every explicit
+  destination `[page /Fit ...]` that names the page anywhere in the document
+  (`XYZ` and `FitR` mapped, `FitH` and `FitV` swapped by a quarter turn),
+  found by a scan of at most 16,777,216 values (`destination_scan_size`).
+  Direct annotations and `/Annots` stay in the page's own direct array.
+  Placements are kept. On the pdf.js corpus every rotated page among the
+  first three of each file rendered and extracted as before.
 - Simple-font text replacement is prepared in `rust/src/text_replace.rs`.
   Search/replacement/fallback input is capped at 4,096 UTF-8 bytes. Decoded
   page content, aggregate font encoding data, intermediate growth, and the

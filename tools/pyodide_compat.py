@@ -1616,6 +1616,29 @@ def _attachment_results() -> dict[str, Any]:
     }
 
 
+def _remove_rotation_results() -> dict[str, Any]:
+    """Remove a page's rotation and read the page before and after."""
+    import pylopdf  # noqa: PLC0415
+
+    document = pylopdf.Document()
+    page = document.pages.new((300, 200))
+    with page.draw() as canvas:
+        canvas.text("Turned", (30, 120))
+    page.links.add((150, 120, 250, 160), pylopdf.Destination(0, point=(50, 60)))
+    page.rotation = 90
+    before = [[word.text, [round(value, 2) for value in word.bbox]] for word in page.words()]
+    matrix = page.remove_rotation()
+    saved = pylopdf.open(document.to_bytes()).pages[0]
+    after = [[word.text, [round(value, 2) for value in word.bbox]] for word in saved.words()]
+    _require(before == after, "removing the rotation moved the text")
+    return {
+        "matrix": [round(value, 4) for value in matrix],
+        "words": after,
+        "rotation": saved.rotation,
+        "link": [[round(value, 2) for value in saved.links[0].rect], repr(saved.links[0].target)],
+    }
+
+
 def _document_property_results(root: Path) -> dict[str, Any]:
     """Read and write XMP metadata and the catalog's viewer and marking properties."""
     import pylopdf  # noqa: PLC0415
@@ -1871,6 +1894,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "object_model": _object_model_results(),
         "optional_content": _optional_content_results(),
         "document_properties": _document_property_results(root),
+        "remove_rotation": _remove_rotation_results(),
         "attachments": _attachment_results(),
         "content_model": _content_model_results(root),
         "canvas": _canvas_results(root),

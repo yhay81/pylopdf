@@ -399,6 +399,7 @@ quarter turn clockwise at 144 dpi, and a translation moves no pixels.
 | `index`, `document` | The page's index in its document, and the document |
 | `rect` | The visible page area in display space, with rotation applied |
 | `rotation` | 0, 90, 180, or 270; assign a multiple of 90 to rotate the page clockwise |
+| `remove_rotation()` | Sets `rotation` to 0 while the page shows what it showed, and returns the `Matrix` from the old user space to the new one |
 | `boxes` | The MediaBox, CropBox, BleedBox, TrimBox, and ArtBox as `Rect` values in PDF user space, each assignable |
 | `user_to_display` | The `Matrix` that maps PDF user space to display space |
 | `xref`, `obj` | The page object's number and a [low-level handle](#low-level-objects) |
@@ -412,6 +413,13 @@ assigning another box needs a rectangle with area inside the MediaBox, and
 `del page.boxes.crop` (or `bleed`, `trim`, `art`) restores its default.
 `page.user_to_display` maps user space to display space, and
 `~page.user_to_display` maps back.
+
+`page.remove_rotation()` draws the content under that matrix and maps the
+boxes, the annotations (rectangles, points, and appearances, which turn with
+the page), article beads, viewports, and every explicit destination of the
+page through it, so rendering, extraction, links, and the outline read as
+before. Annotations flagged NoRotate keep their upper-left corner and stay
+upright.
 
 ```python
 page.boxes.crop = (36, 36, 576, 756)                # show a Letter page without its half-inch margin

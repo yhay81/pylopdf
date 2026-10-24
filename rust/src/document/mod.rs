@@ -88,6 +88,7 @@ mod metadata;
 mod navigation;
 mod objects;
 mod outline;
+mod page_rotation;
 mod page_tree;
 mod rendering;
 mod replacement;
@@ -1638,6 +1639,13 @@ impl _Document {
     #[pyo3(signature = (tag))]
     fn set_language_tag(&mut self, tag: Option<&str>) -> PyResult<()> {
         metadata::set_language_tag(self, tag)
+    }
+
+    /// Set a page's `/Rotate` to 0, drawing its content, boxes,
+    /// annotations, and destinations so that it shows what it showed, and
+    /// return the matrix from the old user space to the new one.
+    fn remove_page_rotation(&mut self, page_number: u32) -> PyResult<[f64; 6]> {
+        page_rotation::remove_page_rotation(self, page_number)
     }
 
     /// Replace the catalog's `/MarkInfo` dictionary.

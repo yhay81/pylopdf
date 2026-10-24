@@ -8313,6 +8313,18 @@
           "kind": "property",
           "returns": "Rect"
         },
+        "remove_rotation": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Matrix"
+          }
+        },
         "replace_text": {
           "kind": "method",
           "signature": {

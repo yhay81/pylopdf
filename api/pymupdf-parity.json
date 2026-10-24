@@ -475,7 +475,7 @@
     "Page.recolor": {"kind": "method", "status": "planned", "relation": null, "pylopdf": null, "milestone": "rewriting"},
     "Page.rect": {"kind": "alias", "status": "available", "relation": "same", "pylopdf": "Page.rect", "milestone": null},
     "Page.refresh": {"kind": "method", "status": "available", "relation": "replaced", "pylopdf": "Page", "milestone": "interaction", "hint": "pylopdf has no refresh(): a Page view reads the current document on every access, so remove the call."},
-    "Page.remove_rotation": {"kind": "method", "status": "planned", "relation": null, "pylopdf": null, "milestone": "structure"},
+    "Page.remove_rotation": {"kind": "method", "status": "available", "relation": "same", "pylopdf": "Page.remove_rotation", "milestone": "structure", "hint": "page.remove_rotation() returns the Matrix from the old user space to the new one, where pymupdf returned its inverse."},
     "Page.repair_flat_rbgs": {"kind": "method", "status": "available", "relation": "replaced", "pylopdf": "Form.repair_radio_groups", "milestone": "interaction", "hint": "doc.form.repair_radio_groups() gathers top-level radio buttons that share a name under one radio field and returns how many groups it made."},
     "Page.replace_image": {"kind": "method", "status": "planned", "relation": null, "pylopdf": null, "milestone": "writing"},
     "Page.rotation": {"kind": "property", "status": "available", "relation": "same", "pylopdf": "Page.rotation", "milestone": "reset", "note": "Assignable in multiples of 90."},
