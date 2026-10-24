@@ -394,7 +394,7 @@ replacement, and the migration hint):
 - Page.repair_flat_rbgs -> Form.repair_radio_groups: doc.form.repair_radio_groups() gathers top-level radio buttons that share a name under one radio field and returns how many groups it made.
 - Page.rotation_matrix -> Page.user_to_display: pylopdf reads and writes in display space with the rotation resolved; drop the step, and map PDF user space with page.user_to_display.
 - Page.run -> Page.content: Call page.content() for the items that the page paints; pylopdf has no device protocol.
-- Page.search_for -> Page.search: Use page.search(text), which returns one Rect per match.
+- Page.search_for -> Page.search: Use page.search(text), which returns one Rect per match, or one Quad per line of a match with quads=True.
 - Page.set_artbox -> Page.boxes: Assign page.boxes.art = rect, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Page.set_bleedbox -> Page.boxes: Assign page.boxes.bleed = rect, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Page.set_contents -> Page.operations: Assign page.operations = Operations.parse(data) to replace the page content with one new stream; to point /Contents at an existing stream, assign page.obj["Contents"] = doc.objects[xref].
@@ -474,7 +474,7 @@ replacement, and the migration hint):
 - TextPage.extractWORDS -> Page.words: Call page.words(), which returns Word records with text, bbox, block, line, and index.
 - TextPage.extractXHTML -> Page.markdown: Call page.markdown(), which gives the page's headings, paragraphs, lists, and tables in semantic form.
 - TextPage.rect -> Page.rect: Read page.rect.
-- TextPage.search -> Page.search: Call page.search(text), which returns one Rect per match.
+- TextPage.search -> Page.search: Call page.search(text), which returns one Rect per match, or one Quad per line of a match with quads=True.
 - Widget.border_color -> Widget.border_color: widget.border_color is a Color or None, assignable and deletable.
 - Widget.border_dashes -> Widget.border: widget.border.dashes; assign widget.border = Border(width, dashes=...).
 - Widget.border_style -> Widget.border: widget.border.style is a BorderStyle member.
@@ -513,6 +513,7 @@ replacement, and the migration hint):
 - get_text_length -> Font.text_width: Font.standard("Helvetica").text_width(text, size) measures Standard 14 text; an OpenType face measures with its own Font.text_width.
 - linkDest -> Destination: link.target holds a URI string, Destination(page, point, zoom), RemoteDestination(file, page), Launch(file), or NamedAction(name).
 - planish_line -> Matrix.planish: Matrix.planish(p1, p2) returns the same matrix.
+- recover_* -> Line: Read line.quad, span.quad, and char.quad of page.layout(chars=True): each follows the baseline of rotated text, so no quad needs recovering from a box.
 - set_log -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
 - set_messages -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
 

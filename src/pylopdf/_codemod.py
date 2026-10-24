@@ -1038,18 +1038,20 @@ def _get_textbox(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
 
 
 def _search_for(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
-    """Rewrite ``search_for(needle, ...)`` to ``search(text, ...)``; quads come with Reading."""
+    """Rewrite ``search_for(needle, ...)`` to ``search(text, ...)``."""
     keywords = {"needle" if key == "text" else key: value for key, value in args.keywords.items()}
     bound = _Arguments(args.positional, keywords).bind(
         ("needle", "clip", "quads", "flags", "textpage", "hit_max", "max_hits")
     )
     if bound is None or "needle" not in bound or {"flags", "textpage"} & set(bound):
         return None
-    if bound.get("quads", "False") not in _FALSE or ("hit_max" in bound and "max_hits" in bound):
+    if "hit_max" in bound and "max_hits" in bound:
         return None
     arguments = [bound["needle"]]
     if bound.get("clip", "None") != "None":
         arguments.append(f"clip={bound['clip']}")
+    if bound.get("quads", "False") not in _FALSE:
+        arguments.append(f"quads={bound['quads']}")
     if "hit_max" in bound or "max_hits" in bound:
         arguments.append(f"max_hits={bound.get('max_hits', bound.get('hit_max'))}")
     return f"{receiver}.search({', '.join(arguments)})"

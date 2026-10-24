@@ -361,7 +361,7 @@ no page was added, deleted, or reordered in between.
 | `text(*, clip=None, ...)` | The page's text in reading order, or the text in a rectangle |
 | `words(*, clip=None, ...)` | The words in reading order, as `Word` records |
 | `layout(*, clip=None, chars=False, ...)` | Blocks, lines, and spans as a `Layout`; see [Positioned text](#positioned-text) |
-| `search(text, *, clip=None, max_hits=4096, ...)` | Case-insensitive search; returns a list of `Rect` |
+| `search(text, *, clip=None, quads=False, max_hits=4096, ...)` | Case-insensitive search; returns a list of `Rect`, or with `quads=True` one `Quad` per line of each match |
 | `tables(*, strategy="lines", clip=None)` | Tables as a list of `Table` records; see [Tables](#tables) |
 | `markdown(*, table_strategy="lines")` | Markdown for this page |
 | `ocr(...)`, `apply_ocr(*, words=None, ...)` | OCR, and an invisible text layer from it or from another engine's words; see [Offline OCR](ocr.md) |
@@ -621,9 +621,9 @@ space:
 | Record | Fields |
 |---|---|
 | `Block` | `text`, `bbox`, `lines` |
-| `Line` | `text`, `bbox`, `direction` (the baseline's unit vector), `is_vertical`, `spans` |
-| `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `color`, `render_mode`, `is_clipped`, `ascender`, `descender`, `chars` |
-| `Char` | `text`, `bbox`, `origin`, `is_synthetic` |
+| `Line` | `text`, `bbox`, `direction` (the baseline's unit vector), `is_vertical`, `spans`, `quad` |
+| `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `color`, `render_mode`, `is_clipped`, `ascender`, `descender`, `chars`, `quad` |
+| `Char` | `text`, `bbox`, `quad`, `origin`, `is_synthetic` |
 
 A span is a run of glyphs in one font and size that are painted alike:
 `color` is the paint as an sRGB `Color` whose `alpha` is the opacity (the
@@ -635,6 +635,11 @@ true when the clip paths leave no part of the glyphs visible. `ascender` and
 TrueType program; hayro hands out no program for Type 1 fonts, the standard
 14 fonts among them, which therefore report MuPDF's defaults of 0.8 and
 -0.2.
+
+A `bbox` is axis-aligned; a `quad` is the same box along the baseline, the
+smallest rectangle in the direction of the first glyph's baseline that holds
+every glyph's box, so it follows text that a page sets at an angle. Text at
+any angle is assembled into lines along its baseline.
 
 `layout(chars=True)` fills each span's `chars` with its glyphs. A `Char`
 keeps the complete text of one glyph, so a ligature such as "fi" keeps both

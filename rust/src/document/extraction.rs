@@ -664,14 +664,24 @@ pub(super) fn page_content(
 }
 
 /// Implements [`_Document::search_page`].
-pub(super) fn search_page(
+pub(super) fn search_page<T>(
     this: &mut _Document,
     py: Python<'_>,
     page_number: u32,
     needle: &str,
     max_hits: Option<usize>,
     options: TextOptions,
-) -> PyResult<Vec<(f64, f64, f64, f64)>> {
+    search: impl FnOnce(
+        &crate::extract::TextPage,
+        &str,
+        Option<usize>,
+        &ViewOptions,
+    ) -> Result<Vec<T>, crate::extract::SearchError>
+    + Send,
+) -> PyResult<Vec<T>>
+where
+    T: Send,
+{
     if needle.is_empty() {
         return Err(PyValueError::new_err("needle must be at least 1 character"));
     }
@@ -689,18 +699,17 @@ pub(super) fn search_page(
     let settings = this.interpreter_settings();
     this.contain_renderer_panics(|this| {
         py.detach(|| {
-            this.text_page((page_number, options.collect), settings)?
-                .search(needle, max_hits, &options.view)
-                .map_err(|error| match error {
-                    crate::extract::SearchError::TooManyHits => {
-                        let limit = max_hits.expect("bounded search hit count");
-                        limit_err(
-                            "search_hit_count",
-                            format!("search results exceed the {limit}-hit safety limit"),
-                        )
-                    }
-                    crate::extract::SearchError::Allocation(message) => PdfError::new_err(message),
-                })
+            let page = this.text_page((page_number, options.collect), settings)?;
+            search(page, needle, max_hits, &options.view).map_err(|error| match error {
+                crate::extract::SearchError::TooManyHits => {
+                    let limit = max_hits.expect("bounded search hit count");
+                    limit_err(
+                        "search_hit_count",
+                        format!("search results exceed the {limit}-hit safety limit"),
+                    )
+                }
+                crate::extract::SearchError::Allocation(message) => PdfError::new_err(message),
+            })
         })
     })
 }

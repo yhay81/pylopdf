@@ -13,15 +13,16 @@ if sys.platform == "win32":
 # Page.layout(): a span is (bbox, text, size, origin, font, flags, style), and
 # its style (sRGB color and alpha, render mode, clipped, ascender, descender).
 _SpanStyleTuple: TypeAlias = tuple[tuple[float, float, float, float] | None, int, bool, float, float]
+_QuadTuple: TypeAlias = tuple[tuple[float, float], tuple[float, float], tuple[float, float], tuple[float, float]]
 _SpanTuple: TypeAlias = tuple[
-    tuple[float, float, float, float], str, float, tuple[float, float], str, int, _SpanStyleTuple
+    tuple[float, float, float, float], str, float, tuple[float, float], str, int, _SpanStyleTuple, _QuadTuple
 ]
 _WordTuple: TypeAlias = tuple[tuple[float, float, float, float], str]
 _LineTuple: TypeAlias = tuple[
-    tuple[float, float, float, float], list[_SpanTuple], list[_WordTuple], tuple[float, float], int
+    tuple[float, float, float, float], list[_SpanTuple], list[_WordTuple], tuple[float, float], int, _QuadTuple
 ]
 _BlockTuple: TypeAlias = tuple[tuple[float, float, float, float], list[_LineTuple]]
-_RawCharTuple: TypeAlias = tuple[str, tuple[float, float, float, float], tuple[float, float], bool]
+_RawCharTuple: TypeAlias = tuple[str, tuple[float, float, float, float], tuple[float, float], bool, _QuadTuple]
 # The text options: (clip, keep clipped glyphs, unmapped glyphs (0 skip,
 # 1 U+FFFD, 2 glyph ID), exact boxes, expand ligatures, normalize whitespace,
 # dehyphenate).
@@ -34,9 +35,10 @@ _RawSpanTuple: TypeAlias = tuple[
     str,
     int,
     _SpanStyleTuple,
+    _QuadTuple,
 ]
 _RawLineTuple: TypeAlias = tuple[
-    tuple[float, float, float, float], list[_RawSpanTuple], list[_WordTuple], tuple[float, float], int
+    tuple[float, float, float, float], list[_RawSpanTuple], list[_WordTuple], tuple[float, float], int, _QuadTuple
 ]
 _RawBlockTuple: TypeAlias = tuple[tuple[float, float, float, float], list[_RawLineTuple]]
 
@@ -595,6 +597,13 @@ class _Document:
         max_hits: int | None = 4096,
         options: _TextOptions | None = None,
     ) -> list[tuple[float, float, float, float]]: ...
+    def search_page_quads(
+        self,
+        page_number: int,
+        needle: str,
+        max_hits: int | None = 4096,
+        options: _TextOptions | None = None,
+    ) -> list[_QuadTuple]: ...
     def extract_images(
         self, page_number: int
     ) -> list[tuple[int, int, tuple[float, float, float, float], str, bytes]]: ...

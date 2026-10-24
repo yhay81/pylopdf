@@ -905,6 +905,67 @@ fn has_vertical_baseline(glyph: &GlyphRecord) -> bool {
     glyph.direction.1.abs() > glyph.direction.0.abs()
 }
 
+/// A baseline more than about one degree away from both axes, as in text that
+/// a page sets at an angle; a slightly skewed scan stays on its axis.
+fn has_oblique_baseline(glyph: &GlyphRecord) -> bool {
+    glyph.direction.0.abs().min(glyph.direction.1.abs()) > OBLIQUE_BASELINE
+}
+
+/// The smaller direction component above which a baseline is oblique.
+const OBLIQUE_BASELINE: f64 = 0.02;
+
+/// Cluster glyphs on oblique baselines into lines: glyphs whose directions
+/// agree to a thousandth of a radian and whose baselines lie within the
+/// line tolerance of each other, measured across their direction, share a
+/// line, which is then ordered along its direction.
+fn cluster_oblique(
+    arena: &[GlyphRecord],
+    mut glyphs: Vec<usize>,
+) -> Result<Vec<Vec<usize>>, TextPageLimit> {
+    let angle = |glyph: &GlyphRecord| (glyph.direction.1.atan2(glyph.direction.0) * 1000.0).round();
+    let offset = |glyph: &GlyphRecord| glyph.y * glyph.direction.0 - glyph.x * glyph.direction.1;
+    glyphs.sort_unstable_by(|&left, &right| {
+        let (l, r) = (&arena[left], &arena[right]);
+        angle(l)
+            .total_cmp(&angle(r))
+            .then(offset(l).total_cmp(&offset(r)))
+            .then(left.cmp(&right))
+    });
+    let mut lines: Vec<Vec<usize>> = Vec::new();
+    let mut current: Option<(f64, f64)> = None;
+    for index in glyphs {
+        let glyph = &arena[index];
+        let tolerance = glyph.size.max(1.0) * LINE_TOLERANCE;
+        let key = (angle(glyph), offset(glyph));
+        match current {
+            Some((line_angle, line_offset))
+                if line_angle == key.0 && (key.1 - line_offset).abs() <= tolerance =>
+            {
+                try_push_text(
+                    lines
+                        .last_mut()
+                        .expect("a line was created immediately before"),
+                    index,
+                    "oblique line glyphs",
+                )?;
+            }
+            _ => {
+                current = Some(key);
+                let mut line = Vec::new();
+                try_push_text(&mut line, index, "oblique line glyphs")?;
+                try_push_text(&mut lines, line, "oblique lines")?;
+            }
+        }
+    }
+    let mut split_lines = Vec::new();
+    for line in lines {
+        for split in split_overlapping_paint_layers(arena, line)? {
+            try_push_text(&mut split_lines, split, "split oblique lines")?;
+        }
+    }
+    Ok(split_lines)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AxisOrientation {
     Right,
@@ -1325,8 +1386,11 @@ fn cluster_lines(glyphs: Vec<GlyphRecord>) -> Result<Vec<Vec<GlyphRecord>>, Text
     let mut arena = glyphs;
     let mut explicit_vertical: Vec<usize> = Vec::new();
     let mut horizontal: Vec<usize> = Vec::new();
+    let mut oblique: Vec<usize> = Vec::new();
     for (index, glyph) in arena.iter().enumerate() {
-        if has_vertical_baseline(glyph) {
+        if has_oblique_baseline(glyph) {
+            try_push_text(&mut oblique, index, "oblique glyph partition")?;
+        } else if has_vertical_baseline(glyph) {
             try_push_text(
                 &mut explicit_vertical,
                 index,
@@ -1373,6 +1437,9 @@ fn cluster_lines(glyphs: Vec<GlyphRecord>) -> Result<Vec<Vec<GlyphRecord>>, Text
     }
     for line in cluster_explicit_vertical(&arena, explicit_vertical)? {
         try_push_text(&mut vertical_lines, line, "vertical text lines")?;
+    }
+    for line in cluster_oblique(&arena, oblique)? {
+        try_push_text(&mut vertical_lines, line, "oblique text lines")?;
     }
     for line in vertical_lines {
         try_push_text(&mut all_lines, line, "clustered text lines")?;
@@ -2516,6 +2583,8 @@ impl TextPage {
         Ok((self.width, self.height, blocks))
     }
 
+    /// Return one box per match, which spans the lines that a match across a
+    /// dehyphenation join covers.
     pub(crate) fn search(
         &self,
         needle: &str,
@@ -2523,7 +2592,46 @@ impl TextPage {
         view: &ViewOptions,
     ) -> Result<Vec<BBox>, SearchError> {
         let lines = self.view_lines(view).map_err(search_allocation_error)?;
-        search_lines(&lines, needle, max_hits)
+        let mut hits = Vec::new();
+        search_lines(&lines, needle, max_hits, |segments| {
+            let mut bbox = (
+                f64::INFINITY,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+            );
+            for segment in segments {
+                let (x0, y0, x1, y1) = glyphs_bbox(segment);
+                bbox = (
+                    bbox.0.min(x0),
+                    bbox.1.min(y0),
+                    bbox.2.max(x1),
+                    bbox.3.max(y1),
+                );
+            }
+            try_push_text(&mut hits, bbox, "search result geometry")
+                .map_err(search_allocation_error)
+        })?;
+        Ok(hits)
+    }
+
+    /// Return the quad of every line of every match, in match order.
+    pub(crate) fn search_quads(
+        &self,
+        needle: &str,
+        max_hits: Option<usize>,
+        view: &ViewOptions,
+    ) -> Result<Vec<QuadTuple>, SearchError> {
+        let lines = self.view_lines(view).map_err(search_allocation_error)?;
+        let mut quads = Vec::new();
+        search_lines(&lines, needle, max_hits, |segments| {
+            for segment in segments {
+                try_push_text(&mut quads, glyphs_quad(segment), "search result geometry")
+                    .map_err(search_allocation_error)?;
+            }
+            Ok(())
+        })?;
+        Ok(quads)
     }
 }
 
@@ -3121,16 +3229,25 @@ fn assemble_text(
 
 /// Bbox `(x0, y0, x1, y1)` with top-left origin and downward y.
 type BBox = (f64, f64, f64, f64);
-/// Span: `(bbox, content, size, origin, font name, flags, style)`.
-type LayoutSpanTuple<T> = (BBox, T, f64, (f64, f64), String, i64, SpanStyleTuple);
+/// Span: `(bbox, content, size, origin, font name, flags, style, quad)`.
+type LayoutSpanTuple<T> = (
+    BBox,
+    T,
+    f64,
+    (f64, f64),
+    String,
+    i64,
+    SpanStyleTuple,
+    QuadTuple,
+);
 /// A span's paint and metrics: `(sRGB color and alpha, render mode, clipped,
 /// ascender, descender)`.
 type SpanStyleTuple = (Option<(f32, f32, f32, f32)>, u8, bool, f64, f64);
 /// Span with assembled text, including inferred spaces.
 type SpanTuple = LayoutSpanTuple<String>;
 /// One retained glyph: `(whole Unicode mapping, bbox, baseline origin,
-/// synthetic)`; a synthetic char is a space inferred from a gap.
-type RawCharTuple = (String, BBox, (f64, f64), bool);
+/// synthetic, quad)`; a synthetic char is a space inferred from a gap.
+type RawCharTuple = (String, BBox, (f64, f64), bool, QuadTuple);
 /// Span with its assembled text and its glyph records, which hold no inferred
 /// spaces.
 type RawSpanTuple = LayoutSpanTuple<(String, Vec<RawCharTuple>)>;
@@ -3142,12 +3259,27 @@ type BorrowedWord<'a> = (BBox, &'a [GlyphRecord]);
 type TableCell = Option<(BBox, String)>;
 /// Materialized row-major cells plus an anchor index for every slot.
 type MaterializedGrid = (Vec<TableCell>, Vec<u32>);
-/// Line: `(bbox, spans, words, baseline direction, writing mode)`.
-type LineTuple = (BBox, Vec<SpanTuple>, Vec<WordTuple>, (f64, f64), u8);
+/// Line: `(bbox, spans, words, baseline direction, writing mode, quad)`.
+type LineTuple = (
+    BBox,
+    Vec<SpanTuple>,
+    Vec<WordTuple>,
+    (f64, f64),
+    u8,
+    QuadTuple,
+);
 /// Block: `(bbox, lines)`.
 pub(crate) type BlockTuple = (BBox, Vec<LineTuple>);
-/// Raw line: `(bbox, spans with glyphs, words, baseline direction, writing mode)`.
-type RawLineTuple = (BBox, Vec<RawSpanTuple>, Vec<WordTuple>, (f64, f64), u8);
+/// Raw line: `(bbox, spans with glyphs, words, baseline direction, writing
+/// mode, quad)`.
+type RawLineTuple = (
+    BBox,
+    Vec<RawSpanTuple>,
+    Vec<WordTuple>,
+    (f64, f64),
+    u8,
+    QuadTuple,
+);
 /// Raw block: `(bbox, lines)`.
 pub(crate) type RawBlockTuple = (BBox, Vec<RawLineTuple>);
 /// Table: `(bbox, row count, column count, row-major cells)`.
@@ -3284,6 +3416,7 @@ fn span_with_content<T>(
             glyphs[0].font.ascender,
             glyphs[0].font.descender,
         ),
+        glyphs_quad(glyphs),
     ))
 }
 
@@ -3315,10 +3448,10 @@ fn split_raw_spans(line: &[GlyphRecord]) -> Result<Vec<RawSpanTuple>, TextPageLi
                 && needs_gap(previous, glyph)
                 && !ends_with_space
             {
-                let (origin, bbox) = gap_geometry(before, glyph);
+                let (origin, bbox, quad) = gap_geometry(before, glyph);
                 try_push_text(
                     &mut chars,
-                    (" ".to_owned(), bbox, origin, true),
+                    (" ".to_owned(), bbox, origin, true, quad),
                     "raw layout glyphs",
                 )?;
             }
@@ -3327,7 +3460,13 @@ fn split_raw_spans(line: &[GlyphRecord]) -> Result<Vec<RawSpanTuple>, TextPageLi
             ends_with_space = text.ends_with(' ');
             try_push_text(
                 &mut chars,
-                (text, glyph_bbox(glyph), (glyph.x, glyph.y), false),
+                (
+                    text,
+                    glyph_bbox(glyph),
+                    (glyph.x, glyph.y),
+                    false,
+                    glyphs_quad(std::slice::from_ref(glyph)),
+                ),
                 "raw layout glyphs",
             )?;
             if !glyph_is_nonspacing_mark(glyph) {
@@ -3346,7 +3485,7 @@ fn split_raw_spans(line: &[GlyphRecord]) -> Result<Vec<RawSpanTuple>, TextPageLi
 /// The origin and box of the space inferred between two glyphs: from the end
 /// of the advance of the one before to the start of the next, along the
 /// baseline of the one before and across its ascender and descender.
-fn gap_geometry(before: &GlyphRecord, after: &GlyphRecord) -> ((f64, f64), BBox) {
+fn gap_geometry(before: &GlyphRecord, after: &GlyphRecord) -> ((f64, f64), BBox, QuadTuple) {
     let start = (
         before.x + before.direction.0 * before.advance,
         before.y + before.direction.1 * before.advance,
@@ -3356,6 +3495,18 @@ fn gap_geometry(before: &GlyphRecord, after: &GlyphRecord) -> ((f64, f64), BBox)
         .max(0.0);
     let (above, below) = before.vertical_extent();
     let block = (-before.direction.1, before.direction.0);
+    let point = |inline: f64, cross: f64| {
+        (
+            start.0 + before.direction.0 * inline + block.0 * cross,
+            start.1 + before.direction.1 * inline + block.1 * cross,
+        )
+    };
+    let quad = (
+        point(0.0, -above),
+        point(length, -above),
+        point(0.0, below),
+        point(length, below),
+    );
     let mut x0 = f64::INFINITY;
     let mut y0 = f64::INFINITY;
     let mut x1 = f64::NEG_INFINITY;
@@ -3370,7 +3521,7 @@ fn gap_geometry(before: &GlyphRecord, after: &GlyphRecord) -> ((f64, f64), BBox)
             y1 = y1.max(y);
         }
     }
-    (start, (x0, y0, x1, y1))
+    (start, (x0, y0, x1, y1), quad)
 }
 
 /// Assemble a span's text, with a space for each inferred gap.
@@ -4350,6 +4501,7 @@ fn assemble_layout(lines: &[Vec<GlyphRecord>]) -> Result<Vec<BlockTuple>, TextPa
             split_words(line)?,
             direction,
             writing_mode,
+            glyphs_quad(line),
         ))
     })
 }
@@ -4364,6 +4516,7 @@ fn assemble_raw_layout(lines: &[Vec<GlyphRecord>]) -> Result<Vec<RawBlockTuple>,
             split_words(line)?,
             direction,
             writing_mode,
+            glyphs_quad(line),
         ))
     })
 }
@@ -4471,16 +4624,17 @@ fn line_search_index(unit: &[Vec<GlyphRecord>]) -> Result<(String, SearchMap), S
     Ok((haystack, map))
 }
 
-/// Search page text case-insensitively and return one bbox per match.
+/// Search page text case-insensitively and hand `matched` the glyphs of each
+/// match, one slice per line it covers.
 ///
 /// Search is line-based and does not detect matches across lines, except
-/// across the lines that dehyphenation joins, where a match spans the boxes
-/// of its glyphs on both.
+/// across the lines that dehyphenation joins.
 fn search_lines(
     lines: &[Vec<GlyphRecord>],
     needle: &str,
     max_hits: Option<usize>,
-) -> Result<Vec<BBox>, SearchError> {
+    mut matched: impl FnMut(&[&[GlyphRecord]]) -> Result<(), SearchError>,
+) -> Result<(), SearchError> {
     let mut needle_lower = String::new();
     for ch in needle.chars() {
         for lowered in ch.to_lowercase() {
@@ -4494,9 +4648,10 @@ fn search_lines(
         }
     }
     if needle_lower.is_empty() {
-        return Ok(Vec::new());
+        return Ok(());
     }
-    let mut hits = Vec::new();
+    let mut hits = 0usize;
+    let mut segments: Vec<&[GlyphRecord]> = Vec::new();
     let mut start_line = 0;
     while start_line < lines.len() {
         let mut end_line = start_line + 1;
@@ -4517,15 +4672,11 @@ fn search_lines(
             let first = glyph_map.iter().find_map(|value| *value);
             let last = glyph_map.iter().rev().find_map(|value| *value);
             if let (Some(first), Some(last)) = (first, last) {
-                if max_hits.is_some_and(|limit| hits.len() == limit) {
+                if max_hits.is_some_and(|limit| hits == limit) {
                     return Err(SearchError::TooManyHits);
                 }
-                let mut bbox = (
-                    f64::INFINITY,
-                    f64::INFINITY,
-                    f64::NEG_INFINITY,
-                    f64::NEG_INFINITY,
-                );
+                hits += 1;
+                segments.clear();
                 for (offset, line) in unit[first.0..=last.0].iter().enumerate() {
                     let index = first.0 + offset;
                     let from = if index == first.0 { first.1 } else { 0 };
@@ -4534,22 +4685,77 @@ fn search_lines(
                     } else {
                         line.len() - 1
                     };
-                    let (x0, y0, x1, y1) = glyphs_bbox(&line[from..=to]);
-                    bbox = (
-                        bbox.0.min(x0),
-                        bbox.1.min(y0),
-                        bbox.2.max(x1),
-                        bbox.3.max(y1),
-                    );
+                    try_push_text(&mut segments, &line[from..=to], "search match lines")
+                        .map_err(search_allocation_error)?;
                 }
-                try_push_text(&mut hits, bbox, "search result geometry")
-                    .map_err(search_allocation_error)?;
+                matched(&segments)?;
             }
             byte_cursor = end;
             char_cursor = char_start + char_len;
         }
     }
-    Ok(hits)
+    Ok(())
+}
+
+/// A quadrilateral `(upper left, upper right, lower left, lower right)` in
+/// display space, upper and left as the text reads.
+pub(crate) type QuadTuple = ((f64, f64), (f64, f64), (f64, f64), (f64, f64));
+
+/// The corners of one glyph's box: its ink box, or the parallelogram of its
+/// advance along the baseline and its font extents across it.
+fn glyph_corners(glyph: &GlyphRecord) -> [(f64, f64); 4] {
+    if glyph.ink.is_some() || glyph.writing_mode == 1 {
+        let (x0, y0, x1, y1) = glyph_bbox(glyph);
+        return [(x0, y0), (x1, y0), (x0, y1), (x1, y1)];
+    }
+    let (above, below) = glyph.vertical_extent();
+    let (dx, dy) = glyph.direction;
+    let (bx, by) = (-dy, dx);
+    let start = (glyph.x, glyph.y);
+    let end = (glyph.x + dx * glyph.advance, glyph.y + dy * glyph.advance);
+    [
+        (start.0 - bx * above, start.1 - by * above),
+        (end.0 - bx * above, end.1 - by * above),
+        (start.0 + bx * below, start.1 + by * below),
+        (end.0 + bx * below, end.1 + by * below),
+    ]
+}
+
+/// The quad of glyphs that share a baseline: the smallest rectangle along
+/// the first glyph's baseline direction that holds every glyph's box, so
+/// that the quad of rotated text follows the text.
+fn glyphs_quad(glyphs: &[GlyphRecord]) -> QuadTuple {
+    let first = &glyphs[0];
+    let (dx, dy) = if first.writing_mode == 1 {
+        (1.0, 0.0)
+    } else {
+        first.direction
+    };
+    let (bx, by) = (-dy, dx);
+    let (ox, oy) = (first.x, first.y);
+    let (mut u0, mut u1, mut v0, mut v1) = (
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    );
+    for glyph in glyphs {
+        for (x, y) in glyph_corners(glyph) {
+            let u = (x - ox) * dx + (y - oy) * dy;
+            let v = (x - ox) * bx + (y - oy) * by;
+            u0 = u0.min(u);
+            u1 = u1.max(u);
+            v0 = v0.min(v);
+            v1 = v1.max(v);
+        }
+    }
+    let corner = |u: f64, v: f64| (ox + dx * u + bx * v, oy + dy * u + by * v);
+    (
+        corner(u0, v0),
+        corner(u1, v0),
+        corner(u0, v1),
+        corner(u1, v1),
+    )
 }
 
 /// Extracted image: `(width, height, page bbox, "jpeg"/"png", bytes)`.

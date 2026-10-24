@@ -1877,11 +1877,13 @@
         "bbox": "Rect",
         "is_synthetic": "bool",
         "origin": "Point",
+        "quad": "Quad",
         "text": "str"
       },
       "dataclass_fields": [
         "text",
         "bbox",
+        "quad",
         "origin",
         "is_synthetic"
       ],
@@ -1894,6 +1896,9 @@
           "kind": "property"
         },
         "origin": {
+          "kind": "property"
+        },
+        "quad": {
           "kind": "property"
         },
         "text": {
@@ -1911,6 +1916,11 @@
             "annotation": "Rect",
             "kind": "keyword_only",
             "name": "bbox"
+          },
+          {
+            "annotation": "Quad",
+            "kind": "keyword_only",
+            "name": "quad"
           },
           {
             "annotation": "Point",
@@ -6211,6 +6221,7 @@
         "bbox": "Rect",
         "direction": "Point",
         "is_vertical": "bool",
+        "quad": "Quad",
         "spans": "tuple[Span, ...]",
         "text": "str"
       },
@@ -6219,7 +6230,8 @@
         "bbox",
         "direction",
         "is_vertical",
-        "spans"
+        "spans",
+        "quad"
       ],
       "kind": "class",
       "members": {
@@ -6230,6 +6242,9 @@
           "kind": "property"
         },
         "is_vertical": {
+          "kind": "property"
+        },
+        "quad": {
           "kind": "property"
         },
         "spans": {
@@ -6265,6 +6280,11 @@
             "annotation": "tuple[Span, ...]",
             "kind": "keyword_only",
             "name": "spans"
+          },
+          {
+            "annotation": "Quad",
+            "kind": "keyword_only",
+            "name": "quad"
           }
         ],
         "returns": "None"
@@ -8465,6 +8485,12 @@
                 "name": "clip"
               },
               {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "quads"
+              },
+              {
                 "annotation": "int | None",
                 "default": 4096,
                 "kind": "keyword_only",
@@ -8507,7 +8533,7 @@
                 "name": "exact_bboxes"
               }
             ],
-            "returns": "list[Rect]"
+            "returns": "list[Rect] | list[Quad]"
           }
         },
         "svg": {
@@ -11612,6 +11638,7 @@
         "is_monospaced": "bool",
         "is_serif": "bool",
         "origin": "Point",
+        "quad": "Quad",
         "render_mode": "TextRenderMode",
         "size": "float",
         "text": "str"
@@ -11631,7 +11658,8 @@
         "is_clipped",
         "ascender",
         "descender",
-        "chars"
+        "chars",
+        "quad"
       ],
       "kind": "class",
       "members": {
@@ -11669,6 +11697,9 @@
           "kind": "property"
         },
         "origin": {
+          "kind": "property"
+        },
+        "quad": {
           "kind": "property"
         },
         "render_mode": {
@@ -11757,6 +11788,11 @@
             "annotation": "tuple[Char, ...]",
             "kind": "keyword_only",
             "name": "chars"
+          },
+          {
+            "annotation": "Quad",
+            "kind": "keyword_only",
+            "name": "quad"
           }
         ],
         "returns": "None"
