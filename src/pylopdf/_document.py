@@ -478,9 +478,12 @@ class Document:
 
         That needs the bytes that the document was opened from, read as they
         were written: a document created empty, one whose cross-reference
-        data opening repaired, one whose objects opening renumbered, and an
-        encrypted one cannot be saved incrementally. The document keeps its
-        original bytes in memory for as long as it can.
+        data opening repaired, and one whose objects opening renumbered
+        cannot be saved incrementally. An encrypted document can when it is
+        unlocked and uses AES-128 or AES-256 (revision 6), whose encryption
+        the update keeps; pylopdf writes no RC4. The document keeps its
+        original bytes in memory, and the password that unlocked it, for as
+        long as it can.
         """
         self._ensure_not_closed()
         return self._doc.can_save_incrementally()
@@ -1650,7 +1653,7 @@ class Document:
             if not self._doc.can_save_incrementally():
                 msg = (
                     "this document cannot be saved incrementally: only a document opened from "
-                    "unencrypted bytes that loaded without repair can be"
+                    "bytes that loaded without repair, unencrypted or with AES encryption, can be"
                 )
                 raise PdfError(msg)
         return _SaveOptions(

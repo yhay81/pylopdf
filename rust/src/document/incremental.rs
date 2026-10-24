@@ -14,21 +14,31 @@ use lopdf::IncrementalDocument;
 /// The input of a load that an incremental save can extend.
 ///
 /// Retained only when the bytes describe lopdf's graph exactly: no
-/// cross-reference recovery, no encryption, `object_recovery` kept the
-/// bytes, and loading moved no object to another number. The buffer is
-/// shared with the original-byte rendering source, so an unedited document
-/// holds it once.
+/// cross-reference recovery, `object_recovery` kept the bytes (or, for
+/// encrypted input, found every decrypted object where its entry says), and
+/// loading moved no object to another number. The buffer of an unencrypted
+/// input is shared with the original-byte rendering source, so an unedited
+/// document holds it once.
 pub(super) struct IncrementalBase {
     bytes: Arc<Vec<u8>>,
+    /// The password that opened an encrypted input, which reading the
+    /// baseline again needs. The appended objects are encrypted with the
+    /// input's own state.
+    password: Option<String>,
     /// The decoder bound that the load used, so that the baseline reads the
     /// same streams.
     max_decompressed_size: Option<usize>,
 }
 
 impl IncrementalBase {
-    pub(super) fn new(bytes: Arc<Vec<u8>>, max_decompressed_size: Option<usize>) -> Self {
+    pub(super) fn new(
+        bytes: Arc<Vec<u8>>,
+        password: Option<String>,
+        max_decompressed_size: Option<usize>,
+    ) -> Self {
         Self {
             bytes,
+            password,
             max_decompressed_size,
         }
     }
@@ -36,20 +46,80 @@ impl IncrementalBase {
     /// Read the original bytes again as opening read them.
     fn baseline(&self) -> PyResult<Document> {
         let options = LoadOptions {
+            password: self.password.clone(),
             max_decompressed_size: self.max_decompressed_size,
             ..Default::default()
         };
         let unchanged = || PdfError::new_err("the original bytes no longer load as they did");
         let (mut baseline, recovery) =
             recovery::load_document(&self.bytes, options).map_err(|_| unchanged())?;
-        if recovery.is_some()
-            || !loading::original_bytes_match(&mut baseline, None, &self.bytes)?
-            || normalize_object_numbers(&mut baseline)?
-        {
+        let matches = if baseline.was_encrypted() {
+            !baseline.is_encrypted()
+                && recovery.is_none()
+                && object_recovery::decrypted_graph_matches_entries(&baseline)?
+        } else {
+            loading::original_bytes_match(&mut baseline, recovery, &self.bytes)?
+        };
+        if !matches || normalize_object_numbers(&mut baseline)? {
             return Err(unchanged());
         }
         Ok(baseline)
     }
+}
+
+/// Whether an encrypted load can be extended by an incremental save.
+///
+/// The input must have loaded without recovery or renumbering, decrypted,
+/// with AES-128 (revision 4 with `AESV2` crypt filters) or AES-256
+/// (revision 6), since the update is encrypted the same way and pylopdf
+/// writes no RC4 and not the deprecated revision 5, and with every
+/// decrypted object where its cross-reference entry says. Unencrypted loads
+/// qualify through `object_recovery::reconcile_loaded_objects` instead.
+pub(super) fn extendable(
+    doc: &Document,
+    recovery: Option<XrefRecovery>,
+    renumbered: bool,
+) -> PyResult<bool> {
+    if recovery.is_some() || renumbered || !doc.was_encrypted() || doc.is_encrypted() {
+        return Ok(false);
+    }
+    let Some(encryption) = doc
+        .encryption_state
+        .as_ref()
+        .and_then(|state| state.encode().ok())
+    else {
+        return Ok(false);
+    };
+    let integer = |key: &[u8]| encryption.get(key).and_then(Object::as_i64).ok();
+    let aes = |filter_key: &[u8]| {
+        encryption
+            .get(filter_key)
+            .and_then(Object::as_name)
+            .ok()
+            .and_then(|name| {
+                encryption
+                    .get(b"CF")
+                    .and_then(Object::as_dict)
+                    .ok()?
+                    .get(name)
+                    .ok()
+            })
+            .and_then(|filter| {
+                filter
+                    .as_dict()
+                    .ok()?
+                    .get(b"CFM")
+                    .and_then(Object::as_name)
+                    .ok()
+            })
+            == Some(b"AESV2".as_slice())
+    };
+    let kept = match (integer(b"V"), integer(b"R")) {
+        (Some(5), Some(6)) => true,
+        (Some(4), Some(4)) => aes(b"StmF") && aes(b"StrF"),
+        _ => false,
+    };
+    Ok(kept && object_recovery::decrypted_graph_matches_entries(doc)?)
 }
 
 /// Trailer entries that describe one cross-reference section rather than
@@ -190,7 +260,7 @@ impl _Document {
         self.incremental_base.as_ref().ok_or_else(|| {
             PdfError::new_err(
                 "this document cannot be saved incrementally: only a document opened from \
-                 unencrypted bytes that loaded without repair can be",
+                 bytes that loaded without repair, unencrypted or with AES encryption, can be",
             )
         })
     }

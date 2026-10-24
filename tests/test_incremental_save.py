@@ -288,10 +288,84 @@ def test_a_document_whose_objects_differ_from_their_entries_cannot_save_incremen
     assert not doc.can_save_incrementally
 
 
-def test_an_encrypted_document_cannot_save_incrementally_yet() -> None:
-    doc = pylopdf.open(ENCRYPTED / "user-aes-256.pdf", password="userpw")
+@pytest.mark.parametrize(
+    "name",
+    ["user-aes-128.pdf", "user-aes-128-plain-metadata.pdf", "user-aes-256.pdf", "user-aes-256-object-streams.pdf"],
+)
+def test_an_aes_encrypted_document_saves_incrementally_with_its_encryption(name: str) -> None:
+    original = (ENCRYPTED / name).read_bytes()
+    doc = pylopdf.open(original, password="userpw")
+    assert doc.can_save_incrementally
+    assert doc.to_bytes(incremental=True) == original
+    method = doc.encryption_method
+
+    draw_text(doc.pages[0], (72, 300), "Appended")
+    doc.metadata["title"] = "Appended"
+    saved = doc.to_bytes(incremental=True)
+
+    update = _update(saved, original)
+    # The appended objects are encrypted: their text is not readable as is.
+    assert b"Appended" not in update
+    assert pylopdf.open(saved).needs_password
+    for password in ("userpw", "ownerpw"):
+        with pylopdf.open(saved, password=password) as reopened:
+            assert reopened.encryption_method == method
+            assert reopened.metadata["title"] == "Appended"
+            assert "Appended" in reopened.pages[0].text()
+            assert "Encrypted page two" in reopened.pages[1].text()
+
+
+def test_a_document_opened_without_its_empty_user_password_saves_incrementally() -> None:
+    original = (ENCRYPTED / "owneronly-aes-256.pdf").read_bytes()
+    doc = pylopdf.open(original)
+    doc.metadata["title"] = "Appended"
+
+    saved = doc.to_bytes(incremental=True)
+
+    _update(saved, original)
+    with pylopdf.open(saved) as reopened:
+        assert reopened.metadata["title"] == "Appended"
+
+
+def test_unlocking_makes_an_encrypted_document_extendable() -> None:
+    doc = pylopdf.open(ENCRYPTED / "user-aes-128.pdf")
+    assert not doc.can_save_incrementally
+
+    doc.unlock("userpw")
+
+    assert doc.can_save_incrementally
+
+
+@pytest.mark.parametrize("name", ["user-rc4-40.pdf", "user-rc4-128.pdf", "user-r4-rc4-128.pdf", "user-aes-256-r5.pdf"])
+def test_rc4_and_revision_5_inputs_cannot_save_incrementally(name: str) -> None:
+    doc = pylopdf.open(ENCRYPTED / name, password="userpw")
 
     assert not doc.can_save_incrementally
+    with pytest.raises(pylopdf.PdfError, match="AES encryption"):
+        doc.to_bytes(incremental=True)
+
+
+def test_an_encrypted_document_whose_objects_differ_from_their_entries_cannot_save_incrementally() -> None:
+    original = (ENCRYPTED / "user-aes-128.pdf").read_bytes()
+    # Point the entry of object 4, the first page, at object 1: lopdf still
+    # loads the page by its header, while a reader of the entry would not.
+    damaged = with_xref_entry_offset(original, 4, original.index(b"1 0 obj"))
+    doc = pylopdf.open(damaged, password="userpw")
+
+    assert not doc.is_repaired
+    assert not doc.can_save_incrementally
+
+
+def test_pikepdf_reads_an_encrypted_incremental_update() -> None:
+    pikepdf = pytest.importorskip("pikepdf", reason="interop group (pikepdf) is not installed")
+    doc = pylopdf.open(ENCRYPTED / "user-aes-256-object-streams.pdf", password="userpw")
+    doc.metadata["title"] = "Appended"
+
+    saved = doc.to_bytes(incremental=True)
+
+    with pikepdf.open(io.BytesIO(saved), password="userpw") as pdf:
+        assert pdf.check_pdf_syntax() == []
+        assert str(pdf.docinfo["/Title"]) == "Appended"
 
 
 @pytest.mark.parametrize(

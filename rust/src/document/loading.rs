@@ -95,6 +95,7 @@ pub(super) fn load(
         max_decompressed_size: decoder_bound,
         ..Default::default()
     };
+    let password = options.password.clone();
     py.detach(|| {
         let data = read_input(path, limits.max_file_size)?;
         reject_empty_input(&data, Some(&format!("failed to load {path}")))?;
@@ -120,11 +121,16 @@ pub(super) fn load(
                 limits.max_total_decompressed_size,
             )?;
         }
-        let original = (original_bytes_match && !renumbered).then(|| Arc::new(data));
+        let extendable = incremental::extendable(&doc, recovery, renumbered)?;
+        let original = (original_bytes_match && !renumbered || extendable).then(|| Arc::new(data));
+        let incremental_base = original
+            .as_ref()
+            .map(|data| IncrementalBase::new(Arc::clone(data), password, decoder_bound));
+        let rendering = original.filter(|_| original_bytes_match && !renumbered);
         Ok(_Document::from_loaded_doc(
             doc,
-            hayro_source(original.as_ref(), limits.max_interpretation_size),
-            original.map(|data| IncrementalBase::new(data, decoder_bound)),
+            hayro_source(rendering.as_ref(), limits.max_interpretation_size),
+            incremental_base,
             limits.max_text_size,
             limits.max_interpretation_size,
             limits.max_text_glyphs,
@@ -183,6 +189,7 @@ pub(super) fn load_bytes(
         max_decompressed_size: decoder_bound,
         ..Default::default()
     };
+    let password = options.password.clone();
     py.detach(|| {
         let (mut doc, recovery) = recovery::load_document(data, options)
             .map_err(|error| recovery_load_err(None, &error, decoder_limit_code))?;
@@ -201,7 +208,8 @@ pub(super) fn load_bytes(
                 limits.max_total_decompressed_size,
             )?;
         }
-        let original = if original_bytes_match && !renumbered {
+        let extendable = incremental::extendable(&doc, recovery, renumbered)?;
+        let original = if original_bytes_match && !renumbered || extendable {
             let mut owned = Vec::new();
             owned.try_reserve_exact(data.len()).map_err(|error| {
                 PdfError::new_err(format!("failed to allocate the original input: {error}"))
@@ -211,10 +219,14 @@ pub(super) fn load_bytes(
         } else {
             None
         };
+        let incremental_base = original
+            .as_ref()
+            .map(|data| IncrementalBase::new(Arc::clone(data), password, decoder_bound));
+        let rendering = original.filter(|_| original_bytes_match && !renumbered);
         Ok(_Document::from_loaded_doc(
             doc,
-            hayro_source(original.as_ref(), limits.max_interpretation_size),
-            original.map(|data| IncrementalBase::new(data, decoder_bound)),
+            hayro_source(rendering.as_ref(), limits.max_interpretation_size),
+            incremental_base,
             limits.max_text_size,
             limits.max_interpretation_size,
             limits.max_text_glyphs,

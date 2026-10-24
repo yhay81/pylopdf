@@ -96,10 +96,12 @@ doc.save(
 `incremental=True` writes the bytes the document was opened from unchanged
 and appends one update with the objects that differ from them, so a
 signature over the original bytes stays intact; an unedited document is
-written exactly as it was read. It works for a document opened from
-unencrypted bytes that loaded without repair, which `can_save_incrementally`
-reports, and refuses `dedupe`, `renumber`, `object_streams`, and
-`encryption`, which would rewrite objects the update leaves alone. `compress`
+written exactly as it was read. It works for a document opened from bytes
+that loaded without repair, unencrypted or with AES-128 or AES-256
+encryption, whose update is encrypted the same way, which
+`can_save_incrementally` reports, and refuses `dedupe`, `renumber`,
+`object_streams`, `decompress`, `cross_reference`, and an `encryption` other
+than `Encryption.KEEP`, which would rewrite objects the update leaves alone. `compress`
 then compresses only the streams the update writes. The output may go to any
 path, including the file the document came from. Such a document keeps its
 original bytes in memory while it is open.
