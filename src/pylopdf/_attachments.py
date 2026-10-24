@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from pylopdf._limits import (
@@ -43,11 +44,120 @@ def _validate_data(data: bytes, max_size: int | None) -> bytes:
     return bytes(data)
 
 
-class Attachment:
+#: The longest date string that a file's ``created`` and ``modified`` take.
+_MAX_DATE_SIZE = 64
+
+
+def _now() -> str:
+    """Return the current time as a PDF date string in UTC."""
+    return datetime.now(UTC).strftime("D:%Y%m%d%H%M%SZ")
+
+
+def _validate_date(date: object, field: str) -> str:
+    if not isinstance(date, str):
+        msg = f"{field} must be a PDF date string such as 'D:20260101120000Z': {date!r}"
+        raise TypeError(msg)
+    if not (0 < len(date) <= _MAX_DATE_SIZE and date.isascii() and date.isprintable()):
+        msg = f"{field} is a PDF date string of 1 to {_MAX_DATE_SIZE} printable ASCII characters: {date!r}"
+        raise ValueError(msg)
+    return date
+
+
+def _validate_text(value: object, field: str) -> str:
+    if not isinstance(value, str):
+        msg = f"{field} must be a str: {value!r}"
+        raise TypeError(msg)
+    _validate_cumulative_utf8_input(
+        (value,),
+        _MAX_EMBEDDED_FILE_INPUT_TEXT_SIZE,
+        limit_code="embedded_file_input_size",
+        input_label=f"attachment {field}",
+    )
+    return value
+
+
+class _FileFields:
+    """The fields that an attachment and a file attachment annotation's file share."""
+
+    __slots__ = ()
+
+    def _info(self) -> tuple[str, str, int, str, str]:
+        raise NotImplementedError
+
+    def _edit_file(self, edit: dict[str, str | None]) -> None:
+        raise NotImplementedError
+
+    @property
+    def filename(self) -> str:
+        """Return the viewer-facing file name (``/UF``, else ``/F``), or ``""``; assignable."""
+        return self._info()[0]
+
+    @filename.setter
+    def filename(self, filename: str) -> None:
+        filename = _validate_text(filename, "filename")
+        if not filename:
+            msg = "a file name cannot be empty"
+            raise ValueError(msg)
+        self._edit_file({"filename": filename})
+
+    @property
+    def description(self) -> str | None:
+        """Return the description (``/Desc``), or ``None``; assignable, and ``del`` removes it."""
+        return self._info()[1] or None
+
+    @description.setter
+    def description(self, description: str) -> None:
+        self._edit_file({"description": _validate_text(description, "description")})
+
+    @description.deleter
+    def description(self) -> None:
+        self._edit_file({"description": None})
+
+    @property
+    def size(self) -> int:
+        """Return the uncompressed size that the file declares (``/Params /Size``), or -1, as pymupdf does."""
+        return self._info()[2]
+
+    @property
+    def created(self) -> str | None:
+        """Return the creation date (``/Params /CreationDate``) as stored, or ``None``; assignable and deletable.
+
+        Dates are PDF date strings such as ``D:20260101120000Z``.
+        """
+        return self._info()[3] or None
+
+    @created.setter
+    def created(self, date: str) -> None:
+        self._edit_file({"created": _validate_date(date, "created")})
+
+    @created.deleter
+    def created(self) -> None:
+        self._edit_file({"created": None})
+
+    @property
+    def modified(self) -> str | None:
+        """Return the modification date (``/Params /ModDate``) as stored, or ``None``; assignable and deletable.
+
+        :meth:`write` sets it to the current time.
+        """
+        return self._info()[4] or None
+
+    @modified.setter
+    def modified(self, date: str) -> None:
+        self._edit_file({"modified": _validate_date(date, "modified")})
+
+    @modified.deleter
+    def modified(self) -> None:
+        self._edit_file({"modified": None})
+
+
+class Attachment(_FileFields):
     """A handle on one embedded file of a document, as ``doc.attachments[name]`` returns it.
 
-    Properties read the document on every access. A handle raises
-    :class:`StaleObjectError` once its attachment has been deleted.
+    Properties read the document on every access, and assigning
+    ``filename``, ``description``, ``created``, or ``modified`` edits the file
+    specification at once. A handle raises :class:`StaleObjectError` once its
+    attachment has been deleted.
     """
 
     __slots__ = ("_document", "_name")
@@ -71,30 +181,9 @@ class Attachment:
         """Return the key under which the document lists the attachment."""
         return self._name
 
-    @property
-    def filename(self) -> str:
-        """Return the viewer-facing file name (``/UF``, else ``/F``), or ``""``."""
-        return self._info()[0]
-
-    @property
-    def description(self) -> str:
-        """Return the description (``/Desc``), or ``""``."""
-        return self._info()[1]
-
-    @property
-    def size(self) -> int:
-        """Return the uncompressed size that the file declares (``/Params /Size``), or -1, as pymupdf does."""
-        return self._info()[2]
-
-    @property
-    def creation_date(self) -> str:
-        """Return the raw PDF creation date string (``/Params /CreationDate``), or ``""``."""
-        return self._info()[3]
-
-    @property
-    def mod_date(self) -> str:
-        """Return the raw PDF modification date string (``/Params /ModDate``), or ``""``."""
-        return self._info()[4]
+    def _edit_file(self, edit: dict[str, str | None]) -> None:
+        self._info()
+        self._document._doc.embfile_edit(self._name, edit)
 
     def read(self, *, max_size: int | None = _DEFAULT_MAX_EMBEDDED_FILE_SIZE) -> bytes:
         """Return the attachment's contents, as pymupdf's ``embfile_get`` does.
@@ -111,13 +200,14 @@ class Attachment:
     def write(self, data: bytes, /, *, max_size: int | None = _DEFAULT_MAX_EMBEDDED_FILE_SIZE) -> None:
         """Replace the attachment's contents, as pymupdf's ``embfile_upd`` does with ``buffer_``.
 
-        The name, file name, description, and dates stay; ``size`` becomes the
-        new length and a stale ``/CheckSum`` is dropped. ``max_size`` bounds
-        ``data`` and defaults to 64 MiB, checked before the data is copied.
+        The name, file name, description, and creation date stay; ``size``
+        becomes the new length, ``modified`` the current time, and a stale
+        ``/CheckSum`` is dropped. ``max_size`` bounds ``data`` and defaults to
+        64 MiB, checked before the data is copied.
         """
         self._info()
         payload = _validate_data(data, max_size)
-        self._document._doc.embfile_upd(self._name, payload, max_size)
+        self._document._doc.embfile_upd(self._name, payload, max_size, _now())
 
     def __eq__(self, other: object) -> bool:
         """Compare handles by document and name."""

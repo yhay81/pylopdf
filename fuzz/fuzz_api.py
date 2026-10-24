@@ -40,6 +40,12 @@ def test_one_input(data: bytes) -> None:
                     page.layout(chars=True).to_dict()
                     page.search("pdf")
                     page.pixmap(dpi=18, alpha=True)
+                    operations = page.operations
+                    data = operations.to_bytes()
+                    if pylopdf.Operations.parse(data, max_size=None) != operations:
+                        msg = "content operations do not round-trip"
+                        raise AssertionError(msg)
+                    page.operations = operations
 
                 doc.metadata.update({"producer": "pylopdf fuzz"})
                 saved = doc.to_bytes(dedupe=True, renumber=True, object_streams=True)

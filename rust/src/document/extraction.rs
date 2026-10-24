@@ -35,6 +35,18 @@ pub(super) fn text_page_limit_err(error: crate::extract::TextPageLimit) -> PyErr
 }
 
 impl _Document {
+    /// The fallback font programs that this document hands hayro for fonts
+    /// that are not embedded, which describe no font of the PDF.
+    pub(super) fn substitute_programs(&self) -> crate::extract::SubstitutePrograms {
+        let fonts = &self.fallback_fonts;
+        let programs = [&fonts.ja, &fonts.ko, &fonts.zh_cn, &fonts.zh_tw]
+            .into_iter()
+            .flat_map(|pair| [&pair.sans, &pair.serif])
+            .flatten()
+            .map(|(data, _)| data.as_slice());
+        crate::extract::SubstitutePrograms::new(programs)
+    }
+
     /// Return the glyph payload still available to one page interpretation.
     pub(super) fn text_budget(&self, page_number: u32) -> PyResult<Option<usize>> {
         let Some(limit) = self.max_text_size else {
@@ -145,9 +157,16 @@ impl _Document {
             .checked_sub(1)
             .and_then(|index| pages.get(index as usize))
             .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
-        let text_page =
-            crate::extract::TextPage::new(pdf, page, cache, settings, text_budget, glyph_budget)
-                .map_err(text_page_limit_err)?;
+        let text_page = crate::extract::TextPage::new(
+            pdf,
+            page,
+            cache,
+            settings,
+            text_budget,
+            glyph_budget,
+            &self.substitute_programs(),
+        )
+        .map_err(text_page_limit_err)?;
         self.admit_text_usage(page_number, text_page.text_size(), text_page.glyph_count())?;
         self.warn_skipped_no_unicode(text_page.skipped_no_unicode());
 
@@ -265,9 +284,16 @@ impl _Document {
             .checked_sub(1)
             .and_then(|index| pages.get(index as usize))
             .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
-        let table_page =
-            crate::extract::TablePage::new(pdf, page, cache, settings, text_budget, glyph_budget)
-                .map_err(text_page_limit_err)?;
+        let table_page = crate::extract::TablePage::new(
+            pdf,
+            page,
+            cache,
+            settings,
+            text_budget,
+            glyph_budget,
+            &self.substitute_programs(),
+        )
+        .map_err(text_page_limit_err)?;
         self.admit_text_usage(
             page_number,
             table_page.text_size(),
@@ -1011,5 +1037,6 @@ pub(super) fn image_pixmap(
         height,
         layout,
         data: Arc::new(data),
+        resolution: crate::pixmap::DEFAULT_RESOLUTION,
     })
 }

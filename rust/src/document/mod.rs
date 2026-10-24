@@ -71,6 +71,8 @@ mod fonts;
 mod forms;
 mod geometry;
 mod images;
+/// Incremental saves that append one update to the original bytes.
+mod incremental;
 /// The page index lives in its own module so that only `DerefMut`,
 /// `replace`, and the page-tree-neutral edits below can reach the wrapped
 /// document mutably.
@@ -102,6 +104,7 @@ pub(crate) use self::fonts::*;
 pub(crate) use self::forms::*;
 use self::geometry::*;
 pub(crate) use self::images::*;
+use self::incremental::IncrementalBase;
 pub(crate) use self::input::*;
 use self::labels::*;
 use self::layers::*;
@@ -114,6 +117,7 @@ pub(crate) use self::objects::*;
 use self::outline::*;
 use self::page_tree::*;
 use self::rendering::*;
+pub(crate) use self::replacement::_parse_operations;
 use self::saving::*;
 use self::streams::*;
 
@@ -164,6 +168,9 @@ pub struct _Document {
     /// thousands of member tables is used only when the serialized graph
     /// cannot be built, as `object_stream_work` decides.
     hayro_source: HayroSource,
+    /// The original bytes that an incremental save extends, kept for the
+    /// document's lifetime when they describe the loaded graph exactly.
+    incremental_base: Option<IncrementalBase>,
     /// Whether the current hayro snapshot was parsed from the original input
     /// rather than from a serialization of the graph; meaningful only while
     /// `hayro_pdf` is set. Tests read it through `snapshot_source`.
@@ -223,14 +230,14 @@ impl _Document {
     /// Construct from lopdf with no fallback fonts configured.
     fn from_doc(
         doc: Document,
-        hayro_source: Option<Vec<u8>>,
         max_text_size: Option<usize>,
         max_interpretation_size: Option<usize>,
         max_text_glyphs: Option<usize>,
     ) -> Self {
         Self::from_loaded_doc(
             doc,
-            HayroSource::from_optional_owned(hayro_source, max_interpretation_size),
+            HayroSource::Unavailable,
+            None,
             max_text_size,
             max_interpretation_size,
             max_text_glyphs,
@@ -242,6 +249,7 @@ impl _Document {
     fn from_loaded_doc(
         doc: Document,
         hayro_source: HayroSource,
+        incremental_base: Option<IncrementalBase>,
         max_text_size: Option<usize>,
         max_interpretation_size: Option<usize>,
         max_text_glyphs: Option<usize>,
@@ -255,6 +263,7 @@ impl _Document {
             fallback_fonts: FallbackFonts::default(),
             hayro_pdf: None,
             hayro_source,
+            incremental_base,
             hayro_pdf_from_original: false,
             content_guard: ContentGuard::default(),
             pages_too_deep: Vec::new(),
@@ -672,6 +681,27 @@ impl _Document {
     ) -> PyResult<Vec<u8>> {
         self.invalidate_hayro_pdf_keeping_placements();
         py.detach(|| serialize_pdf(&mut self.doc, Some(modern_save_options()), max_size))
+    }
+
+    /// Whether an incremental save can extend the original bytes.
+    fn can_save_incrementally(&self) -> bool {
+        self.incremental_base.is_some()
+    }
+
+    /// Write the original bytes and one update section to `path`.
+    fn save_incremental(&self, py: Python<'_>, path: &str, compress: bool) -> PyResult<()> {
+        incremental::save_incremental(self, py, path, compress)
+    }
+
+    /// Return the original bytes and one update section.
+    #[pyo3(signature = (compress, max_size=None))]
+    fn save_bytes_incremental(
+        &self,
+        py: Python<'_>,
+        compress: bool,
+        max_size: Option<usize>,
+    ) -> PyResult<Vec<u8>> {
+        incremental::save_bytes_incremental(self, py, compress, max_size)
     }
 
     /// Return the page count, walking the page tree once per edit.
@@ -1330,7 +1360,7 @@ impl _Document {
 
     /// Replace the data of the file that one file attachment embeds and
     /// return the annotation's object number.
-    #[pyo3(signature = (page_number, index, xref, data, max_size=Some(DEFAULT_MAX_EMBEDDED_FILE_SIZE)))]
+    #[pyo3(signature = (page_number, index, xref, data, max_size=Some(DEFAULT_MAX_EMBEDDED_FILE_SIZE), modified=None))]
     fn annotation_file_write(
         &mut self,
         page_number: u32,
@@ -1338,8 +1368,21 @@ impl _Document {
         xref: u32,
         data: Vec<u8>,
         max_size: Option<usize>,
+        modified: Option<String>,
     ) -> PyResult<u32> {
-        annotations::annotation_file_write(self, page_number, index, xref, data, max_size)
+        annotations::annotation_file_write(self, page_number, index, xref, data, max_size, modified)
+    }
+
+    /// Change the file name, description, or dates of the file that one
+    /// file attachment embeds; returns the annotation's object number.
+    fn annotation_file_edit(
+        &mut self,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+        edit: FileSpecEdit,
+    ) -> PyResult<u32> {
+        annotations::annotation_file_edit(self, page_number, index, xref, edit)
     }
 
     /// Read the display points and line endings of one annotation of a
@@ -1658,6 +1701,78 @@ impl _Document {
         layers::set_layer_intent(self, layer, intents)
     }
 
+    /// Return how many configurations there are: `/D` and `/Configs`.
+    fn layer_configuration_count(&self) -> PyResult<usize> {
+        layers::layer_configuration_count(self)
+    }
+
+    /// Return one configuration; slot 0 is `/D`, slot n is `/Configs[n - 1]`.
+    fn layer_configuration(&self, slot: usize) -> PyResult<ConfigurationInfo> {
+        layers::layer_configuration(self, slot)
+    }
+
+    /// Replace or, for `None`, remove a configuration's `/Name` or `/Creator`.
+    #[pyo3(signature = (slot, key, value))]
+    fn set_layer_configuration_text(
+        &mut self,
+        slot: usize,
+        key: &str,
+        value: Option<&str>,
+    ) -> PyResult<()> {
+        layers::set_layer_configuration_text(self, slot, key, value)
+    }
+
+    /// Replace a configuration's `/BaseState`.
+    fn set_layer_configuration_base_state(&mut self, slot: usize, state: &str) -> PyResult<()> {
+        layers::set_layer_configuration_base_state(self, slot, state)
+    }
+
+    /// Replace a configuration's `/ON`, `/OFF`, or `/Locked`.
+    fn set_layer_configuration_refs(
+        &mut self,
+        slot: usize,
+        key: &str,
+        ids: Vec<(u32, u16)>,
+    ) -> PyResult<()> {
+        layers::set_layer_configuration_refs(self, slot, key, ids)
+    }
+
+    /// Replace a configuration's `/RBGroups`.
+    fn set_layer_configuration_radio_groups(
+        &mut self,
+        slot: usize,
+        groups: Vec<Vec<(u32, u16)>>,
+    ) -> PyResult<()> {
+        layers::set_layer_configuration_radio_groups(self, slot, groups)
+    }
+
+    /// Replace a configuration's `/Order` from preorder entries.
+    fn set_layer_configuration_order(
+        &mut self,
+        slot: usize,
+        entries: Vec<OrderEntry>,
+    ) -> PyResult<()> {
+        layers::set_layer_configuration_order(self, slot, entries)
+    }
+
+    /// Make configuration `slot` the default configuration.
+    fn apply_layer_configuration(&mut self, slot: usize) -> PyResult<()> {
+        layers::apply_layer_configuration(self, slot)
+    }
+
+    /// Append a configuration to `/Configs` and return its slot.
+    #[pyo3(signature = (name, creator, base_state, on, off))]
+    fn add_layer_configuration(
+        &mut self,
+        name: &str,
+        creator: Option<&str>,
+        base_state: &str,
+        on: Vec<(u32, u16)>,
+        off: Vec<(u32, u16)>,
+    ) -> PyResult<usize> {
+        layers::add_layer_configuration(self, name, creator, base_state, on, off)
+    }
+
     /// Return AcroForm fields as `(full name, xref, kind, value, flags)`.
     ///
     /// Kind is text/checkbox/radio/pushbutton/combobox/listbox/signature or
@@ -1818,15 +1933,21 @@ impl _Document {
     }
 
     /// Replace one attachment's data, raising an error when absent.
-    #[pyo3(signature = (name, data, max_size=Some(DEFAULT_MAX_EMBEDDED_FILE_SIZE)))]
+    #[pyo3(signature = (name, data, max_size=Some(DEFAULT_MAX_EMBEDDED_FILE_SIZE), modified=None))]
     fn embfile_upd(
         &mut self,
         py: Python<'_>,
         name: &str,
         data: Vec<u8>,
         max_size: Option<usize>,
+        modified: Option<String>,
     ) -> PyResult<()> {
-        attachments::embfile_upd(self, py, name, data, max_size)
+        attachments::embfile_upd(self, py, name, data, max_size, modified)
+    }
+
+    /// Change one attachment's file name, description, or dates.
+    fn embfile_edit(&mut self, name: &str, edit: FileSpecEdit) -> PyResult<()> {
+        attachments::embfile_edit(self, name, edit)
     }
 
     /// Insert display-coordinate OCR words as an invisible text layer.
@@ -1869,6 +1990,36 @@ impl _Document {
         page_number: u32,
     ) -> PyResult<Vec<replacement::ContentGlyphTuple>> {
         replacement::content_glyphs(self, py, page_number)
+    }
+
+    /// Interpret a one-based page's content with the redaction engine and
+    /// return its paths, image placements, shadings, and marked-content
+    /// sequences with the operations that painted them. A private hook for
+    /// the agreement tests.
+    fn content_items(
+        &self,
+        py: Python<'_>,
+        page_number: u32,
+    ) -> PyResult<replacement::ContentItems> {
+        replacement::content_items(self, py, page_number)
+    }
+
+    /// Tokenize a one-based page's joined content as hayro reads it and
+    /// return its operations with their bytes, and the bytes after the last
+    /// one, for `Page.operations`.
+    #[pyo3(signature = (page_number, max_operations=Some(replacement::DEFAULT_MAX_OPERATIONS)))]
+    fn page_operations(
+        &self,
+        py: Python<'_>,
+        page_number: u32,
+        max_operations: Option<usize>,
+    ) -> PyResult<(Vec<Py<PyAny>>, Py<pyo3::types::PyBytes>)> {
+        replacement::page_operations(self, py, page_number, max_operations)
+    }
+
+    /// Replace a one-based page's `/Contents` with one new stream of `data`.
+    fn set_page_content(&mut self, py: Python<'_>, page_number: u32, data: &[u8]) -> PyResult<()> {
+        replacement::set_page_content(self, py, page_number, data)
     }
 
     /// Replace text on a one-based page and return the replacement count.

@@ -1,7 +1,7 @@
 """The redaction engine's content interpreter places glyphs where hayro does.
 
-`_Document.content_glyphs` is a private hook: it interprets a page over
-lopdf's strict content parse and reports, per glyph, the display-space origin,
+`_Document.content_glyphs` is a private hook: it interprets a page tokenized
+as hayro tokenizes it and reports, per glyph, the display-space origin,
 the character code, the advance in glyph space, the text rendering mode, the
 code's location in its content stream, and whether the metrics were
 approximate or the font a Helvetica fallback. Text extraction, which hayro
@@ -308,7 +308,7 @@ def test_forms_nest_to_hayros_depth_and_no_deeper() -> None:
 
 def test_forms_that_draw_themselves_twice_hit_the_operation_bound() -> None:
     form = _stream(
-        "/Self Do /Self Do",
+        "q Q " * 1000 + "/Self Do /Self Do",
         "/Type /XObject /Subtype /Form /BBox [0 0 10 10] /Resources << /XObject << /Self 6 0 R >> >>",
     )
     doc = pylopdf.open(_page("/Self Do", "<< /XObject << /Self 6 0 R >> >>", form))
@@ -318,8 +318,158 @@ def test_forms_that_draw_themselves_twice_hit_the_operation_bound() -> None:
     assert error.value.code == "content_operation_count"
 
 
-def test_content_that_lopdf_cannot_parse_strictly_is_refused() -> None:
-    doc = pylopdf.open(_page("BT /F1 10 Tf (unterminated Tj ET"))
+def test_forms_that_draw_themselves_twice_hit_the_item_bound() -> None:
+    # Every placement of a form is a container of its own.
+    form = _stream(
+        "/Self Do /Self Do",
+        "/Type /XObject /Subtype /Form /BBox [0 0 10 10] /Resources << /XObject << /Self 6 0 R >> >>",
+    )
+    doc = pylopdf.open(_page("/Self Do", "<< /XObject << /Self 6 0 R >> >>", form))
 
-    with pytest.raises(pylopdf.PdfError, match="content stream does not parse"):
+    with pytest.raises(pylopdf.LimitError) as error:
         _glyphs(doc)
+    assert error.value.code == "content_item_count"
+
+
+def test_content_stops_where_hayro_stops_reading() -> None:
+    # hayro cannot read the unterminated string and reads nothing after it.
+    doc = pylopdf.open(_page("BT /F1 10 Tf 72 700 Td (A) Tj (unterminated Tj ET"))
+
+    assert [glyph[1] for glyph in _glyphs(doc)] == [ord("A")]
+
+
+def _items(doc: pylopdf.Document, pno: int = 0) -> tuple[list, list, list, list, list]:
+    return doc._doc.content_items(pno + 1)  # noqa: SLF001 - private content-engine hook.
+
+
+def _close(a: tuple[float, ...], b: tuple[float, ...], tolerance: float = TOLERANCE) -> bool:
+    return all(abs(x - y) <= tolerance for x, y in zip(a, b, strict=True))
+
+
+@pytest.mark.filterwarnings("ignore::pylopdf.PylopdfWarning")
+@pytest.mark.parametrize("path", sorted(REAL_WORLD.glob("*.pdf")), ids=lambda path: path.name)
+def test_every_path_and_image_hayro_paints_has_an_interpreted_twin(path: Path) -> None:
+    doc = pylopdf.open(path)
+    for pno in range(min(len(doc.pages), 8)):
+        paths, images, _, _, containers = _items(doc, pno)
+        # Rendering synthesizes appearances that the document does not hold.
+        content = doc.pages[pno].content(text_runs=False, annotations=False)
+        boxes = [path[3] for path in paths]
+        for item in content.paths:
+            # An `sh` is a path of the content model, and a shading here.
+            if isinstance(item.fill, pylopdf.ShadingPattern) and item.stroke is None:
+                continue
+            assert any(_close(tuple(item.bbox), box, 0.05) for box in boxes), (pno, item.bbox)
+        image_boxes = [image[3] for image in images]
+        for item in content.images:
+            assert any(_close(tuple(item.bbox), box, 0.05) for box in image_boxes), (pno, item.bbox)
+        for number, parent, _ in containers[1:]:
+            assert number > 0
+            assert parent is None or parent[0] < len(containers)
+
+
+def test_paths_name_the_operations_that_build_and_paint_them() -> None:
+    content = "q 2 w 10 10 m 50 10 l S 0 0 1 rg 60 60 20 20 re f 100 100 m 120 100 l 110 130 l h B Q"
+    doc = pylopdf.open(_page(content))
+    paths, _, _, _, _ = _items(doc)
+
+    assert [(path[1], path[2], path[5]) for path in paths] == [
+        (2, 4, (False, True, False)),
+        (6, 7, (True, False, False)),
+        (8, 12, (True, True, False)),
+    ]
+    # Display space puts y downward on the 300-point page.
+    assert _close(paths[0][3], (10, 290, 50, 290))
+    assert _close(paths[1][3], (60, 220, 80, 240))
+    # A stroke covers half its width beyond the geometry, diagonally for its caps.
+    width = 2 / 2 * 2**0.5
+    assert _close(paths[0][4], (10 - width, 290 - width, 50 + width, 290 + width))
+
+
+def test_clipping_paths_narrow_what_shadings_and_images_paint() -> None:
+    content = "q 50 50 100 100 re W n /Sh sh 10 0 0 10 60 60 cm /Im Do Q /Sh sh"
+    resources = (
+        "<< /Shading << /Sh << /ShadingType 2 /ColorSpace /DeviceGray /Coords [0 0 1 0]"
+        " /Function << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >> >> >>"
+        " /XObject << /Im 6 0 R >> >>"
+    )
+    image = _stream(
+        "\x80", "/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8"
+    )
+    doc = pylopdf.open(_page(content, resources, image))
+    paths, images, shadings, _, _ = _items(doc)
+
+    assert paths == []
+    assert [(shading[1], shading[2]) for shading in shadings] == [(4, (50.0, 150.0, 150.0, 250.0)), (8, None)]
+    assert [(image[1], image[2]) for image in images] == [(6, 6)]
+    assert _close(images[0][3], (60, 230, 70, 240))
+    assert images[0][4] == (50.0, 150.0, 150.0, 250.0)
+
+
+def test_inline_images_and_marked_content_are_recorded() -> None:
+    content = "/P << /MCID 0 >> BDC q 20 0 0 10 5 5 cm BI /W 1 /H 1 /BPC 8 /CS /G ID \x80 EI Q EMC /Artifact BMC"
+    doc = pylopdf.open(_page(content))
+    _, images, _, marked, _ = _items(doc)
+
+    assert [(image[0], image[1], image[2]) for image in images] == [(0, 3, 0)]
+    assert _close(images[0][3], (5, 285, 25, 295))
+    assert marked == [(0, 0, 5), (0, 6, None)]
+
+
+def test_each_placement_of_a_form_is_its_own_container() -> None:
+    form = _stream(
+        "0 0 10 10 re f BT /F1 5 Tf (A) Tj ET",
+        "/Type /XObject /Subtype /Form /BBox [0 0 10 10] /Resources << /Font << /F1 4 0 R >> >>",
+    )
+    content = "q 1 0 0 1 20 20 cm /Fm Do Q q 1 0 0 1 100 20 cm /Fm Do Q"
+    doc = pylopdf.open(_page(content, "<< /XObject << /Fm 6 0 R >> >>", form))
+    paths, _, _, _, containers = _items(doc)
+
+    assert containers == [(0, None, 0), (6, (0, 2), 0), (6, (0, 6), 0)]
+    assert [path[0] for path in paths] == [6, 6]
+    assert _close(paths[0][3], (20, 270, 30, 280))
+    assert _close(paths[1][3], (100, 270, 110, 280))
+    glyphs = _glyphs(doc)
+    assert [glyph[4][0] for glyph in glyphs] == [6, 6]
+
+
+def test_graphics_states_widen_strokes() -> None:
+    content = "/Wide gs 10 10 m 50 10 l S"
+    doc = pylopdf.open(_page(content, "<< /ExtGState << /Wide << /LW 10 >> >> >>"))
+    paths, _, _, _, _ = _items(doc)
+
+    half = 10 / 2 * 2**0.5
+    assert _close(paths[0][4], (10 - half, 290 - half, 50 + half, 290 + half))
+
+
+def test_glyph_compensation_restores_the_advance() -> None:
+    # Helvetica's A is 667 units wide; Tc and Tw add 2 and 3 points at 10 points.
+    content = "BT /F1 10 Tf 2 Tc 3 Tw 150 Tz 20 250 Td (A ) Tj 0 0 Td ET"
+    doc = pylopdf.open(_page(content))
+    glyphs = _glyphs(doc)
+
+    assert [round(glyph[8], 3) for glyph in glyphs] == [-(667 + 200), -(278 + 500)]
+    # A box spans the advance and the font's extent.
+    x0, y0, x1, y1 = glyphs[0][7]
+    assert _close((x0, x1), (20, 20 + 6.67 * 1.5))
+    assert y0 < 50 - 7 < 50 < y1
+
+
+def test_vertical_glyph_compensation() -> None:
+    font = (
+        "<< /Type /Font /Subtype /Type0 /BaseFont /V /Encoding /Identity-V /DescendantFonts"
+        " [<< /Type /Font /Subtype /CIDFontType2 /BaseFont /V /CIDSystemInfo"
+        " << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /DW 1000 >>] >>"
+    )
+    content = "BT /F1 10 Tf 100 250 Td <00010002> Tj ET"
+    doc = pylopdf.open(_page(content, "<< /Font << /F1 6 0 R >> >>", font))
+    glyphs = _glyphs(doc)
+
+    # DW2 defaults to a -1000 vertical advance, which a TJ number of 1000 reverses.
+    assert [glyph[8] for glyph in glyphs] == [1000.0, 1000.0]
+
+
+def test_a_zero_font_size_has_no_compensation() -> None:
+    doc = pylopdf.open(_page("BT /F1 0 Tf 20 250 Td (A) Tj ET"))
+
+    assert [glyph[8] for glyph in _glyphs(doc)] == [None]

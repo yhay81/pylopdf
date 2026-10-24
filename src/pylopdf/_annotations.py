@@ -6,9 +6,9 @@ import enum
 import math
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast, overload
 
+from pylopdf._attachments import _FileFields, _now
 from pylopdf._canvas import _canvas_font
 from pylopdf._content import BlendMode, Color
 from pylopdf._errors import StalePageError
@@ -297,11 +297,13 @@ _ATTACHMENT_ICON_NAMES = {icon: "".join(part.capitalize() for part in icon.value
 _DEFAULT_MAX_FILE_SIZE = 64 * 1024 * 1024
 
 
-class AnnotationFile:
+class AnnotationFile(_FileFields):
     """The file that a file attachment annotation embeds, as :attr:`Annotation.file` returns it.
 
-    It reads the document on every access, as :class:`Attachment` does for
-    the document's own attachments.
+    It reads the document on every access and has the members of
+    :class:`Attachment`, which describes the document's own attachments:
+    assigning ``filename``, ``description``, ``created``, or ``modified``
+    edits the file specification at once.
     """
 
     __slots__ = ("_annotation",)
@@ -317,20 +319,9 @@ class AnnotationFile:
             raise StaleObjectError(msg)
         return info
 
-    @property
-    def filename(self) -> str:
-        """Return the viewer-facing file name (``/UF``, else ``/F``), or ``""``."""
-        return self._info()[0]
-
-    @property
-    def description(self) -> str:
-        """Return the description (``/Desc``), or ``""``."""
-        return self._info()[1]
-
-    @property
-    def size(self) -> int:
-        """Return the uncompressed size that the file declares, or -1."""
-        return self._info()[2]
+    def _edit_file(self, edit: dict[str, str | None]) -> None:
+        self._info()
+        self._annotation._edit("annotation_file_edit", edit)
 
     def read(self, *, max_size: int | None = _DEFAULT_MAX_FILE_SIZE) -> bytes:
         """Return the file's contents; ``max_size`` bounds every decoding layer (``embedded_file_size``)."""
@@ -343,10 +334,10 @@ class AnnotationFile:
         )
 
     def write(self, data: bytes | bytearray | memoryview, /, *, max_size: int | None = _DEFAULT_MAX_FILE_SIZE) -> None:
-        """Replace the file's contents; the name and description stay, and ``size`` becomes the new length."""
+        """Replace the file's contents; ``size`` becomes the new length and ``modified`` the current time."""
         self._info()
         payload = _attached_data(data, max_size)
-        self._annotation._edit("annotation_file_write", payload, max_size)
+        self._annotation._edit("annotation_file_write", payload, max_size, _now())
 
     def __repr__(self) -> str:
         """Return ``AnnotationFile('name')``."""
@@ -1106,11 +1097,6 @@ def _contents(value: object) -> str | None:
 #: /M, which the input budget charges so that the annotation reads back
 #: under the same budget.
 _DATE_PLACEHOLDER = "D:00000000000000Z"
-
-
-def _now() -> str:
-    """Return the current time as a PDF date string in UTC."""
-    return datetime.now(UTC).strftime("D:%Y%m%d%H%M%SZ")
 
 
 class _Shape:

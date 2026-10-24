@@ -172,6 +172,24 @@ def _build_multicolumn_pdf() -> bytes:
     )
 
 
+def _build_painted_text_pdf() -> bytes:
+    stream = (
+        "BT /F1 12 Tf 1 0 0 rg 20 270 Td (Red) Tj ET\n"
+        "q BT /F1 12 Tf 1 Tr 0 0 1 RG 20 240 Td (Outline) Tj ET Q\n"
+        "q BT /F1 12 Tf 3 Tr 20 210 Td (Hidden) Tj ET Q\n"
+        "q 0 0 5 5 re W n BT /F1 12 Tf 20 180 Td (Clipped) Tj ET Q"
+    )
+    return _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 400 300] >>",
+            3: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            4: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R /Resources << /Font << /F1 3 0 R >> >> >>",
+            5: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+        }
+    )
+
+
 def _build_limited_content_pdf(content: bytes, filter_name: str) -> bytes:
     return _build_raw_pdf(
         {
@@ -624,6 +642,29 @@ def _layout_results() -> dict[str, Any]:
         all(math.isfinite(value) for char in raw_chars for value in (*char["bbox"], *char["origin"])),
         "rawdict glyph geometry is not finite",
     )
+    painted = pylopdf.open(_build_painted_text_pdf()).pages[0]
+    span_styles = {
+        span.text: [
+            None if span.color is None else list(span.color.rgb),
+            span.render_mode.value,
+            span.is_clipped,
+            span.ascender,
+            span.descender,
+        ]
+        for block in painted.layout().blocks
+        for line in block.lines
+        for span in line.spans
+    }
+    _require(
+        span_styles
+        == {
+            "Red": [[1.0, 0.0, 0.0], "fill", False, 0.8, -0.2],
+            "Outline": [[0.0, 0.0, 1.0], "stroke", False, 0.8, -0.2],
+            "Hidden": [None, "invisible", False, 0.8, -0.2],
+            "Clipped": [[1.0, 0.0, 0.0], "fill", True, 0.8, -0.2],
+        },
+        "span paint, render modes, or clipping changed",
+    )
     limited_columns = pylopdf.open(_build_multicolumn_pdf(), limits=pylopdf.DocumentLimits(max_text_size=8))
     try:
         limited_columns.pages[0].text()
@@ -648,6 +689,7 @@ def _layout_results() -> dict[str, Any]:
             "glyph_count": len(raw_chars),
             "line_origins": raw_origins,
         },
+        "span_styles": span_styles,
         "text_limit_code": text_limit_code,
     }
 
@@ -965,6 +1007,37 @@ def _flatten_results() -> dict[str, Any]:
     return result
 
 
+def _operations_results() -> dict[str, Any]:
+    """Read content operations as hayro tokenizes them and write them back."""
+    import pylopdf  # noqa: PLC0415
+
+    content = b'% c\nq BI /W 1 /H 1 /BPC 8 /CS /G /F /A85 ID 8;Z]"!!~>\nEI Q BT /F1 12 Tf 20 150 Td (Keep) Tj ET'
+    parsed = pylopdf.Operations.parse(content + b" 1 2 3 4 5 6 7 8 9 10 11 sc")
+    _require(parsed.to_bytes() == content + b" 1 2 3 4 5 6 7 8 9 10 11 sc", "operations did not round-trip")
+    with pylopdf.Document() as document:
+        page = document.pages.new((300, 200))
+        page.obj["Resources"] = {
+            "Font": {
+                "F1": {
+                    "Type": pylopdf.Name("Font"),
+                    "Subtype": pylopdf.Name("Type1"),
+                    "BaseFont": pylopdf.Name("Helvetica"),
+                }
+            }
+        }
+        page.operations = parsed
+        kept = [op for op in page.operations if not isinstance(op, pylopdf.InlineImage)]
+        page.operations = [*kept, pylopdf.Operation("re", (10, 10, 20, 20)), pylopdf.Operation("f")]
+        saved = document.to_bytes()
+    with pylopdf.open(saved) as reopened:
+        operations = reopened.pages[0].operations
+        return {
+            "operators": [op.operator for op in operations],
+            "tail": operations.tail.decode(),
+            "text": reopened.pages[0].text().split(),
+        }
+
+
 def _widget_results() -> dict[str, Any]:
     """Read form widgets, restyle them, and draw their values again."""
     import pylopdf  # noqa: PLC0415
@@ -1156,6 +1229,18 @@ def _save_option_results() -> dict[str, Any]:
         }
     _require(results["plain"]["objects"] == 9, "prune=False removed objects")  # noqa: PLR2004 - the input's objects.
     _require(results["dedupe"] == {"objects": 6, "fonts": 1, "pages": 2}, "dedupe did not merge duplicates")
+    document = pylopdf.open(data)
+    _require(document.can_save_incrementally, "an intact input cannot be saved incrementally")
+    _require(document.to_bytes(incremental=True) == data, "an unedited incremental save changed the input")
+    document.metadata["title"] = "Incremental"
+    saved = document.to_bytes(incremental=True)
+    _require(saved[: len(data)] == data, "an incremental save changed the original bytes")
+    with pylopdf.open(saved) as reopened:
+        results["incremental"] = {
+            "update_objects": saved[len(data) :].count(b" 0 obj"),
+            "title": reopened.metadata["title"],
+            "texts": [page.text().strip() for page in reopened.pages],
+        }
     return results
 
 
@@ -1483,6 +1568,12 @@ def _optional_content_results() -> dict[str, Any]:
     hidden.is_visible = True
     added = document.layers.add("Ébauche", visible=False, intent=("Design",))
     after = [page.text().split(), memoryview(page.pixmap()).tolist()[155][45]]
+    default = document.layers.configurations[0]
+    default.order = [pylopdf.LayerOrder("Review", (notes, hidden)), added]
+    default.radio_groups = [(notes, hidden)]
+    printing = document.layers.configurations.add("Print", base_state="OFF", on=[notes])
+    printing.apply()
+    applied = page.text().split()
     saved = pylopdf.open(document.to_bytes())
     _require(before[0] == ["Bravo"] and after[0] == [], "layer visibility did not change extraction")
     _require(before[1] != after[1], "layer visibility did not change rendering")
@@ -1491,6 +1582,37 @@ def _optional_content_results() -> dict[str, Any]:
         "after": after,
         "added": [added.name, list(added.intent), added.is_visible],
         "saved": [[layer.name, list(layer.intent), layer.is_visible] for layer in saved.layers],
+        "applied": applied,
+        "configurations": [
+            [config.name, str(config.base_state), [layer.name for layer in config.on], repr(config.order)]
+            for config in saved.layers.configurations
+        ],
+    }
+
+
+def _attachment_results() -> dict[str, Any]:
+    """Add, edit, and rewrite an attachment and an annotation's file, then read them back."""
+    import pylopdf  # noqa: PLC0415
+
+    document = pylopdf.Document()
+    page = document.pages.new((200, 200))
+    attachment = document.attachments.add("data", b"a,b", filename="data.csv", description="Rows")
+    attachment.filename = "données.csv"
+    attachment.created = "D:20260101000000Z"
+    attachment.modified = "D:20260102000000Z"
+    del attachment.description
+    annotation = page.annotations.add(pylopdf.FileAttachment((20, 30), b"payload", filename="a.bin"))
+    attached = annotation.file
+    _require(attached is not None, "a file attachment lost its file")
+    attached.description = "Raw"
+    attached.created = "D:20250101000000Z"
+    saved = pylopdf.open(document.to_bytes())
+    item = saved.attachments["data"]
+    file = saved.pages[0].annotations[0].file
+    _require(file is not None, "a saved file attachment lost its file")
+    return {
+        "attachment": [item.filename, item.description, item.size, item.created, item.modified, item.read().decode()],
+        "annotation": [file.filename, file.description, file.size, file.created, file.read().decode()],
     }
 
 
@@ -1744,10 +1866,12 @@ def collect_results(root: Path) -> dict[str, Any]:
         "annotations": _annotation_results(),
         "widgets": _widget_results(),
         "flatten": _flatten_results(),
+        "operations": _operations_results(),
         "ocr_layer": _ocr_layer_results(),
         "object_model": _object_model_results(),
         "optional_content": _optional_content_results(),
         "document_properties": _document_property_results(root),
+        "attachments": _attachment_results(),
         "content_model": _content_model_results(root),
         "canvas": _canvas_results(root),
         "create": _create_results(root),

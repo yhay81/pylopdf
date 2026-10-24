@@ -408,6 +408,19 @@ class Document:
         return self._clean_revision != self._doc.edit_revision()
 
     @property
+    def can_save_incrementally(self) -> bool:
+        """Return whether :meth:`save` and :meth:`to_bytes` accept ``incremental=True``.
+
+        That needs the bytes that the document was opened from, read as they
+        were written: a document created empty, one whose cross-reference
+        data opening repaired, one whose objects opening renumbered, and an
+        encrypted one cannot be saved incrementally. The document keeps its
+        original bytes in memory for as long as it can.
+        """
+        self._ensure_not_closed()
+        return self._doc.can_save_incrementally()
+
+    @property
     def permissions(self) -> Permissions:
         """Return what the document permits, as :class:`Permissions` flags.
 
@@ -1190,6 +1203,7 @@ class Document:
         renumber: bool = False,
         object_streams: bool = False,
         encryption: Encryption | None = None,
+        incremental: bool = False,
     ) -> None:
         """Write the document to a file.
 
@@ -1208,9 +1222,21 @@ class Document:
         ``encryption`` takes an :class:`Encryption` and writes AES-256
         encryption while the document in memory stays unencrypted; ``None``
         writes no encryption, even for a document that was encrypted.
-        Encryption cannot be combined with ``object_streams``. The file is
-        written to a temporary file next to ``path``, which replaces ``path``
-        only after the write succeeded.
+        Encryption cannot be combined with ``object_streams``.
+
+        ``incremental`` writes the bytes that the document was opened from
+        unchanged and appends one update with the objects that differ from
+        them, so a signature over the original bytes stays intact; an
+        unedited document is written exactly as it was read. Only a document
+        for which :attr:`can_save_incrementally` holds can be saved this way,
+        and ``dedupe``, ``renumber``, ``object_streams``, and ``encryption``
+        refuse it, because they would rewrite objects that the update leaves
+        alone. ``compress`` then compresses only the streams that the update
+        writes, and ``prune`` keeps unreachable objects out of it. The path
+        need not be the file that the document was opened from.
+
+        The file is written to a temporary file next to ``path``, which
+        replaces ``path`` only after the write succeeded.
         """
         self._ensure_open()
         self._check_save_options(
@@ -1220,9 +1246,14 @@ class Document:
             renumber=renumber,
             object_streams=object_streams,
             encryption=encryption,
+            incremental=incremental,
         )
         clean = not self.is_dirty
         try:
+            if incremental:
+                self._apply_save_options(compress=False, prune=prune, dedupe=False, renumber=False)
+                _atomic_save_file(path, functools.partial(self._doc.save_incremental, compress=compress))
+                return
             self._apply_save_options(compress=compress, prune=prune, dedupe=dedupe, renumber=renumber)
             writer: Callable[[str], None]
             if encryption is not None:
@@ -1251,6 +1282,7 @@ class Document:
         renumber: bool = False,
         object_streams: bool = False,
         encryption: Encryption | None = None,
+        incremental: bool = False,
         max_size: int | None = _DEFAULT_MAX_PDF_OUTPUT_SIZE,
     ) -> bytes:
         """Return the document as PDF bytes, with the options of :meth:`save`.
@@ -1267,10 +1299,14 @@ class Document:
             renumber=renumber,
             object_streams=object_streams,
             encryption=encryption,
+            incremental=incremental,
         )
         _validate_optional_positive_int("max_size", max_size)
         clean = not self.is_dirty
         try:
+            if incremental:
+                self._apply_save_options(compress=False, prune=prune, dedupe=False, renumber=False)
+                return self._doc.save_bytes_incremental(compress, max_size)
             self._apply_save_options(compress=compress, prune=prune, dedupe=dedupe, renumber=renumber)
             if encryption is not None:
                 return self._doc.save_bytes_encrypted(
@@ -1287,8 +1323,8 @@ class Document:
             if clean:
                 self._clean_revision = self._doc.edit_revision()
 
-    @staticmethod
     def _check_save_options(  # noqa: PLR0913 - one keyword per save option.
+        self,
         *,
         compress: bool,
         prune: bool,
@@ -1296,6 +1332,7 @@ class Document:
         renumber: bool,
         object_streams: bool,
         encryption: Encryption | None,
+        incremental: bool,
     ) -> None:
         """Validate the options of :meth:`save` and :meth:`to_bytes` before anything changes."""
         options = {
@@ -1304,6 +1341,7 @@ class Document:
             "dedupe": dedupe,
             "renumber": renumber,
             "object_streams": object_streams,
+            "incremental": incremental,
         }
         for name, value in options.items():
             if not isinstance(value, bool):
@@ -1319,6 +1357,26 @@ class Document:
             if object_streams:
                 msg = "encryption cannot be combined with object_streams=True"
                 raise ValueError(msg)
+        if incremental:
+            rewriting = [
+                name
+                for name, value in (
+                    ("dedupe", dedupe),
+                    ("renumber", renumber),
+                    ("object_streams", object_streams),
+                    ("encryption", encryption is not None),
+                )
+                if value
+            ]
+            if rewriting:
+                msg = f"incremental=True cannot be combined with {', '.join(rewriting)}, which would rewrite objects"
+                raise ValueError(msg)
+            if not self._doc.can_save_incrementally():
+                msg = (
+                    "this document cannot be saved incrementally: only a document opened from "
+                    "unencrypted bytes that loaded without repair can be"
+                )
+                raise PdfError(msg)
 
     def _apply_save_options(self, *, compress: bool, prune: bool, dedupe: bool, renumber: bool) -> None:
         """Apply the save options that change the document before it is written."""

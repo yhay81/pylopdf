@@ -5,12 +5,12 @@ use super::*;
 /// Original unencrypted input retained for the first render or extraction.
 pub(super) enum HayroSource {
     Unavailable,
-    Bytes(Vec<u8>),
+    Bytes(Arc<Vec<u8>>),
     TooLarge { actual: usize, limit: usize },
 }
 
 impl HayroSource {
-    pub(super) fn from_owned(data: Vec<u8>, max_size: Option<usize>) -> Self {
+    pub(super) fn from_shared(data: Arc<Vec<u8>>, max_size: Option<usize>) -> Self {
         match max_size {
             Some(limit) if data.len() > limit => Self::TooLarge {
                 actual: data.len(),
@@ -20,30 +20,7 @@ impl HayroSource {
         }
     }
 
-    pub(super) fn from_optional_owned(data: Option<Vec<u8>>, max_size: Option<usize>) -> Self {
-        data.map_or(Self::Unavailable, |data| Self::from_owned(data, max_size))
-    }
-
-    pub(super) fn from_borrowed(data: &[u8], max_size: Option<usize>) -> PyResult<Self> {
-        if let Some(limit) = max_size
-            && data.len() > limit
-        {
-            return Ok(Self::TooLarge {
-                actual: data.len(),
-                limit,
-            });
-        }
-        let mut owned = Vec::new();
-        owned.try_reserve_exact(data.len()).map_err(|error| {
-            PdfError::new_err(format!(
-                "failed to allocate rendering and extraction source: {error}"
-            ))
-        })?;
-        owned.extend_from_slice(data);
-        Ok(Self::Bytes(owned))
-    }
-
-    pub(super) fn take_bytes(&mut self) -> Option<Vec<u8>> {
+    pub(super) fn take_bytes(&mut self) -> Option<Arc<Vec<u8>>> {
         match std::mem::replace(self, Self::Unavailable) {
             Self::Bytes(data) => Some(data),
             Self::Unavailable | Self::TooLarge { .. } => None,
@@ -236,6 +213,23 @@ pub(super) fn raster_samples(pixmap: hayro::vello_cpu::Pixmap, layout: Layout) -
     data
 }
 
+/// The resolution of a raster rendered through `matrix`: the pixels per
+/// inch of the page along each raster axis, rounded, from 1 through 65,535.
+///
+/// One pixel along the raster's x axis spans `hypot(b, d) / |det|` points of
+/// the page, so a diagonal matrix gives `72 a` by `72 d` dots per inch, and a
+/// quarter turn keeps the resolution of the upright page.
+pub(super) fn render_resolution(matrix: RenderMatrix) -> crate::pixmap::Resolution {
+    let (a, b, c, d) = matrix;
+    let determinant = (a * d - b * c).abs();
+    let per_inch = |length: f64| {
+        (72.0 * determinant / length)
+            .round()
+            .clamp(1.0, f64::from(crate::pixmap::MAX_RESOLUTION)) as u32
+    };
+    (per_inch(b.hypot(d)), per_inch(a.hypot(c)))
+}
+
 /// Validate one page and return its raster geometry under `matrix`.
 pub(super) fn page_raster_geometry(
     pdf: &Pdf,
@@ -299,17 +293,21 @@ pub(super) fn render_pdf_page<'a>(
     Ok(pixmap)
 }
 
-/// Encode a rendered pixmap in `layout` as `encoding` within `max_size`.
+/// Encode a rendered pixmap in `layout` as `encoding` at `resolution`
+/// within `max_size`.
 pub(super) fn rendered_image(
     pixmap: hayro::vello_cpu::Pixmap,
     layout: Layout,
     encoding: Encoding,
+    resolution: crate::pixmap::Resolution,
     max_size: Option<usize>,
 ) -> PyResult<Vec<u8>> {
     let width = u32::from(pixmap.width());
     let height = u32::from(pixmap.height());
     let data = raster_samples(pixmap, layout);
-    match crate::pixmap::encode_bounded(width, height, layout, &data, encoding, max_size) {
+    match crate::pixmap::encode_bounded(
+        width, height, layout, &data, encoding, resolution, max_size,
+    ) {
         Ok(bytes) => Ok(bytes),
         Err(EncodeFailure::OutputLimit) => {
             let limit = max_size.expect("output can exceed only a configured limit");
@@ -406,6 +404,7 @@ pub(super) fn rendered_batch_image(
     pixmap: hayro::vello_cpu::Pixmap,
     layout: Layout,
     encoding: Encoding,
+    resolution: crate::pixmap::Resolution,
     max_size: usize,
     output_bytes: &AtomicUsize,
 ) -> PyResult<Vec<u8>> {
@@ -413,7 +412,15 @@ pub(super) fn rendered_batch_image(
     let height = u32::from(pixmap.height());
     let data = raster_samples(pixmap, layout);
     let mut output = BatchOutput::new(max_size, output_bytes);
-    let result = crate::pixmap::write_image(&mut output, width, height, layout, &data, encoding);
+    let result = crate::pixmap::write_image(
+        &mut output,
+        width,
+        height,
+        layout,
+        &data,
+        encoding,
+        resolution,
+    );
     if output.exceeded {
         return Err(limit_err(
             "render_output_size",
@@ -454,11 +461,17 @@ impl BatchRenderer<'_> {
             None,
         )
         .map_err(PdfError::new_err)?;
+        let resolution = render_resolution(self.matrix);
         match self.max_output_size {
-            Some(limit) => {
-                rendered_batch_image(pixmap, self.layout, self.encoding, limit, self.output_bytes)
-            }
-            None => rendered_image(pixmap, self.layout, self.encoding, None),
+            Some(limit) => rendered_batch_image(
+                pixmap,
+                self.layout,
+                self.encoding,
+                resolution,
+                limit,
+                self.output_bytes,
+            ),
+            None => rendered_image(pixmap, self.layout, self.encoding, resolution, None),
         }
     }
 
@@ -864,7 +877,8 @@ pub(super) fn render_page_png(
     // use Fast/fdeflate. Balanced is tens of times slower for about 10%
     // smaller output and made PNG the dominant render cost in benchmarks.
     let layout = Layout { gray: false, alpha };
-    py.detach(|| rendered_image(pixmap, layout, Encoding::Png, max_output_size))
+    let resolution = render_resolution(matrix);
+    py.detach(|| rendered_image(pixmap, layout, Encoding::Png, resolution, max_output_size))
 }
 
 /// Implements [`_Document::render_pages_encoded`].
@@ -1034,6 +1048,7 @@ pub(super) fn render_page_pixmap(
         height,
         layout,
         data: Arc::new(data),
+        resolution: render_resolution(matrix),
     })
 }
 

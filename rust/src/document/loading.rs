@@ -18,6 +18,17 @@ pub(super) fn original_bytes_match(
     object_recovery::reconcile_loaded_objects(doc, data)
 }
 
+/// The original-byte rendering source for a load that kept its bytes.
+///
+/// Image compression maps hayro's object IDs to lopdf's, which no longer
+/// match the original bytes once loading renumbered objects, so such a load
+/// keeps none.
+fn hayro_source(original: Option<&Arc<Vec<u8>>>, max_size: Option<usize>) -> HayroSource {
+    original.map_or(HayroSource::Unavailable, |data| {
+        HayroSource::from_shared(Arc::clone(data), max_size)
+    })
+}
+
 /// Implements [`_Document::new`].
 pub(super) fn new(
     max_text_size: Option<usize>,
@@ -28,7 +39,6 @@ pub(super) fn new(
     validate_text_glyph_limit(max_text_glyphs)?;
     let mut document = _Document::from_doc(
         Document::with_version("1.7"),
-        None,
         max_text_size,
         max_interpretation_size,
         max_text_glyphs,
@@ -110,16 +120,11 @@ pub(super) fn load(
                 limits.max_total_decompressed_size,
             )?;
         }
-        // Image compression maps hayro's object IDs to lopdf's, which no
-        // longer match the original bytes once objects are renumbered.
-        let hayro_source = if original_bytes_match && !renumbered {
-            HayroSource::from_owned(data, limits.max_interpretation_size)
-        } else {
-            HayroSource::Unavailable
-        };
+        let original = (original_bytes_match && !renumbered).then(|| Arc::new(data));
         Ok(_Document::from_loaded_doc(
             doc,
-            hayro_source,
+            hayro_source(original.as_ref(), limits.max_interpretation_size),
+            original.map(|data| IncrementalBase::new(data, decoder_bound)),
             limits.max_text_size,
             limits.max_interpretation_size,
             limits.max_text_glyphs,
@@ -196,16 +201,20 @@ pub(super) fn load_bytes(
                 limits.max_total_decompressed_size,
             )?;
         }
-        // Image compression maps hayro's object IDs to lopdf's, which no
-        // longer match the original bytes once objects are renumbered.
-        let hayro_source = if original_bytes_match && !renumbered {
-            HayroSource::from_borrowed(data, limits.max_interpretation_size)?
+        let original = if original_bytes_match && !renumbered {
+            let mut owned = Vec::new();
+            owned.try_reserve_exact(data.len()).map_err(|error| {
+                PdfError::new_err(format!("failed to allocate the original input: {error}"))
+            })?;
+            owned.extend_from_slice(data);
+            Some(Arc::new(owned))
         } else {
-            HayroSource::Unavailable
+            None
         };
         Ok(_Document::from_loaded_doc(
             doc,
-            hayro_source,
+            hayro_source(original.as_ref(), limits.max_interpretation_size),
+            original.map(|data| IncrementalBase::new(data, decoder_bound)),
             limits.max_text_size,
             limits.max_interpretation_size,
             limits.max_text_glyphs,

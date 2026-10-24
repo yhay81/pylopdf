@@ -6,12 +6,14 @@
 //! `memoryview(pixmap)` read the pixels without a copy and `bytes(pixmap)`
 //! copies them once.
 
-use jpeg_encoder::{ColorType as JpegColorType, Encoder as JpegEncoder};
+use jpeg_encoder::{
+    ColorType as JpegColorType, Encoder as JpegEncoder, PixelDensity, PixelDensityUnit,
+};
 use pyo3::buffer::PyBuffer;
 use pyo3::exceptions::{PyBufferError, PyTypeError, PyValueError};
 use pyo3::ffi;
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyInt};
+use pyo3::types::{PyBool, PyInt, PyTuple};
 use std::{
     ffi::{CString, c_int, c_void},
     fs::{self, File, OpenOptions},
@@ -22,6 +24,7 @@ use std::{
 };
 
 use crate::document::{LimitError, PdfError};
+use crate::extract::DEFAULT_IMAGE_RESOLUTION;
 
 const TEMPORARY_PATH_ATTEMPTS: usize = 100;
 const MAX_SYMLINK_DEPTH: usize = 40;
@@ -29,6 +32,41 @@ const DEFAULT_MAX_OUTPUT_SIZE: usize = 64 * 1024 * 1024;
 const DEFAULT_QUALITY: u8 = 95;
 /// The largest side of a Pixmap, as of a rendered page.
 const MAX_SIDE: usize = u16::MAX as usize;
+/// The largest resolution, the largest density that JPEG's JFIF header holds.
+pub(crate) const MAX_RESOLUTION: u32 = u16::MAX as u32;
+/// Metres per inch, for PNG's pixels per metre.
+const METRES_PER_INCH: f64 = 0.0254;
+
+/// A horizontal and vertical resolution in dots per inch, each from 1
+/// through [`MAX_RESOLUTION`].
+pub(crate) type Resolution = (u32, u32);
+
+/// The resolution of a Pixmap that states none, as pymupdf and MuPDF report.
+pub(crate) const DEFAULT_RESOLUTION: Resolution =
+    (DEFAULT_IMAGE_RESOLUTION, DEFAULT_IMAGE_RESOLUTION);
+
+/// Read a `(x, y)` resolution of two integers from 1 through 65,535.
+fn extract_resolution(value: &Bound<'_, PyAny>) -> PyResult<Resolution> {
+    let message = "resolution must be a tuple of two integers from 1 through 65535";
+    let tuple = value
+        .cast::<PyTuple>()
+        .map_err(|_| PyTypeError::new_err(message))?;
+    if tuple.len() != 2 {
+        return Err(PyValueError::new_err(message));
+    }
+    let mut axes = [0_u32; 2];
+    for (axis, item) in axes.iter_mut().zip(tuple.iter()) {
+        if item.is_instance_of::<PyBool>() || !item.is_instance_of::<PyInt>() {
+            return Err(PyTypeError::new_err(message));
+        }
+        *axis = item
+            .extract::<u32>()
+            .ok()
+            .filter(|value| (1..=MAX_RESOLUTION).contains(value))
+            .ok_or_else(|| PyValueError::new_err(message))?;
+    }
+    Ok((axes[0], axes[1]))
+}
 
 fn save_error(path: &Path, error: impl std::fmt::Display) -> PyErr {
     PdfError::new_err(format!(
@@ -207,7 +245,8 @@ impl Encoding {
     }
 }
 
-/// Write `width` by `height` samples in `layout` to `output` as `encoding`.
+/// Write `width` by `height` samples in `layout` to `output` as `encoding`,
+/// stating `resolution` in PNG's `pHYs` chunk or JPEG's JFIF density.
 ///
 /// PNG uses fast compression, which keeps encoding from dominating render
 /// time; recompress externally when a smaller file matters more.
@@ -218,17 +257,28 @@ pub(crate) fn write_image<W: Write>(
     layout: Layout,
     data: &[u8],
     encoding: Encoding,
+    resolution: Resolution,
 ) -> Result<(), String> {
     match encoding {
-        Encoding::Png => crate::extract::write_png(
-            output,
-            width,
-            height,
-            layout.png_color(),
-            data,
-            png::Compression::Fast,
-        )
-        .map_err(|error| error.to_string()),
+        Encoding::Png => {
+            let mut encoder = png::Encoder::new(output, width, height);
+            encoder.set_color(layout.png_color());
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder.set_compression(png::Compression::Fast);
+            // Every resolution up to 65,535 dpi round-trips through whole
+            // pixels per metre.
+            let per_metre = |dpi: u32| (f64::from(dpi) / METRES_PER_INCH).round() as u32;
+            encoder.set_pixel_dims(Some(png::PixelDimensions {
+                xppu: per_metre(resolution.0),
+                yppu: per_metre(resolution.1),
+                unit: png::Unit::Meter,
+            }));
+            let mut writer = encoder.write_header().map_err(|error| error.to_string())?;
+            writer
+                .write_image_data(data)
+                .and_then(|()| writer.finish())
+                .map_err(|error| error.to_string())
+        }
         Encoding::Jpeg { quality } => {
             let width = u16::try_from(width).map_err(|_| "JPEG width exceeds 65535".to_owned())?;
             let height =
@@ -238,7 +288,13 @@ pub(crate) fn write_image<W: Write>(
             } else {
                 JpegColorType::Rgb
             };
-            JpegEncoder::new(output, quality)
+            let mut encoder = JpegEncoder::new(output, quality);
+            // Resolutions never exceed the JFIF header's u16 densities.
+            encoder.set_density(PixelDensity {
+                density: (resolution.0 as u16, resolution.1 as u16),
+                unit: PixelDensityUnit::Inches,
+            });
+            encoder
                 .encode(data, width, height, color)
                 .map_err(|error| error.to_string())
         }
@@ -259,10 +315,19 @@ pub(crate) fn encode_bounded(
     layout: Layout,
     data: &[u8],
     encoding: Encoding,
+    resolution: Resolution,
     max_size: Option<usize>,
 ) -> Result<Vec<u8>, EncodeFailure> {
     let mut output = crate::extract::BoundedOutput::new(max_size);
-    let result = write_image(&mut output, width, height, layout, data, encoding);
+    let result = write_image(
+        &mut output,
+        width,
+        height,
+        layout,
+        data,
+        encoding,
+        resolution,
+    );
     if output.exceeded {
         return Err(EncodeFailure::OutputLimit);
     }
@@ -337,6 +402,8 @@ pub struct Pixmap {
     pub(crate) layout: Layout,
     /// Row-major samples, `layout.channels()` bytes per pixel.
     pub(crate) data: Arc<Vec<u8>>,
+    /// Dots per inch, written into encoded images.
+    pub(crate) resolution: Resolution,
 }
 
 impl Pixmap {
@@ -347,6 +414,7 @@ impl Pixmap {
             self.layout,
             &self.data,
             encoding,
+            self.resolution,
             max_size,
         ) {
             Ok(bytes) => Ok(bytes),
@@ -409,15 +477,43 @@ impl Pixmap {
         self.width * self.layout.channels()
     }
 
+    /// The horizontal and vertical resolution in dots per inch.
+    ///
+    /// A rendered page states the resolution it was rendered at, and other
+    /// Pixmaps 96 unless told otherwise. PNG and JPEG output records it.
+    #[getter]
+    fn resolution(&self) -> Resolution {
+        self.resolution
+    }
+
     /// Return a Pixmap with a copy of the pixels of `array`.
     ///
     /// `array` supports the buffer protocol with unsigned bytes, such as a
     /// `uint8` NumPy array, shaped `(height, width)` for gray or
     /// `(height, width, channels)` with 1 to 4 channels: gray, gray and
     /// alpha, RGB, or RGB and alpha. Alpha is straight, not premultiplied.
+    ///
+    /// `resolution` is an `(x, y)` tuple of dots per inch from 1 through
+    /// 65,535. It defaults to 96, or to the resolution of a Pixmap passed as
+    /// `array`, whose pixels the new Pixmap then shares without a copy.
     #[staticmethod]
-    #[pyo3(signature = (array, /))]
-    fn from_array(py: Python<'_>, array: &Bound<'_, PyAny>) -> PyResult<Self> {
+    #[pyo3(signature = (array, /, *, resolution=None))]
+    fn from_array(
+        py: Python<'_>,
+        array: &Bound<'_, PyAny>,
+        resolution: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        let resolution = resolution.map(extract_resolution).transpose()?;
+        if let Ok(pixmap) = array.cast::<Self>() {
+            let pixmap = pixmap.get();
+            return Ok(Self {
+                width: pixmap.width,
+                height: pixmap.height,
+                layout: pixmap.layout,
+                data: Arc::clone(&pixmap.data),
+                resolution: resolution.unwrap_or(pixmap.resolution),
+            });
+        }
         let buffer = PyBuffer::<u8>::get(array).map_err(|_| {
             PyTypeError::new_err(
                 "from_array needs a buffer of unsigned bytes, such as a uint8 NumPy array",
@@ -446,6 +542,7 @@ impl Pixmap {
             height: height as u32,
             layout,
             data: Arc::new(data),
+            resolution: resolution.unwrap_or(DEFAULT_RESOLUTION),
         })
     }
 
@@ -522,6 +619,7 @@ impl Pixmap {
                     self.layout,
                     &self.data,
                     encoding,
+                    self.resolution,
                 )
                 .map_err(|error| save_error(&path, error))
             });

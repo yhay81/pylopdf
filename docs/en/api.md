@@ -50,7 +50,8 @@ untrusted input. Use the document as a context manager, or call `close()`.
 | `is_dirty` | Whether the document was edited since it was opened. A new empty document starts edited, and saving does not reset it, as in pymupdf |
 | `is_closed`, `path` | Whether the document is closed, and the file it was opened from as a `pathlib.Path`, or `None` for bytes and an empty document |
 | `limits`, `complexity` | The policy the document was opened with, and cheap structural facts (pages, objects, streams) for deciding whether to process it |
-| `save(path, /, *, compress=True, prune=True, dedupe=False, renumber=False, object_streams=False, encryption=None)` | Write the PDF. The file is replaced only after the complete write succeeds |
+| `save(path, /, *, compress=True, prune=True, dedupe=False, renumber=False, object_streams=False, encryption=None, incremental=False)` | Write the PDF. The file is replaced only after the complete write succeeds |
+| `can_save_incrementally` | Whether `save` and `to_bytes` accept `incremental=True` |
 | `to_bytes(..., max_size=512 MiB)` | The same output as `bytes` |
 | `close()` | Release the document; `with` does this for you |
 
@@ -74,6 +75,23 @@ doc.save(
         permissions=pylopdf.Permissions.PRINT,
     ),
 )
+```
+
+`incremental=True` writes the bytes the document was opened from unchanged
+and appends one update with the objects that differ from them, so a
+signature over the original bytes stays intact; an unedited document is
+written exactly as it was read. It works for a document opened from
+unencrypted bytes that loaded without repair, which `can_save_incrementally`
+reports, and refuses `dedupe`, `renumber`, `object_streams`, and
+`encryption`, which would rewrite objects the update leaves alone. `compress`
+then compresses only the streams the update writes. The output may go to any
+path, including the file the document came from. Such a document keeps its
+original bytes in memory while it is open.
+
+```python
+with pylopdf.open("signed.pdf") as doc:
+    doc.form["Name"].value = "Alice"
+    doc.save("signed.pdf", incremental=True)
 ```
 
 ### Pages { #document-pages }
@@ -227,9 +245,40 @@ for layer in doc.layers:
 doc.layers[0].is_visible = False
 ```
 
+`doc.layers.configurations` lists the configurations, each a
+`LayerConfiguration` handle: the default configuration first, which viewers
+apply when they open the document and which rendering and extraction use,
+then the alternatives that a viewer can switch to.
+
+| `LayerConfiguration` member | Purpose |
+|---|---|
+| `index` | 0 for the default configuration |
+| `name`, `creator` | The name a viewer shows and the application that made it, or `None`; assignable |
+| `base_state` | The `LayerBaseState` (`ON`, `OFF`, or `UNCHANGED`) of the groups that `on` and `off` leave out; assignable |
+| `on`, `off`, `locked` | Tuples of `Layer` handles: shown, hidden, and not to be changed by the user; a group in both `on` and `off` is hidden; assignable |
+| `radio_groups` | Tuples of layers of which at most one shows; assignable |
+| `order` | The tree a viewer's layer panel shows: `Layer` handles and `LayerOrder(label, items)` values, where an unlabeled `LayerOrder` after a layer holds its children; assignable |
+| `apply()` | Makes the configuration the default; the default keeps its `order` when this one has none |
+
+`doc.layers.configurations.add(name, *, creator=None, base_state=LayerBaseState.ON, on=(), off=())`
+adds an alternative.
+
+```python
+from pylopdf import LayerOrder
+
+default = doc.layers.configurations[0]
+notes, draft = doc.layers
+default.order = [LayerOrder("Review", (notes, draft))]
+default.radio_groups = [(notes, draft)]
+printing = doc.layers.configurations.add("Print", off=[notes, draft])
+printing.apply()  # rendering and extraction now hide both
+```
+
 Reads stop at 65,536 groups in one array (`LimitError` code `layer_count`)
-and 1 MiB of name and intent text per group (`layer_text_size`); a name above
-1 MiB is refused before it is written (`layer_input_size`).
+or `order` entries and 32 levels of `order`, and 1 MiB of name and intent
+text per group or of name, creator, and label text per configuration
+(`layer_text_size`); names and labels above 1 MiB are refused before they are
+written (`layer_input_size`).
 
 ### Text and Markdown { #document-text }
 
@@ -376,6 +425,7 @@ page.rotation = 90
 |---|---|
 | `draw(*, underlay=False)` | A [canvas](#canvas) that draws text, lines, rectangles, and other paths, images, and pages of any document in order; see [Writing text](#writing-text) |
 | `replace_text(search, replacement, *, default_char=None)` | Replace text drawn in simple (single-byte) fonts |
+| `operations` | The page's content as [operations](#operations); assignable |
 
 The same image or page drawn again is stored once in the file.
 
@@ -551,8 +601,19 @@ space:
 |---|---|
 | `Block` | `text`, `bbox`, `lines` |
 | `Line` | `text`, `bbox`, `direction` (the baseline's unit vector), `is_vertical`, `spans` |
-| `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `chars` |
+| `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `color`, `render_mode`, `is_clipped`, `ascender`, `descender`, `chars` |
 | `Char` | `text`, `bbox`, `origin` |
+
+A span is a run of glyphs in one font and size that are painted alike:
+`color` is the paint as an sRGB `Color` whose `alpha` is the opacity (the
+fill of filled text, the stroke of text that is only stroked, and `None` for
+a pattern paint and for invisible text), `render_mode` is the
+`TextRenderMode` that `page.content()` reports as well, and `is_clipped` is
+true when the clip paths leave no part of the glyphs visible. `ascender` and
+`descender` are the font's, in em, as MuPDF reads them from an OpenType or
+TrueType program; hayro hands out no program for Type 1 fonts, the standard
+14 fonts among them, which therefore report MuPDF's defaults of 0.8 and
+-0.2.
 
 `layout(chars=True)` fills each span's `chars` with its glyphs. A `Char`
 keeps the complete text of one glyph, so a ligature such as "fi" keeps both
@@ -568,15 +629,18 @@ with pylopdf.open("report.pdf") as doc:
                     print(char.text, char.bbox, char.origin)
 ```
 
-Bounds are estimated from the baseline and font size, not from the glyph
-outlines. Spaces that pylopdf infers from gaps are not added as characters, so
+Bounds span the glyph's advance and, across the baseline, the font's
+ascender and descender, scaled to one em together when they span less, as
+pymupdf's boxes do; they are not the glyph outlines. Spaces that pylopdf infers from gaps are not added as characters, so
 joining the characters does not always reproduce `text()`. Glyphs that have no
 Unicode mapping in the PDF are skipped with a `PylopdfWarning`.
 
 `layout.to_dict()` returns plain dictionaries for JSON, in the shape of
 [pymupdf's dict, or its rawdict for a layout with characters](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs),
-with text blocks only, without image or vector blocks and without color,
-opacity, or extra font metrics. The
+with text blocks only, without image or vector blocks. Spans have pymupdf's
+`color` (an sRGB integer), `alpha` (0 to 255), `ascender`, `descender`, and
+`char_flags` (16 for filled text, 32 for stroked text, and 64 for clipped
+text), but not `bidi`. The
 [overlay example](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)
 draws glyph bounds and origins as an HTML preview.
 
@@ -641,6 +705,56 @@ components of a color, layer names and the other marked-content properties,
 the font dictionary behind a `FontRef`, and the object of an image mask. They
 are listed as
 [engine work](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#engine-work).
+
+## Content operations { #operations }
+
+`page.operations` is the page's content as a sequence of operations, for
+programs that work below the [content model](#content). It reads the content
+streams as the renderer reads them, joined in order, and tokenized with
+hayro's parser, so the operations are the ones that rendering and extraction
+interpret.
+
+```python
+from pylopdf import Name, Operation, Operations, String
+
+ops = page.operations
+for op in ops:
+    print(op.operator, op.operands)
+
+# Drop marked-content properties, keep everything else as it was written.
+page.operations = [op for op in ops if op.operator not in ("BDC", "BMC", "EMC")]
+
+# Draw on top, with an operation written from values.
+page.operations = [*ops, Operation("re", (10, 10, 50, 20)), Operation("f")]
+
+# A Form XObject's content.
+form = doc.objects[12]
+Operations.parse(form.read()).to_bytes() == form.read()   # True
+```
+
+| Value | Fields |
+|---|---|
+| `Operations` | An immutable sequence of `Operation` and `InlineImage` items, with `tail`, the bytes after the last operation; `Operations.parse(data)` and `to_bytes()` |
+| `Operation(operator, operands=())` | The operator's text, such as `"Tj"`, and the operand values |
+| `InlineImage(dictionary, data)` | An inline image's dictionary as written (`W`, `H`, `BPC`, `CS`, `F`) and its still-encoded data |
+
+Operands are object-model values: `None`, `bool`, `int`, `float`, `Name`,
+`String`, tuples for arrays, and dictionaries keyed by name text.
+
+- Every operation that a parse produced keeps its bytes, with the comments
+  and white space before it, so `Operations.parse(data).to_bytes() == data`
+  and writing back an edited sequence rewrites only the operations that
+  changed. New operations are written from their values.
+- Assigning `page.operations` writes one new compressed stream as
+  `/Contents`, owned by the page, so other pages that shared the old streams
+  keep them. Resources are not changed: a new operation that names a font or
+  XObject needs the page's `/Resources` to hold it.
+- hayro stops reading content at an operation it cannot read, such as one
+  with more than ten operands. The rest stays in `tail`, which `to_bytes()`
+  writes last; a list of operations has no tail.
+- `page.operations` reads and writes at most 64 MiB of content and reads at
+  most 1,048,576 operations; `Operations.parse(data, max_size=None,
+  max_operations=None)` lifts both for trusted content.
 
 ## Images { #images }
 
@@ -1099,8 +1213,18 @@ doc.attachments["data.csv"].write(new_bytes)
 del doc.attachments["data.csv"]
 ```
 
-`Attachment` also has `name`, `creation_date`, and `mod_date`. A missing name
-raises `KeyError`.
+`Attachment` also has `name`, `created`, and `modified`, the dates as the PDF
+date strings stored. `filename`, `description`, `created`, and `modified` are
+assignable, and `del` removes the last three; `write()` sets `modified` to the
+current time. `Annotation.file` of a file attachment has the same members. A
+missing name raises `KeyError`.
+
+```python
+item = doc.attachments["data.csv"]
+item.filename = "rows.csv"
+item.created = "D:20260101120000+09'00'"
+del item.description
+```
 
 ## Low-level objects { #low-level-objects }
 
@@ -1215,9 +1339,10 @@ checking whether a rectangle lies inside a quad tests all four corners.
 | Member | Purpose |
 |---|---|
 | `width`, `height`, `channels`, `alpha`, `stride`, `colorspace` | Size and layout: `channels` is 1 for gray, 2 for gray with alpha, 3 for RGB, and 4 for RGB with alpha; `colorspace` is `Colorspace.GRAY` or `Colorspace.RGB` |
+| `resolution` | The horizontal and vertical dots per inch: a rendered page's resolution, else 96; PNG and JPEG output states it |
 | `numpy.asarray(pix)`, `memoryview(pix)` | The pixels without copying, shaped `(height, width)` for gray and `(height, width, channels)` otherwise |
 | `bytes(pix)` | A copy of the pixels |
-| `Pixmap.from_array(array)` | A pixmap with a copy of a `uint8` array shaped as above |
+| `Pixmap.from_array(array, /, *, resolution=None)` | A pixmap with a copy of a `uint8` array shaped as above, at `resolution`, an `(x, y)` tuple of integers from 1 through 65,535 that defaults to 96; given a `Pixmap`, it shares its pixels and keeps its resolution unless told otherwise |
 | `to_bytes(format="png", *, quality=95, max_size=64 MiB)` | PNG or JPEG bytes; JPEG has no alpha |
 | `save(path, /, *, format=None, quality=95)` | Write PNG or JPEG; the extension `.png`, `.jpg`, or `.jpeg` names the format unless `format` does |
 

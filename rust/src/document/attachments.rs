@@ -724,8 +724,12 @@ pub(super) fn embfile_upd(
     name: &str,
     data: Vec<u8>,
     max_size: Option<usize>,
+    modified: Option<String>,
 ) -> PyResult<()> {
     validate_embedded_file_lookup_name(name)?;
+    if let Some(modified) = &modified {
+        check_pdf_date(modified, "modified")?;
+    }
     if max_size == Some(0) {
         return Err(PyValueError::new_err(
             "max_size must be a positive integer or None",
@@ -782,6 +786,9 @@ pub(super) fn embfile_upd(
         };
         params.remove(b"CheckSum");
         params.set("Size", size);
+        if let Some(modified) = modified {
+            params.set("ModDate", Object::string_literal(modified));
+        }
         stream_dict.set("Params", params);
         let previous_max_id = this.doc.max_id;
         let stream_id = this.doc.add_object(Stream::new(stream_dict, data));
@@ -810,4 +817,165 @@ pub(super) fn embfile_upd(
         this.invalidate_hayro_pdf_keeping_placements();
     }
     result
+}
+
+/// The longest date string that a FileSpec edit writes.
+const MAX_PDF_DATE_BYTES: usize = 64;
+
+/// Check a date that an edit writes: printable ASCII, as PDF date strings
+/// are, of at most 64 bytes.
+pub(super) fn check_pdf_date(date: &str, label: &str) -> PyResult<()> {
+    if date.is_empty()
+        || date.len() > MAX_PDF_DATE_BYTES
+        || !date
+            .bytes()
+            .all(|byte| byte.is_ascii_graphic() || byte == b' ')
+    {
+        return Err(PdfError::new_err(format!(
+            "{label} is a PDF date string of 1 to {MAX_PDF_DATE_BYTES} printable ASCII characters"
+        )));
+    }
+    Ok(())
+}
+
+/// An edit of a FileSpec's entries, as Python passes it: `filename`,
+/// `description`, `created`, and `modified`, each `None` to remove the entry
+/// (the file name cannot be removed).
+pub(super) type FileSpecEdit = HashMap<String, Option<String>>;
+
+/// A FileSpec edit planned against the document: the new FileSpec
+/// dictionary and, for a date, the embedded file stream and its new
+/// dictionary.
+pub(super) struct FileSpecPlan {
+    pub(super) filespec: Dictionary,
+    stream: Option<(ObjectId, Dictionary)>,
+}
+
+impl FileSpecPlan {
+    /// Store the stream dictionary; the caller stores `filespec`.
+    pub(super) fn commit_stream(&mut self, doc: &mut Document) {
+        if let Some((id, dict)) = self.stream.take()
+            && let Some(Object::Stream(stream)) = doc.objects.get_mut(&id)
+        {
+            stream.dict = dict;
+        }
+    }
+}
+
+/// Plan `edit` of `filespec` before any mutation.
+pub(super) fn plan_filespec_edit(
+    doc: &Document,
+    filespec: &Dictionary,
+    edit: &FileSpecEdit,
+) -> PyResult<FileSpecPlan> {
+    let mut text = 0usize;
+    for (key, value) in edit {
+        match (key.as_str(), value) {
+            ("filename", None) => {
+                return Err(PdfError::new_err("an embedded file keeps a file name"));
+            }
+            ("filename" | "description", Some(value)) => {
+                text = text.saturating_add(value.len());
+                if key == "filename" && value.is_empty() {
+                    return Err(PdfError::new_err("a file name cannot be empty"));
+                }
+            }
+            ("created" | "modified", Some(date)) => check_pdf_date(date, key)?,
+            ("description" | "created" | "modified", None) => {}
+            _ => return Err(PdfError::new_err(format!("unknown file entry: {key:?}"))),
+        }
+    }
+    if text > MAX_EMBEDDED_FILE_INPUT_TEXT_BYTES {
+        return Err(limit_err(
+            "embedded_file_input_size",
+            format!(
+                "file name and description exceed the {MAX_EMBEDDED_FILE_INPUT_TEXT_BYTES}-byte UTF-8 safety limit"
+            ),
+        ));
+    }
+    let mut new = filespec.clone();
+    if let Some(Some(filename)) = edit.get("filename") {
+        new.set("F", Object::string_literal(filename.clone()));
+        new.set("UF", text_string(filename));
+    }
+    match edit.get("description") {
+        Some(Some(description)) => new.set("Desc", text_string(description)),
+        Some(None) => {
+            new.remove(b"Desc");
+        }
+        None => {}
+    }
+    let dates = ["created", "modified"]
+        .into_iter()
+        .filter(|key| edit.contains_key(*key))
+        .count();
+    let stream = if dates == 0 {
+        None
+    } else {
+        let id = embedded_stream_id(doc, &new)?;
+        let mut dict = doc
+            .get_object(id)
+            .and_then(Object::as_stream)
+            .map_err(|_| PdfError::new_err("the file specification embeds no file stream"))?
+            .dict
+            .clone();
+        let mut params = match dict.get(b"Params") {
+            Ok(Object::Dictionary(params)) => params.clone(),
+            Ok(Object::Reference(params)) => doc
+                .get_object(*params)
+                .and_then(Object::as_dict)
+                .cloned()
+                .unwrap_or_default(),
+            _ => Dictionary::new(),
+        };
+        for (field, key) in [("created", "CreationDate"), ("modified", "ModDate")] {
+            match edit.get(field) {
+                Some(Some(date)) => params.set(key, Object::string_literal(date.clone())),
+                Some(None) => {
+                    params.remove(key.as_bytes());
+                }
+                None => {}
+            }
+        }
+        dict.set("Params", params);
+        Some((id, dict))
+    };
+    Ok(FileSpecPlan {
+        filespec: new,
+        stream,
+    })
+}
+
+/// Implements [`_Document::embfile_edit`].
+pub(super) fn embfile_edit(this: &mut _Document, name: &str, edit: FileSpecEdit) -> PyResult<()> {
+    validate_embedded_file_lookup_name(name)?;
+    let target = embedded_files_write_target(&this.doc)?;
+    let mut entries = collect_embedded_files(&this.doc)?;
+    let index = entries
+        .iter()
+        .position(|(entry_name, _)| entry_name == name)
+        .ok_or_else(|| PdfError::new_err(format!("attachment not found: {name:?}")))?;
+    let mut plan = plan_filespec_edit(
+        &this.doc,
+        filespec_dict(&this.doc, &entries[index].1)?,
+        &edit,
+    )?;
+    match entries[index].1 {
+        Object::Reference(id) => {
+            this.invalidate_hayro_pdf_keeping_placements();
+            plan.commit_stream(&mut this.doc);
+            this.doc
+                .objects
+                .insert(id, Object::Dictionary(plan.filespec));
+            Ok(())
+        }
+        Object::Dictionary(_) => {
+            entries[index].1 = Object::Dictionary(plan.filespec.clone());
+            this.invalidate_hayro_pdf_keeping_placements();
+            write_embedded_files(&mut this.doc, entries, target)?;
+            plan.commit_stream(&mut this.doc);
+            Ok(())
+        }
+        _ => Err(PdfError::new_err("attachment's FileSpec is corrupt")),
+    }
 }

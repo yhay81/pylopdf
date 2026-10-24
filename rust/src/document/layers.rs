@@ -266,8 +266,12 @@ struct PropertiesPlan {
     properties: Dictionary,
     ocgs_id: Option<ObjectId>,
     ocgs: Vec<Object>,
+    /// The planned configuration: 0 for `/D`, `n` for `/Configs[n - 1]`.
+    slot: usize,
     config_id: Option<ObjectId>,
     config: Dictionary,
+    configs_id: Option<ObjectId>,
+    configs: Vec<Object>,
 }
 
 impl PropertiesPlan {
@@ -300,22 +304,54 @@ impl PropertiesPlan {
                 ),
             ));
         }
-        let (config_id, config) = match properties.get(b"D") {
+        let (config_id, config) = dictionary_slot(doc, properties.get(b"D").ok());
+        let (configs_id, configs) = match properties.get(b"Configs") {
             Ok(Object::Reference(id)) => match doc.objects.get(id) {
-                Some(Object::Dictionary(dict)) => (Some(*id), dict.clone()),
-                _ => (None, Dictionary::new()),
+                Some(Object::Array(items)) => (Some(*id), items.clone()),
+                _ => (None, Vec::new()),
             },
-            Ok(Object::Dictionary(dict)) => (None, dict.clone()),
-            _ => (None, Dictionary::new()),
+            Ok(Object::Array(items)) => (None, items.clone()),
+            _ => (None, Vec::new()),
         };
+        if configs.len() > MAX_LAYER_ENTRIES {
+            return Err(limit_err(
+                "layer_count",
+                format!(
+                    "/Configs lists {} entries; the limit is {MAX_LAYER_ENTRIES}",
+                    configs.len()
+                ),
+            ));
+        }
         Ok(Self {
             properties_id,
             properties,
             ocgs_id,
             ocgs,
+            slot: 0,
             config_id,
             config,
+            configs_id,
+            configs,
         })
+    }
+
+    /// Read the plan with configuration `slot` planned instead of `/D`.
+    fn read_slot(doc: &Document, slot: usize) -> PyResult<Self> {
+        let mut plan = Self::read(doc)?;
+        if slot == 0 {
+            return Ok(plan);
+        }
+        let Some(entry) = plan.configs.get(slot - 1) else {
+            return Err(stale_configuration(slot));
+        };
+        let (config_id, config) = dictionary_slot(doc, Some(entry));
+        if config_id.is_none() && !matches!(entry, Object::Dictionary(_)) {
+            return Err(stale_configuration(slot));
+        }
+        plan.slot = slot;
+        plan.config_id = config_id;
+        plan.config = config;
+        Ok(plan)
     }
 
     fn lists(&self, id: ObjectId) -> bool {
@@ -366,8 +402,11 @@ impl PropertiesPlan {
             mut properties,
             ocgs_id,
             ocgs,
+            slot,
             config_id,
             config,
+            configs_id,
+            mut configs,
         } = self;
         match ocgs_id {
             Some(id) => {
@@ -375,11 +414,20 @@ impl PropertiesPlan {
             }
             None => properties.set("OCGs", Object::Array(ocgs)),
         }
-        match config_id {
-            Some(id) => {
+        match (config_id, slot) {
+            (Some(id), _) => {
                 doc.objects.insert(id, Object::Dictionary(config));
             }
-            None => properties.set("D", Object::Dictionary(config)),
+            (None, 0) => properties.set("D", Object::Dictionary(config)),
+            (None, slot) => configs[slot - 1] = Object::Dictionary(config),
+        }
+        if !configs.is_empty() || properties.has(b"Configs") {
+            match configs_id {
+                Some(id) => {
+                    doc.objects.insert(id, Object::Array(configs));
+                }
+                None => properties.set("Configs", Object::Array(configs)),
+            }
         }
         match properties_id {
             Some(id) => {
@@ -392,6 +440,25 @@ impl PropertiesPlan {
             }
         }
     }
+}
+
+/// A dictionary stored directly or behind one reference, with the object
+/// that holds it; anything else plans an empty dictionary.
+fn dictionary_slot(doc: &Document, object: Option<&Object>) -> (Option<ObjectId>, Dictionary) {
+    match object {
+        Some(Object::Reference(id)) => match doc.objects.get(id) {
+            Some(Object::Dictionary(dict)) => (Some(*id), dict.clone()),
+            _ => (None, Dictionary::new()),
+        },
+        Some(Object::Dictionary(dict)) => (None, dict.clone()),
+        _ => (None, Dictionary::new()),
+    }
+}
+
+fn stale_configuration(slot: usize) -> PyErr {
+    StaleObjectError::new_err(format!(
+        "optional-content configuration {slot} no longer exists"
+    ))
 }
 
 /// A reference array of `ids`, allocated fallibly.
@@ -646,4 +713,491 @@ pub(super) fn set_layer_intent(
         }
     }
     Ok(())
+}
+
+/// The deepest `/Order` nesting that reads and writes take.
+const MAX_ORDER_DEPTH: u32 = 32;
+
+/// One entry of a configuration's `/Order` tree in preorder: its depth,
+/// whether it is a nested array, the group of a layer entry (`(0, 0)` for
+/// an array), and the label of a labeled array.
+pub(super) type OrderEntry = (u32, bool, (u32, u16), Option<String>);
+
+/// One configuration as `layer_configuration` returns it: name, creator,
+/// base state, `/ON`, `/OFF`, `/Locked`, `/RBGroups`, and `/Order`.
+pub(super) type ConfigurationInfo = (
+    Option<String>,
+    Option<String>,
+    String,
+    Vec<(u32, u16)>,
+    Vec<(u32, u16)>,
+    Vec<(u32, u16)>,
+    Vec<Vec<(u32, u16)>>,
+    Vec<OrderEntry>,
+);
+
+/// Implements [`_Document::layer_configuration_count`].
+pub(super) fn layer_configuration_count(this: &_Document) -> PyResult<usize> {
+    let doc = &this.doc;
+    let Some(properties) = oc_properties(doc) else {
+        return Ok(0);
+    };
+    let alternates = match properties
+        .get(b"Configs")
+        .ok()
+        .and_then(|object| array_of(doc, object))
+    {
+        Some(items) => items.len(),
+        None => 0,
+    };
+    if alternates > MAX_LAYER_ENTRIES {
+        return Err(limit_err(
+            "layer_count",
+            format!("/Configs lists {alternates} entries; the limit is {MAX_LAYER_ENTRIES}"),
+        ));
+    }
+    Ok(1 + alternates)
+}
+
+/// The configuration dictionary of `slot` as it stands, or a stale error.
+fn configuration(doc: &Document, slot: usize) -> PyResult<Option<&Dictionary>> {
+    let Some(properties) = oc_properties(doc) else {
+        return Err(stale_configuration(slot));
+    };
+    if slot == 0 {
+        return Ok(default_configuration(doc, properties));
+    }
+    let entry = properties
+        .get(b"Configs")
+        .ok()
+        .and_then(|object| array_of(doc, object))
+        .and_then(|items| items.get(slot - 1))
+        .ok_or_else(|| stale_configuration(slot))?;
+    match deref_dict_ref(doc, entry) {
+        Some(config) => Ok(Some(config)),
+        None => Err(stale_configuration(slot)),
+    }
+}
+
+/// Read the `/Order` tree of `config` in preorder, cycle-aware.
+fn read_order(doc: &Document, config: &Dictionary, used: &mut usize) -> PyResult<Vec<OrderEntry>> {
+    let mut out: Vec<OrderEntry> = Vec::new();
+    let Some(root) = config
+        .get(b"Order")
+        .ok()
+        .and_then(|object| array_of(doc, object))
+    else {
+        return Ok(out);
+    };
+    let mut visited = HashSet::new();
+    let mut stack: Vec<(&[Object], u32)> = Vec::new();
+    stack
+        .try_reserve(1)
+        .map_err(|error| alloc_err("optional-content order", error))?;
+    stack.push((root, 0));
+    while let Some((items, depth)) = stack.pop() {
+        let Some((first, rest)) = items.split_first() else {
+            continue;
+        };
+        stack
+            .try_reserve(1)
+            .map_err(|error| alloc_err("optional-content order", error))?;
+        stack.push((rest, depth));
+        let mut nested = None;
+        match first {
+            Object::Reference(id) => match doc.objects.get(id) {
+                Some(Object::Dictionary(_)) => {
+                    push_order(&mut out, (depth, false, *id, None))?;
+                }
+                Some(Object::Array(items)) => {
+                    visited
+                        .try_reserve(1)
+                        .map_err(|error| alloc_err("optional-content order", error))?;
+                    if visited.insert(*id) {
+                        nested = Some(items.as_slice());
+                    }
+                }
+                _ => {}
+            },
+            Object::Array(items) => nested = Some(items.as_slice()),
+            _ => {}
+        }
+        let Some(children) = nested else {
+            continue;
+        };
+        if depth + 1 > MAX_ORDER_DEPTH {
+            return Err(limit_err(
+                "layer_count",
+                format!("/Order nests more than {MAX_ORDER_DEPTH} levels"),
+            ));
+        }
+        let (label, children) = match children.split_first() {
+            Some((label @ Object::String(..), rest)) => {
+                (Some(charged_text(doc, label, used)?), rest)
+            }
+            _ => (None, children),
+        };
+        push_order(&mut out, (depth, true, (0, 0), label))?;
+        stack
+            .try_reserve(1)
+            .map_err(|error| alloc_err("optional-content order", error))?;
+        stack.push((children, depth + 1));
+    }
+    Ok(out)
+}
+
+fn push_order(out: &mut Vec<OrderEntry>, entry: OrderEntry) -> PyResult<()> {
+    if out.len() >= MAX_LAYER_ENTRIES {
+        return Err(limit_err(
+            "layer_count",
+            format!("/Order lists more than {MAX_LAYER_ENTRIES} entries"),
+        ));
+    }
+    out.try_reserve(1)
+        .map_err(|error| alloc_err("optional-content order", error))?;
+    out.push(entry);
+    Ok(())
+}
+
+/// Implements [`_Document::layer_configuration`].
+pub(super) fn layer_configuration(this: &_Document, slot: usize) -> PyResult<ConfigurationInfo> {
+    let doc = &this.doc;
+    let empty = Dictionary::new();
+    let config = configuration(doc, slot)?.unwrap_or(&empty);
+    let mut used = 0;
+    let mut text = |key: &[u8]| -> PyResult<Option<String>> {
+        match config.get(key) {
+            Ok(object) if matches!(deref_object(doc, object), Object::String(..)) => {
+                Ok(Some(charged_text(doc, object, &mut used)?))
+            }
+            _ => Ok(None),
+        }
+    };
+    let name = text(b"Name")?;
+    let creator = text(b"Creator")?;
+    let base_state = match config
+        .get(b"BaseState")
+        .map(|object| deref_object(doc, object))
+    {
+        Ok(Object::Name(name)) if name == b"OFF" => "OFF",
+        Ok(Object::Name(name)) if name == b"Unchanged" => "Unchanged",
+        _ => "ON",
+    };
+    let on = references(doc, config, b"ON")?;
+    let off = references(doc, config, b"OFF")?;
+    let locked = references(doc, config, b"Locked")?;
+    let radio = radio_groups(doc, config)?;
+    let order = read_order(doc, config, &mut used)?;
+    Ok((
+        name,
+        creator,
+        base_state.to_owned(),
+        on,
+        off,
+        locked,
+        radio,
+        order,
+    ))
+}
+
+/// Check that every reference names a group dictionary.
+fn check_groups(doc: &Document, ids: &[(u32, u16)]) -> PyResult<()> {
+    if ids.len() > MAX_LAYER_ENTRIES {
+        return Err(limit_err(
+            "layer_count",
+            format!(
+                "{} groups exceed the limit of {MAX_LAYER_ENTRIES}",
+                ids.len()
+            ),
+        ));
+    }
+    for &id in ids {
+        group_dictionary(doc, id)?;
+    }
+    Ok(())
+}
+
+/// Store a planned configuration edit.
+fn commit_configuration(this: &mut _Document, plan: PropertiesPlan, before: &Dictionary) {
+    if &plan.config == before {
+        return;
+    }
+    this.invalidate_hayro_pdf_keeping_placements();
+    plan.commit(&mut this.doc);
+}
+
+/// Implements [`_Document::set_layer_configuration_text`].
+pub(super) fn set_layer_configuration_text(
+    this: &mut _Document,
+    slot: usize,
+    key: &str,
+    value: Option<&str>,
+) -> PyResult<()> {
+    if !matches!(key, "Name" | "Creator") {
+        return Err(PdfError::new_err(format!(
+            "unsupported configuration entry: {key:?}"
+        )));
+    }
+    let value = match value {
+        Some(value) => {
+            check_name(value)?;
+            Some(try_info_metadata_text_string(value)?)
+        }
+        None => None,
+    };
+    configuration(&this.doc, slot)?;
+    let mut plan = PropertiesPlan::read_slot(&this.doc, slot)?;
+    let before = plan.config.clone();
+    match value {
+        Some(value) => plan.config.set(key, value),
+        None => {
+            plan.config.remove(key.as_bytes());
+        }
+    }
+    commit_configuration(this, plan, &before);
+    Ok(())
+}
+
+/// Implements [`_Document::set_layer_configuration_base_state`].
+pub(super) fn set_layer_configuration_base_state(
+    this: &mut _Document,
+    slot: usize,
+    state: &str,
+) -> PyResult<()> {
+    if !matches!(state, "ON" | "OFF" | "Unchanged") {
+        return Err(PdfError::new_err(format!("bad base state: {state:?}")));
+    }
+    configuration(&this.doc, slot)?;
+    let mut plan = PropertiesPlan::read_slot(&this.doc, slot)?;
+    let before = plan.config.clone();
+    plan.config
+        .set("BaseState", Object::Name(state.as_bytes().to_vec()));
+    commit_configuration(this, plan, &before);
+    Ok(())
+}
+
+/// Implements [`_Document::set_layer_configuration_refs`].
+pub(super) fn set_layer_configuration_refs(
+    this: &mut _Document,
+    slot: usize,
+    key: &str,
+    ids: Vec<(u32, u16)>,
+) -> PyResult<()> {
+    if !matches!(key, "ON" | "OFF" | "Locked") {
+        return Err(PdfError::new_err(format!(
+            "unsupported configuration array: {key:?}"
+        )));
+    }
+    check_groups(&this.doc, &ids)?;
+    configuration(&this.doc, slot)?;
+    let mut plan = PropertiesPlan::read_slot(&this.doc, slot)?;
+    let before = plan.config.clone();
+    if ids.is_empty() {
+        plan.config.remove(key.as_bytes());
+    } else {
+        plan.config.set(key, reference_array(&ids)?);
+    }
+    commit_configuration(this, plan, &before);
+    Ok(())
+}
+
+/// Implements [`_Document::set_layer_configuration_radio_groups`].
+pub(super) fn set_layer_configuration_radio_groups(
+    this: &mut _Document,
+    slot: usize,
+    groups: Vec<Vec<(u32, u16)>>,
+) -> PyResult<()> {
+    let total = groups.iter().map(Vec::len).sum::<usize>();
+    if groups.len() > MAX_LAYER_ENTRIES || total > MAX_LAYER_ENTRIES {
+        return Err(limit_err(
+            "layer_count",
+            format!("radio-button groups exceed the limit of {MAX_LAYER_ENTRIES} groups"),
+        ));
+    }
+    for group in &groups {
+        check_groups(&this.doc, group)?;
+    }
+    configuration(&this.doc, slot)?;
+    let mut plan = PropertiesPlan::read_slot(&this.doc, slot)?;
+    let before = plan.config.clone();
+    if groups.is_empty() {
+        plan.config.remove(b"RBGroups");
+    } else {
+        let mut items = Vec::new();
+        items
+            .try_reserve_exact(groups.len())
+            .map_err(|error| alloc_err("radio-button groups", error))?;
+        for group in &groups {
+            items.push(reference_array(group)?);
+        }
+        plan.config.set("RBGroups", Object::Array(items));
+    }
+    commit_configuration(this, plan, &before);
+    Ok(())
+}
+
+/// Build `/Order` from preorder entries.
+fn order_object(doc: &Document, entries: &[OrderEntry]) -> PyResult<Object> {
+    if entries.len() > MAX_LAYER_ENTRIES {
+        return Err(limit_err(
+            "layer_count",
+            format!(
+                "/Order of {} entries exceeds {MAX_LAYER_ENTRIES}",
+                entries.len()
+            ),
+        ));
+    }
+    let mut text = 0usize;
+    let mut stack: Vec<Vec<Object>> = Vec::new();
+    stack
+        .try_reserve(MAX_ORDER_DEPTH as usize + 1)
+        .map_err(|error| alloc_err("optional-content order", error))?;
+    stack.push(Vec::new());
+    for (depth, is_group, id, label) in entries {
+        let depth = *depth as usize;
+        // An entry nests at most one level below an array opened just before.
+        if depth + 1 > stack.len() {
+            return Err(PdfError::new_err(
+                "an /Order entry can only nest inside the array before it",
+            ));
+        }
+        while stack.len() > depth + 1 {
+            let array = stack.pop().unwrap_or_default();
+            if let Some(parent) = stack.last_mut() {
+                parent
+                    .try_reserve(1)
+                    .map_err(|error| alloc_err("optional-content order", error))?;
+                parent.push(Object::Array(array));
+            }
+        }
+        if *is_group {
+            if depth as u32 + 1 > MAX_ORDER_DEPTH {
+                return Err(limit_err(
+                    "layer_count",
+                    format!("/Order nests more than {MAX_ORDER_DEPTH} levels"),
+                ));
+            }
+            let mut array = Vec::new();
+            if let Some(label) = label {
+                text = text.saturating_add(label.len());
+                if text > MAX_LAYER_TEXT_BYTES {
+                    return Err(limit_err(
+                        "layer_input_size",
+                        format!("/Order labels exceed {MAX_LAYER_TEXT_BYTES} bytes"),
+                    ));
+                }
+                array
+                    .try_reserve(1)
+                    .map_err(|error| alloc_err("optional-content order", error))?;
+                array.push(try_info_metadata_text_string(label)?);
+            }
+            stack.push(array);
+        } else {
+            group_dictionary(doc, *id)?;
+            let current = stack
+                .last_mut()
+                .ok_or_else(|| PdfError::new_err("empty order stack"))?;
+            current
+                .try_reserve(1)
+                .map_err(|error| alloc_err("optional-content order", error))?;
+            current.push(Object::Reference(*id));
+        }
+    }
+    while stack.len() > 1 {
+        let array = stack.pop().unwrap_or_default();
+        if let Some(parent) = stack.last_mut() {
+            parent
+                .try_reserve(1)
+                .map_err(|error| alloc_err("optional-content order", error))?;
+            parent.push(Object::Array(array));
+        }
+    }
+    Ok(Object::Array(stack.pop().unwrap_or_default()))
+}
+
+/// Implements [`_Document::set_layer_configuration_order`].
+pub(super) fn set_layer_configuration_order(
+    this: &mut _Document,
+    slot: usize,
+    entries: Vec<OrderEntry>,
+) -> PyResult<()> {
+    let order = order_object(&this.doc, &entries)?;
+    configuration(&this.doc, slot)?;
+    let mut plan = PropertiesPlan::read_slot(&this.doc, slot)?;
+    let before = plan.config.clone();
+    if entries.is_empty() {
+        plan.config.remove(b"Order");
+    } else {
+        plan.config.set("Order", order);
+    }
+    commit_configuration(this, plan, &before);
+    Ok(())
+}
+
+/// Implements [`_Document::apply_layer_configuration`].
+pub(super) fn apply_layer_configuration(this: &mut _Document, slot: usize) -> PyResult<()> {
+    let source = configuration(&this.doc, slot)?.cloned().unwrap_or_default();
+    if slot == 0 {
+        return Ok(());
+    }
+    let mut plan = PropertiesPlan::read(&this.doc)?;
+    let before = plan.config.clone();
+    let mut config = source;
+    if !config.has(b"Order")
+        && let Ok(order) = before.get(b"Order")
+    {
+        config.set("Order", order.clone());
+    }
+    plan.config = config;
+    commit_configuration(this, plan, &before);
+    Ok(())
+}
+
+/// Implements [`_Document::add_layer_configuration`].
+pub(super) fn add_layer_configuration(
+    this: &mut _Document,
+    name: &str,
+    creator: Option<&str>,
+    base_state: &str,
+    on: Vec<(u32, u16)>,
+    off: Vec<(u32, u16)>,
+) -> PyResult<usize> {
+    check_name(name)?;
+    if let Some(creator) = creator {
+        check_name(creator)?;
+    }
+    if !matches!(base_state, "ON" | "OFF" | "Unchanged") {
+        return Err(PdfError::new_err(format!("bad base state: {base_state:?}")));
+    }
+    check_groups(&this.doc, &on)?;
+    check_groups(&this.doc, &off)?;
+    let mut config = Dictionary::new();
+    config.set("Name", try_info_metadata_text_string(name)?);
+    if let Some(creator) = creator {
+        config.set("Creator", try_info_metadata_text_string(creator)?);
+    }
+    if base_state != "ON" {
+        config.set("BaseState", Object::Name(base_state.as_bytes().to_vec()));
+    }
+    if !on.is_empty() {
+        config.set("ON", reference_array(&on)?);
+    }
+    if !off.is_empty() {
+        config.set("OFF", reference_array(&off)?);
+    }
+    let mut plan = PropertiesPlan::read(&this.doc)?;
+    if plan.configs.len() >= MAX_LAYER_ENTRIES {
+        return Err(limit_err(
+            "layer_count",
+            format!("/Configs already lists {MAX_LAYER_ENTRIES} configurations"),
+        ));
+    }
+    plan.configs
+        .try_reserve(1)
+        .map_err(|error| alloc_err("optional-content configurations", error))?;
+    plan.configs.push(Object::Dictionary(config));
+    let slot = plan.configs.len();
+    this.invalidate_hayro_pdf_keeping_placements();
+    plan.commit(&mut this.doc);
+    Ok(slot)
 }

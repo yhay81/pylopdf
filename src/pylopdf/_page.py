@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Literal
 
 from pylopdf import _text
@@ -25,13 +26,16 @@ from pylopdf._limits import (
 from pylopdf._links import Links
 from pylopdf._objects import Dictionary
 from pylopdf._ocr import OcrEngine, OcrWord, _default_ocr_engine, _validate_ocr_rotation
+from pylopdf._operations import _DEFAULT_MAX_CONTENT_SIZE, InlineImage, Operation, Operations
+from pylopdf._operations import _from_core as _operations_from_core
 from pylopdf._page_labels import _label, _read_page_labels
 from pylopdf._pixmap import Colorspace, _render_background, _render_gray, _render_matrix, _validate_bool
 from pylopdf._tables import Table, build_tables
 from pylopdf._widgets import Widgets
+from pylopdf.pylopdf_core import LimitError
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Sequence
 
     from pylopdf._document import Document
     from pylopdf._text import Layout, Word
@@ -488,6 +492,44 @@ class Page:
         normally: above the page's content, or below it with ``underlay=True``.
         """
         return Canvas(self, underlay=underlay)
+
+    @property
+    def operations(self) -> Operations:
+        """Return the page's content as :class:`Operations`, as hayro reads it.
+
+        The content streams of ``/Contents`` are decoded and joined as the
+        renderer joins them, each stream of an array followed by one space,
+        and tokenized with hayro's parser, so the operations are the ones
+        that rendering and extraction interpret. Assigning a sequence of
+        :class:`Operation` and :class:`InlineImage` values writes them as one
+        new content stream, Flate-compressed, that replaces ``/Contents``;
+        operations read from a page or parsed keep their original bytes, so
+        ``page.operations = page.operations`` keeps the content as hayro
+        reads it. The page's resources are not changed: operations that name
+        a font or XObject need the page's ``/Resources`` to hold it.
+
+        Reading refuses more than 1,048,576 operations
+        (``content_operation_count``), and reading or writing more than
+        64 MiB of content raises ``content_stream_size`` or
+        ``content_input_size``; use :meth:`Operations.parse` with
+        ``max_operations=None`` on ``page.obj["Contents"].read()`` for larger
+        trusted content.
+        """
+        return _operations_from_core(self._document._doc.page_operations(self._page_number()))
+
+    @operations.setter
+    def operations(self, operations: Iterable[Operation | InlineImage]) -> None:
+        if not isinstance(operations, Operations):
+            if isinstance(operations, (str, bytes)) or not isinstance(operations, Iterable):
+                msg = f"assign a sequence of Operation and InlineImage values: {type(operations).__name__}"
+                raise TypeError(msg)
+            operations = Operations(operations)
+        data = operations.to_bytes()
+        if len(data) > _DEFAULT_MAX_CONTENT_SIZE:
+            msg = f"page content of {len(data)} bytes exceeds the {_DEFAULT_MAX_CONTENT_SIZE}-byte limit"
+            code = "content_input_size"
+            raise LimitError(code, msg)
+        self._document._doc.set_page_content(self._page_number(), data)
 
     def replace_text(
         self,

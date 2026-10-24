@@ -92,9 +92,21 @@ with pylopdf.open(signed_pdf) as signed:
     assert SignatureFlags.APPEND_ONLY in signed.form.signature_flags
 ```
 
-Sign as the last step: saving with pylopdf afterwards rewrites the file and
-invalidates the signature, which `SignatureFlags.APPEND_ONLY` warns of.
-Assigning the value of a signature field in `doc.form` raises.
+A full save with pylopdf afterwards rewrites the file and invalidates the
+signature, which `SignatureFlags.APPEND_ONLY` warns of. Edit a signed
+document with `save(..., incremental=True)` instead: the signed bytes stay a
+prefix of the output, so pyHanko still validates the signature, and its
+difference analysis reports what the update changed. Filling form fields and
+editing metadata count as allowed modifications; pyHanko reports other edits,
+such as a new comment, and a certification signature that forbids changes,
+as modifications it cannot explain. Assigning the value of a signature field
+in `doc.form` raises.
+
+```python
+with pylopdf.open(signed_pdf) as signed:
+    signed.form["Name"].value = "Alice"
+    filled: bytes = signed.to_bytes(incremental=True)
+```
 
 ## OCR with another engine { #ocr }
 
