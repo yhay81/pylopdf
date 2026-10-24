@@ -1087,6 +1087,31 @@ def _redaction_results() -> dict[str, Any]:
         }
 
 
+def _sanitize_results() -> dict[str, Any]:
+    """Sanitize a document with a comment, a link, an attachment, metadata, and hidden text."""
+    import pylopdf  # noqa: PLC0415
+
+    with pylopdf.Document() as document:
+        page = document.pages.new((300, 200))
+        page.apply_ocr(words=[pylopdf.OcrWord(text="hidden", bbox=pylopdf.Rect(20, 20, 80, 40), confidence=1.0)])
+        with page.draw() as canvas:
+            canvas.text("Shown", (20, 100), font=pylopdf.Font.standard("Helvetica"), size=14)
+        page.annotations.add(pylopdf.Note((200, 50), contents="note"))
+        page.links.add(pylopdf.Rect(20, 150, 80, 170), "https://example.test/")
+        document.attachments.add("a.txt", b"data")
+        document.metadata["author"] = "Ada"
+        report = document.sanitize()
+        saved = document.to_bytes()
+    with pylopdf.open(saved) as reopened:
+        return {
+            "report": [report.hidden_glyphs, report.comments, report.embedded_files, report.links],
+            "text": reopened.pages[0].text().split(),
+            "attachments": len(reopened.attachments),
+            "metadata": dict(reopened.metadata),
+            "links": len(reopened.pages[0].links),
+        }
+
+
 def _widget_results() -> dict[str, Any]:
     """Read form widgets, restyle them, and draw their values again."""
     import pylopdf  # noqa: PLC0415
@@ -2006,6 +2031,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "flatten": _flatten_results(),
         "operations": _operations_results(),
         "redaction": _redaction_results(),
+        "sanitize": _sanitize_results(),
         "ocr_layer": _ocr_layer_results(),
         "object_model": _object_model_results(),
         "optional_content": _optional_content_results(),

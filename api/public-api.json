@@ -141,6 +141,7 @@
     "RedactionReport",
     "RemoteDestination",
     "Resources",
+    "SanitizationReport",
     "ScriptTrigger",
     "Scripts",
     "Segment",
@@ -3168,6 +3169,72 @@
               }
             ],
             "returns": "ImageCompressionResult"
+          }
+        },
+        "sanitize": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "scripts"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "actions"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "embedded_files"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "metadata"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "hidden_text"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "comments"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "links"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "form_values"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "thumbnails"
+              }
+            ],
+            "returns": "SanitizationReport"
           }
         },
         "save": {
@@ -11921,6 +11988,120 @@
             "annotation": "Page",
             "kind": "positional_or_keyword",
             "name": "page"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "SanitizationReport": {
+      "annotations": {
+        "actions": "int",
+        "comments": "int",
+        "embedded_files": "int",
+        "fields": "int",
+        "hidden_glyphs": "int",
+        "links": "int",
+        "metadata": "int",
+        "objects": "int",
+        "scripts": "int",
+        "thumbnails": "int"
+      },
+      "dataclass_fields": [
+        "scripts",
+        "actions",
+        "embedded_files",
+        "metadata",
+        "hidden_glyphs",
+        "comments",
+        "links",
+        "fields",
+        "thumbnails",
+        "objects"
+      ],
+      "kind": "class",
+      "members": {
+        "actions": {
+          "kind": "property"
+        },
+        "comments": {
+          "kind": "property"
+        },
+        "embedded_files": {
+          "kind": "property"
+        },
+        "fields": {
+          "kind": "property"
+        },
+        "hidden_glyphs": {
+          "kind": "property"
+        },
+        "links": {
+          "kind": "property"
+        },
+        "metadata": {
+          "kind": "property"
+        },
+        "objects": {
+          "kind": "property"
+        },
+        "scripts": {
+          "kind": "property"
+        },
+        "thumbnails": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "scripts"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "actions"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "embedded_files"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "metadata"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "hidden_glyphs"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "comments"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "links"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "fields"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "thumbnails"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "objects"
           }
         ],
         "returns": "None"

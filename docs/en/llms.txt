@@ -214,6 +214,7 @@ replacement, and the migration hint):
 - Document.resolve_link -> Document.destinations: For a named destination, doc.destinations[name]; for '#page=N', Destination(N - 1); links and the outline already read their targets resolved.
 - Document.resolve_names -> Document.destinations: doc.destinations maps each named destination to its Destination(page, point, zoom), or None when it names no page.
 - Document.saveIncr -> Document.save: Use doc.save(path, incremental=True), which appends one update to the bytes the document was opened from and may write to any path.
+- Document.scrub -> Document.sanitize: doc.sanitize(links=True, form_values=True) removes what scrub() removes by default; javascript= is scripts=, attached_files= and embedded_files= are embedded_files=, xml_metadata= goes with metadata=, remove_links= is links=, reset_fields= is form_values=, and redactions=True is page.redact() on every page.
 - Document.search_page_for -> Page.search: Call doc.pages[i].search(text).
 - Document.select -> Pages.select: Use doc.pages.select(indexes).
 - Document.set_language -> Document.language: Assign doc.language = tag, or del doc.language to remove it; pylopdf keeps the complete BCP 47 tag, such as zh-TW, where pymupdf keeps at most three letters.

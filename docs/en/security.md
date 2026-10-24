@@ -191,7 +191,10 @@ These apply to every document, with or without `DocumentLimits`:
   content from the file and verifies the page with the renderer; deleting
   pages or drawing boxes over text does not. Copies of the same text can
   remain elsewhere in the file, such as in attachments, metadata, or the
-  structure tree, so sanitize the document too.
+  structure tree, so run `doc.sanitize()` too.
+- **Sanitize documents from outside before sharing them.** `doc.sanitize()`
+  removes scripts, automatic actions, attached files, metadata, hidden text,
+  and comments.
 - **Use `doc.render()` for parallel rendering.** It already limits its own
   memory use, so do not wrap it in additional unbounded parallelism.
 
