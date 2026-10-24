@@ -63,6 +63,7 @@ use indexed::IndexedDocument;
 
 mod annotations;
 mod attachments;
+mod cleaning;
 mod drawing;
 mod errors;
 mod extraction;
@@ -2194,7 +2195,8 @@ impl _Document {
     /// Redact a one-based page: remove what the areas cover, or the areas
     /// of the page's redaction annotations when `areas` is `None`, verify
     /// the result with hayro, draw the fills, and report what went.
-    #[pyo3(signature = (page_number, areas, text, images, graphics))]
+    #[pyo3(signature = (page_number, areas, text, images, graphics, clip=None))]
+    #[allow(clippy::too_many_arguments)]
     fn redact_page(
         &mut self,
         py: Python<'_>,
@@ -2203,8 +2205,9 @@ impl _Document {
         text: bool,
         images: &str,
         graphics: &str,
+        clip: Option<(f64, f64, f64, f64)>,
     ) -> PyResult<redaction::RedactionTuple> {
-        redaction::redact_page(self, py, page_number, areas, text, images, graphics)
+        redaction::redact_page(self, py, page_number, areas, text, images, graphics, clip)
     }
 
     /// Remove what the document carries besides its pages; see
@@ -2237,6 +2240,23 @@ impl _Document {
                 thumbnails,
             },
         )
+    }
+
+    /// Write a one-based page's content as one normalized stream with only
+    /// the resources it uses; see `Page.clean_contents`.
+    fn clean_page_contents(&mut self, py: Python<'_>, page_number: u32) -> PyResult<()> {
+        cleaning::clean_page_contents(self, py, page_number)
+    }
+
+    /// Normalize the appearance streams of one annotation in place.
+    fn clean_annotation_contents(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+    ) -> PyResult<()> {
+        cleaning::clean_annotation_contents(self, py, page_number, index, xref)
     }
 
     /// Tokenize a one-based page's joined content as hayro reads it and

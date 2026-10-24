@@ -144,7 +144,7 @@ the concept and API overview.
   - Rewriting: `content/`, `text_replace.rs`, `image_compression.rs`;
     `redact.rs`; `document/{replacement,redaction,redaction_images}.rs`;
     `src/pylopdf/_operations.py`, `_redaction.py`, and `_sanitize.py`;
-    `document/sanitize.rs`.
+    `document/{sanitize,cleaning}.rs`.
   - Shared: `lib.rs`, `document/mod.rs`,
     `document/{errors,input,objects,indexed}.rs`; and in `src/pylopdf/`,
     the re-export surface `__init__.py` plus `_document.py`, `_page.py`,
@@ -2162,6 +2162,21 @@ the concept and API overview.
   attachment visitor.
   Unreachable objects are pruned and `incremental_base` dropped in every
   case. `form_values` resets fields in Python after the core call.
+- `Page.clean_contents` and `Annotation.clean_contents`
+  (`document/cleaning.rs`) write the operations that hayro reads from their
+  values through lopdf's writer, drop `Q` that finds no `q`, close the
+  states left open, and drop comments and the tail. Resource entries of
+  `Font`, `XObject`, `ExtGState`, `ColorSpace` (device names aside),
+  `Pattern`, `Shading`, and `Properties` that no operation names are
+  removed, keeping every name used by a Form without its own resources,
+  followed transitively up to 50 levels, and by an annotation appearance
+  without its own resources; page resources become a page-owned copy and
+  annotation appearances are rewritten in place. `Page.clip_to_rect` calls
+  `redact_page` with the four bands around the rectangle, no fill, and a
+  `clip`: graphics become `GraphicsMode::Outside`, which removes paths and
+  shadings that do not overlap the kept rectangle, and after verification
+  the page content is wrapped in `q`s that cover its unmatched `Q`, the
+  clip, and closing `Q`s.
 - `Page.operations` (`src/pylopdf/_operations.py`) is operator-level content:
   an immutable `Operations` sequence of `Operation(operator, operands)` and
   `InlineImage(dictionary, data)` values and a `tail` of the bytes after the

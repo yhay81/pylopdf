@@ -75,13 +75,45 @@ def redact(  # noqa: PLR0913 - the redaction's options.
         rects = _validate_highlight_rects(areas)
         color = None if fill is None else fill.rgb
         payload = [((rect.x0, rect.y0, rect.x1, rect.y1), color) for rect in rects]
+    return _apply(page, payload, text=text == "remove", images=images, graphics=graphics, clip=None)
+
+
+def clip_to_rect(page: Page, rect: Sequence[float]) -> RedactionReport:
+    """Remove what lies outside ``rect``; see :meth:`Page.clip_to_rect`."""
+    (kept,) = _validate_highlight_rects(rect)
+    bounds = page.rect
+    kept = kept & bounds
+    if kept.is_empty:
+        kept = Rect(bounds.x0, bounds.y0, bounds.x0, bounds.y0)
+    bands = [
+        Rect(bounds.x0, bounds.y0, bounds.x1, kept.y0),
+        Rect(bounds.x0, kept.y1, bounds.x1, bounds.y1),
+        Rect(bounds.x0, kept.y0, kept.x0, kept.y1),
+        Rect(kept.x1, kept.y0, bounds.x1, kept.y1),
+    ]
+    payload = [((band.x0, band.y0, band.x1, band.y1), None) for band in bands if band.width > 0 and band.height > 0]
+    return _apply(
+        page, payload, text=True, images="pixels", graphics="touched", clip=(kept.x0, kept.y0, kept.x1, kept.y1)
+    )
+
+
+def _apply(  # noqa: PLR0913 - the core's arguments.
+    page: Page,
+    payload: list[tuple[tuple[float, float, float, float], tuple[float, float, float] | None]] | None,
+    *,
+    text: bool,
+    images: str,
+    graphics: str,
+    clip: tuple[float, float, float, float] | None,
+) -> RedactionReport:
     document = page._document  # noqa: SLF001 - the page's own document.
     raw = document._doc.redact_page(  # noqa: SLF001
         page._page_number(),  # noqa: SLF001
         payload,
-        text == "remove",
+        text,
         images,
         graphics,
+        clip,
     )
     document._emit_warnings()  # noqa: SLF001
     applied, glyphs, removed_images, blanked, paths, shadings, annotations, forms = raw

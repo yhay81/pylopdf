@@ -787,6 +787,18 @@ class Annotation:
                     edit["font"] = face
         self._xref = page._document._doc.edit_annotation(page._page_number(), self._index, self._xref, edit)
 
+    def clean_contents(self) -> None:
+        """Write the annotation's appearance streams with normalized operations, as ``Page.clean_contents`` does.
+
+        Each normal, rollover, and down appearance, and each state of a
+        state dictionary, is written in place from the operations that the
+        renderer reads, with balanced graphics states, and keeps only the
+        resource entries it uses of the resources it holds itself.
+        """
+        page = self._page
+        self._read()
+        page._document._doc.clean_annotation_contents(page._page_number(), self._index, self._xref)
+
     def _edit(self, method: str, *args: object) -> None:
         page = self._page
         self._read()

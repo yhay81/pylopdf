@@ -32,6 +32,7 @@ from pylopdf._operations import _from_core as _operations_from_core
 from pylopdf._page_labels import _label, _read_page_labels
 from pylopdf._pixmap import Colorspace, _render_background, _render_gray, _render_matrix, _validate_bool
 from pylopdf._redaction import RedactionReport
+from pylopdf._redaction import clip_to_rect as _clip_to_rect
 from pylopdf._redaction import redact as _redact
 from pylopdf._tables import Table, build_tables
 from pylopdf._widgets import Widgets
@@ -770,6 +771,30 @@ class Page:
         leaving the document unchanged, as every other refusal does.
         """
         return _redact(self, areas, text=text, images=images, graphics=graphics, fill=fill)
+
+    def clip_to_rect(self, rect: Sequence[float]) -> RedactionReport:
+        """Remove what lies outside ``rect``, in display space, and return a report.
+
+        Glyphs that reach outside the rectangle go, the pixels of images
+        outside it are blanked, paths and shadings that lie entirely outside
+        it go, and annotations outside it go, all as :meth:`redact` removes
+        them; the content is then clipped to the rectangle, so a path that
+        crosses its edge shows only inside. The page boxes do not change.
+        """
+        return _clip_to_rect(self, rect)
+
+    def clean_contents(self) -> None:
+        """Write the page's content as one stream of normalized operations with only the resources it uses.
+
+        The operations are those that the renderer reads, written from
+        their values, so rendering and extraction do not change; comments,
+        content after where the renderer stops reading, and ``Q`` operators
+        that restore nothing go, and the states the content leaves saved are
+        restored at its end. Resource entries that neither the content nor a
+        Form XObject or annotation appearance that inherits the page's
+        resources names are removed from a copy that the page owns.
+        """
+        self._document._doc.clean_page_contents(self._page_number())
 
     def replace_text(
         self,
