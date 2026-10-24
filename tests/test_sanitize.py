@@ -164,3 +164,114 @@ def test_options_are_bools(option: str) -> None:
     doc = pylopdf.open(_loaded())
     with pytest.raises(TypeError):
         doc.sanitize(**{option: 1})  # ty: ignore[invalid-argument-type]
+
+
+def test_indirect_name_and_trigger_dictionaries_are_sanitized() -> None:
+    data = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R /Names 4 0 R /AA 5 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+            4: "<< /JavaScript << /Names [(init) 6 0 R] >> /EmbeddedFiles << /Names [(secret) 8 0 R] >> >>",
+            5: "<< /WC 6 0 R /WS 7 0 R >>",
+            6: "<< /S /JavaScript /JS (private_script) >>",
+            7: "<< /S /URI /URI (https://example.test/) >>",
+            8: "<< /Type /Filespec /F (secret.txt) /EF << /F 9 0 R >> >>",
+            9: _stream("private_attachment", "/Type /EmbeddedFile"),
+        }
+    )
+    doc = pylopdf.open(data)
+
+    report = doc.sanitize(actions=False, hidden_text=False)
+
+    assert report.embedded_files == 1
+    assert report.scripts == 2
+    assert dict(doc.catalog["Names"]) == {}
+    assert list(doc.catalog["AA"]) == ["WS"]
+    saved = doc.to_bytes(compress=False)
+    assert b"private_script" not in saved
+    assert b"private_attachment" not in saved
+
+
+def test_attachment_tree_cycles_do_not_expand_during_sanitization() -> None:
+    doc = pylopdf.open(
+        build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles 4 0 R >> >>",
+                2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+                4: "<< /Kids [4 0 R 4 0 R] >>",
+            }
+        )
+    )
+
+    assert doc.sanitize(hidden_text=False).embedded_files == 0
+    assert len(doc.attachments) == 0
+
+
+@pytest.mark.parametrize("actions", [False, True])
+def test_indirect_next_action_arrays_are_filtered(actions: bool) -> None:  # noqa: FBT001
+    doc = pylopdf.open(
+        build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [8 0 R] >>",
+                4: "<< /S /URI /URI (https://example.test/) /Next 5 0 R >>",
+                5: "[6 0 R 7 0 R]",
+                6: "<< /S /JavaScript /JS (private_chained_script) >>",
+                7: "<< /S /Launch /F (private_launch_target) >>",
+                8: "<< /Type /Annot /Subtype /Link /Rect [10 10 50 30] /A 4 0 R >>",
+            }
+        )
+    )
+
+    report = doc.sanitize(actions=actions, hidden_text=False)
+
+    assert report.scripts == 1
+    assert report.actions == int(actions)
+    chain = doc.pages[0].links[0].obj["A"]["Next"]
+    assert len(chain) == (0 if actions else 1)
+    saved = doc.to_bytes(compress=False)
+    assert b"private_chained_script" not in saved
+    assert (b"private_launch_target" in saved) is not actions
+
+
+def test_xfa_is_removed_without_an_acroform_fields_array() -> None:
+    doc = pylopdf.open(
+        build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+                4: "<< /XFA 5 0 R >>",
+                5: _stream("private_xfa_script"),
+            }
+        )
+    )
+
+    assert doc.sanitize(hidden_text=False).scripts == 1
+    assert "XFA" not in doc.catalog["AcroForm"]
+    assert b"private_xfa_script" not in doc.to_bytes(compress=False)
+
+
+@pytest.mark.parametrize(
+    ("action", "extra"),
+    [
+        ("<< /JS (private_alias_script) >>", {}),
+        ("4 0 R", {4: "<< /JS (private_alias_script) >>"}),
+        ("4 0 R", {4: "5 0 R", 5: "<< /S /JavaScript /JS (private_alias_script) >>"}),
+    ],
+)
+def test_script_actions_are_removed_through_aliases_and_without_a_subtype(action: str, extra: dict[int, str]) -> None:
+    objects: dict[int, bytes | str] = {
+        1: f"<< /Type /Catalog /Pages 2 0 R /OpenAction {action} >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+        **extra,
+    }
+    doc = pylopdf.open(build_raw_pdf(objects))
+
+    assert doc.sanitize(actions=False, hidden_text=False).scripts == 1
+    assert "OpenAction" not in doc.catalog
+    assert b"private_alias_script" not in doc.to_bytes(compress=False)

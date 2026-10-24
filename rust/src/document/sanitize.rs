@@ -127,15 +127,25 @@ fn sanitize_inner(
         }
     }
     let doc: &Document = &this.doc;
-    let actions = classify_actions(doc);
+    let actions = classify_actions(doc)?;
     let catalog_id = doc
         .trailer
         .get(b"Root")
         .and_then(Object::as_reference)
         .map_err(to_py_err)?;
     if options.embedded_files {
-        removed.embedded_files += embedded_file_count(doc, catalog_id);
+        attachments::visit_embedded_files(doc, |_, _| {
+            removed.embedded_files += 1;
+            Ok(None::<()>)
+        })?;
     }
+    let names_id = doc
+        .catalog()
+        .ok()
+        .and_then(|catalog| catalog.get(b"Names").ok())
+        .and_then(|value| doc.dereference(value).ok())
+        .and_then(|(id, _)| id);
+    let indirect = indirect_actions(doc)?;
     // Every dictionary in the graph, indirect or direct, in one walk.
     let ids: Vec<ObjectId> = this.doc.objects.keys().copied().collect();
     for id in ids {
@@ -148,6 +158,9 @@ fn sanitize_inner(
                 Object::Dictionary(dict) => dict,
                 Object::Stream(stream) => &mut stream.dict,
                 Object::Array(items) => {
+                    if depth == 0 && indirect.arrays.contains(&id) {
+                        clean_action_array(items, options, &actions, &mut removed);
+                    }
                     if depth < MAX_READ_DEPTH {
                         stack.extend(items.iter_mut().map(|item| (item, depth + 1)));
                     }
@@ -158,6 +171,8 @@ fn sanitize_inner(
             clean_dictionary(
                 dict,
                 id == catalog_id && depth == 0,
+                depth == 0 && names_id == Some(id),
+                depth == 0 && indirect.triggers.contains(&id),
                 options,
                 &actions,
                 &mut removed,
@@ -193,28 +208,32 @@ struct Actions {
     other: HashSet<ObjectId>,
 }
 
-fn classify_actions(doc: &Document) -> Actions {
+fn classify_actions(doc: &Document) -> PyResult<Actions> {
     let mut actions = Actions {
         scripts: HashSet::new(),
         navigation: HashSet::new(),
         other: HashSet::new(),
     };
-    for (id, object) in &doc.objects {
+    for id in doc.objects.keys() {
+        let object = doc.get_object(*id).map_err(to_py_err)?;
         let Ok(dict) = object.as_dict() else {
             continue;
         };
-        if !dict.has(b"S") {
+        let targets = if is_script(dict) {
+            &mut actions.scripts
+        } else if !dict.has(b"S") {
             continue;
-        }
-        if is_script(dict) {
-            actions.scripts.insert(*id);
         } else if is_navigation(dict) {
-            actions.navigation.insert(*id);
+            &mut actions.navigation
         } else {
-            actions.other.insert(*id);
-        }
+            &mut actions.other
+        };
+        targets.try_reserve(1).map_err(|error| {
+            PdfError::new_err(format!("failed to classify sanitization actions: {error}"))
+        })?;
+        targets.insert(*id);
     }
-    actions
+    Ok(actions)
 }
 
 /// What an action value is: a script, navigation, another action, or none.
@@ -231,7 +250,7 @@ fn kind(value: &Object, actions: &Actions) -> Kind {
         Object::Reference(id) if actions.scripts.contains(id) => Kind::Script,
         Object::Reference(id) if actions.navigation.contains(id) => Kind::Navigation,
         Object::Reference(id) if actions.other.contains(id) => Kind::Other,
-        Object::Dictionary(dict) if dict.has(b"S") && is_script(dict) => Kind::Script,
+        Object::Dictionary(dict) if is_script(dict) => Kind::Script,
         Object::Dictionary(dict) if dict.has(b"S") && is_navigation(dict) => Kind::Navigation,
         Object::Dictionary(dict) if dict.has(b"S") => Kind::Other,
         _ => Kind::NotAnAction,
@@ -242,6 +261,8 @@ fn kind(value: &Object, actions: &Actions) -> Kind {
 fn clean_dictionary(
     dict: &mut Dictionary,
     catalog: bool,
+    names: bool,
+    triggers: bool,
     options: SanitizeOptions,
     actions: &Actions,
     removed: &mut Removed,
@@ -263,18 +284,7 @@ fn clean_dictionary(
             continue;
         };
         if let Object::Array(items) = value {
-            let before = items.len();
-            items.retain(|item| match kind(item, actions) {
-                Kind::Script => !options.scripts,
-                Kind::Other => !options.actions,
-                Kind::Navigation | Kind::NotAnAction => true,
-            });
-            let gone = before - items.len();
-            if options.scripts {
-                removed.scripts += gone;
-            } else {
-                removed.actions += gone;
-            }
+            clean_action_array(items, options, actions, removed);
             continue;
         }
         let drop = match kind(value, actions) {
@@ -294,36 +304,29 @@ fn clean_dictionary(
     }
     if options.scripts {
         if let Ok(Object::Dictionary(triggers)) = dict.get_mut(b"AA") {
-            let names: Vec<Vec<u8>> = triggers
-                .iter()
-                .filter(|(_, value)| kind(value, actions) == Kind::Script)
-                .map(|(name, _)| name.clone())
-                .collect();
-            for name in &names {
-                triggers.remove(name);
-            }
-            removed.scripts += names.len();
+            clean_triggers(triggers, actions, removed);
             if triggers.is_empty() {
                 dict.remove(b"AA");
             }
         }
         // XFA forms carry their own scripts.
-        if dict.has(b"Fields") && dict.remove(b"XFA").is_some() {
+        if dict.remove(b"XFA").is_some() {
             removed.scripts += 1;
         }
     }
     if catalog {
         if let Ok(Object::Dictionary(names)) = dict.get_mut(b"Names") {
-            if options.scripts && names.remove(b"JavaScript").is_some() {
-                removed.scripts += 1;
-            }
-            if options.embedded_files {
-                names.remove(b"EmbeddedFiles");
-            }
+            clean_names(names, options, removed);
         }
         if options.embedded_files {
             dict.remove(b"Collection");
         }
+    }
+    if names {
+        clean_names(dict, options, removed);
+    }
+    if triggers && options.scripts {
+        clean_triggers(dict, actions, removed);
     }
     if options.embedded_files {
         dict.remove(b"AF");
@@ -337,52 +340,118 @@ fn clean_dictionary(
     }
 }
 
-/// The entries of the catalog's EmbeddedFiles name tree.
-fn embedded_file_count(doc: &Document, catalog_id: ObjectId) -> usize {
-    let Ok(catalog) = doc.get_dictionary(catalog_id) else {
-        return 0;
-    };
-    let tree = catalog
-        .get(b"Names")
-        .ok()
-        .and_then(|value| crate::redact::resolve(doc, value))
-        .and_then(|value| value.as_dict().ok())
-        .and_then(|names| names.get(b"EmbeddedFiles").ok())
-        .and_then(|value| crate::redact::resolve(doc, value))
-        .and_then(|value| value.as_dict().ok());
-    let Some(tree) = tree else {
-        return 0;
-    };
-    let mut count = 0;
-    let mut stack = vec![(tree, 0)];
-    while let Some((node, depth)) = stack.pop() {
-        if let Some(names) = node
-            .get(b"Names")
-            .ok()
-            .and_then(|value| crate::redact::resolve(doc, value))
-            .and_then(|value| value.as_array().ok())
-        {
-            count += names.len() / 2;
-        }
-        if depth >= 32 {
-            continue;
-        }
-        if let Some(kids) = node
-            .get(b"Kids")
-            .ok()
-            .and_then(|value| crate::redact::resolve(doc, value))
-            .and_then(|value| value.as_array().ok())
-        {
-            for kid in kids {
-                if let Some(kid) =
-                    crate::redact::resolve(doc, kid).and_then(|value| value.as_dict().ok())
+#[derive(Default)]
+struct IndirectActions {
+    triggers: HashSet<ObjectId>,
+    arrays: HashSet<ObjectId>,
+}
+
+/// Find indirect action containers before graph mutation.
+fn indirect_actions(doc: &Document) -> PyResult<IndirectActions> {
+    let mut indirect = IndirectActions::default();
+    let mut stack = Vec::new();
+    for object in doc.objects.values() {
+        stack.try_reserve(1).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate sanitization traversal: {error}"
+            ))
+        })?;
+        stack.push(object);
+        while let Some(object) = stack.pop() {
+            let dict = match object {
+                Object::Dictionary(dict) => dict,
+                Object::Stream(stream) => &stream.dict,
+                Object::Array(items) => {
+                    stack.try_reserve(items.len()).map_err(|error| {
+                        PdfError::new_err(format!(
+                            "failed to allocate sanitization traversal: {error}"
+                        ))
+                    })?;
+                    stack.extend(items);
+                    continue;
+                }
+                _ => continue,
+            };
+            if let Some(id) = dict
+                .get(b"AA")
+                .ok()
+                .and_then(|value| doc.dereference(value).ok())
+                .and_then(|(id, value)| value.as_dict().ok().and(id))
+            {
+                indirect.triggers.try_reserve(1).map_err(|error| {
+                    PdfError::new_err(format!(
+                        "failed to allocate sanitization traversal: {error}"
+                    ))
+                })?;
+                indirect.triggers.insert(id);
+            }
+            for key in ACTION_KEYS {
+                if let Some(id) = dict
+                    .get(key)
+                    .ok()
+                    .and_then(|value| doc.dereference(value).ok())
+                    .and_then(|(id, value)| value.as_array().ok().and(id))
                 {
-                    stack.push((kid, depth + 1));
+                    indirect.arrays.try_reserve(1).map_err(|error| {
+                        PdfError::new_err(format!(
+                            "failed to allocate sanitization traversal: {error}"
+                        ))
+                    })?;
+                    indirect.arrays.insert(id);
                 }
             }
+            stack.try_reserve(dict.len()).map_err(|error| {
+                PdfError::new_err(format!(
+                    "failed to allocate sanitization traversal: {error}"
+                ))
+            })?;
+            stack.extend(dict.iter().map(|(_, value)| value));
         }
     }
-    count
+    Ok(indirect)
+}
+
+/// Filter an action chain and count scripts and other actions separately.
+fn clean_action_array(
+    items: &mut Vec<Object>,
+    options: SanitizeOptions,
+    actions: &Actions,
+    removed: &mut Removed,
+) {
+    items.retain(|item| match kind(item, actions) {
+        Kind::Script if options.scripts => {
+            removed.scripts += 1;
+            false
+        }
+        Kind::Other if options.actions => {
+            removed.actions += 1;
+            false
+        }
+        _ => true,
+    });
+}
+
+/// Remove script triggers without changing the other trigger actions.
+fn clean_triggers(dict: &mut Dictionary, actions: &Actions, removed: &mut Removed) {
+    let names: Vec<Vec<u8>> = dict
+        .iter()
+        .filter(|(_, value)| kind(value, actions) == Kind::Script)
+        .map(|(name, _)| name.clone())
+        .collect();
+    for name in &names {
+        dict.remove(name);
+    }
+    removed.scripts += names.len();
+}
+
+/// Clean a catalog name dictionary, whether direct or indirect.
+fn clean_names(dict: &mut Dictionary, options: SanitizeOptions, removed: &mut Removed) {
+    if options.scripts && dict.remove(b"JavaScript").is_some() {
+        removed.scripts += 1;
+    }
+    if options.embedded_files {
+        dict.remove(b"EmbeddedFiles");
+    }
 }
 
 /// Remove a page's comments, links, and file attachments, with their popups.

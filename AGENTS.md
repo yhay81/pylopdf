@@ -2113,6 +2113,10 @@ the concept and API overview.
   and an AcroForm `/XFA` with `scripts`, `/Names /EmbeddedFiles`,
   `/Collection`, and `/AF` with `embedded_files`, and `/Metadata`,
   `/PieceInfo`, `/LastModified`, and the trailer `/Info` with `metadata`.
+  Indirect name and additional-action dictionaries are cleaned by object
+  identity, including indirect action-chain arrays; XFA-only forms are removed
+  even without `/Fields`. Attachment counts use the bounded, cycle-aware
+  attachment visitor.
   Unreachable objects are pruned and `incremental_base` dropped in every
   case. `form_values` resets fields in Python after the core call.
 - `Page.operations` (`src/pylopdf/_operations.py`) is operator-level content:
