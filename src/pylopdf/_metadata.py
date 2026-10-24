@@ -317,7 +317,7 @@ def _page_ranges(ranges: Iterable[tuple[int, int]]) -> tuple[tuple[int, int], ..
         ):
             msg = f"a print page range is a pair of zero-based pages (first, last), first <= last: {pair!r}"
             raise ValueError(msg)
-    return cast("tuple[tuple[int, int], ...]", pairs)
+    return pairs
 
 
 def _is_preference_name(name: object) -> bool:
