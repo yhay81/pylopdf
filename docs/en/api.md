@@ -50,7 +50,7 @@ untrusted input. Use the document as a context manager, or call `close()`.
 | `is_dirty` | Whether the document was edited since it was opened. A new empty document starts edited, and saving does not reset it, as in pymupdf |
 | `is_closed`, `path` | Whether the document is closed, and the file it was opened from as a `pathlib.Path`, or `None` for bytes and an empty document |
 | `limits`, `complexity` | The policy the document was opened with, and cheap structural facts (pages, objects, streams) for deciding whether to process it |
-| `save(path, /, *, compress=True, prune=True, dedupe=False, renumber=False, object_streams=False, encryption=None, incremental=False)` | Write the PDF. The file is replaced only after the complete write succeeds |
+| `save(path, /, *, compress=True, prune=True, dedupe=False, renumber=False, object_streams=False, encryption=None, incremental=False, compression_level=6, cross_reference=None, decompress=False, keep_id=False)` | Write the PDF. The file is replaced only after the complete write succeeds |
 | `can_save_incrementally` | Whether `save` and `to_bytes` accept `incremental=True` |
 | `to_bytes(..., max_size=512 MiB)` | The same output as `bytes` |
 | `close()` | Release the document; `with` does this for you |
@@ -59,8 +59,18 @@ By default, saving compresses the streams that Flate makes smaller and
 removes the objects that nothing references; `compress=False` and
 `prune=False` keep them as they are. `dedupe=True` merges duplicate objects
 and streams, `renumber=True` numbers the remaining objects consecutively, and
-`object_streams=True` packs objects into compressed object streams. These
-options change the document itself, not only the output. To encrypt, pass
+`object_streams=True` packs objects into compressed object streams.
+`compression_level` is zlib's effort from 0 through 9 for the streams that
+`compress` and `object_streams` compress, 6 by default. `decompress=True`,
+with `compress=False`, removes every filter that pylopdf can decode, which
+leaves image filters such as JPEG as they are and makes a file readable in a
+text editor. `cross_reference="table"` or `"stream"` writes the
+cross-reference data in that form from then on; `None` keeps the form the
+document was read with. These options change the document itself, not only
+the output. Saving gives a document without a file identifier one and
+renews the second element of an edited document's identifier, from a digest
+of its content, so saving the same content twice writes the same bytes;
+`keep_id=True` writes the identifier as read. To encrypt, pass
 `encryption=Encryption(user_password=..., owner_password=...,
 permissions=...)`, which writes AES-256 encryption, or add
 `method="aes-128"` for AES-128, which PDF 1.6 readers open as well; the

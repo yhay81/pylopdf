@@ -788,15 +788,14 @@ SAVE_PARAMETERS = (
     *TOBYTES_PARAMETERS[15:],
 )
 #: Save options of pymupdf that pylopdf leaves out; their default values change nothing.
-_UNSUPPORTED_SAVE_OPTIONS = ("clean", "ascii", "expand", "linear", "no_new_id", "appearance", "pretty")
+_UNSUPPORTED_SAVE_OPTIONS = ("clean", "ascii", "linear", "appearance", "pretty")
 _FALSE = frozenset({"False", "0", "None"})
 _TRUE = frozenset({"True", "1"})
 SAVE_MESSAGE = (
-    "save() and to_bytes() take compress, prune, dedupe, renumber, object_streams, and "
-    "encryption=Encryption(user_password=..., owner_password=..., permissions=...); "
-    "pylopdf writes AES-256 and AES-128 encryption only and has no clean, linear, or ascii option; "
-    "incremental=True "
-    "takes neither dedupe, renumber, object_streams, nor encryption."
+    "save() and to_bytes() take compress, prune, dedupe, renumber, object_streams, compression_level, "
+    "cross_reference, decompress, keep_id, and encryption=Encryption(user_password=..., owner_password=..., "
+    "permissions=...); pylopdf writes AES-256 and AES-128 encryption only and has no clean, linear, ascii, or "
+    "pretty option; incremental=True takes neither dedupe, renumber, object_streams, nor encryption."
 )
 UNLOCK_MESSAGE = (
     "unlock() returns Access.USER or Access.OWNER and raises PasswordError for a wrong password, "
@@ -895,6 +894,43 @@ def _object_options(bound: dict[str, str]) -> list[str] | None:
     return options
 
 
+#: pymupdf's ``expand`` value that decompresses every stream.
+_EXPAND_ALL = 255
+#: The highest ``compression_effort`` of pymupdf and the highest zlib level.
+_MAX_EFFORT, _MAX_LEVEL = 100, 9
+
+
+def _format_options(bound: dict[str, str], options: list[str]) -> list[str] | None:
+    """Translate ``no_new_id``, ``expand``, and ``compression_effort``, or return None.
+
+    ``options`` holds the object options already translated, which
+    ``expand`` checks for ``compress=False``.
+    """
+    formats = []
+    no_new_id = bound.get("no_new_id", "False")
+    if no_new_id not in _FALSE | _TRUE:
+        return None
+    if no_new_id in _TRUE:
+        formats.append("keep_id=True")
+    expand = bound.get("expand", "0")
+    expand_value = {"False": 0, "True": 1}.get(expand, _int_literal(expand))
+    if expand_value not in (0, _EXPAND_ALL):
+        # pymupdf expands only images or only fonts with 1 and 2.
+        return None
+    if expand_value == _EXPAND_ALL:
+        if bound.get("deflate", "False") in _TRUE:
+            return None
+        if "compress=False" not in options:
+            formats.append("compress=False")
+        formats.append("decompress=True")
+    effort = _int_literal(bound.get("compression_effort", "0"))
+    if effort is None or not 0 <= effort <= _MAX_EFFORT:
+        return None
+    if effort:
+        formats.append(f"compression_level={max(1, (effort * _MAX_LEVEL + _MAX_EFFORT // 2) // _MAX_EFFORT)}")
+    return formats
+
+
 def _save_options(migrator: _Migrator, bound: dict[str, str]) -> list[str] | None:
     """Translate pymupdf's and pylopdf 0.15's save options, or return None when one cannot be migrated.
 
@@ -910,6 +946,10 @@ def _save_options(migrator: _Migrator, bound: dict[str, str]) -> list[str] | Non
         return None
     if options is None or encryption is None:
         return None
+    formats = _format_options(bound, options)
+    if formats is None:
+        return None
+    options.extend(formats)
     incremental = bound.get("incremental", "False")
     if incremental not in _FALSE | _TRUE:
         return None
@@ -966,8 +1006,8 @@ EZ_SAVE_DEFAULTS = {"garbage": "3", "use_objstms": "1"}
 
 def _ez_save(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
     # ez_save orders its parameters differently from save, so only the file name binds by position.
-    bound = None if len(args.positional) > 1 else args.bind((*SAVE_PARAMETERS, "compression_effort"))
-    if bound is None or "filename" not in bound or bound.pop("compression_effort", "0") != "0":
+    bound = None if len(args.positional) > 1 else args.bind(SAVE_PARAMETERS)
+    if bound is None or "filename" not in bound:
         migrator.todo(SAVE_MESSAGE)
         return None
     options = _save_options(migrator, {**EZ_SAVE_DEFAULTS, **bound})

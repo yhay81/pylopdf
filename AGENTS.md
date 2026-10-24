@@ -1647,6 +1647,24 @@ the concept and API overview.
   checks its passwords on construction. Direct Rust entry points repeat the
   check, failures use `password_input_size`, and save validation must precede
   save-option mutation, cloning, or output creation.
+- Save options beyond garbage collection (`rust/src/document/saving.rs`):
+  `compress` uses `flate_compress` at `compression_level` (zlib 0 to 9, 6 by
+  default; lopdf's `Stream::compress` used 9) and keeps a stream whose output
+  is not 19 bytes smaller, as lopdf does; object streams take the same level.
+  `decompress` calls lopdf's `Document::decompress` and refuses
+  `compress=True`. `set_cross_reference` records the table or stream form
+  in `reference_table`, raises the version to 1.5 for a stream, and strips
+  the stream entries that lopdf 0.46 leaves in a loaded trailer from a table
+  (J-F-Liu/lopdf#633 removes them upstream). `prepare_document_id` adds an
+  `/ID` when the trailer has none or a malformed one and renews the second
+  element of an edited document, with `content_digest`, a SHA-256 over
+  every object and the trailer without `/ID`, so equal content saves to
+  equal bytes; an incremental save renews it in the update's trailer only
+  when the update writes objects. `write_pdf_stably` writes
+  `prune::output_max_id`, the highest object unless a reference names a
+  higher number, without changing the document's own `max_id`, so new
+  objects never take a number that an earlier revision still uses, such as
+  an object stream that nothing references.
 - Public `Document.save` must securely create a same-directory sibling, stream
   every normal, object/xref-stream, or encrypted output there, and replace the
   requested path only after the core writer succeeds. Map creation/replacement

@@ -383,7 +383,7 @@ def test_interpretation_budget_bounds_original_and_edited_snapshots(tmp_path: Pa
 
     baseline = pylopdf.Document()
     baseline.pages.new()
-    snapshot_size = len(baseline.to_bytes(max_size=None))
+    snapshot_size = len(baseline.to_bytes(max_size=None, keep_id=True))
 
     exact_edited = pylopdf.Document(limits=pylopdf.DocumentLimits(max_interpretation_size=snapshot_size))
     exact_edited.pages.new()

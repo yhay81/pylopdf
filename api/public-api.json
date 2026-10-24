@@ -3219,6 +3219,30 @@
                 "default": false,
                 "kind": "keyword_only",
                 "name": "incremental"
+              },
+              {
+                "annotation": "int",
+                "default": 6,
+                "kind": "keyword_only",
+                "name": "compression_level"
+              },
+              {
+                "annotation": "Literal['table', 'stream'] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "cross_reference"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "decompress"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "keep_id"
               }
             ],
             "returns": "None"
@@ -3327,6 +3351,30 @@
                 "default": false,
                 "kind": "keyword_only",
                 "name": "incremental"
+              },
+              {
+                "annotation": "int",
+                "default": 6,
+                "kind": "keyword_only",
+                "name": "compression_level"
+              },
+              {
+                "annotation": "Literal['table', 'stream'] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "cross_reference"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "decompress"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "keep_id"
               },
               {
                 "annotation": "int | None",

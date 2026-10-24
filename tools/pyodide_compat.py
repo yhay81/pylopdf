@@ -1278,6 +1278,16 @@ def _save_option_results() -> dict[str, Any]:
         }
     _require(results["plain"]["objects"] == 9, "prune=False removed objects")  # noqa: PLR2004 - the input's objects.
     _require(results["dedupe"] == {"objects": 6, "fonts": 1, "pages": 2}, "dedupe did not merge duplicates")
+    formats = pylopdf.open(data)
+    as_stream = formats.to_bytes(cross_reference="stream", compression_level=9)
+    as_table = pylopdf.open(as_stream).to_bytes(cross_reference="table", compress=False, decompress=True)
+    _require(b"/Type/XRef" in as_stream and b"\nxref\n" in as_table, "cross_reference chose the wrong form")
+    _require(b"/FlateDecode" not in as_table, "decompress kept a filter")
+    _require(formats.to_bytes() == formats.to_bytes(), "saving the same content wrote different bytes")
+    results["formats"] = {
+        "texts": [page.text().strip() for page in pylopdf.open(as_table).pages],
+        "id_elements": as_stream.count(b"/ID["),
+    }
     document = pylopdf.open(data)
     _require(document.can_save_incrementally, "an intact input cannot be saved incrementally")
     _require(document.to_bytes(incremental=True) == data, "an unedited incremental save changed the input")

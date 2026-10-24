@@ -675,19 +675,38 @@ impl _Document {
     ///
     /// lopdf raises the version and changes xref type, mutating document state,
     /// so invalidate the rendering cache.
-    fn save_with_object_streams(&mut self, py: Python<'_>, path: &str) -> PyResult<()> {
-        saving::save_with_object_streams(self, py, path)
+    #[pyo3(signature = (path, compression_level=6))]
+    fn save_with_object_streams(
+        &mut self,
+        py: Python<'_>,
+        path: &str,
+        compression_level: u32,
+    ) -> PyResult<()> {
+        saving::save_with_object_streams(self, py, path, compression_level)
     }
 
     /// Serialize with PDF 1.5+ object and xref streams.
-    #[pyo3(signature = (max_size=None))]
+    #[pyo3(signature = (max_size=None, compression_level=6))]
     fn save_bytes_with_object_streams(
         &mut self,
         py: Python<'_>,
         max_size: Option<usize>,
+        compression_level: u32,
     ) -> PyResult<Vec<u8>> {
+        let options = modern_save_options(compression_level_checked(compression_level)?);
         self.invalidate_hayro_pdf_keeping_placements();
-        py.detach(|| serialize_pdf(&mut self.doc, Some(modern_save_options()), max_size))
+        py.detach(|| serialize_pdf(&mut self.doc, Some(options), max_size))
+    }
+
+    /// Write the cross-reference data as a `table` or a `stream` from now on.
+    fn set_cross_reference(&mut self, form: &str) -> PyResult<()> {
+        saving::set_cross_reference(self, form)
+    }
+
+    /// Give the trailer an `/ID` when it has none, and renew its second
+    /// element when `renew` is true, from a digest of the content.
+    fn prepare_document_id(&mut self, py: Python<'_>, renew: bool) {
+        saving::prepare_document_id(self, py, renew);
     }
 
     /// Copy the editable state, for a transaction or an undo step.
@@ -706,19 +725,31 @@ impl _Document {
     }
 
     /// Write the original bytes and one update section to `path`.
-    fn save_incremental(&self, py: Python<'_>, path: &str, compress: bool) -> PyResult<()> {
-        incremental::save_incremental(self, py, path, compress)
+    #[pyo3(signature = (path, compress, compression_level=6, renew_id=true))]
+    fn save_incremental(
+        &self,
+        py: Python<'_>,
+        path: &str,
+        compress: bool,
+        compression_level: u32,
+        renew_id: bool,
+    ) -> PyResult<()> {
+        let level = compress.then_some(compression_level_checked(compression_level)?);
+        incremental::save_incremental(self, py, path, level, renew_id)
     }
 
     /// Return the original bytes and one update section.
-    #[pyo3(signature = (compress, max_size=None))]
+    #[pyo3(signature = (compress, max_size=None, compression_level=6, renew_id=true))]
     fn save_bytes_incremental(
         &self,
         py: Python<'_>,
         compress: bool,
         max_size: Option<usize>,
+        compression_level: u32,
+        renew_id: bool,
     ) -> PyResult<Vec<u8>> {
-        incremental::save_bytes_incremental(self, py, compress, max_size)
+        let level = compress.then_some(compression_level_checked(compression_level)?);
+        incremental::save_bytes_incremental(self, py, level, renew_id, max_size)
     }
 
     /// Return the page count, walking the page tree once per edit.
@@ -1340,8 +1371,10 @@ impl _Document {
     /// Only a stream that Flate makes smaller changes, and the caches are
     /// dropped only when one does, so saving a compressed document again
     /// keeps the rendering snapshot and the remembered placements.
-    fn compress(&mut self, py: Python<'_>) {
-        saving::compress(self, py);
+    #[pyo3(signature = (level=6))]
+    fn compress(&mut self, py: Python<'_>, level: u32) -> PyResult<()> {
+        saving::compress(self, py, compression_level_checked(level)?);
+        Ok(())
     }
 
     /// Decompress streams.

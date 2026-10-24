@@ -223,6 +223,53 @@ def _matched_access(password: str, *, user: bool, owner: bool) -> Access | None:
     return None
 
 
+#: zlib's highest compression level, which ``compression_level`` takes.
+_MAX_COMPRESSION_LEVEL = 9
+
+
+def _check_save_option_values(
+    flags: Mapping[str, object],
+    *,
+    compression_level: object,
+    cross_reference: object,
+    encryption: object,
+) -> None:
+    """Check the type and range of each save option, before their combinations."""
+    for name, value in flags.items():
+        if not isinstance(value, bool):
+            msg = f"{name} must be True or False: {value!r}"
+            raise TypeError(msg)
+    if isinstance(compression_level, bool) or not isinstance(compression_level, int):
+        msg = f"compression_level must be an integer from 0 through 9: {compression_level!r}"
+        raise TypeError(msg)
+    if not 0 <= compression_level <= _MAX_COMPRESSION_LEVEL:
+        msg = f"compression_level must be from 0 through 9: {compression_level}"
+        raise ValueError(msg)
+    if cross_reference not in (None, "table", "stream"):
+        msg = f"cross_reference must be 'table', 'stream', or None: {cross_reference!r}"
+        raise ValueError(msg)
+    if encryption is not None and not isinstance(encryption, Encryption):
+        msg = f"encryption must be an Encryption or None: {encryption!r}"
+        raise TypeError(msg)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _SaveOptions:
+    """The validated options of one :meth:`Document.save` or :meth:`Document.to_bytes` call."""
+
+    compress: bool
+    prune: bool
+    dedupe: bool
+    renumber: bool
+    object_streams: bool
+    encryption: Encryption | None
+    incremental: bool
+    compression_level: int
+    cross_reference: Literal["table", "stream"] | None
+    decompress: bool
+    keep_id: bool
+
+
 def _owner_password(encryption: Encryption) -> str:
     """Return the owner password of ``encryption``, which defaults to the user password."""
     return encryption.user_password if encryption.owner_password is None else encryption.owner_password
@@ -1285,42 +1332,59 @@ class Document:
         object_streams: bool = False,
         encryption: Encryption | None = None,
         incremental: bool = False,
+        compression_level: int = 6,
+        cross_reference: Literal["table", "stream"] | None = None,
+        decompress: bool = False,
+        keep_id: bool = False,
     ) -> None:
         """Write the document to a file.
 
         ``compress`` applies Flate compression to the streams that have no
-        filter, and ``prune`` removes the objects that nothing reaches from
-        the trailer; both make the file smaller without changing what a viewer
-        shows. ``dedupe`` merges identical objects and streams, and needs
-        ``prune`` to remove the duplicates; pages, annotations, form fields,
-        structure elements, outline items, and optional-content groups are
-        never merged. ``renumber`` numbers the remaining objects
-        consecutively. These four options change the document itself, and
-        handles to removed or renumbered objects go stale. ``object_streams``
-        packs objects into object streams with a cross-reference stream,
-        which raises the PDF version to 1.5 when it is lower.
+        filter, at zlib's ``compression_level`` from 0 through 9, and
+        ``prune`` removes the objects that nothing reaches from the trailer;
+        both make the file smaller without changing what a viewer shows.
+        ``decompress`` does the opposite of ``compress``, which it needs to
+        be ``False``: it removes every filter that pylopdf can decode, leaving
+        image filters such as JPEG as they are. ``dedupe`` merges identical
+        objects and streams, and needs ``prune`` to remove the duplicates;
+        pages, annotations, form fields, structure elements, outline items,
+        and optional-content groups are never merged. ``renumber`` numbers
+        the remaining objects consecutively. These options change the
+        document itself, and handles to removed or renumbered objects go
+        stale. ``object_streams`` packs objects into object streams with a
+        cross-reference stream, which raises the PDF version to 1.5 when it
+        is lower. ``cross_reference`` writes the cross-reference data as a
+        ``"table"`` or a ``"stream"`` (PDF 1.5) from then on; ``None`` keeps
+        the form that the document was read with.
 
-        ``encryption`` takes an :class:`Encryption` and writes AES-256
-        encryption while the document in memory stays unencrypted; ``None``
-        writes no encryption, even for a document that was encrypted.
-        Encryption cannot be combined with ``object_streams``.
+        Saving gives a document without a file identifier one, and renews
+        the second element of the identifier of an edited document, as
+        ISO 32000-2 §14.4 asks; ``keep_id`` writes the identifier as read.
+
+        ``encryption`` takes an :class:`Encryption` and writes AES-256 or
+        AES-128 encryption while the document in memory stays unencrypted;
+        :attr:`Encryption.KEEP` writes the encryption that the document was
+        opened with, and ``None`` writes no encryption, even for a document
+        that was encrypted. Encryption cannot be combined with
+        ``object_streams``.
 
         ``incremental`` writes the bytes that the document was opened from
         unchanged and appends one update with the objects that differ from
         them, so a signature over the original bytes stays intact; an
         unedited document is written exactly as it was read. Only a document
         for which :attr:`can_save_incrementally` holds can be saved this way,
-        and ``dedupe``, ``renumber``, ``object_streams``, and ``encryption``
-        refuse it, because they would rewrite objects that the update leaves
-        alone. ``compress`` then compresses only the streams that the update
-        writes, and ``prune`` keeps unreachable objects out of it. The path
-        need not be the file that the document was opened from.
+        and ``dedupe``, ``renumber``, ``object_streams``, ``decompress``,
+        ``cross_reference``, and ``encryption`` other than
+        :attr:`Encryption.KEEP` refuse it, because they would rewrite objects
+        that the update leaves alone. ``compress`` then compresses only the
+        streams that the update writes, and ``prune`` keeps unreachable
+        objects out of it. The path need not be the file that the document
+        was opened from.
 
         The file is written to a temporary file next to ``path``, which
         replaces ``path`` only after the write succeeded.
         """
-        self._ensure_open()
-        self._check_save_options(
+        options = self._save_options(
             compress=compress,
             prune=prune,
             dedupe=dedupe,
@@ -1328,36 +1392,12 @@ class Document:
             object_streams=object_streams,
             encryption=encryption,
             incremental=incremental,
+            compression_level=compression_level,
+            cross_reference=cross_reference,
+            decompress=decompress,
+            keep_id=keep_id,
         )
-        clean = not self.is_dirty
-        revision = self._doc.edit_revision()
-        try:
-            if incremental:
-                self._apply_save_options(compress=False, prune=prune, dedupe=False, renumber=False)
-                _atomic_save_file(path, functools.partial(self._doc.save_incremental, compress=compress))
-                return
-            self._apply_save_options(compress=compress, prune=prune, dedupe=dedupe, renumber=renumber)
-            writer: Callable[[str], None]
-            if encryption is not None:
-                writer = functools.partial(
-                    self._doc.save_encrypted,
-                    method=encryption.method,
-                    user_password=encryption.user_password,
-                    owner_password=_owner_password(encryption),
-                    permissions=int(encryption.permissions),
-                    file_encryption_key=os.urandom(32),
-                    document_id=os.urandom(16),
-                )
-            elif object_streams:
-                writer = self._doc.save_with_object_streams
-            else:
-                writer = self._doc.save
-            _atomic_save_file(path, writer)
-        finally:
-            if clean:
-                self._clean_revision = self._doc.edit_revision()
-            # Save options change the revision without an edit to undo.
-            self._history._follow(revision)
+        self._write(options, lambda writer: _atomic_save_file(path, writer))
 
     def to_bytes(  # noqa: PLR0913 - one keyword per save option.
         self,
@@ -1369,6 +1409,10 @@ class Document:
         object_streams: bool = False,
         encryption: Encryption | None = None,
         incremental: bool = False,
+        compression_level: int = 6,
+        cross_reference: Literal["table", "stream"] | None = None,
+        decompress: bool = False,
+        keep_id: bool = False,
         max_size: int | None = _DEFAULT_MAX_PDF_OUTPUT_SIZE,
     ) -> bytes:
         """Return the document as PDF bytes, with the options of :meth:`save`.
@@ -1377,8 +1421,7 @@ class Document:
         write that would pass it with :class:`LimitError` code
         ``pdf_output_size``; ``None`` leaves it unbounded for trusted input.
         """
-        self._ensure_open()
-        self._check_save_options(
+        options = self._save_options(
             compress=compress,
             prune=prune,
             dedupe=dedupe,
@@ -1386,35 +1429,73 @@ class Document:
             object_streams=object_streams,
             encryption=encryption,
             incremental=incremental,
+            compression_level=compression_level,
+            cross_reference=cross_reference,
+            decompress=decompress,
+            keep_id=keep_id,
         )
         _validate_optional_positive_int("max_size", max_size)
-        clean = not self.is_dirty
-        revision = self._doc.edit_revision()
+        return self._write(options, None, max_size)
+
+    def _write(
+        self,
+        options: _SaveOptions,
+        save: Callable[[Callable[[str], None]], None] | None,
+        max_size: int | None = None,
+    ) -> bytes:
+        """Apply ``options`` and write the document: to a file through ``save``, else as returned bytes."""
+        core = self._doc
+        dirty = self.is_dirty
+        revision = core.edit_revision()
         try:
-            if incremental:
-                self._apply_save_options(compress=False, prune=prune, dedupe=False, renumber=False)
-                return self._doc.save_bytes_incremental(compress, max_size)
-            self._apply_save_options(compress=compress, prune=prune, dedupe=dedupe, renumber=renumber)
-            if encryption is not None:
-                return self._doc.save_bytes_encrypted(
-                    encryption.method,
-                    encryption.user_password,
-                    _owner_password(encryption),
-                    int(encryption.permissions),
-                    os.urandom(32),
-                    os.urandom(16),
-                    max_size,
-                )
-            if object_streams:
-                return self._doc.save_bytes_with_object_streams(max_size)
-            return self._doc.save_bytes(max_size)
+            self._apply_save_options(options, dirty=dirty)
+            to_bytes, to_file = self._writers(options, max_size)
+            if save is None:
+                return to_bytes()
+            save(to_file)
+            return b""
         finally:
-            if clean:
-                self._clean_revision = self._doc.edit_revision()
+            if not dirty:
+                self._clean_revision = core.edit_revision()
             # Save options change the revision without an edit to undo.
             self._history._follow(revision)
 
-    def _check_save_options(  # noqa: PLR0913 - one keyword per save option.
+    def _writers(
+        self, options: _SaveOptions, max_size: int | None
+    ) -> tuple[Callable[[], bytes], Callable[[str], None]]:
+        """Return the core writers of ``options``: one that returns bytes and one that writes a path."""
+        core = self._doc
+        level = options.compression_level
+        if options.incremental:
+            renew = not options.keep_id
+            return (
+                functools.partial(core.save_bytes_incremental, options.compress, max_size, level, renew),
+                functools.partial(
+                    core.save_incremental, compress=options.compress, compression_level=level, renew_id=renew
+                ),
+            )
+        encryption = options.encryption
+        if encryption is not None:
+            arguments = (
+                encryption.method,
+                encryption.user_password,
+                _owner_password(encryption),
+                int(encryption.permissions),
+                os.urandom(32),
+                os.urandom(16),
+            )
+            return (
+                functools.partial(core.save_bytes_encrypted, *arguments, max_size),
+                lambda path: core.save_encrypted(path, *arguments),
+            )
+        if options.object_streams:
+            return (
+                functools.partial(core.save_bytes_with_object_streams, max_size, level),
+                functools.partial(core.save_with_object_streams, compression_level=level),
+            )
+        return functools.partial(core.save_bytes, max_size), core.save
+
+    def _save_options(  # noqa: PLR0913 - one keyword per save option.
         self,
         *,
         compress: bool,
@@ -1424,30 +1505,40 @@ class Document:
         object_streams: bool,
         encryption: Encryption | None,
         incremental: bool,
-    ) -> None:
+        compression_level: int,
+        cross_reference: Literal["table", "stream"] | None,
+        decompress: bool,
+        keep_id: bool,
+    ) -> _SaveOptions:
         """Validate the options of :meth:`save` and :meth:`to_bytes` before anything changes."""
-        options = {
-            "compress": compress,
-            "prune": prune,
-            "dedupe": dedupe,
-            "renumber": renumber,
-            "object_streams": object_streams,
-            "incremental": incremental,
-        }
-        for name, value in options.items():
-            if not isinstance(value, bool):
-                msg = f"{name} must be True or False: {value!r}"
-                raise TypeError(msg)
+        self._ensure_open()
+        _check_save_option_values(
+            {
+                "compress": compress,
+                "prune": prune,
+                "dedupe": dedupe,
+                "renumber": renumber,
+                "object_streams": object_streams,
+                "incremental": incremental,
+                "decompress": decompress,
+                "keep_id": keep_id,
+            },
+            compression_level=compression_level,
+            cross_reference=cross_reference,
+            encryption=encryption,
+        )
+        if object_streams and cross_reference == "table":
+            msg = "object_streams=True needs a cross-reference stream, not cross_reference='table'"
+            raise ValueError(msg)
+        if decompress and compress:
+            msg = "decompress=True needs compress=False, which would compress the streams again"
+            raise ValueError(msg)
         if dedupe and not prune:
             msg = "dedupe=True needs prune=True, which removes the merged duplicates"
             raise ValueError(msg)
-        if encryption is not None:
-            if not isinstance(encryption, Encryption):
-                msg = f"encryption must be an Encryption or None: {encryption!r}"
-                raise TypeError(msg)
-            if object_streams:
-                msg = "encryption cannot be combined with object_streams=True"
-                raise ValueError(msg)
+        if encryption is not None and object_streams:
+            msg = "encryption cannot be combined with object_streams=True"
+            raise ValueError(msg)
         if incremental:
             rewriting = [
                 name
@@ -1455,6 +1546,8 @@ class Document:
                     ("dedupe", dedupe),
                     ("renumber", renumber),
                     ("object_streams", object_streams),
+                    ("decompress", decompress),
+                    ("cross_reference", cross_reference is not None),
                     ("encryption", encryption is not None and encryption is not Encryption.KEEP),
                 )
                 if value
@@ -1468,16 +1561,43 @@ class Document:
                     "unencrypted bytes that loaded without repair can be"
                 )
                 raise PdfError(msg)
+        return _SaveOptions(
+            compress=compress,
+            prune=prune,
+            dedupe=dedupe,
+            renumber=renumber,
+            object_streams=object_streams,
+            encryption=None if incremental else encryption,
+            incremental=incremental,
+            compression_level=compression_level,
+            cross_reference=cross_reference,
+            decompress=decompress,
+            keep_id=keep_id,
+        )
 
-    def _apply_save_options(self, *, compress: bool, prune: bool, dedupe: bool, renumber: bool) -> None:
+    def _apply_save_options(self, options: _SaveOptions, *, dirty: bool) -> None:
         """Apply the save options that change the document before it is written."""
-        if prune or renumber:
-            self._doc.collect_garbage(dedupe, prune, renumber)
-            if renumber:
-                # Renumbering moves objects, so object handles go stale.
-                self._object_epoch += 1
-        if compress:
-            self._doc.compress()
+        core = self._doc
+        if options.incremental:
+            # The update writes the objects that differ; nothing else may change.
+            if options.prune:
+                core.collect_garbage(False, True, False)  # noqa: FBT003 - dedupe, prune, renumber.
+        else:
+            if options.prune or options.renumber:
+                core.collect_garbage(options.dedupe, options.prune, options.renumber)
+                if options.renumber:
+                    # Renumbering moves objects, so object handles go stale.
+                    self._object_epoch += 1
+            if options.decompress:
+                core.decompress()
+            elif options.compress:
+                core.compress(options.compression_level)
+            if options.cross_reference is not None:
+                core.set_cross_reference(options.cross_reference)
+        if not (options.keep_id or options.incremental):
+            # An incremental save renews the identifier in its update, and
+            # only when the update writes objects.
+            core.prepare_document_id(dirty)
 
     def close(self) -> None:
         """Close the document; subsequent operations raise an error."""

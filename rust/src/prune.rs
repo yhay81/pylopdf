@@ -24,6 +24,36 @@ pub(crate) fn prune_unreachable_objects(doc: &mut Document) -> PyResult<()> {
     Ok(())
 }
 
+/// The `max_id` that a save should write: the highest object, unless
+/// something names a higher number.
+///
+/// A cross-reference table lists every number up to `max_id`, and its
+/// `/Size` is `max_id + 1`, so objects removed from the top would otherwise
+/// leave free entries above the highest object, which qpdf reports. The
+/// document keeps its own `max_id`, so new objects never take the number of
+/// a removed one, which an incremental save's earlier revision may still
+/// use, for example for an object stream that nothing references.
+pub(crate) fn output_max_id(doc: &Document) -> u32 {
+    let highest = doc.objects.keys().next_back().map_or(0, |id| id.0);
+    if doc.max_id <= highest {
+        return doc.max_id;
+    }
+    let mut stack: Vec<&Object> = doc.trailer.iter().map(|(_, value)| value).collect();
+    for object in doc.objects.values() {
+        stack.push(object);
+        while let Some(object) = stack.pop() {
+            match object {
+                Object::Reference((number, _)) if *number > highest => return doc.max_id,
+                Object::Array(items) => stack.extend(items.iter()),
+                Object::Dictionary(dict) => stack.extend(dict.iter().map(|(_, value)| value)),
+                Object::Stream(stream) => stack.extend(stream.dict.iter().map(|(_, value)| value)),
+                _ => {}
+            }
+        }
+    }
+    highest
+}
+
 /// Collect the IDs of the existing objects that the trailer reaches, the
 /// objects that [`prune_unreachable_objects`] keeps.
 pub(crate) fn trailer_reachable_object_ids(doc: &Document) -> PyResult<HashSet<ObjectId>> {

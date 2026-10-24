@@ -384,8 +384,8 @@ def test_aes_128_output(three_page_pdf: bytes) -> None:
     assert b"/AESV2" in data
     locked = pylopdf.open(data)
     assert locked.needs_password
-    # AES-128 derives its key from the document ID, which the output gains.
-    assert "ID" not in doc.trailer
+    # AES-128 derives its key from the document ID, which saving gives it.
+    assert "ID" in doc.trailer
     for password, access in (("u", pylopdf.Access.USER), ("o", pylopdf.Access.OWNER)):
         reopened = pylopdf.open(data)
         assert reopened.unlock(password) is access
