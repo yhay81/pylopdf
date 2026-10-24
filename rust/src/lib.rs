@@ -37,6 +37,7 @@ mod recovery;
 mod redact;
 mod render_cache;
 mod renumber;
+mod structure_import;
 mod structure_prune;
 mod text_replace;
 mod unallocated;

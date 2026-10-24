@@ -167,11 +167,16 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # reverse the order
 `insert` and `extend` take index positions as `list.insert` does, so an index
 past the end appends. The pages of one call come from one document, and a
 page of another document appears at most once per call. Pages of another
-document are imported with their links, annotations, and form fields; a field
-name already in use gains the smallest unused `+N` suffix. The
-[layers](#layers) that the imported pages use join the document's layers with
-the visibility that the source's default configuration gave them, each import
-making groups of its own. A copy of a page of
+document are imported with their links, annotations, form fields, and
+tagged-PDF structure; a field name already in use gains the smallest unused
+`+N` suffix. The [layers](#layers) that the imported pages use join the
+document's layers with the visibility that the source's default configuration
+gave them, each import making groups of its own. The structure elements of the
+imported pages join the document's structure tree, under its `Document`
+element when it has one; their parent-tree keys move past the document's own,
+a role that the document maps otherwise is replaced by the source's standard
+type, and clashing class names and element IDs gain a `_N` and `+N` suffix. A
+copy of a page of
 the same document is a new page object that shares its content streams and
 resources with the original until either is edited.
 

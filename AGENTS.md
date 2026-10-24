@@ -2753,6 +2753,22 @@ the concept and API overview.
   importing the same page twice makes independent groups; same-document
   copies share theirs. Radio groups, locks, and the source's `/Order`
   structure are not carried.
+- Page imports carry the tagged-PDF structure of the imported pages
+  (`StructureImport` in `rust/src/structure_import.rs`). On the disposable
+  renumbered source, `StructurePagePrune` first removes the structure
+  content of the pages that are not imported; then the plan, made before
+  any target mutation, shifts every source parent-tree key, `/StructParents`,
+  and `/StructParent` past the receiving tree's next key, appends the
+  shifted pairs to the receiving `/Nums` (or a new leaf under `/Kids`),
+  resolves to the source's standard type every role that both role maps
+  map differently (adding the source's other entries), renames clashing
+  `/ClassMap` names (`_N`) and element `/ID`s (`+N`, rebuilding a flat
+  `/IDTree`), unions `/Namespaces`, and appends the top-level elements to the
+  receiving tree's single `Document` element, taking the kids of the source's
+  own `Document` element, or to the root, bringing the source's `Document`
+  element along. A root is created when the receiving document has none.
+  Kids are read as written: a lone `/K` reference is one kid. The commit only
+  stores the planned objects after the page-tree rebuild, before pruning.
 - Page deletion and `select` remove the form widgets and fields of dropped
   pages with `FormPagePrune` in the same module, which reuses the partial
   import's walk on the document itself, with the remaining pages as the
