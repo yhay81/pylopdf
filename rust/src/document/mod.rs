@@ -184,10 +184,11 @@ pub struct _Document {
     /// reads, so that the current snapshot holds a cut copy of it. Every
     /// operation that interprets one of them is refused.
     pages_too_deep: Vec<u32>,
-    /// Recently interpreted pages, keyed by one-based page number.
-    text_pages: HashMap<u32, crate::extract::TextPage>,
+    /// Recently interpreted pages, keyed by one-based page number and the
+    /// options that decided which glyphs they collected.
+    text_pages: HashMap<TextPageKey, crate::extract::TextPage>,
     /// Least-recently-used to most-recently-used text-page keys.
-    text_page_order: VecDeque<u32>,
+    text_page_order: VecDeque<TextPageKey>,
     /// Recently interpreted table pages, keyed by one-based page number.
     table_pages: HashMap<u32, crate::extract::TablePage>,
     /// Least-recently-used to most-recently-used table-page keys.
@@ -761,36 +762,47 @@ impl _Document {
     ///
     /// Collect glyph Unicode/positions through the hayro interpreter and
     /// assemble reading-order text. CJK fallbacks also apply to extraction.
-    fn extract_text(&mut self, py: Python<'_>, page_numbers: Vec<u32>) -> PyResult<String> {
-        extraction::extract_text(self, py, page_numbers)
+    #[pyo3(signature = (page_numbers, options=None))]
+    fn extract_text(
+        &mut self,
+        py: Python<'_>,
+        page_numbers: Vec<u32>,
+        options: Option<TextOptions>,
+    ) -> PyResult<String> {
+        extraction::extract_text(self, py, page_numbers, options.unwrap_or_default())
     }
 
     /// Return layout for a one-based page.
     ///
     /// Return `(width, height, blocks)`, where block=`(bbox, lines)`,
     /// line=`(bbox, spans, words, direction, writing mode)`,
-    /// span=`(bbox, text, size, origin, font, flags)`, and word=`(bbox, text)`.
+    /// span=`(bbox, text, size, origin, font, flags, style)`, and
+    /// word=`(bbox, text)`.
     #[allow(clippy::type_complexity)]
+    #[pyo3(signature = (page_number, options=None))]
     fn extract_layout(
         &mut self,
         py: Python<'_>,
         page_number: u32,
+        options: Option<TextOptions>,
     ) -> PyResult<(f64, f64, Vec<crate::extract::BlockTuple>)> {
-        extraction::extract_layout(self, py, page_number)
+        extraction::extract_layout(self, py, page_number, options.unwrap_or_default())
     }
 
     /// Return the layout of a one-based page with every span's glyphs.
     ///
     /// Return the blocks of [`Self::extract_layout`], except that a span is
-    /// `(bbox, (text, chars), size, origin, font, flags)` with
-    /// char=`(whole Unicode mapping, bbox, baseline origin)`.
+    /// `(bbox, (text, chars), size, origin, font, flags, style)` with
+    /// char=`(whole Unicode mapping, bbox, baseline origin, synthetic)`.
     #[allow(clippy::type_complexity)]
+    #[pyo3(signature = (page_number, options=None))]
     fn extract_raw_layout(
         &mut self,
         py: Python<'_>,
         page_number: u32,
+        options: Option<TextOptions>,
     ) -> PyResult<(f64, f64, Vec<crate::extract::RawBlockTuple>)> {
-        extraction::extract_raw_layout(self, py, page_number)
+        extraction::extract_raw_layout(self, py, page_number, options.unwrap_or_default())
     }
 
     /// Detect high-confidence tables on a one-based page.
@@ -902,7 +914,8 @@ impl _Document {
     #[pyo3(signature = (
         page_number,
         needle,
-        max_hits=Some(DEFAULT_MAX_SEARCH_HITS)
+        max_hits=Some(DEFAULT_MAX_SEARCH_HITS),
+        options=None
     ))]
     fn search_page(
         &mut self,
@@ -910,8 +923,16 @@ impl _Document {
         page_number: u32,
         needle: &str,
         max_hits: Option<usize>,
+        options: Option<TextOptions>,
     ) -> PyResult<Vec<(f64, f64, f64, f64)>> {
-        extraction::search_page(self, py, page_number, needle, max_hits)
+        extraction::search_page(
+            self,
+            py,
+            page_number,
+            needle,
+            max_hits,
+            options.unwrap_or_default(),
+        )
     }
 
     /// Append every page from another document, whatever its page count.

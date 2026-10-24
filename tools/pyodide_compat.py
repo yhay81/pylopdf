@@ -651,7 +651,7 @@ def _layout_results() -> dict[str, Any]:
             span.ascender,
             span.descender,
         ]
-        for block in painted.layout().blocks
+        for block in painted.layout(clipped=True).blocks
         for line in block.lines
         for span in line.spans
     }
@@ -665,6 +665,16 @@ def _layout_results() -> dict[str, Any]:
         },
         "span paint, render modes, or clipping changed",
     )
+    text_options = {
+        "default": painted.text(),
+        "clipped": painted.text(clipped=True),
+        "clip": painted.text(clip=(0, 0, 400, 75)),
+        "dehyphenated": columns.text(dehyphenate=True, ligatures=False, whitespace=False),
+        "exact_word": [round(value, 3) for value in columns.words(exact_bboxes=True)[0].bbox],
+    }
+    _require(text_options["default"] == "Red\nOutline\nHidden\n", "hidden glyphs were extracted by default")
+    _require(text_options["clipped"].endswith("Clipped\n"), "clipped=True left out a clipped glyph")
+    _require(text_options["clip"] == "Red\nOutline\n", "clip= kept other text")
     limited_columns = pylopdf.open(_build_multicolumn_pdf(), limits=pylopdf.DocumentLimits(max_text_size=8))
     try:
         limited_columns.pages[0].text()
@@ -690,6 +700,7 @@ def _layout_results() -> dict[str, Any]:
             "line_origins": raw_origins,
         },
         "span_styles": span_styles,
+        "text_options": text_options,
         "text_limit_code": text_limit_code,
     }
 

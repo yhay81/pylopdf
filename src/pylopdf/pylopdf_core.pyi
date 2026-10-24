@@ -21,7 +21,11 @@ _LineTuple: TypeAlias = tuple[
     tuple[float, float, float, float], list[_SpanTuple], list[_WordTuple], tuple[float, float], int
 ]
 _BlockTuple: TypeAlias = tuple[tuple[float, float, float, float], list[_LineTuple]]
-_RawCharTuple: TypeAlias = tuple[str, tuple[float, float, float, float], tuple[float, float]]
+_RawCharTuple: TypeAlias = tuple[str, tuple[float, float, float, float], tuple[float, float], bool]
+# The text options: (clip, keep clipped glyphs, unmapped glyphs (0 skip,
+# 1 U+FFFD, 2 glyph ID), exact boxes, expand ligatures, normalize whitespace,
+# dehyphenate).
+_TextOptions: TypeAlias = tuple[tuple[float, float, float, float] | None, bool, int, bool, bool, bool, bool]
 _RawSpanTuple: TypeAlias = tuple[
     tuple[float, float, float, float],
     tuple[str, list[_RawCharTuple]],
@@ -528,9 +532,13 @@ class _Document:
     def set_page_box(self, page_number: int, key: str, x0: float, y0: float, x1: float, y1: float) -> None: ...
     def set_mediabox(self, page_number: int, x0: float, y0: float, x1: float, y1: float) -> None: ...
     def select(self, page_numbers: list[int]) -> None: ...
-    def extract_text(self, page_numbers: list[int]) -> str: ...
-    def extract_layout(self, page_number: int) -> tuple[float, float, list[_BlockTuple]]: ...
-    def extract_raw_layout(self, page_number: int) -> tuple[float, float, list[_RawBlockTuple]]: ...
+    def extract_text(self, page_numbers: list[int], options: _TextOptions | None = None) -> str: ...
+    def extract_layout(
+        self, page_number: int, options: _TextOptions | None = None
+    ) -> tuple[float, float, list[_BlockTuple]]: ...
+    def extract_raw_layout(
+        self, page_number: int, options: _TextOptions | None = None
+    ) -> tuple[float, float, list[_RawBlockTuple]]: ...
     def find_tables(
         self,
         page_number: int,
@@ -551,6 +559,7 @@ class _Document:
         page_number: int,
         needle: str,
         max_hits: int | None = 4096,
+        options: _TextOptions | None = None,
     ) -> list[tuple[float, float, float, float]]: ...
     def extract_images(
         self, page_number: int

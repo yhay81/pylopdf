@@ -962,12 +962,14 @@ def _unlock(note: bool) -> Callable[[_Migrator, str, _Arguments], str | None]:  
 
 
 #: ``get_text`` options and their replacements; ``words`` and ``blocks`` return records now.
+#: The text views of ``get_text`` options: the page method, its arguments
+#: before ``clip=``, and what reads the result.
 TEXT_OPTIONS = {
-    "text": "{receiver}.text()",
-    "words": "{receiver}.words()",
-    "blocks": "{receiver}.layout().blocks",
-    "dict": "{receiver}.layout().to_dict()",
-    "rawdict": "{receiver}.layout(chars=True).to_dict()",
+    "text": ("text", (), ""),
+    "words": ("words", (), ""),
+    "blocks": ("layout", (), ".blocks"),
+    "dict": ("layout", (), ".to_dict()"),
+    "rawdict": ("layout", ("chars=True",), ".to_dict()"),
 }
 RECORD_MESSAGES = {
     "words": "page.words() returns Word records with text, bbox, block, line, and index instead of tuples.",
@@ -1014,27 +1016,40 @@ def _get_text(migrator: _Migrator, receiver: str, args: _Arguments) -> str | Non
         bound = args.bind(("pages",))
         return None if bound is None else _call(receiver, "text", args)
     bound = args.bind(("option", "clip", "flags", "textpage", "sort", "delimiters", "tolerance"))
-    if bound is None or set(bound) - {"option", "sort"}:
+    if bound is None or set(bound) - {"option", "sort", "clip"}:
         return None
     option = _string_literal(bound.get("option", '"text"'))
     if option not in TEXT_OPTIONS:
         return None
     if option in RECORD_MESSAGES:
         migrator.todo(RECORD_MESSAGES[option])
-    return TEXT_OPTIONS[option].format(receiver=receiver)
+    method, arguments, suffix = TEXT_OPTIONS[option]
+    if bound.get("clip", "None") != "None":
+        arguments = (f"clip={bound['clip']}", *arguments)
+    return f"{receiver}.{method}({', '.join(arguments)}){suffix}"
+
+
+def _get_textbox(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``get_textbox(rect)`` to ``text(clip=rect)``."""
+    bound = args.bind(("rect", "textpage"))
+    if bound is None or "rect" not in bound or "textpage" in bound:
+        return None
+    return f"{receiver}.text(clip={bound['rect']})"
 
 
 def _search_for(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
-    """Rewrite ``search_for(needle, ...)`` to ``search(text, ...)``; clip and quads come with Reading."""
+    """Rewrite ``search_for(needle, ...)`` to ``search(text, ...)``; quads come with Reading."""
     keywords = {"needle" if key == "text" else key: value for key, value in args.keywords.items()}
     bound = _Arguments(args.positional, keywords).bind(
         ("needle", "clip", "quads", "flags", "textpage", "hit_max", "max_hits")
     )
-    if bound is None or "needle" not in bound or {"clip", "flags", "textpage"} & set(bound):
+    if bound is None or "needle" not in bound or {"flags", "textpage"} & set(bound):
         return None
     if bound.get("quads", "False") not in _FALSE or ("hit_max" in bound and "max_hits" in bound):
         return None
     arguments = [bound["needle"]]
+    if bound.get("clip", "None") != "None":
+        arguments.append(f"clip={bound['clip']}")
     if "hit_max" in bound or "max_hits" in bound:
         arguments.append(f"max_hits={bound.get('max_hits', bound.get('hit_max'))}")
     return f"{receiver}.search({', '.join(arguments)})"
@@ -1848,6 +1863,7 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "authenticate": _unlock(note=True),
     "get_text": _get_text,
     "search_for": _search_for,
+    "get_textbox": _get_textbox,
     "to_markdown": _renamed("markdown"),
     "find_tables": _find_tables,
     "get_text_ocr": _get_text_ocr,

@@ -144,7 +144,10 @@ def test_text_records_hold_checked_geometry_and_compare_as_constructed(usrguide:
     assert {type(point) for point in points} == {pylopdf.Point}
     assert boxes == [pylopdf.Rect(*box) for box in boxes]
     assert points == [pylopdf.Point(*point) for point in points]
-    rebuilt = [pylopdf.Char(text=char.text, bbox=char.bbox, origin=char.origin) for char in chars]
+    rebuilt = [
+        pylopdf.Char(text=char.text, bbox=char.bbox, origin=char.origin, is_synthetic=char.is_synthetic)
+        for char in chars
+    ]
     assert rebuilt == chars
     assert {hash(char) for char in rebuilt} == {hash(char) for char in chars}
     assert repr(rebuilt[0]) == repr(chars[0])
@@ -187,7 +190,9 @@ def build_painted_text_pdf() -> bytes:
 def test_spans_report_their_paint_render_mode_and_clipping() -> None:
     page = pylopdf.open(build_painted_text_pdf()).pages[0]
 
-    spans = {span.text: span for block in page.layout().blocks for line in block.lines for span in line.spans}
+    spans = {
+        span.text: span for block in page.layout(clipped=True).blocks for line in block.lines for span in line.spans
+    }
 
     assert spans["Red"].color == pylopdf.Color(1.0, 0.0, 0.0, 1.0)
     # hayro keeps colors and opacities as bytes.
@@ -213,6 +218,8 @@ def test_spans_report_their_paint_render_mode_and_clipping() -> None:
     # The render modes and colors agree with what page.content() reports.
     runs = {run.text: run for run in page.content(paths=False, images=False).text_runs}
     assert {name: runs[name].render_mode for name in spans} == {name: span.render_mode for name, span in spans.items()}
+    # By default the clipped span is left out.
+    assert "Clipped" not in page.text()
 
 
 def test_spans_split_where_the_paint_changes() -> None:
@@ -247,7 +254,7 @@ def test_span_dictionaries_hold_pymupdf_color_alpha_and_char_flags() -> None:
 
     spans = {
         span["text"]: span
-        for block in page.layout().to_dict()["blocks"]
+        for block in page.layout(clipped=True).to_dict()["blocks"]
         for line in block["lines"]
         for span in line["spans"]
     }
@@ -416,7 +423,7 @@ def test_cached_text_page_reflects_drawing_edit() -> None:
 
 def test_dict_reports_transformed_baseline_direction() -> None:
     """Assemble a rotated baseline without mistaking it for vertical WMode."""
-    stream = "BT /F1 24 Tf 0 1 -1 0 100 250 Tm (Vertical) Tj ET"
+    stream = "BT /F1 24 Tf 0 1 -1 0 100 100 Tm (Vertical) Tj ET"
     pdf = build_raw_pdf(
         {
             1: "<< /Type /Catalog /Pages 2 0 R >>",
@@ -485,7 +492,7 @@ def test_rtl_lines_use_logical_order_across_text_apis() -> None:
         f"BT /F1 20 Tf 40 105 Td <{embedded_descending_visual}> Tj ET\n"
         f"BT /F1 20 Tf 40 60 Td <{ambiguous_visual}> Tj ET"
     )
-    page = pylopdf.open(build_visual_rtl_pdf(stream, height=360)).pages[0]
+    page = pylopdf.open(build_visual_rtl_pdf(stream, width=420, height=360)).pages[0]
     hebrew = "שְלום עולם"
     arabic = "مرحبا بالعالم"
     embedded_number = "שלום 123 עולם"
@@ -576,8 +583,9 @@ def test_vertical_cjk_inference_stops_at_candidate_boundary() -> None:
     text = "日" * 4097
     page = pylopdf.open(build_nonembedded_cjk_pdf(text)).pages[0]
 
-    assert page.text().rstrip("\n") == text
-    line = page.layout().to_dict()["blocks"][0]["lines"][0]
+    # The run leaves the page, so the glyphs it hides are asked for.
+    assert page.text(clipped=True).rstrip("\n") == text
+    line = page.layout(clipped=True).to_dict()["blocks"][0]["lines"][0]
     assert line["wmode"] == 0
 
 

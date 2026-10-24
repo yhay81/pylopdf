@@ -282,6 +282,10 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ("import fitz\nlayout = page.get_text('dict')\n", "layout = page.layout().to_dict()"),
         ("import fitz\nlayout = page.get_text(option='rawdict')\n", "layout = page.layout(chars=True).to_dict()"),
         ("import fitz\nhits = page.search_for('total', hit_max=10)\n", "hits = page.search('total', max_hits=10)"),
+        ("import fitz\nhits = page.search_for('a', clip=r)\n", "hits = page.search('a', clip=r)"),
+        ("import fitz\ntext = page.get_text('text', clip=r)\n", "text = page.text(clip=r)"),
+        ("import fitz\nraw = page.get_text('rawdict', clip=r)\n", "raw = page.layout(clip=r, chars=True).to_dict()"),
+        ("import fitz\ntext = page.get_textbox(r)\n", "text = page.text(clip=r)"),
         ("import fitz\ntext = doc.get_page_text(2)\n", "text = doc.pages[2].text()"),
         ("import fitz\nwords = [w[4] for w in page.get_text('words')]\n", "words = [w.text for w in page.words()]"),
         (

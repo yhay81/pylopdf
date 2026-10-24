@@ -200,8 +200,22 @@ the concept and API overview.
   the clip paths in force, which the collector tracks for every sink) before
   each run's glyphs and `stroke_completes_fill` when a stroke repaints the
   latest fill run; spans split where the paint, render mode, or clipping
-  changes, and a glyph is clipped only when the clip box leaves none of its
-  box visible. `bench/reading.py` compares span colors and box IoU with
+  changes, and a glyph is clipped only when the page box and the clip box
+  leave none of its font box visible. The text options split in two:
+  `CollectOptions` (keep clipped glyphs, unmapped placeholders, exact ink
+  boxes, which the sink then receives from `ContentCollector::outline_box`)
+  decide what an interpretation collects and key the `TextPage` cache
+  together with the page, while `ViewOptions` (clip, ligature expansion,
+  whitespace normalization, dehyphenation) turn the cached lines into a
+  fallibly copied view and leave the borrowed lines untouched without them.
+  Reading order and paint layers use `font_bbox`, never the ink box, so the
+  box option cannot reorder text. A page's text budget admission is the
+  largest of its interpretations, so variants never charge twice. Dehyphenated
+  lines mark the next line's first glyph `joins_previous`: plain text joins
+  them, the merged word stays on the first line, and search treats joined
+  lines as one unit. `layout(chars=True)` emits each space that `span_text`
+  infers as a synthetic char across the gap, so a span's chars join to its
+  text. `bench/reading.py` compares span colors and box IoU with
   pymupdf.
   Overlapping paint runs on one baseline are split into source-order logical
   layers before inline geometry sorting; preserve distinct overprints rather
