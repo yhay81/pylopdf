@@ -969,7 +969,7 @@ HINTS: dict[str, str] = {
     "rect_like": "pylopdf does not provide pymupdf's rect_like.",
     "repair_mono_font": "pylopdf does not provide pymupdf's repair_mono_font.",
     "restore_aliases": "pylopdf does not provide pymupdf's restore_aliases. Use pymupdf's current snake_case names; pylopdf ships no fitz or camelCase aliases.",
-    "sRGB_to_*": "pylopdf plans the capability of pymupdf's sRGB_to_* in the Rendering milestone of ROADMAP.md.",
+    "sRGB_to_*": "sRGB_to_* is Color in pylopdf. Span colors are Color values with red, green, and blue from 0 to 1, which sRGB_to_pdf returned; layout().to_dict() keeps pymupdf's sRGB integer c, which (c >> 16 & 255, c >> 8 & 255, c & 255) splits as sRGB_to_rgb did.",
     "set_log": "set_log is PylopdfWarning in pylopdf. Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.",
     "set_messages": "set_messages is PylopdfWarning in pylopdf. Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.",
     "string_in_names_list": "pylopdf does not provide pymupdf's string_in_names_list.",

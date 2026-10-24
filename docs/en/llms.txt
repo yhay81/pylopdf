@@ -515,6 +515,7 @@ replacement, and the migration hint):
 - get_text_length -> Font.text_width: Font.standard("Helvetica").text_width(text, size) measures Standard 14 text; an OpenType face measures with its own Font.text_width.
 - linkDest -> Destination: link.target holds a URI string, Destination(page, point, zoom), RemoteDestination(file, page), Launch(file), or NamedAction(name).
 - planish_line -> Matrix.planish: Matrix.planish(p1, p2) returns the same matrix.
+- sRGB_to_* -> Color: Span colors are Color values with red, green, and blue from 0 to 1, which sRGB_to_pdf returned; layout().to_dict() keeps pymupdf's sRGB integer c, which (c >> 16 & 255, c >> 8 & 255, c & 255) splits as sRGB_to_rgb did.
 - set_log -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
 - set_messages -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
 
