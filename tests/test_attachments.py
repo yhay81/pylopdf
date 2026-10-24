@@ -380,7 +380,7 @@ def test_attachment_handles_report_pymupdf_metadata() -> None:
     assert isinstance(doc.attachments, pylopdf.Attachments)
     assert (attachment.name, attachment.filename, attachment.description) == ("data", "data.csv", "Rows")
     assert attachment.size == 3
-    assert (attachment.creation_date, attachment.mod_date) == ("D:20260101000000Z", "D:20260102000000Z")
+    assert (attachment.created, attachment.modified) == ("D:20260101000000Z", "D:20260102000000Z")
     assert attachment.read() == b"a,b"
     assert len(doc.attachments) == 1
     assert "data" in doc.attachments
@@ -397,8 +397,8 @@ def test_added_attachments_report_their_metadata() -> None:
     plain = doc.attachments.add("b.txt", b"", filename="B.TXT")
 
     assert added == doc.attachments["a.txt"]
-    assert (added.filename, added.description, added.size) == ("a.txt", "", 5)
-    assert (added.creation_date, added.mod_date) == ("", "")
+    assert (added.filename, added.description, added.size) == ("a.txt", None, 5)
+    assert (added.created, added.modified) == (None, None)
     assert (plain.filename, plain.size) == ("B.TXT", 0)
     with pytest.raises(TypeError):
         doc.attachments.add(name="c.txt", data=b"")  # ty: ignore[positional-only-parameter-as-kwarg]
@@ -414,7 +414,10 @@ def test_attachment_write_replaces_the_data_and_keeps_the_metadata() -> None:
         rewritten = current.attachments["data"]
         assert rewritten.read() == b"x,y,z\n1,2,3"
         assert (rewritten.filename, rewritten.description, rewritten.size) == ("data.csv", "Rows", 11)
-        assert rewritten.creation_date == "D:20260101000000Z"
+        assert rewritten.created == "D:20260101000000Z"
+        assert rewritten.modified is not None
+        assert rewritten.modified.startswith("D:20")
+        assert rewritten.modified != "D:20260102000000Z"
         assert list(current.attachments) == ["data"]
     assert b"CheckSum" not in doc.to_bytes()
 

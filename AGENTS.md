@@ -426,6 +426,16 @@ the concept and API overview.
   attachment-data copying in Python and again in Rust, and validate inline
   FileSpecs before cloning at 4,096 direct objects, 32 levels, and 1 MiB of
   direct string/name/stream data. Indirect references are leaves.
+  `Attachment` and `AnnotationFile` share `_FileFields` (`filename`,
+  `description`, `size`, `created`, `modified`; absent text and dates read
+  as `None`). Their edits go through `plan_filespec_edit` in
+  `attachments.rs`, which checks the keys, the 1 MiB text bound, and
+  1-to-64-byte printable dates, then plans a new FileSpec dictionary and,
+  for dates, the embedded stream's dictionary with a direct `/Params`, before
+  any mutation; `embfile_edit` stores an inline FileSpec through the name
+  tree rewrite and `annotation_file_edit` a direct `/FS` after
+  `edited_annotation`. `write()` passes the current time as `modified`,
+  which `embfile_upd` and `annotation_file_write` store as `/ModDate`.
 - `Document.rewrite_images` follows pymupdf's keywords: an axis above
   `dpi_threshold` resamples to `dpi_target`, `quality` 0 means no
   recompression, `lossy`/`lossless` and `color`/`gray` select DCT/Flate and

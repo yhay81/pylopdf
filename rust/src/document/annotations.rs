@@ -1756,7 +1756,11 @@ pub(super) fn annotation_file_write(
     xref: u32,
     data: Vec<u8>,
     max_size: Option<usize>,
+    modified: Option<String>,
 ) -> PyResult<u32> {
+    if let Some(modified) = &modified {
+        check_pdf_date(modified, "modified")?;
+    }
     if max_size == Some(0) {
         return Err(PdfError::new_err(
             "max_size must be a positive integer or None",
@@ -1810,6 +1814,9 @@ pub(super) fn annotation_file_write(
     };
     params.remove(b"CheckSum");
     params.set("Size", i64::try_from(data.len()).unwrap_or(i64::MAX));
+    if let Some(modified) = modified {
+        params.set("ModDate", Object::string_literal(modified));
+    }
     stream_dict.set("Params", params);
     let (_, id) = edited_annotation(this, page_id, index, xref)?;
     let stream = this.doc.add_object(Stream::new(stream_dict, data));
@@ -1824,6 +1831,42 @@ pub(super) fn annotation_file_write(
             object.set("EF", ef);
         } else if let Ok(Object::Dictionary(filespec)) = object.get_mut(b"FS") {
             filespec.set("EF", ef);
+        }
+    }
+    Ok(id.0)
+}
+
+/// Implements [`_Document::annotation_file_edit`]: change the file name,
+/// description, or dates of the file that a file attachment embeds, and
+/// return the annotation's object number.
+pub(super) fn annotation_file_edit(
+    this: &mut _Document,
+    page_number: u32,
+    index: u32,
+    xref: u32,
+    edit: FileSpecEdit,
+) -> PyResult<u32> {
+    let page_id = this.page_id(page_number)?;
+    let (_, annotation) = this.annotation_at(page_id, index, xref)?;
+    let filespec = annotation_filespec(&this.doc, annotation)
+        .ok_or_else(|| PdfError::new_err("the annotation embeds no file"))?;
+    let filespec_id = match annotation.get(b"FS") {
+        Ok(Object::Reference(id)) => Some(*id),
+        _ => None,
+    };
+    let mut plan = plan_filespec_edit(&this.doc, filespec, &edit)?;
+    let (_, id) = edited_annotation(this, page_id, index, xref)?;
+    plan.commit_stream(&mut this.doc);
+    match filespec_id {
+        Some(filespec_id) => {
+            this.doc
+                .objects
+                .insert(filespec_id, Object::Dictionary(plan.filespec));
+        }
+        None => {
+            if let Ok(annotation) = this.doc.get_object_mut(id).and_then(Object::as_dict_mut) {
+                annotation.set("FS", Object::Dictionary(plan.filespec));
+            }
         }
     }
     Ok(id.0)

@@ -52,7 +52,7 @@ def test_attached_files_survive_save_and_are_replaced() -> None:
     attached = annotation.file
     assert attached is not None
     assert attached.read() == b"first"
-    assert attached.description == ""
+    assert attached.description is None
 
     attached.write(memoryview(b"second and longer"))
 
