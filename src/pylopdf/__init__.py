@@ -134,7 +134,7 @@ from pylopdf._pages import Pages
 from pylopdf._pixmap import Colorspace
 from pylopdf._tables import Table, TableDiagnostics
 from pylopdf._targets import Destination, Launch, NamedAction, RemoteDestination, Target
-from pylopdf._text import Block, Char, Layout, Line, Span, Word
+from pylopdf._text import Block, Char, Layout, Line, Span, Unmapped, Word
 from pylopdf._types import (
     Access,
     DocumentComplexity,
@@ -311,6 +311,7 @@ __all__ = [
     "TilingPattern",
     "TransparencyGroup",
     "Underline",
+    "Unmapped",
     "VisibilityPolicy",
     "Widget",
     "Widgets",

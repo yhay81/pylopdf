@@ -62,8 +62,14 @@ and streams, `renumber=True` numbers the remaining objects consecutively, and
 `object_streams=True` packs objects into compressed object streams. These
 options change the document itself, not only the output. To encrypt, pass
 `encryption=Encryption(user_password=..., owner_password=...,
-permissions=...)`, which writes AES-256 encryption; the owner password
-defaults to the user password, and the document in memory stays unencrypted.
+permissions=...)`, which writes AES-256 encryption, or add
+`method="aes-128"` for AES-128, which PDF 1.6 readers open as well; the
+owner password defaults to the user password, and the document in memory
+stays unencrypted. pylopdf reads every standard encryption, RC4 included, but
+never writes RC4. `encryption=Encryption.KEEP` writes the encryption the
+document was opened with, keeping its passwords and permissions; it keeps
+AES-128 and AES-256 and refuses RC4. `None`, the default, writes no
+encryption, even for a document that was encrypted.
 
 ```python
 doc.save("out.pdf", dedupe=True, object_streams=True)
@@ -384,10 +390,10 @@ no page was added, deleted, or reordered in between.
 
 | Member | Purpose |
 |---|---|
-| `text()` | The page's text in reading order |
-| `words()` | The words in reading order, as `Word` records |
-| `layout(*, chars=False)` | Blocks, lines, and spans as a `Layout`; see [Positioned text](#positioned-text) |
-| `search(text, *, max_hits=4096)` | Case-insensitive search; returns a list of `Rect` |
+| `text(*, clip=None, ...)` | The page's text in reading order, or the text in a rectangle |
+| `words(*, clip=None, ...)` | The words in reading order, as `Word` records |
+| `layout(*, clip=None, chars=False, ...)` | Blocks, lines, and spans as a `Layout`; see [Positioned text](#positioned-text) |
+| `search(text, *, clip=None, max_hits=4096, ...)` | Case-insensitive search; returns a list of `Rect` |
 | `tables(*, strategy="lines", clip=None)` | Tables as a list of `Table` records; see [Tables](#tables) |
 | `markdown(*, table_strategy="lines")` | Markdown for this page |
 | `ocr(...)`, `apply_ocr(*, words=None, ...)` | OCR, and an invisible text layer from it or from another engine's words; see [Offline OCR](ocr.md) |
@@ -401,6 +407,27 @@ and of the word in that line.
 Reading order follows lines and columns, including right-to-left text and
 vertical Japanese and Chinese. Ruby, warichu, and text in mixed orientations
 are not interpreted.
+
+The text views share keyword-only options, and `doc.text()` takes those of
+`text()` for every page:
+
+| Option | Default | Effect |
+|---|---|---|
+| `clip` | `None` | Keep the glyphs whose box's center lies inside a display-space rectangle, in the page's reading order |
+| `clipped` | `False` | Keep the glyphs that the page boundary or the clip paths hide entirely; `Span.is_clipped` flags them. Invisible text, such as an OCR layer, is always kept |
+| `ligatures` | `True` | Keep a ligature character such as U+FB01; `False` expands U+FB00 to U+FB06 to their letters |
+| `whitespace` | `True` | Keep whitespace characters; `False` makes each one a space |
+| `dehyphenate` | `False` | Remove a hyphen that ends a line between two letters when the word continues in lowercase on the next line of the block, and join the word |
+| `unmapped` | `"skip"` | What a glyph without Unicode becomes: `"skip"` leaves it out with a `PylopdfWarning`, `"replacement"` gives U+FFFD, and `"glyph_id"` the character whose code point is its glyph ID (U+FFFD for Type 3 glyphs) |
+| `exact_bboxes` | `False` | Box each glyph by its outline, as `page.content()` does, instead of by its advance and the font's ascender and descender; not taken by `text()` |
+
+A dehyphenated word is one `Word` on its first line, whose box spans both
+parts, and `Line.text` puts it on that line, while the spans keep their
+glyphs; `text()` joins the two lines, and `search()` finds a match across
+the join as one rectangle. Each combination of `clipped`, `unmapped`, and
+`exact_bboxes` interprets the page once and is cached on its own; a page's
+glyphs count once against `DocumentLimits.max_text_glyphs`, at the largest of
+its interpretations.
 
 ### Rendering { #page-rendering }
 
@@ -628,7 +655,7 @@ space:
 | `Block` | `text`, `bbox`, `lines` |
 | `Line` | `text`, `bbox`, `direction` (the baseline's unit vector), `is_vertical`, `spans` |
 | `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `color`, `render_mode`, `is_clipped`, `ascender`, `descender`, `chars` |
-| `Char` | `text`, `bbox`, `origin` |
+| `Char` | `text`, `bbox`, `origin`, `is_synthetic` |
 
 A span is a run of glyphs in one font and size that are painted alike:
 `color` is the paint as an sRGB `Color` whose `alpha` is the opacity (the
@@ -657,16 +684,19 @@ with pylopdf.open("report.pdf") as doc:
 
 Bounds span the glyph's advance and, across the baseline, the font's
 ascender and descender, scaled to one em together when they span less, as
-pymupdf's boxes do; they are not the glyph outlines. Spaces that pylopdf infers from gaps are not added as characters, so
-joining the characters does not always reproduce `text()`. Glyphs that have no
-Unicode mapping in the PDF are skipped with a `PylopdfWarning`.
+pymupdf's boxes do; `exact_bboxes=True` uses the glyph outlines instead.
+Each space that pylopdf infers from a gap is a `Char` whose `is_synthetic`
+is true and whose box spans the gap, as MuPDF reports such spaces, so a
+span's characters join to its text. Glyphs that have no Unicode mapping in
+the PDF are skipped with a `PylopdfWarning` unless `unmapped=` asks for a
+placeholder.
 
 `layout.to_dict()` returns plain dictionaries for JSON, in the shape of
 [pymupdf's dict, or its rawdict for a layout with characters](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs),
 with text blocks only, without image or vector blocks. Spans have pymupdf's
 `color` (an sRGB integer), `alpha` (0 to 255), `ascender`, `descender`, and
 `char_flags` (16 for filled text, 32 for stroked text, and 64 for clipped
-text), but not `bidi`. The
+text), but not `bidi`; characters have `synthetic`. The
 [overlay example](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)
 draws glyph bounds and origins as an HTML preview.
 
@@ -1369,6 +1399,7 @@ checking whether a rectangle lies inside a quad tests all four corners.
 | `numpy.asarray(pix)`, `memoryview(pix)` | The pixels without copying, shaped `(height, width)` for gray and `(height, width, channels)` otherwise |
 | `bytes(pix)` | A copy of the pixels |
 | `Pixmap.from_array(array, /, *, resolution=None)` | A pixmap with a copy of a `uint8` array shaped as above, at `resolution`, an `(x, y)` tuple of integers from 1 through 65,535 that defaults to 96; given a `Pixmap`, it shares its pixels and keeps its resolution unless told otherwise |
+| `Pixmap.from_file(path, /, *, max_size=64 MiB, max_pixels=64,000,000)`, `Pixmap.from_bytes(data, /, ...)` | Decode a PNG or JPEG: PNG keeps gray, RGB, and alpha as 8-bit samples, JPEG decodes to gray or RGB (CMYK converts), and the resolution comes from the file, else 96; larger input raises `LimitError` with `image_input_size` or `image_pixel_count` |
 | `to_bytes(format="png", *, quality=95, max_size=64 MiB)` | PNG or JPEG bytes; JPEG has no alpha |
 | `save(path, /, *, format=None, quality=95)` | Write PNG or JPEG; the extension `.png`, `.jpg`, or `.jpeg` names the format unless `format` does |
 

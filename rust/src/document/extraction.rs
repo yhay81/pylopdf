@@ -2,6 +2,7 @@
 //! and table page caches.
 
 use super::*;
+use crate::extract::{CollectOptions, Unmapped, ViewOptions};
 
 /// Bound interpreted text-page memory on long documents while retaining the
 /// common search/extract/annotate working set.
@@ -34,6 +35,73 @@ pub(super) fn text_page_limit_err(error: crate::extract::TextPageLimit) -> PyErr
     }
 }
 
+/// A text page's cache key: the one-based page number and the options that
+/// decided which glyphs it collected.
+pub(crate) type TextPageKey = (u32, CollectOptions);
+
+/// The text options of the Python views, as one tuple: `(clip, keep clipped
+/// glyphs, unmapped glyphs (0 skip, 1 U+FFFD, 2 glyph ID), exact boxes,
+/// expand ligatures, normalize whitespace, dehyphenate)`.
+#[derive(Default)]
+pub(crate) struct TextOptions {
+    pub(crate) collect: CollectOptions,
+    pub(crate) view: ViewOptions,
+}
+
+type TextOptionsTuple = (
+    Option<(f64, f64, f64, f64)>,
+    bool,
+    u8,
+    bool,
+    bool,
+    bool,
+    bool,
+);
+
+impl<'a, 'py> FromPyObject<'a, 'py> for TextOptions {
+    type Error = PyErr;
+
+    fn extract(object: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        let (
+            clip,
+            keep_clipped,
+            unmapped,
+            exact_bboxes,
+            expand_ligatures,
+            normalize_whitespace,
+            dehyphenate,
+        ): TextOptionsTuple = object.extract()?;
+        let unmapped = match unmapped {
+            0 => Unmapped::Skip,
+            1 => Unmapped::Replacement,
+            2 => Unmapped::GlyphId,
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "unknown unmapped-glyph option {unmapped}"
+                )));
+            }
+        };
+        if let Some((x0, y0, x1, y1)) = clip
+            && !(x0.is_finite() && y0.is_finite() && x1.is_finite() && y1.is_finite())
+        {
+            return Err(PyValueError::new_err("clip must be a finite rectangle"));
+        }
+        Ok(Self {
+            collect: CollectOptions {
+                keep_clipped,
+                unmapped,
+                exact_bboxes,
+            },
+            view: ViewOptions {
+                clip,
+                expand_ligatures,
+                normalize_whitespace,
+                dehyphenate,
+            },
+        })
+    }
+}
+
 impl _Document {
     /// The fallback font programs that this document hands hayro for fonts
     /// that are not embedded, which describe no font of the PDF.
@@ -52,10 +120,16 @@ impl _Document {
         let Some(limit) = self.max_text_size else {
             return Ok(None);
         };
-        if let Some(admitted) = self.interpreted_text_sizes.get(&page_number) {
-            return Ok(Some(*admitted));
-        }
-        Ok(Some(limit.saturating_sub(self.interpreted_text_total)))
+        // Another interpretation of an admitted page may grow into what the
+        // other pages leave.
+        let admitted = self
+            .interpreted_text_sizes
+            .get(&page_number)
+            .copied()
+            .unwrap_or(0);
+        Ok(Some(
+            limit.saturating_sub(self.interpreted_text_total) + admitted,
+        ))
     }
 
     /// Return the positioned glyph records still available to one page.
@@ -63,10 +137,14 @@ impl _Document {
         let Some(limit) = self.max_text_glyphs else {
             return Ok(None);
         };
-        if let Some(admitted) = self.interpreted_glyph_counts.get(&page_number) {
-            return Ok(Some(*admitted));
-        }
-        Ok(Some(limit.saturating_sub(self.interpreted_glyph_total)))
+        let admitted = self
+            .interpreted_glyph_counts
+            .get(&page_number)
+            .copied()
+            .unwrap_or(0);
+        Ok(Some(
+            limit.saturating_sub(self.interpreted_glyph_total) + admitted,
+        ))
     }
 
     /// Record one page's text resources without charging cache re-interpretation.
@@ -76,13 +154,26 @@ impl _Document {
         text_size: usize,
         glyph_count: usize,
     ) -> PyResult<()> {
-        if self.interpreted_text_sizes.contains_key(&page_number) {
-            debug_assert!(self.interpreted_glyph_counts.contains_key(&page_number));
+        // A page counts once, at the largest of its interpretations.
+        let admitted_text = self
+            .interpreted_text_sizes
+            .get(&page_number)
+            .copied()
+            .unwrap_or(0);
+        let admitted_glyphs = self
+            .interpreted_glyph_counts
+            .get(&page_number)
+            .copied()
+            .unwrap_or(0);
+        let text_size = text_size.max(admitted_text);
+        let glyph_count = glyph_count.max(admitted_glyphs);
+        if (text_size, glyph_count) == (admitted_text, admitted_glyphs)
+            && self.interpreted_text_sizes.contains_key(&page_number)
+        {
             return Ok(());
         }
-        debug_assert!(!self.interpreted_glyph_counts.contains_key(&page_number));
-        let text_total = self.interpreted_text_total.checked_add(text_size);
-        let glyph_total = self.interpreted_glyph_total.checked_add(glyph_count);
+        let text_total = (self.interpreted_text_total - admitted_text).checked_add(text_size);
+        let glyph_total = (self.interpreted_glyph_total - admitted_glyphs).checked_add(glyph_count);
         if let Some(limit) = self.max_text_size {
             let used = text_total.ok_or_else(|| {
                 limit_err(
@@ -126,12 +217,12 @@ impl _Document {
     }
 
     /// Refresh a cached text page's LRU position; return false when uncached.
-    pub(super) fn touch_text_page(&mut self, page_number: u32) -> bool {
-        if !self.text_pages.contains_key(&page_number) {
+    pub(super) fn touch_text_page(&mut self, key: TextPageKey) -> bool {
+        if !self.text_pages.contains_key(&key) {
             return false;
         }
-        self.text_page_order.retain(|number| *number != page_number);
-        self.text_page_order.push_back(page_number);
+        self.text_page_order.retain(|cached| *cached != key);
+        self.text_page_order.push_back(key);
         true
     }
 
@@ -146,10 +237,11 @@ impl _Document {
         &mut self,
         pdf: &'a Pdf,
         cache: &InterpreterCache<'a>,
-        page_number: u32,
+        key: TextPageKey,
         settings: InterpreterSettings,
     ) -> PyResult<()> {
-        debug_assert!(!self.text_pages.contains_key(&page_number));
+        debug_assert!(!self.text_pages.contains_key(&key));
+        let (page_number, options) = key;
         let text_budget = self.text_budget(page_number)?;
         let glyph_budget = self.glyph_budget(page_number)?;
         let pages = pdf.pages();
@@ -165,6 +257,7 @@ impl _Document {
             text_budget,
             glyph_budget,
             &self.substitute_programs(),
+            options,
         )
         .map_err(text_page_limit_err)?;
         self.admit_text_usage(page_number, text_page.text_size(), text_page.glyph_count())?;
@@ -175,32 +268,33 @@ impl _Document {
         {
             self.text_pages.remove(&evicted);
         }
-        self.text_pages.insert(page_number, text_page);
-        self.text_page_order.push_back(page_number);
+        self.text_pages.insert(key, text_page);
+        self.text_page_order.push_back(key);
         Ok(())
     }
 
     /// Return a cached, owned interpretation of a one-based page.
     pub(super) fn text_page(
         &mut self,
-        page_number: u32,
+        key: TextPageKey,
         settings: InterpreterSettings,
     ) -> PyResult<&crate::extract::TextPage> {
-        if !self.touch_text_page(page_number) {
+        let page_number = key.0;
+        if !self.touch_text_page(key) {
             self.hayro_view_for(PageSelection::One(page_number))?;
             let pdf = self
                 .hayro_pdf
                 .take()
                 .expect("hayro view was built immediately before");
             let cache = InterpreterCache::new();
-            let interpreted = self.interpret_text_page(&pdf, &cache, page_number, settings);
+            let interpreted = self.interpret_text_page(&pdf, &cache, key, settings);
             drop(cache);
             self.hayro_pdf = Some(pdf);
             interpreted?;
         }
         Ok(self
             .text_pages
-            .get(&page_number)
+            .get(&key)
             .expect("text page was interpreted immediately before"))
     }
 
@@ -209,6 +303,7 @@ impl _Document {
     /// `max_output_size` bounds the complete `out` buffer, so the budget is
     /// shared by every chunk of one call. The same detached-snapshot contract
     /// as `interpret_text_page` applies.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn extract_text_batch<'a>(
         &mut self,
         pdf: &'a Pdf,
@@ -216,18 +311,20 @@ impl _Document {
         page_numbers: &[u32],
         max_output_size: Option<usize>,
         settings: &InterpreterSettings,
+        options: &TextOptions,
         out: &mut String,
     ) -> PyResult<()> {
         for number in page_numbers {
             let remaining = max_output_size.map(|limit| limit.saturating_sub(out.len()));
-            if !self.touch_text_page(*number) {
-                self.interpret_text_page(pdf, cache, *number, settings.clone())?;
+            let key = (*number, options.collect);
+            if !self.touch_text_page(key) {
+                self.interpret_text_page(pdf, cache, key, settings.clone())?;
             }
             let page_text = self
                 .text_pages
-                .get(number)
+                .get(&key)
                 .expect("text page was interpreted immediately before")
-                .text(remaining)
+                .text(remaining, &options.view)
                 .map_err(|error| match error {
                     crate::extract::TextPageLimit::TextSize(_) => {
                         if let Some(limit) = max_output_size {
@@ -359,6 +456,7 @@ pub(super) fn extract_text(
     this: &mut _Document,
     py: Python<'_>,
     page_numbers: Vec<u32>,
+    options: TextOptions,
 ) -> PyResult<String> {
     this.check_page_entries(page_numbers.len(), "extract text from")?;
     // Every collected glyph contributes at least one UTF-8 byte. Plain
@@ -402,6 +500,7 @@ pub(super) fn extract_text(
                     chunk,
                     max_output_size,
                     &settings,
+                    &options,
                     &mut out,
                 );
                 drop(cache);
@@ -420,12 +519,13 @@ pub(super) fn extract_layout(
     this: &mut _Document,
     py: Python<'_>,
     page_number: u32,
+    options: TextOptions,
 ) -> PyResult<(f64, f64, Vec<crate::extract::BlockTuple>)> {
     let settings = this.interpreter_settings();
     this.contain_renderer_panics(|this| {
         py.detach(|| {
-            this.text_page(page_number, settings)?
-                .layout()
+            this.text_page((page_number, options.collect), settings)?
+                .layout(&options.view)
                 .map_err(text_page_limit_err)
         })
     })
@@ -436,12 +536,13 @@ pub(super) fn extract_raw_layout(
     this: &mut _Document,
     py: Python<'_>,
     page_number: u32,
+    options: TextOptions,
 ) -> PyResult<(f64, f64, Vec<crate::extract::RawBlockTuple>)> {
     let settings = this.interpreter_settings();
     this.contain_renderer_panics(|this| {
         py.detach(|| {
-            this.text_page(page_number, settings)?
-                .raw_layout()
+            this.text_page((page_number, options.collect), settings)?
+                .raw_layout(&options.view)
                 .map_err(text_page_limit_err)
         })
     })
@@ -569,6 +670,7 @@ pub(super) fn search_page(
     page_number: u32,
     needle: &str,
     max_hits: Option<usize>,
+    options: TextOptions,
 ) -> PyResult<Vec<(f64, f64, f64, f64)>> {
     if needle.is_empty() {
         return Err(PyValueError::new_err("needle must be at least 1 character"));
@@ -587,8 +689,8 @@ pub(super) fn search_page(
     let settings = this.interpreter_settings();
     this.contain_renderer_panics(|this| {
         py.detach(|| {
-            this.text_page(page_number, settings)?
-                .search(needle, max_hits)
+            this.text_page((page_number, options.collect), settings)?
+                .search(needle, max_hits, &options.view)
                 .map_err(|error| match error {
                     crate::extract::SearchError::TooManyHits => {
                         let limit = max_hits.expect("bounded search hit count");

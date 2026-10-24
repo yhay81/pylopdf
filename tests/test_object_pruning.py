@@ -12,7 +12,7 @@ import pylopdf
 
 
 def _stream(text: str) -> str:
-    content = f"BT /F1 20 Tf 20 100 Td ({text}) Tj ET"
+    content = f"BT /F1 10 Tf 20 100 Td ({text}) Tj ET"
     return f"<< /Length {len(content)} >>\nstream\n{content}\nendstream"
 
 

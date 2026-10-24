@@ -71,7 +71,8 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `doc.authenticate(password)` | `doc.unlock(password)` | Returns `Access.USER` or `Access.OWNER` and raises `PasswordError` for a wrong password instead of returning 0 |
 | `doc.permissions`, `is_dirty` | Same | `permissions` is a `Permissions` flag value: `Permissions.ALL` instead of `-4` |
 | `doc.save(garbage=4, deflate=True)` | `doc.save(dedupe=True, renumber=True)` | Saving compresses streams and removes unused objects by default; `garbage=0` becomes `prune=False` and `deflate=False` `compress=False`. Pages, annotations, form fields, and layers are never merged |
-| `doc.save(encryption=PDF_ENCRYPT_AES_256, user_pw=…, owner_pw=…, permissions=…)` | `doc.save(encryption=Encryption(user_password=…, owner_password=…, permissions=…))` | AES-256 only |
+| `doc.save(encryption=PDF_ENCRYPT_AES_256, user_pw=…, owner_pw=…, permissions=…)` | `doc.save(encryption=Encryption(user_password=…, owner_password=…, permissions=…))` | `PDF_ENCRYPT_AES_128` adds `method="aes-128"`; RC4 is not written |
+| `doc.save(encryption=PDF_ENCRYPT_KEEP)`, pymupdf's default | `doc.save(encryption=Encryption.KEEP)` | pylopdf's default, `None`, writes no encryption; `KEEP` keeps AES-128 and AES-256 and refuses RC4 |
 | `doc.tobytes(...)`, `doc.write(...)` | `doc.to_bytes(...)` | The options of `save()` |
 | `doc.save(use_objstms=True)` | `doc.save(object_streams=True)` | |
 | `doc.saveIncr()`, `doc.save(name, incremental=True)` | `doc.save(path, incremental=True)` | Any path, including the file the document came from; refuses `dedupe`, `renumber`, `object_streams`, and `encryption` |
@@ -132,6 +133,7 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `page.get_images()` | `page.resources.images` | `ImageObject` handles with `xref`, `width`, `height`, `bits`, `colorspace`, `filters`, and masks instead of tuples |
 | `doc.extract_image(xref)` | `doc.images[xref].extract()` | An `EncodedImage` with `format`, `data`, and `resolution`; the size, color space, and masks are properties of `doc.images[xref]` |
 | `pymupdf.Pixmap(doc, xref)` | `doc.images[xref].to_pixmap()` | `alpha=True` applies the image's masks |
+| `pymupdf.Pixmap(filename)`, `pymupdf.Pixmap(stream)` | `Pixmap.from_file(path)`, `Pixmap.from_bytes(data)` | PNG and JPEG; other formats belong to Pillow, then `Pixmap.from_array(numpy.asarray(image))` |
 | `page.get_image_info()` | `page.content(text_runs=False, paths=False).images` | `Image` records with `xref`, `bbox`, `matrix` (pymupdf's `transform`), size, color space, mask, and resolution; no `hashes=` yet |
 | `page.get_drawings()`, `get_cdrawings()` | `page.content(text_runs=False, images=False).paths` | `Path` records with `segments`, `fill`, `fill_rule`, `stroke`, and `bbox`; each path's `context` holds the clips, groups, and marked content that `extended=True` listed as entries of their own |
 | `page.get_texttrace()`, `get_bboxlog()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | Text runs with their glyphs, paths, and images as immutable values; see [Page content](api.md#content) |
