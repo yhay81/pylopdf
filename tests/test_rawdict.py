@@ -393,7 +393,7 @@ def test_rawdict_preserves_existing_layout_metadata_and_span_boundaries() -> Non
 
 def test_layout_records_describe_glyph_values() -> None:
     contracts = {
-        pylopdf.Char: ("text", "bbox", "quad", "origin", "is_synthetic"),
+        pylopdf.Char: ("text", "bbox", "origin", "is_synthetic"),
         pylopdf.Span: (
             "text",
             "bbox",
@@ -424,7 +424,6 @@ def test_layout_records_describe_glyph_values() -> None:
     assert hints == {
         "text": str,
         "bbox": pylopdf.Rect,
-        "quad": pylopdf.Quad,
         "origin": pylopdf.Point,
         "is_synthetic": bool,
     }

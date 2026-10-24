@@ -145,7 +145,7 @@ def test_text_records_hold_checked_geometry_and_compare_as_constructed(usrguide:
     assert boxes == [pylopdf.Rect(*box) for box in boxes]
     assert points == [pylopdf.Point(*point) for point in points]
     rebuilt = [
-        pylopdf.Char(text=char.text, bbox=char.bbox, quad=char.quad, origin=char.origin, is_synthetic=char.is_synthetic)
+        pylopdf.Char(text=char.text, bbox=char.bbox, origin=char.origin, is_synthetic=char.is_synthetic)
         for char in chars
     ]
     assert rebuilt == chars

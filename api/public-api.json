@@ -1877,13 +1877,11 @@
         "bbox": "Rect",
         "is_synthetic": "bool",
         "origin": "Point",
-        "quad": "Quad",
         "text": "str"
       },
       "dataclass_fields": [
         "text",
         "bbox",
-        "quad",
         "origin",
         "is_synthetic"
       ],
@@ -1896,9 +1894,6 @@
           "kind": "property"
         },
         "origin": {
-          "kind": "property"
-        },
-        "quad": {
           "kind": "property"
         },
         "text": {
@@ -1916,11 +1911,6 @@
             "annotation": "Rect",
             "kind": "keyword_only",
             "name": "bbox"
-          },
-          {
-            "annotation": "Quad",
-            "kind": "keyword_only",
-            "name": "quad"
           },
           {
             "annotation": "Point",

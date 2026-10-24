@@ -342,13 +342,14 @@ the concept and API overview.
   offset of the CropBox clipped to the MediaBox, the box that drawing and
   `Page.rect` use (see the drawing bullet). Baseline direction is retained and
   exposed in line dicts. Rotated
-  baselines assemble along their direction while remaining writing mode 0. Baselines more than about a
-  degree from both axes (`has_oblique_baseline`) cluster in
-  `cluster_oblique`, by quantized angle and the baseline's offset across its
-  direction, and order along it. Lines, spans, chars, and search quads
-  (`glyphs_quad`) are the smallest rectangle along the first glyph's
-  baseline that holds every glyph box; a search match across a
-  dehyphenation join gives one quad per line.
+  baselines assemble along their direction while remaining writing mode 0.
+  Baselines more than about a degree from both axes (`has_oblique_baseline`)
+  cluster in `cluster_oblique`, by quantized angle and the baseline's offset
+  across its direction, and order along it. Line, span, and search quads
+  (`glyphs_quad`) are the smallest rectangle along the first glyph's baseline
+  that holds every glyph box; a search match across a dehyphenation join
+  gives one quad per line. Chars carry no quad: building one per char
+  doubled `layout(chars=True)` (1.5 µs a char on the bundled corpus).
   Uniform axis-aligned pages derive logical inline and block axes from that
   direction, so 90/180/270-degree lines and sustained columns preserve reading
   order. Explicitly rotated glyph bboxes follow the baseline and cross-axis;

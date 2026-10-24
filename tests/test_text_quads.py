@@ -43,10 +43,9 @@ def test_quads_follow_the_baseline_of_rotated_text(degrees: int) -> None:
     assert math.atan2(line.direction.y, line.direction.x) == pytest.approx(angle, abs=1e-9)
     assert _side(line.quad.ul, line.quad.ll) == pytest.approx(20)
     assert _side(line.quad.ur, line.quad.lr) == pytest.approx(20)
-    # Every glyph's origin lies on the quad's baseline, 16 points below the top.
+    # Every glyph's origin lies in the quad.
     for char in span.chars:
         assert _inside(char.origin, line.quad)
-        assert _side(char.quad.ul, char.quad.ll) == pytest.approx(20)
     assert line.quad.rect == pytest.approx(line.bbox)
     assert span.quad == line.quad
 
@@ -61,11 +60,10 @@ def test_search_quads_cover_rotated_text_tightly(degrees: int) -> None:
 
     assert quad.rect == pytest.approx(rect)
     assert quad.rect == pytest.approx(word.bbox)
-    # The quad holds the glyphs' boxes but much less area than the rectangle.
+    # The quad holds the glyphs' origins but much less area than the rectangle.
     chars = page.layout(chars=True).blocks[0].lines[0].spans[0].chars[-5:]
     assert [char.text for char in chars] == list("words")
-    for char in chars:
-        assert all(_inside(corner, quad) for corner in char.quad)
+    assert all(_inside(char.origin, quad) for char in chars)
     quad_area = _side(quad.ul, quad.ur) * _side(quad.ul, quad.ll)
     assert quad_area < 0.75 * rect.width * rect.height
 

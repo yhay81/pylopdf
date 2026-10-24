@@ -22,7 +22,7 @@ _LineTuple: TypeAlias = tuple[
     tuple[float, float, float, float], list[_SpanTuple], list[_WordTuple], tuple[float, float], int, _QuadTuple
 ]
 _BlockTuple: TypeAlias = tuple[tuple[float, float, float, float], list[_LineTuple]]
-_RawCharTuple: TypeAlias = tuple[str, tuple[float, float, float, float], tuple[float, float], bool, _QuadTuple]
+_RawCharTuple: TypeAlias = tuple[str, tuple[float, float, float, float], tuple[float, float], bool]
 # The text options: (clip, keep clipped glyphs, unmapped glyphs (0 skip,
 # 1 U+FFFD, 2 glyph ID), exact boxes, expand ligatures, normalize whitespace,
 # dehyphenate).

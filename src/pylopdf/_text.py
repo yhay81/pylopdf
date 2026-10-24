@@ -27,8 +27,8 @@ if TYPE_CHECKING:
     _CoreBlock = tuple[_Box, list[_CoreLine]]
     #: The core's layout with glyphs: as above, except that a span holds
     #: ``(text, chars)`` in place of its text, and a char is
-    #: ``(text, bbox, origin, synthetic, quad)``.
-    _CoreChar = tuple[str, _Box, _Pt, bool, _CoreQuad]
+    #: ``(text, bbox, origin, synthetic)``.
+    _CoreChar = tuple[str, _Box, _Pt, bool]
     _CoreRawSpan = tuple[_Box, tuple[str, list[_CoreChar]], float, _Pt, str, int, _CoreStyle, _CoreQuad]
     _CoreRawLine = tuple[_Box, list[_CoreRawSpan], list[tuple[_Box, str]], _Pt, int, _CoreQuad]
     _CoreRawBlock = tuple[_Box, list[_CoreRawLine]]
@@ -116,9 +116,6 @@ class Char:
 
     text: str
     bbox: Rect
-    quad: Quad
-    """The char's box along its baseline, which follows rotated text where
-    ``bbox`` is axis-aligned."""
     origin: Point
     is_synthetic: bool = False
     """Whether the char is a space that pylopdf inferred from the gap between
@@ -303,7 +300,7 @@ def _point(point: Sequence[float]) -> Point:
     return _new_tuple(Point, point) if _isfinite(point[0] + point[1]) else Point(*point)
 
 
-def _char(text: str, bbox: Rect, origin: Point, is_synthetic: bool, quad: Quad) -> Char:  # noqa: FBT001 - one core tuple.
+def _char(text: str, bbox: Rect, origin: Point, is_synthetic: bool) -> Char:  # noqa: FBT001 - one core tuple.
     """Return a :class:`Char` for every glyph of a layout with characters.
 
     The ``__init__`` of a frozen dataclass sets each field through
@@ -315,7 +312,6 @@ def _char(text: str, bbox: Rect, origin: Point, is_synthetic: bool, quad: Quad) 
     _set_char_bbox(char, bbox)
     _set_char_origin(char, origin)
     _set_char_synthetic(char, is_synthetic)
-    _set_char_quad(char, quad)
     return char
 
 
@@ -326,7 +322,6 @@ _set_char_text = Char.text.__set__
 _set_char_bbox = Char.bbox.__set__
 _set_char_origin = Char.origin.__set__
 _set_char_synthetic = Char.is_synthetic.__set__
-_set_char_quad = Char.quad.__set__
 
 
 def _quad(quad: Sequence[Sequence[float]]) -> Quad:
@@ -397,8 +392,8 @@ def _build_span(  # noqa: PLR0913, PLR0917 - unpacks one core span tuple.
     else:
         text, glyphs = content
         chars = tuple(
-            _char(char, _rect(char_bbox), _point(char_origin), synthetic, _quad(char_quad))
-            for char, char_bbox, char_origin, synthetic, char_quad in glyphs
+            _char(char, _rect(char_bbox), _point(char_origin), synthetic)
+            for char, char_bbox, char_origin, synthetic in glyphs
         )
     components, render_mode, is_clipped, ascender, descender = style
     if components is None:

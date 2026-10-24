@@ -965,7 +965,7 @@ HINTS: dict[str, str] = {
     "pymupdf_*": "pylopdf does not provide pymupdf's pymupdf_*. Use pylopdf.__version__.",
     "quad_like": "pylopdf does not provide pymupdf's quad_like.",
     "r": "pylopdf does not provide pymupdf's r.",
-    "recover_*": "recover_* is Line in pylopdf. Read line.quad, span.quad, and char.quad of page.layout(chars=True): each follows the baseline of rotated text, so no quad needs recovering from a box.",
+    "recover_*": "recover_* is Span in pylopdf. Read span.quad and line.quad of page.layout(): each follows the baseline of rotated text, so no quad needs recovering from a box; page.search(text, quads=True) gives the quad of any run of characters.",
     "rect_like": "pylopdf does not provide pymupdf's rect_like.",
     "repair_mono_font": "pylopdf does not provide pymupdf's repair_mono_font.",
     "restore_aliases": "pylopdf does not provide pymupdf's restore_aliases. Use pymupdf's current snake_case names; pylopdf ships no fitz or camelCase aliases.",

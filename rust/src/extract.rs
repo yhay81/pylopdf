@@ -3246,8 +3246,8 @@ type SpanStyleTuple = (Option<(f32, f32, f32, f32)>, u8, bool, f64, f64);
 /// Span with assembled text, including inferred spaces.
 type SpanTuple = LayoutSpanTuple<String>;
 /// One retained glyph: `(whole Unicode mapping, bbox, baseline origin,
-/// synthetic, quad)`; a synthetic char is a space inferred from a gap.
-type RawCharTuple = (String, BBox, (f64, f64), bool, QuadTuple);
+/// synthetic)`; a synthetic char is a space inferred from a gap.
+type RawCharTuple = (String, BBox, (f64, f64), bool);
 /// Span with its assembled text and its glyph records, which hold no inferred
 /// spaces.
 type RawSpanTuple = LayoutSpanTuple<(String, Vec<RawCharTuple>)>;
@@ -3448,10 +3448,10 @@ fn split_raw_spans(line: &[GlyphRecord]) -> Result<Vec<RawSpanTuple>, TextPageLi
                 && needs_gap(previous, glyph)
                 && !ends_with_space
             {
-                let (origin, bbox, quad) = gap_geometry(before, glyph);
+                let (origin, bbox) = gap_geometry(before, glyph);
                 try_push_text(
                     &mut chars,
-                    (" ".to_owned(), bbox, origin, true, quad),
+                    (" ".to_owned(), bbox, origin, true),
                     "raw layout glyphs",
                 )?;
             }
@@ -3460,13 +3460,7 @@ fn split_raw_spans(line: &[GlyphRecord]) -> Result<Vec<RawSpanTuple>, TextPageLi
             ends_with_space = text.ends_with(' ');
             try_push_text(
                 &mut chars,
-                (
-                    text,
-                    glyph_bbox(glyph),
-                    (glyph.x, glyph.y),
-                    false,
-                    glyphs_quad(std::slice::from_ref(glyph)),
-                ),
+                (text, glyph_bbox(glyph), (glyph.x, glyph.y), false),
                 "raw layout glyphs",
             )?;
             if !glyph_is_nonspacing_mark(glyph) {
@@ -3485,7 +3479,7 @@ fn split_raw_spans(line: &[GlyphRecord]) -> Result<Vec<RawSpanTuple>, TextPageLi
 /// The origin and box of the space inferred between two glyphs: from the end
 /// of the advance of the one before to the start of the next, along the
 /// baseline of the one before and across its ascender and descender.
-fn gap_geometry(before: &GlyphRecord, after: &GlyphRecord) -> ((f64, f64), BBox, QuadTuple) {
+fn gap_geometry(before: &GlyphRecord, after: &GlyphRecord) -> ((f64, f64), BBox) {
     let start = (
         before.x + before.direction.0 * before.advance,
         before.y + before.direction.1 * before.advance,
@@ -3495,18 +3489,6 @@ fn gap_geometry(before: &GlyphRecord, after: &GlyphRecord) -> ((f64, f64), BBox,
         .max(0.0);
     let (above, below) = before.vertical_extent();
     let block = (-before.direction.1, before.direction.0);
-    let point = |inline: f64, cross: f64| {
-        (
-            start.0 + before.direction.0 * inline + block.0 * cross,
-            start.1 + before.direction.1 * inline + block.1 * cross,
-        )
-    };
-    let quad = (
-        point(0.0, -above),
-        point(length, -above),
-        point(0.0, below),
-        point(length, below),
-    );
     let mut x0 = f64::INFINITY;
     let mut y0 = f64::INFINITY;
     let mut x1 = f64::NEG_INFINITY;
@@ -3521,7 +3503,7 @@ fn gap_geometry(before: &GlyphRecord, after: &GlyphRecord) -> ((f64, f64), BBox,
             y1 = y1.max(y);
         }
     }
-    (start, (x0, y0, x1, y1), quad)
+    (start, (x0, y0, x1, y1))
 }
 
 /// Assemble a span's text, with a space for each inferred gap.
