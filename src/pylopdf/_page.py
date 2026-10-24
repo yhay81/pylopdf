@@ -300,6 +300,7 @@ class Page:
         dehyphenate: bool = False,
         unmapped: Unmapped = "skip",
         exact_bboxes: bool = False,
+        styles: bool = False,
     ) -> Layout:
         """Return the page's text as blocks, lines, and spans, in reading order.
 
@@ -310,8 +311,12 @@ class Page:
         text. Boxes are in display space and span the glyphs' advances and the
         font's ascender and descender, or their outlines with
         ``exact_bboxes=True``. Dehyphenation removes the hyphen from the end
-        of the line and keeps both lines. The other options are those of
-        :meth:`text`. :meth:`Layout.to_dict` serializes the result.
+        of the line and keeps both lines. ``styles=True`` also reads the
+        page's vector rules and sets :attr:`Span.is_underlined` and
+        :attr:`Span.is_struck` where a horizontal rule underlines or strikes
+        out horizontal text, as pymupdf's ``TEXT_COLLECT_STYLES`` does. The
+        other options are those of :meth:`text`. :meth:`Layout.to_dict`
+        serializes the result.
         """
         if not isinstance(chars, bool):
             msg = f"chars must be True or False: {chars!r}"
@@ -324,6 +329,7 @@ class Page:
             dehyphenate=dehyphenate,
             unmapped=unmapped,
             exact_bboxes=exact_bboxes,
+            styles=styles,
         )
         page_number = self._page_number()
         if chars:

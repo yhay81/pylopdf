@@ -89,6 +89,7 @@ from pylopdf._errors import (
     StalePageError,
 )
 from pylopdf._fallback_fonts import FallbackFont, FallbackFonts
+from pylopdf._font_objects import FontFormat, FontObject, FontProgram, Fonts, FormObject
 from pylopdf._fonts import Font
 from pylopdf._form import (
     CheckBox,
@@ -215,10 +216,15 @@ __all__ = [
     "FileAttachment",
     "FillRule",
     "Font",
+    "FontFormat",
     "FontLanguage",
+    "FontObject",
+    "FontProgram",
     "FontRef",
     "FontSubsetResult",
+    "Fonts",
     "Form",
+    "FormObject",
     "FreeText",
     "Glyph",
     "GraphicsContext",

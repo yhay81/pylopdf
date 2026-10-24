@@ -52,10 +52,15 @@
     "FileAttachment",
     "FillRule",
     "Font",
+    "FontFormat",
     "FontLanguage",
+    "FontObject",
+    "FontProgram",
     "FontRef",
     "FontSubsetResult",
+    "Fonts",
     "Form",
+    "FormObject",
     "FreeText",
     "Glyph",
     "GraphicsContext",
@@ -2548,6 +2553,30 @@
         "items": {
           "kind": "property"
         },
+        "path_clusters": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "float",
+                "default": 3,
+                "kind": "keyword_only",
+                "name": "x_tolerance"
+              },
+              {
+                "annotation": "float",
+                "default": 3,
+                "kind": "keyword_only",
+                "name": "y_tolerance"
+              }
+            ],
+            "returns": "list[Rect]"
+          }
+        },
         "paths": {
           "kind": "property",
           "returns": "tuple[Path, ...]"
@@ -2936,6 +2965,10 @@
             ],
             "returns": "None"
           }
+        },
+        "fonts": {
+          "kind": "property",
+          "returns": "Fonts"
         },
         "form": {
           "kind": "property",
@@ -4525,9 +4558,115 @@
         "returns": "None"
       }
     },
+    "FontFormat": {
+      "kind": "constant",
+      "value": {
+        "repr": "typing.Literal['type1', 'truetype', 'cff', 'opentype']"
+      }
+    },
     "FontLanguage": {
       "kind": "type-alias",
       "target": "Literal['ar', 'he', 'hi', 'ja', 'ko', 'th', 'zh-CN', 'zh-TW']"
+    },
+    "FontObject": {
+      "kind": "class",
+      "members": {
+        "encoding": {
+          "kind": "property",
+          "returns": "str | None"
+        },
+        "extract": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              }
+            ],
+            "returns": "FontProgram | None"
+          }
+        },
+        "is_embedded": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "name": {
+          "kind": "property",
+          "returns": "str"
+        },
+        "obj": {
+          "kind": "property",
+          "returns": "Dictionary"
+        },
+        "subtype": {
+          "kind": "property",
+          "returns": "str"
+        },
+        "widths": {
+          "kind": "property",
+          "returns": "tuple[float, ...]"
+        },
+        "xref": {
+          "kind": "property",
+          "returns": "int"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "xref"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "FontProgram": {
+      "annotations": {
+        "data": "bytes",
+        "format": "FontFormat"
+      },
+      "dataclass_fields": [
+        "format",
+        "data"
+      ],
+      "kind": "class",
+      "members": {
+        "data": {
+          "kind": "property"
+        },
+        "format": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "FontFormat",
+            "kind": "keyword_only",
+            "name": "format"
+          },
+          {
+            "annotation": "bytes",
+            "kind": "keyword_only",
+            "name": "data"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "FontRef": {
       "annotations": {
@@ -4677,6 +4816,79 @@
         "returns": "None"
       }
     },
+    "Fonts": {
+      "kind": "class",
+      "members": {
+        "__contains__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "xref"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "xref"
+              }
+            ],
+            "returns": "FontObject"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[int]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "Form": {
       "kind": "class",
       "members": {
@@ -4769,6 +4981,42 @@
             "annotation": "Document",
             "kind": "positional_or_keyword",
             "name": "document"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "FormObject": {
+      "kind": "class",
+      "members": {
+        "bbox": {
+          "kind": "property",
+          "returns": "Rect"
+        },
+        "matrix": {
+          "kind": "property",
+          "returns": "Matrix"
+        },
+        "obj": {
+          "kind": "property",
+          "returns": "Stream"
+        },
+        "xref": {
+          "kind": "property",
+          "returns": "int"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "xref"
           }
         ],
         "returns": "None"
@@ -6613,6 +6861,30 @@
               }
             ],
             "returns": "dict[str, Any]"
+          }
+        },
+        "to_html": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "str"
+          }
+        },
+        "to_xml": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "str"
           }
         },
         "width": {
@@ -8739,6 +9011,12 @@
                 "default": false,
                 "kind": "keyword_only",
                 "name": "exact_bboxes"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "styles"
               }
             ],
             "returns": "Layout"
@@ -12178,6 +12456,14 @@
     "Resources": {
       "kind": "class",
       "members": {
+        "fonts": {
+          "kind": "property",
+          "returns": "tuple[FontObject, ...]"
+        },
+        "forms": {
+          "kind": "property",
+          "returns": "tuple[FormObject, ...]"
+        },
         "images": {
           "kind": "property",
           "returns": "tuple[ImageObject, ...]"
@@ -12625,6 +12911,9 @@
         "is_italic": "bool",
         "is_monospaced": "bool",
         "is_serif": "bool",
+        "is_struck": "bool",
+        "is_superscript": "bool",
+        "is_underlined": "bool",
         "origin": "Point",
         "quad": "Quad",
         "render_mode": "TextRenderMode",
@@ -12641,6 +12930,9 @@
         "is_italic",
         "is_serif",
         "is_monospaced",
+        "is_superscript",
+        "is_underlined",
+        "is_struck",
         "color",
         "render_mode",
         "is_clipped",
@@ -12682,6 +12974,15 @@
           "kind": "property"
         },
         "is_serif": {
+          "kind": "property"
+        },
+        "is_struck": {
+          "kind": "property"
+        },
+        "is_superscript": {
+          "kind": "property"
+        },
+        "is_underlined": {
           "kind": "property"
         },
         "origin": {
@@ -12746,6 +13047,21 @@
             "annotation": "bool",
             "kind": "keyword_only",
             "name": "is_monospaced"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_superscript"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_underlined"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_struck"
           },
           {
             "annotation": "Color | None",

@@ -248,6 +248,9 @@ pub(crate) struct CollectOptions {
     /// Box each glyph with its exact ink box instead of its advance and font
     /// metrics.
     pub(crate) exact_bboxes: bool,
+    /// Collect the page's vector rules and mark the glyphs that one underlines
+    /// or strikes out.
+    pub(crate) styles: bool,
 }
 
 /// The options that turn a cached interpretation into text, words, layout,
@@ -313,6 +316,10 @@ struct GlyphRecord {
     /// Whether the glyph continues the word of the line before, which
     /// dehyphenation removed the hyphen of.
     joins_previous: bool,
+    /// Whether a vector rule underlines or strikes out the glyph, as
+    /// [`CollectOptions::styles`] finds them.
+    is_underlined: bool,
+    is_struck: bool,
     /// Glyph callback order before geometric clustering.
     source_order: usize,
 }
@@ -662,6 +669,8 @@ impl TextCollector<'_> {
             is_clipped: false,
             ink: None,
             joins_previous: false,
+            is_underlined: false,
+            is_struck: false,
             source_order,
         };
         // A glyph is clipped away when the page or the clip paths leave no
@@ -2482,13 +2491,17 @@ impl TextPage {
             page,
             cache,
             settings,
-            false,
+            options.styles,
             max_text_size,
             max_glyph_count,
             substitutes,
             options,
         )?;
-        let physical_lines = cluster_lines(marks.glyphs)?;
+        let mut glyphs = marks.glyphs;
+        if options.styles {
+            mark_styles(&mut glyphs, marks.rules)?;
+        }
+        let physical_lines = cluster_lines(glyphs)?;
         let mut lines = order_page_lines(physical_lines)?;
         for line in &mut lines {
             logicalize_rtl_line(line);
@@ -2751,6 +2764,8 @@ fn view_glyph(glyph: &GlyphRecord, view: &ViewOptions) -> Result<GlyphRecord, Te
         is_clipped: glyph.is_clipped,
         ink: glyph.ink,
         joins_previous: glyph.joins_previous,
+        is_underlined: glyph.is_underlined,
+        is_struck: glyph.is_struck,
         source_order: glyph.source_order,
     })
 }
@@ -3294,9 +3309,16 @@ type LayoutSpanTuple<T> = (
     SpanStyleTuple,
     QuadTuple,
 );
-/// A span's paint and metrics: `(sRGB color and alpha, render mode, clipped,
-/// ascender, descender)`.
-type SpanStyleTuple = (Option<(f32, f32, f32, f32)>, u8, bool, f64, f64);
+/// A span's paint, metrics, and decorations: `(sRGB color and alpha, render
+/// mode, clipped, ascender, descender, (underlined, struck out, superscript))`.
+type SpanStyleTuple = (
+    Option<(f32, f32, f32, f32)>,
+    u8,
+    bool,
+    f64,
+    f64,
+    (bool, bool, bool),
+);
 /// Span with assembled text, including inferred spaces.
 type SpanTuple = LayoutSpanTuple<String>;
 /// One retained glyph: `(whole Unicode mapping, bbox, baseline origin,
@@ -3416,8 +3438,8 @@ fn glyphs_bbox(glyphs: &[GlyphRecord]) -> BBox {
     (x0, y0, x1, y1)
 }
 
-/// Borrow contiguous spans sharing size, font, paint, render mode, and
-/// clipping without allocating a partition.
+/// Borrow contiguous spans sharing size, font, paint, render mode, baseline,
+/// clipping, and decorations without allocating a partition.
 fn span_glyph_slices(line: &[GlyphRecord]) -> impl Iterator<Item = &[GlyphRecord]> {
     let mut start = 0;
     std::iter::from_fn(move || {
@@ -3432,6 +3454,9 @@ fn span_glyph_slices(line: &[GlyphRecord]) -> impl Iterator<Item = &[GlyphRecord
                 || b.color != a.color
                 || b.render_mode != a.render_mode
                 || b.is_clipped != a.is_clipped
+                || b.is_underlined != a.is_underlined
+                || b.is_struck != a.is_struck
+                || baseline_shift(a, b) > a.size.max(b.size) * SPAN_BASELINE_TOLERANCE
             {
                 break;
             }
@@ -3447,6 +3472,7 @@ fn span_glyph_slices(line: &[GlyphRecord]) -> impl Iterator<Item = &[GlyphRecord
 fn span_with_content<T>(
     glyphs: &[GlyphRecord],
     content: T,
+    line: &[GlyphRecord],
 ) -> Result<LayoutSpanTuple<T>, TextPageLimit> {
     let mut font_name = String::new();
     try_push_str_text(
@@ -3469,10 +3495,109 @@ fn span_with_content<T>(
             glyphs[0].is_clipped,
             glyphs[0].font.ascender,
             glyphs[0].font.descender,
+            (
+                glyphs[0].is_underlined,
+                glyphs[0].is_struck,
+                is_superscript(glyphs, line),
+            ),
         ),
         glyphs_quad(glyphs),
     ))
 }
+
+/// Whether a span of a horizontal line is set smaller than the line's largest
+/// glyphs and raised above their baseline by more than a sixth of their size,
+/// as a superscript or an exponent is.
+fn is_superscript(glyphs: &[GlyphRecord], line: &[GlyphRecord]) -> bool {
+    let horizontal = |glyph: &GlyphRecord| {
+        glyph.writing_mode == 0
+            && glyph.direction.0 >= 1.0 - 1e-6
+            && glyph.direction.1.abs() <= 1e-6
+    };
+    let Some(main) = line
+        .iter()
+        .filter(|glyph| horizontal(glyph))
+        .max_by(|left, right| left.size.total_cmp(&right.size))
+    else {
+        return false;
+    };
+    let span = &glyphs[0];
+    horizontal(span)
+        && span.size < main.size * SUPERSCRIPT_SIZE
+        && main.y - span.y > main.size * SUPERSCRIPT_RISE
+}
+
+/// Glyphs whose baselines differ by more than this share of their size, as a
+/// superscript's does, start another span.
+const SPAN_BASELINE_TOLERANCE: f64 = 0.05;
+
+/// How far the baseline of `b` lies from that of `a`, across the direction
+/// of `a`; glyphs of inferred vertical writing stack along their line.
+fn baseline_shift(a: &GlyphRecord, b: &GlyphRecord) -> f64 {
+    if a.writing_mode == 1 || b.writing_mode == 1 {
+        return 0.0;
+    }
+    ((b.y - a.y) * a.direction.0 - (b.x - a.x) * a.direction.1).abs()
+}
+
+/// A superscript is set below this share of the line's size and raised by
+/// more than this share of it.
+const SUPERSCRIPT_SIZE: f64 = 0.9;
+const SUPERSCRIPT_RISE: f64 = 1.0 / 6.0;
+
+/// Mark the glyphs of horizontal text that a horizontal vector rule
+/// underlines or strikes out: a rule that covers at least half of a glyph's
+/// advance, between a twentieth of its size above its baseline and three
+/// tenths below it, underlines it, and one between a sixth and six tenths of
+/// its size above its baseline strikes it out.
+fn mark_styles(
+    glyphs: &mut [GlyphRecord],
+    mut rules: Vec<RuleSegment>,
+) -> Result<(), TextPageLimit> {
+    rules.retain(|rule| rule.horizontal);
+    if rules.is_empty() {
+        return Ok(());
+    }
+    rules.sort_unstable_by(|left, right| {
+        left.y0
+            .total_cmp(&right.y0)
+            .then(left.x0.total_cmp(&right.x0))
+    });
+    for glyph in glyphs {
+        if glyph.writing_mode != 0
+            || glyph.direction.0 < 1.0 - 1e-6
+            || glyph.direction.1.abs() > 1e-6
+        {
+            continue;
+        }
+        let size = glyph.size.max(1.0);
+        let (top, bottom) = (
+            glyph.y - size * STRIKE_HIGHEST,
+            glyph.y + size * UNDERLINE_LOWEST,
+        );
+        let start = rules.partition_point(|rule| rule.y0 < top);
+        for rule in rules[start..].iter().take_while(|rule| rule.y0 <= bottom) {
+            let overlap = rule.x1.min(glyph.x + glyph.advance) - rule.x0.max(glyph.x);
+            if overlap < glyph.advance * 0.5 {
+                continue;
+            }
+            let rise = glyph.y - rule.y0;
+            if rise <= size * UNDERLINE_HIGHEST {
+                glyph.is_underlined = true;
+            } else if rise >= size * STRIKE_LOWEST {
+                glyph.is_struck = true;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The band of an underline below and above the baseline, and of a strike-out
+/// above it, in sizes.
+const UNDERLINE_LOWEST: f64 = 0.3;
+const UNDERLINE_HIGHEST: f64 = 0.05;
+const STRIKE_LOWEST: f64 = 1.0 / 6.0;
+const STRIKE_HIGHEST: f64 = 0.6;
 
 /// Split a line into contiguous spans sharing size and font.
 fn split_spans(line: &[GlyphRecord]) -> Result<Vec<SpanTuple>, TextPageLimit> {
@@ -3480,7 +3605,7 @@ fn split_spans(line: &[GlyphRecord]) -> Result<Vec<SpanTuple>, TextPageLimit> {
     for glyphs in span_glyph_slices(line) {
         try_push_text(
             &mut spans,
-            span_with_content(glyphs, span_text(glyphs)?)?,
+            span_with_content(glyphs, span_text(glyphs)?, line)?,
             "layout spans",
         )?;
     }
@@ -3523,7 +3648,7 @@ fn split_raw_spans(line: &[GlyphRecord]) -> Result<Vec<RawSpanTuple>, TextPageLi
         }
         try_push_text(
             &mut spans,
-            span_with_content(glyphs, (span_text(glyphs)?, chars))?,
+            span_with_content(glyphs, (span_text(glyphs)?, chars), line)?,
             "raw layout spans",
         )?;
     }

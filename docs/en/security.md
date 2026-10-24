@@ -147,6 +147,8 @@ change.
 | `canvas_scope_depth` | A canvas nests more than 16 scopes |
 | `tag_text_size` | A tag's texts, a bookmark title, or a link's texts in a new document exceed 64 KiB |
 | `image_input_size`, `image_pixel_count`, `image_inventory_count` | An image is too large, or a page uses more than 4,096 images |
+| `font_inventory_count`, `form_inventory_count` | A page lists more than 4,096 fonts or Form XObjects |
+| `font_program_size`, `font_cmap_size` | An embedded font program exceeds `FontObject.extract(max_size=)`, 64 MiB by default, or a font's embedded CMap exceeds 16 MiB while its widths are read |
 | `embedded_file_size`, `embedded_file_input_size` | An attachment, or its name or description, is too large |
 | `stream_data_size`, `object_value_depth` | A low-level stream is too large to read, or a value written is nested too deeply |
 | `password_input_size`, `metadata_input_size`, `annotation_input_size`, `form_field_input_size`, `script_size`, `toc_input_size`, `page_label_input_size`, `layer_input_size`, `replacement_input_size` | Text passed to the method is too large |

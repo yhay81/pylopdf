@@ -23,7 +23,7 @@ pub(crate) type Decoder<'d> = dyn Fn(&Stream) -> Result<Vec<u8>, ContentError> +
 
 /// Metrics of the font that a `Tf` operator selected.
 #[derive(Debug)]
-pub(super) struct FontMetrics {
+pub(crate) struct FontMetrics {
     kind: Kind,
     /// A box in glyph space, 1000 units per em, that the glyph's ink stays
     /// inside vertically: the descriptor's `/Descent` and `/Ascent`, or its
@@ -71,7 +71,7 @@ struct Composite {
 impl FontMetrics {
     /// Read the metrics of a font dictionary, or `None` when hayro would not
     /// load the font either, in which case it falls back to Helvetica.
-    pub(super) fn read(doc: &Document, font: &Dictionary, decode: &Decoder<'_>) -> Option<Self> {
+    pub(crate) fn read(doc: &Document, font: &Dictionary, decode: &Decoder<'_>) -> Option<Self> {
         let subtype = name_of(doc, font.get(b"Subtype").ok()?)?;
         match subtype {
             b"Type0" => Composite::read(doc, font, decode).map(|composite| Self {
@@ -127,7 +127,7 @@ impl FontMetrics {
 
     /// The metrics hayro uses for a missing or unusable font: Helvetica with
     /// its built-in encoding, since hayro builds it from an empty dictionary.
-    pub(super) fn fallback() -> Self {
+    pub(crate) fn fallback() -> Self {
         let mut names: Box<[Option<String>; 256]> = Box::new(std::array::from_fn(|_| None));
         fill_from_afm(&mut names, Base14Font::Helvetica);
         Self {
@@ -176,7 +176,7 @@ impl FontMetrics {
     }
 
     /// The advance of a code in units of 1/1000 em, as `(x, y)`.
-    pub(super) fn advance(&self, code: u32) -> (f64, f64) {
+    pub(crate) fn advance(&self, code: u32) -> (f64, f64) {
         match &self.kind {
             Kind::Simple(widths) => (f64::from(widths.width(code)), 0.0),
             // hayro's Type3 `glyph_width`, in the same single precision.

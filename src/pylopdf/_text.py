@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from html import escape
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypeAlias, TypedDict
 
 from pylopdf._content import Color, TextRenderMode
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
     _Box = tuple[float, float, float, float]
     _Pt = tuple[float, float]
     _CoreQuad = tuple[_Pt, _Pt, _Pt, _Pt]
-    _CoreStyle = tuple[tuple[float, float, float, float] | None, int, bool, float, float]
+    _CoreStyle = tuple[tuple[float, float, float, float] | None, int, bool, float, float, tuple[bool, bool, bool]]
     _CoreSpan = tuple[_Box, str, float, _Pt, str, int, _CoreStyle, _CoreQuad]
     _CoreLine = tuple[_Box, list[_CoreSpan], list[tuple[_Box, str]], _Pt, int, _CoreQuad]
     _CoreBlock = tuple[_Box, list[_CoreLine]]
@@ -41,8 +42,8 @@ out with a :class:`PylopdfWarning`, ``"replacement"`` gives U+FFFD, and
 _UNMAPPED_CODES = {"skip": 0, "replacement": 1, "glyph_id": 2}
 
 # The core's text options: (clip, keep clipped glyphs, unmapped code, exact
-# boxes, expand ligatures, normalize whitespace, dehyphenate).
-_TextOptions: TypeAlias = tuple[tuple[float, float, float, float] | None, bool, int, bool, bool, bool, bool]
+# boxes, expand ligatures, normalize whitespace, dehyphenate, styles).
+_TextOptions: TypeAlias = tuple[tuple[float, float, float, float] | None, bool, int, bool, bool, bool, bool, bool]
 
 
 def text_options(  # noqa: PLR0913 - the shared options of the text views.
@@ -54,6 +55,7 @@ def text_options(  # noqa: PLR0913 - the shared options of the text views.
     dehyphenate: bool,
     unmapped: Unmapped,
     exact_bboxes: bool = False,
+    styles: bool = False,
 ) -> _TextOptions | None:
     """Validate the options of the text views; ``None`` stands for the defaults."""
     for name, value in (
@@ -62,6 +64,7 @@ def text_options(  # noqa: PLR0913 - the shared options of the text views.
         ("whitespace", whitespace),
         ("dehyphenate", dehyphenate),
         ("exact_bboxes", exact_bboxes),
+        ("styles", styles),
     ):
         if not isinstance(value, bool):
             msg = f"{name} must be True or False: {value!r}"
@@ -71,18 +74,21 @@ def text_options(  # noqa: PLR0913 - the shared options of the text views.
         msg = f"unmapped must be 'skip', 'replacement', or 'glyph_id': {unmapped!r}"
         raise ValueError(msg)
     box = None if clip is None else _validate_rect(clip, name="clip")
-    options = (box, clipped, code, exact_bboxes, not ligatures, not whitespace, dehyphenate)
+    options = (box, clipped, code, exact_bboxes, not ligatures, not whitespace, dehyphenate, styles)
     return None if options == _DEFAULT_TEXT_OPTIONS else options
 
 
-_DEFAULT_TEXT_OPTIONS: _TextOptions = (None, False, 0, False, False, False, False)
+_DEFAULT_TEXT_OPTIONS: _TextOptions = (None, False, 0, False, False, False, False, False)
 
 # The span flags that pymupdf reports and that the core computes.
+_SUPERSCRIPT = 1
 _ITALIC = 2
 _SERIF = 4
 _MONOSPACED = 8
 _BOLD = 16
 # The character flags of pymupdf's spans that the core computes.
+_STRIKEOUT = 1
+_UNDERLINE = 2
 _FILLED = 16
 _STROKED = 32
 _CLIPPED = 64
@@ -141,6 +147,16 @@ class Span:
     is_italic: bool
     is_serif: bool
     is_monospaced: bool
+    is_superscript: bool
+    """Whether the span is set smaller than the line's largest glyphs and
+    raised above their baseline by more than a sixth of their size, as a
+    superscript is; only horizontal lines have one."""
+    is_underlined: bool
+    """Whether a vector rule underlines the glyphs; found only by
+    ``layout(styles=True)``, and ``False`` otherwise."""
+    is_struck: bool
+    """Whether a vector rule strikes the glyphs out; found only by
+    ``layout(styles=True)``, and ``False`` otherwise."""
     color: Color | None
     """The paint of the glyphs as hayro's sRGB approximation, whose ``alpha``
     is the opacity: the fill of filled text and the stroke of text that is
@@ -238,17 +254,138 @@ class Layout:
             ],
         }
 
+    def to_html(self) -> str:
+        """Return the layout as a positioned HTML fragment, as pymupdf's ``"html"`` output.
+
+        The fragment is one ``<div>`` the size of the page, in points, with one
+        absolutely positioned ``<p>`` per line at the top-left corner of its
+        box, turned along its baseline, and one ``<span>`` per span in its
+        font family, size, weight, style, and color. Invisible text keeps its
+        place with ``opacity:0``. Pages join into a document inside
+        ``<html><body>``; the semantic counterpart is :meth:`Page.markdown`.
+        """
+        parts = [f'<div style="position:relative;width:{_pt(self.width)};height:{_pt(self.height)}">']
+        parts.extend(_html_line(line) for block in self.blocks for line in block.lines)
+        parts.append("</div>\n")
+        return "\n".join(parts)
+
+    def to_xml(self) -> str:
+        """Return the layout as XML, as pymupdf's ``"xml"`` output.
+
+        A ``<page>`` holds ``<block>``, ``<line>``, and ``<font>`` elements
+        with their boxes, writing mode, baseline direction, and font, size,
+        and color. A layout with characters gives one ``<char>`` per
+        character with its box, origin, and text, and marks
+        inferred spaces with ``synthetic="1"``; a layout without characters
+        gives each span's text.
+        """
+        parts = [f'<page width="{_num(self.width)}" height="{_num(self.height)}">']
+        for block in self.blocks:
+            parts.append(f'<block bbox="{_nums(block.bbox)}">')
+            for line in block.lines:
+                parts.append(
+                    f'<line bbox="{_nums(line.bbox)}" wmode="{int(line.is_vertical)}" dir="{_nums(line.direction)}">'
+                )
+                parts.extend(_xml_span(span) for span in line.spans)
+                parts.append("</line>")
+            parts.append("</block>")
+        parts.append("</page>\n")
+        return "\n".join(parts)
+
+
+def _num(value: float) -> str:
+    """Return a coordinate with at most three decimals and no trailing zeros."""
+    text = f"{value:.3f}".rstrip("0").rstrip(".")
+    return "0" if text == "-0" else text
+
+
+def _nums(values: Sequence[float]) -> str:
+    return " ".join(_num(value) for value in values)
+
+
+def _pt(value: float) -> str:
+    return f"{_num(value)}pt"
+
+
+def _hex(color: Color | None) -> str:
+    """Return a color as ``#rrggbb``; text without a color paint is black."""
+    if color is None:
+        return "#000000"
+    return f"#{_srgb(color.red):02x}{_srgb(color.green):02x}{_srgb(color.blue):02x}"
+
+
+def _html_line(line: Line) -> str:
+    """Return one line of :meth:`Layout.to_html`."""
+    style = f"position:absolute;margin:0;white-space:pre;left:{_pt(line.bbox.x0)};top:{_pt(line.bbox.y0)}"
+    if line.is_vertical:
+        style += ";writing-mode:vertical-rl"
+    elif line.direction != (1, 0):
+        # Turn the line about the start of its quad, along its baseline.
+        ul = line.quad.ul
+        angle = math.degrees(math.atan2(line.direction.y, line.direction.x))
+        style = (
+            f"position:absolute;margin:0;white-space:pre;left:{_pt(ul.x)};top:{_pt(ul.y)};"
+            f"transform-origin:0 0;transform:rotate({_num(angle)}deg)"
+        )
+    spans = "".join(_html_span(span) for span in line.spans)
+    return f'<p style="{style}">{spans}</p>'
+
+
+def _html_span(span: Span) -> str:
+    """Return one span of :meth:`Layout.to_html`."""
+    family = "serif" if span.is_serif else "monospace" if span.is_monospaced else "sans-serif"
+    font = f"&quot;{escape(span.font)}&quot;,{family}" if span.font else family
+    style = f"font-family:{font};font-size:{_pt(span.size)};line-height:1;color:{_hex(span.color)}"
+    if span.is_bold:
+        style += ";font-weight:bold"
+    if span.is_italic:
+        style += ";font-style:italic"
+    if span.render_mode is TextRenderMode.INVISIBLE:
+        style += ";opacity:0"
+    elif span.color is not None and span.color.alpha < 1:
+        style += f";opacity:{_num(span.color.alpha)}"
+    return f'<span style="{style}">{escape(span.text, quote=False)}</span>'
+
+
+_SYNTHETIC = ' synthetic="1"'
+
+
+def _xml_span(span: Span) -> str:
+    """Return one span of :meth:`Layout.to_xml` as a ``<font>`` element."""
+    flags = (
+        (_SUPERSCRIPT if span.is_superscript else 0)
+        | (_ITALIC if span.is_italic else 0)
+        | (_SERIF if span.is_serif else 0)
+        | (_MONOSPACED if span.is_monospaced else 0)
+        | (_BOLD if span.is_bold else 0)
+    )
+    head = (
+        f'<font name="{escape(span.font)}" size="{_num(span.size)}" flags="{flags}" color="{_hex(span.color)}" '
+        f'bbox="{_nums(span.bbox)}">'
+    )
+    if not span.chars:
+        return f"{head}{escape(span.text, quote=False)}</font>"
+    chars = "".join(
+        f'<char bbox="{_nums(char.bbox)}" x="{_num(char.origin.x)}" y="{_num(char.origin.y)}" '
+        f'c="{escape(char.text)}"{_SYNTHETIC if char.is_synthetic else ""}/>'
+        for char in span.chars
+    )
+    return f"{head}{chars}</font>"
+
 
 def _span_dict(span: Span) -> dict[str, Any]:
     """Return one span of :meth:`Layout.to_dict`."""
     flags = (
-        (_ITALIC if span.is_italic else 0)
+        (_SUPERSCRIPT if span.is_superscript else 0)
+        | (_ITALIC if span.is_italic else 0)
         | (_SERIF if span.is_serif else 0)
         | (_MONOSPACED if span.is_monospaced else 0)
         | (_BOLD if span.is_bold else 0)
     )
     char_flags = (
-        (_FILLED if span.render_mode in _FILLED_MODES else 0)
+        (_STRIKEOUT if span.is_struck else 0)
+        | (_UNDERLINE if span.is_underlined else 0)
+        | (_FILLED if span.render_mode in _FILLED_MODES else 0)
         | (_STROKED if span.render_mode in _STROKED_MODES else 0)
         | (_CLIPPED if span.is_clipped else 0)
     )
@@ -395,7 +532,7 @@ def _build_span(  # noqa: PLR0913, PLR0917 - unpacks one core span tuple.
             _char(char, _rect(char_bbox), _point(char_origin), synthetic)
             for char, char_bbox, char_origin, synthetic in glyphs
         )
-    components, render_mode, is_clipped, ascender, descender = style
+    components, render_mode, is_clipped, ascender, descender, (is_underlined, is_struck, is_superscript) = style
     if components is None:
         color = None
     elif (color := colors.get(components)) is None:
@@ -410,6 +547,9 @@ def _build_span(  # noqa: PLR0913, PLR0917 - unpacks one core span tuple.
         is_italic=bool(flags & _ITALIC),
         is_serif=bool(flags & _SERIF),
         is_monospaced=bool(flags & _MONOSPACED),
+        is_superscript=is_superscript,
+        is_underlined=is_underlined,
+        is_struck=is_struck,
         color=color,
         render_mode=_RENDER_MODES[render_mode],
         is_clipped=is_clipped,

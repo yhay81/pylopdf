@@ -82,6 +82,7 @@ mod incremental;
 /// document mutably.
 mod indexed;
 mod input;
+mod inventory;
 mod labels;
 mod layers;
 mod limits;
@@ -119,6 +120,7 @@ pub(crate) use self::history::_DocumentSnapshot;
 pub(crate) use self::images::*;
 use self::incremental::IncrementalBase;
 pub(crate) use self::input::*;
+use self::inventory::*;
 use self::labels::*;
 pub(crate) use self::layers::*;
 use self::limits::*;
@@ -973,6 +975,53 @@ impl _Document {
             gray,
         };
         images::rewrite_images(self, py, options)
+    }
+
+    /// Return the object numbers of the font dictionaries that a one-based
+    /// page's resources reach, once each in resource order.
+    fn page_font_inventory(&self, page_number: u32) -> PyResult<Vec<u32>> {
+        page_resource_inventory(self, page_number, InventoryKind::Fonts)
+            .map(|inventory| inventory.fonts)
+    }
+
+    /// Return the object numbers of the Form XObjects that a one-based
+    /// page's resources reach, once each in resource order.
+    fn page_form_inventory(&self, page_number: u32) -> PyResult<Vec<u32>> {
+        page_resource_inventory(self, page_number, InventoryKind::Forms)
+            .map(|inventory| inventory.forms)
+    }
+
+    /// Return the object numbers of every font dictionary, ascending.
+    fn font_xrefs(&self) -> PyResult<Vec<u32>> {
+        inventory::font_xrefs(self)
+    }
+
+    /// Return the facts of the font dictionary stored as `xref`, or `None`.
+    fn font_facts(&self, xref: u32) -> Option<FontFactsTuple> {
+        inventory::font_facts(self, xref)
+    }
+
+    /// Return the format and decoded bytes of a font's embedded program, or
+    /// `None` when the PDF holds none.
+    #[pyo3(signature = (xref, max_size))]
+    fn font_program(
+        &self,
+        py: Python<'_>,
+        xref: u32,
+        max_size: Option<usize>,
+    ) -> PyResult<Option<(&'static str, Vec<u8>)>> {
+        inventory::font_program(self, py, xref, max_size)
+    }
+
+    /// Return the advance of every code of a font, in em.
+    fn font_widths(&self, py: Python<'_>, xref: u32) -> PyResult<Vec<f32>> {
+        inventory::font_widths(self, py, xref)
+    }
+
+    /// Return the `/BBox` and `/Matrix` of the Form XObject stored as `xref`,
+    /// or `None`.
+    fn form_facts(&self, xref: u32) -> Option<FormFactsTuple> {
+        inventory::form_facts(self, xref)
     }
 
     /// Search a one-based page case-insensitively.

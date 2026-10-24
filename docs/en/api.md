@@ -501,7 +501,7 @@ its interpretations.
 |---|---|
 | `pixmap(*, dpi=None, matrix=None, clip=None, alpha=False, background=None, annotations=True, colorspace="rgb")` | Render to a [`Pixmap`](#pixmap) |
 | `svg(*, annotations=True, max_size=64 MiB)` | Render to an SVG string, with text drawn as paths |
-| `resources` | What the page's resources reach: `resources.images` lists its image objects; see [Images](#images) |
+| `resources` | What the page's resources reach: `resources.images`, `resources.fonts`, and `resources.forms` list its image objects, fonts, and Form XObjects; see [Images](#images) and [Fonts and Form XObjects](#font-objects) |
 
 A pixmap is RGB on white at 72 dpi by default and RGBA with `alpha=True`.
 Pass `dpi` or `matrix`, not both. Any invertible matrix renders: the pixmap
@@ -731,7 +731,7 @@ space:
 |---|---|
 | `Block` | `text`, `bbox`, `lines` |
 | `Line` | `text`, `bbox`, `direction` (the baseline's unit vector), `is_vertical`, `spans`, `quad` |
-| `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `color`, `render_mode`, `is_clipped`, `ascender`, `descender`, `chars`, `quad` |
+| `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `color`, `render_mode`, `is_clipped`, `ascender`, `descender`, `is_superscript`, `is_underlined`, `is_struck`, `chars`, `quad` |
 | `Char` | `text`, `bbox`, `origin`, `is_synthetic` |
 
 A span is a run of glyphs in one font and size that are painted alike:
@@ -747,10 +747,18 @@ TrueType program; hayro hands out no program for Type 1 fonts, the standard
 
 A `bbox` is axis-aligned; a `quad` is the same box along the baseline, the
 smallest rectangle in the direction of the first glyph's baseline that holds
-every glyph's box, so it follows text that a page sets at an angle; a
-character's quad is its span's, cut to the character's advance, which
-`page.search(char, quads=True)` gives as well. Text at any angle is
-assembled into lines along its baseline.
+every glyph's box, so it follows text that a page sets at an angle.
+Characters have no quad; `page.search(text, quads=True)` gives the quad of
+any run of characters. Text at any angle is assembled into lines along its
+baseline.
+
+`is_superscript` marks a span of a horizontal line that is set smaller than
+the line's largest glyphs and raised above their baseline by more than a
+sixth of their size. `layout(styles=True)` also reads the page's vector rules:
+a horizontal rule that covers at least half of a glyph's advance just below
+its baseline sets `is_underlined`, and one across the middle of its height
+sets `is_struck`; without `styles=True` both are false. Spans also split
+where the baseline rises or falls, as at a superscript.
 
 `layout(chars=True)` fills each span's `chars` with its glyphs. A `Char`
 keeps the complete text of one glyph, so a ligature such as "fi" keeps both
@@ -775,12 +783,22 @@ span's characters join to its text. Glyphs that have no Unicode mapping in
 the PDF are skipped with a `PylopdfWarning` unless `unmapped=` asks for a
 placeholder.
 
+`layout.to_html()` returns a positioned HTML fragment, one `<div>` the size
+of the page with an absolutely placed `<p>` per line, turned along its
+baseline, and a `<span>` per span in its font, size, weight, style, and
+color; invisible text keeps its place with `opacity:0`. `layout.to_xml()`
+returns a `<page>` of `<block>`, `<line>`, and `<font>` elements, with a
+`<char>` per character, inferred spaces marked `synthetic="1"`, when the
+layout holds characters. Both serialize one page; join pages under a root of
+your own.
+
 `layout.to_dict()` returns plain dictionaries for JSON, in the shape of
 [pymupdf's dict, or its rawdict for a layout with characters](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs),
 with text blocks only, without image or vector blocks. Spans have pymupdf's
 `color` (an sRGB integer), `alpha` (0 to 255), `ascender`, `descender`, and
-`char_flags` (16 for filled text, 32 for stroked text, and 64 for clipped
-text), but not `bidi`; characters have `synthetic`. The
+`char_flags` (1 for struck-out text, 2 for underlined text, 16 for filled
+text, 32 for stroked text, and 64 for clipped text), and `flags` holds the
+superscript bit 1, but not `bidi`; characters have `synthetic`. The
 [overlay example](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)
 draws glyph bounds and origins as an HTML preview.
 
@@ -832,6 +850,13 @@ style flags.
   opacity, blend mode, and soft mask in force, so an image's context ends
   with that group. A clip that covers the whole visible area is left out, as
   hayro leaves it out.
+
+`content.path_clusters(*, x_tolerance=3, y_tolerance=3)` returns the box of
+each group of paths that lie near one another, the vector graphics of a
+figure or a table, as pymupdf's `cluster_drawings` does: a group's box grows
+by every path, widened by half its stroke, that comes within the tolerances
+of it. Read `page.content(clip=page.rect)` to leave out the paths outside the
+page.
 
 `text_runs=False`, `paths=False`, and `images=False` leave out that kind of
 item without building it, so reading only the paths or the images of a
@@ -1028,6 +1053,42 @@ with pylopdf.open("scan.pdf") as doc:
 Where an image is drawn belongs to the page's content:
 `page.content(text_runs=False, paths=False).images` lists every placement
 with its box and matrix.
+
+## Fonts and Form XObjects { #font-objects }
+
+`doc.fonts` maps object numbers to the document's font dictionaries, those
+that `/Font` resources select (a Type 0 font's descendant CIDFont is not
+one), and `page.resources.fonts` lists the ones that a page's resources
+reach, once each in resource order, those of its Form XObjects included.
+Each is a `FontObject` that reads the document on every access:
+
+| Member | Meaning |
+|---|---|
+| `xref`, `obj` | The object number, and the font dictionary in the [object model](#low-level-objects) |
+| `name` | `/BaseFont` with its subset prefix, such as `"ABCDEF+Arial"`; a Type 3 font's `/Name` or `""` |
+| `subtype` | `"Type1"`, `"MMType1"`, `"TrueType"`, `"Type0"`, or `"Type3"` |
+| `encoding` | The encoding's name, an encoding dictionary's `/BaseEncoding`, or an embedded CMap's `/CMapName`; `None` without one |
+| `is_embedded` | Whether the PDF holds the glyphs: an embedded program, or Type 3 procedures |
+| `widths` | The advance of every character code in em, indexed by code: 256 for a simple or Type 3 font, 65,536 two-byte codes for a Type 0 font, as extraction and rendering move by them |
+| `extract(*, max_size=64 MiB)` | The embedded program as a `FontProgram` with `format` (`"type1"`, `"truetype"`, `"cff"`, or `"opentype"`) and the decoded `data`, or `None` for a font that is not embedded; a larger program raises `LimitError` with code `font_program_size` |
+
+```python
+from pathlib import Path
+
+extensions = {"type1": "pfa", "truetype": "ttf", "cff": "cff", "opentype": "otf"}
+with pylopdf.open("report.pdf") as doc:
+    for font in doc.pages[0].resources.fonts:
+        if (program := font.extract()) is not None:
+            Path(f"{font.xref}.{extensions[program.format]}").write_bytes(program.data)
+```
+
+`page.resources.forms` lists the Form XObjects that a page's resources reach,
+depth first, as `FormObject` handles with `xref`, `obj`, `bbox` (in the
+form's own space), and `matrix`. A page that lists more than 4,096 fonts or
+Form XObjects raises `LimitError` with code `font_inventory_count` or
+`form_inventory_count`. Fonts stored directly in a resource dictionary, and
+fonts that only annotation appearances or Type 3 procedures use, are not
+listed.
 
 ## Canvas { #canvas }
 

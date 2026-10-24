@@ -6,6 +6,7 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
+from pylopdf._font_objects import FontObject, FormObject
 from pylopdf._layers import Layer, LayerMembership, _layer_from_core, _layer_to_core
 from pylopdf._objects import _object_number
 from pylopdf.pylopdf_core import Pixmap, StaleObjectError
@@ -270,6 +271,35 @@ class Resources:
             for name, entry in document._doc.page_layers(page._page_number())
             if (value := _layer_from_core(document, entry)) is not None
         }
+
+    @property
+    def fonts(self) -> tuple[FontObject, ...]:
+        """Return the font dictionaries that the page's resources list, once each.
+
+        The page's inherited resources and, depth first, those of the Form
+        XObjects they list are read in resource order, as for
+        :attr:`images`. Fonts stored directly in a resource dictionary rather
+        than as objects of their own, and fonts that only annotation
+        appearances or Type 3 glyph procedures use, are not listed. A page
+        that lists more than 4,096 fonts or 4,096 Form XObjects raises
+        :class:`LimitError` with code ``font_inventory_count``.
+        """
+        page = self._page
+        document = page.document
+        xrefs = document._doc.page_font_inventory(page._page_number())
+        return tuple(FontObject(document, xref) for xref in xrefs)
+
+    @property
+    def forms(self) -> tuple[FormObject, ...]:
+        """Return the Form XObjects that the page's resources reach, once each, depth first.
+
+        A page that nests more than 4,096 Form XObjects raises
+        :class:`LimitError` with code ``form_inventory_count``.
+        """
+        page = self._page
+        document = page.document
+        xrefs = document._doc.page_form_inventory(page._page_number())
+        return tuple(FormObject(document, xref) for xref in xrefs)
 
 
 # The package re-exports these names; reprs, pickles, and documentation name it.

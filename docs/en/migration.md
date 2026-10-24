@@ -124,8 +124,9 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `page.get_text()`, `get_text("text")` | `page.text()` | |
 | `page.get_text("words")` | `page.words()` | `Word` records with `text`, `bbox`, `block`, `line`, and `index` instead of tuples |
 | `page.get_text("blocks")` | `page.layout().blocks` | `Block` records with `text`, `bbox`, and `lines` instead of tuples |
-| `page.get_text("dict")`, `get_text("rawdict")` | `page.layout().to_dict()`, `page.layout(chars=True).to_dict()` | The same dictionaries; `page.layout()` itself returns records. No `html` or `xml` |
+| `page.get_text("dict")`, `get_text("rawdict")` | `page.layout().to_dict()`, `page.layout(chars=True).to_dict()` | The same dictionaries; `page.layout()` itself returns records |
 | `page.get_text("json")`, `get_text("rawjson")` | `json.dumps(page.layout().to_dict())`, `json.dumps(page.layout(chars=True).to_dict())` | |
+| `page.get_text("html")`, `get_text("xml")` | `page.layout().to_html()`, `page.layout(chars=True).to_xml()` | One page each; no `ConversionHeader` or `ConversionTrailer` |
 | `page.get_text("xhtml")` | `page.markdown()` | The semantic form of headings, paragraphs, lists, and tables |
 | `page.get_textpage()`, `TextPage`, `page.extend_textpage()` | The page's own `text()`, `words()`, `layout()`, and `search()` | There is no text-page object: each page caches its interpretation, which every view reads |
 | `doc.search_page_for(i, text)` | `doc.pages[i].search(text)` | |
@@ -143,11 +144,16 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `pix.width`, `height`, `alpha`, `stride`, `colorspace` | Same | `colorspace` is `Colorspace.GRAY` or `Colorspace.RGB`; `csRGB` and `csGRAY` are `Colorspace.RGB` and `Colorspace.GRAY` |
 | `page.get_svg_image()` | `page.svg()` | Text is always drawn as paths, at 72 dpi |
 | `page.get_images()` | `page.resources.images` | `ImageObject` handles with `xref`, `width`, `height`, `bits`, `colorspace`, `filters`, and masks instead of tuples |
+| `page.get_fonts()`, `doc.get_page_fonts(i)` | `page.resources.fonts` | `FontObject` handles with `xref`, `name`, `subtype`, `encoding`, and `is_embedded` instead of tuples |
+| `doc.extract_font(xref)` | `doc.fonts[xref].extract()` | A `FontProgram` with `format` and `data`, or `None` for a font that is not embedded |
+| `doc.get_char_widths(xref)` | `doc.fonts[xref].widths` | The advances in em indexed by character code |
+| `page.get_xobjects()`, `doc.get_page_xobjects(i)` | `page.resources.forms` | `FormObject` handles with `xref`, `bbox`, and `matrix` |
 | `doc.extract_image(xref)` | `doc.images[xref].extract()` | An `EncodedImage` with `format`, `data`, and `resolution`; the size, color space, and masks are properties of `doc.images[xref]` |
 | `pymupdf.Pixmap(doc, xref)` | `doc.images[xref].to_pixmap()` | `alpha=True` applies the image's masks |
 | `pymupdf.Pixmap(filename)`, `pymupdf.Pixmap(stream)` | `Pixmap.from_file(path)`, `Pixmap.from_bytes(data)` | PNG and JPEG; other formats belong to Pillow, then `Pixmap.from_array(numpy.asarray(image))` |
 | `page.get_image_info()` | `page.content(text_runs=False, paths=False).images` | `Image` records with `xref`, `bbox`, `matrix` (pymupdf's `transform`), size, color space, mask, and resolution; no `hashes=` yet |
 | `page.get_drawings()`, `get_cdrawings()` | `page.content(text_runs=False, images=False).paths` | `Path` records with `segments`, `fill`, `fill_rule`, `stroke`, and `bbox`; each path's `context` holds the clips, groups, and marked content that `extended=True` listed as entries of their own |
+| `page.cluster_drawings(x_tolerance=…, y_tolerance=…)` | `page.content(clip=page.rect).path_clusters(x_tolerance=…, y_tolerance=…)` | Boxes of nearby paths, sorted from top to bottom |
 | `page.get_texttrace()`, `get_bboxlog()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | Text runs with their glyphs, paths, and images as immutable values; see [Page content](api.md#content) |
 | `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | Same | Re-encodes as JPEG only, so resampling needs `quality`; returns statistics instead of `None` |
 | `doc.subset_fonts(verbose=, fallback=)` | `doc.subset_fonts()` | TrueType programs for now, of Identity-encoded CID fonts and simple TrueType fonts; returns a `FontSubsetResult` instead of `None` |
