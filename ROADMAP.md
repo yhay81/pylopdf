@@ -776,17 +776,22 @@ that every item of the corpus names repaint that item when executed alone.
 
 Workstream Rendering.
 
-- Arbitrary affine transforms through hayro's `render_into`; CMYK output
-  (gray, RGB, and alpha are done); anti-aliasing levels; resolution metadata
-  in PNG and JPEG (annotations on or off, PNG, and JPEG are done).
+- Arbitrary affine transforms through hayro's `render_into` (done); CMYK
+  output (gray, RGB, and alpha are done); anti-aliasing on or off
+  (LaurenzV/hayro#1611); resolution metadata in PNG and JPEG (done;
+  annotations on or off, PNG, and JPEG were done before).
 - `Pixmap` stays an immutable value with zero-copy NumPy interchange in both
-  directions (done), plus decoding of PNG and JPEG files (image objects with
-  their masks are done through `ImageObject.to_pixmap`).
+  directions, plus decoding of PNG and JPEG files (all done; image objects
+  with their masks through `ImageObject.to_pixmap`).
   Image processing (tinting, gamma, inversion, color statistics, warping,
-  scaling) is a tested NumPy, Pillow, or OpenCV recipe rather than `Pixmap`
-  methods, recorded in the capability map as `integration`.
-- Closing MuPDF's 2–3× lead in warm rasterization through upstream glyph and
-  image caches and thread-safe caches.
+  scaling) is a tested NumPy or Pillow recipe in the ecosystem guide rather
+  than `Pixmap` methods, recorded in the capability map as `integration`.
+- Closing MuPDF's lead in warm rasterization through upstream glyph and image
+  caches and thread-safe caches. Measured on 2026-10-24, pylopdf leads cold
+  and on image pages warm, and MuPDF leads warm on text pages (2–5×), where
+  hayro rasterizes every glyph again: a covering crop-box clip
+  (LaurenzV/hayro#1612, −9% warm) and a glyph cache (scope question
+  LaurenzV/hayro#1613).
 - Rendering of every feature that changes what a page shows, as the
   specification map lists them: knockout groups and overprint simulation
   first, upstream in hayro.
