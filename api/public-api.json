@@ -2297,6 +2297,7 @@
     "Colorspace": {
       "kind": "enum",
       "members": {
+        "CMYK": "cmyk",
         "GRAY": "gray",
         "RGB": "rgb"
       }
@@ -3032,6 +3033,23 @@
         "permissions": {
           "kind": "property",
           "returns": "Permissions"
+        },
+        "recolor": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Colorspace | Literal['gray', 'rgb', 'cmyk']",
+                "kind": "positional_or_keyword",
+                "name": "colorspace"
+              }
+            ],
+            "returns": "None"
+          }
         },
         "render": {
           "kind": "method",
@@ -8734,6 +8752,23 @@
               }
             ],
             "returns": "Pixmap"
+          }
+        },
+        "recolor": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Colorspace | Literal['gray', 'rgb', 'cmyk']",
+                "kind": "positional_or_keyword",
+                "name": "colorspace"
+              }
+            ],
+            "returns": "None"
           }
         },
         "rect": {

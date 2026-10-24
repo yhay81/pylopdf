@@ -1131,6 +1131,25 @@ def _cleaning_results() -> dict[str, Any]:
         }
 
 
+def _recolor_results() -> dict[str, Any]:
+    """Recolor a page with a coloured path to gray and to CMYK."""
+    import pylopdf  # noqa: PLC0415
+
+    with pylopdf.Document() as document:
+        for _ in range(2):
+            page = document.pages.new((100, 100))
+            with page.draw() as canvas:
+                canvas.rect((10, 10, 50, 50), fill=pylopdf.Color(1, 0, 0))
+        document.pages[0].recolor("gray")
+        document.pages[1].recolor(pylopdf.Colorspace.CMYK)
+        fills = [page.content().paths[0].fill for page in document.pages]
+        return {
+            "gray": [round(fills[0].red, 2), round(fills[0].green, 2), round(fills[0].blue, 2)],
+            # CMYK (0, 1, 1, 0) renders as red again.
+            "cmyk": [round(fills[1].red, 2), round(fills[1].green, 2), round(fills[1].blue, 2)],
+        }
+
+
 def _widget_results() -> dict[str, Any]:
     """Read form widgets, restyle them, and draw their values again."""
     import pylopdf  # noqa: PLC0415
@@ -2052,6 +2071,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "redaction": _redaction_results(),
         "sanitize": _sanitize_results(),
         "cleaning": _cleaning_results(),
+        "recolor": _recolor_results(),
         "ocr_layer": _ocr_layer_results(),
         "object_model": _object_model_results(),
         "optional_content": _optional_content_results(),

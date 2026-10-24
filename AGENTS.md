@@ -144,7 +144,7 @@ the concept and API overview.
   - Rewriting: `content/`, `text_replace.rs`, `image_compression.rs`;
     `redact.rs`; `document/{replacement,redaction,redaction_images}.rs`;
     `src/pylopdf/_operations.py`, `_redaction.py`, and `_sanitize.py`;
-    `document/{sanitize,cleaning}.rs`.
+    `recolor.rs`, `document/{sanitize,cleaning,recoloring}.rs`.
   - Shared: `lib.rs`, `document/mod.rs`,
     `document/{errors,input,objects,indexed}.rs`; and in `src/pylopdf/`,
     the re-export surface `__init__.py` plus `_document.py`, `_page.py`,
@@ -2140,6 +2140,27 @@ the concept and API overview.
   shadings that do not overlap the kept rectangle, and after verification
   the page content is wrapped in `q`s that cover its unmatched `Q`, the
   clip, and closing `Q`s.
+- `Page.recolor` and `Document.recolor` (`rust/src/recolor.rs`,
+  `document/recoloring.rs`) convert with ISO 32000-2 §10.4's naive formulas
+  (BT.601 weights to gray). `recolor_content` follows the fill and stroke
+  spaces through `q`/`Q` and rewrites `g`/`G`, `rg`/`RG`, `k`/`K`, `cs`/`CS`
+  of device-equivalent spaces (ICCBased by `/N`, CalGray, CalRGB), and their
+  `sc`/`scn` values; Pattern, Indexed, Separation, DeviceN, and Lab operands
+  stay. A page queues its content, the Forms, tiling patterns, Type 3
+  `CharProcs` (with the font's resources), and annotation appearances it
+  reaches (50 levels), each object once; images (not stencil masks) are
+  drawn by `image_pixmap` without masks and written as 8-bit Flate in the
+  target space keeping `/SMask` and an indirect `/Mask`, inline images
+  become `F /Fl` inline images through `inline_image_xobject`, Indexed
+  palettes of `/ColorSpace` resources are rewritten, and axial and radial
+  shadings convert `/ColorSpace`, `/Background`, and Type 2 and Type 3
+  functions (other functions and mesh shadings keep their colours).
+  `Page.recolor` first materializes the page's resources and gives it its
+  own copy of every object that it and another page reach (not through the
+  page tree) and that recoloring changes, with the shared containers above
+  it, redirecting the page's own objects; `Document.recolor` changes each
+  object once in place. The call restores a clone on any error.
+  `Colorspace.CMYK` exists for recoloring; pixmaps and rendering refuse it.
 - `Page.operations` (`src/pylopdf/_operations.py`) is operator-level content:
   an immutable `Operations` sequence of `Operation(operator, operands)` and
   `InlineImage(dictionary, data)` values and a `tail` of the bytes after the

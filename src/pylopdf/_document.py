@@ -66,6 +66,7 @@ from pylopdf._page_labels import PageLabelRange, _read_page_labels, _write_page_
 from pylopdf._pages import Pages
 from pylopdf._pixmap import (
     Colorspace,
+    _recolor_target,
     _render_background,
     _render_gray,
     _render_matrix,
@@ -1222,6 +1223,15 @@ class Document:
         """Emit recoverable interpretation warnings as ``PylopdfWarning``."""
         for message in self._doc.take_warnings():
             _warnings.warn(message, PylopdfWarning, stacklevel=stacklevel)
+
+    def recolor(self, colorspace: Colorspace | Literal["gray", "rgb", "cmyk"]) -> None:
+        """Convert every colour of every page to ``colorspace``, as :meth:`Page.recolor` does.
+
+        Each object is converted once, in place, so objects that several
+        pages share are not copied.
+        """
+        self._ensure_open()
+        self._doc.recolor(None, _recolor_target(colorspace))
 
     def sanitize(  # noqa: PLR0913 - the categories to remove.
         self,

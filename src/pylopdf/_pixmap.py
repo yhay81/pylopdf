@@ -26,15 +26,20 @@ class Colorspace(enum.StrEnum):
     """One gray component per pixel."""
     RGB = "rgb"
     """Red, green, and blue components per pixel."""
+    CMYK = "cmyk"
+    """Cyan, magenta, yellow, and black components, which recoloring writes; rendering does not produce them."""
 
 
 def _render_gray(colorspace: Colorspace | str) -> bool:
     """Return whether ``colorspace`` asks for gray samples."""
     try:
-        return Colorspace(colorspace) is Colorspace.GRAY
+        resolved = Colorspace(colorspace)
     except ValueError:
+        resolved = None
+    if resolved not in (Colorspace.GRAY, Colorspace.RGB):
         msg = f"colorspace must be 'gray' or 'rgb': {colorspace!r}"
-        raise ValueError(msg) from None
+        raise ValueError(msg)
+    return resolved is Colorspace.GRAY
 
 
 def _validate_encoding(format: str, quality: int, *, alpha: bool) -> None:  # noqa: A002 - the public name.
@@ -125,3 +130,12 @@ def _render_matrix(matrix: Matrix | Sequence[float] | None, dpi: float | None) -
 
 # The package re-exports this enum; reprs, pickles, and documentation name it.
 Colorspace.__module__ = "pylopdf"
+
+
+def _recolor_target(colorspace: object) -> str:
+    """Return the core's name of a recoloring target."""
+    try:
+        return Colorspace(colorspace).value
+    except ValueError:
+        msg = f"colorspace must be 'gray', 'rgb', or 'cmyk': {colorspace!r}"
+        raise ValueError(msg) from None

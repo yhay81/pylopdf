@@ -33,6 +33,7 @@ mod placement_reuse;
 mod postscript_scan;
 mod prune;
 mod read_depth;
+mod recolor;
 mod recovery;
 mod redact;
 mod render_cache;

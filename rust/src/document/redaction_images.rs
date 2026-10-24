@@ -61,7 +61,11 @@ fn expand_value(value: &Object) -> Object {
 
 /// An inline image as an image XObject: abbreviations expanded and a named
 /// colour space resolved through the container's resources.
-fn inline_image_stream(doc: &Document, image: &Stream, resources: &Dictionary) -> Stream {
+pub(super) fn inline_image_xobject(
+    doc: &Document,
+    image: &Stream,
+    resources: &Dictionary,
+) -> Stream {
     let mut dict = Dictionary::new();
     dict.set("Type", Object::Name(b"XObject".to_vec()));
     dict.set("Subtype", Object::Name(b"Image".to_vec()));
@@ -331,5 +335,5 @@ fn inline_stream(
         Some(Object::Dictionary(dict)) => dict.clone(),
         _ => Dictionary::new(),
     };
-    Ok(Some(inline_image_stream(doc, inline, &resources)))
+    Ok(Some(inline_image_xobject(doc, inline, &resources)))
 }

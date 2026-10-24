@@ -30,7 +30,14 @@ from pylopdf._ocr import OcrEngine, OcrWord, _default_ocr_engine, _validate_ocr_
 from pylopdf._operations import _DEFAULT_MAX_CONTENT_SIZE, InlineImage, Operation, Operations
 from pylopdf._operations import _from_core as _operations_from_core
 from pylopdf._page_labels import _label, _read_page_labels
-from pylopdf._pixmap import Colorspace, _render_background, _render_gray, _render_matrix, _validate_bool
+from pylopdf._pixmap import (
+    Colorspace,
+    _recolor_target,
+    _render_background,
+    _render_gray,
+    _render_matrix,
+    _validate_bool,
+)
 from pylopdf._redaction import RedactionReport
 from pylopdf._redaction import clip_to_rect as _clip_to_rect
 from pylopdf._redaction import redact as _redact
@@ -767,6 +774,20 @@ class Page:
         crosses its edge shows only inside. The page boxes do not change.
         """
         return _clip_to_rect(self, rect)
+
+    def recolor(self, colorspace: Colorspace | Literal["gray", "rgb", "cmyk"]) -> None:
+        """Convert every colour the page draws to ``colorspace``.
+
+        The colour operators of the page's content, of the Form XObjects,
+        tiling patterns, Type 3 glyphs, and annotation appearances it draws,
+        its images and inline images (drawn by the renderer and written again
+        as 8-bit samples), its shadings with exponential or stitching
+        functions, and its Indexed palettes are converted, with the naive
+        conversions of ISO 32000-2 §10.4. Objects that other pages also draw
+        are copied first, so those pages keep their colours. Separation,
+        DeviceN, and Lab colours, and mesh shadings, keep theirs.
+        """
+        self._document._doc.recolor(self._page_number(), _recolor_target(colorspace))
 
     def clean_contents(self) -> None:
         """Write the page's content as one stream of normalized operations with only the resources it uses.

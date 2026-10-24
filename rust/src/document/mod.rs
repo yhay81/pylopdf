@@ -92,6 +92,7 @@ mod navigation;
 mod objects;
 mod outline;
 mod page_tree;
+mod recoloring;
 mod redaction;
 mod redaction_images;
 mod rendering;
@@ -2216,6 +2217,18 @@ impl _Document {
         xref: u32,
     ) -> PyResult<()> {
         cleaning::clean_annotation_contents(self, py, page_number, index, xref)
+    }
+
+    /// Recolor one one-based page, or every page, to `colorspace`; see
+    /// `Page.recolor` and `Document.recolor`.
+    #[pyo3(signature = (page_number, colorspace))]
+    fn recolor(
+        &mut self,
+        py: Python<'_>,
+        page_number: Option<u32>,
+        colorspace: &str,
+    ) -> PyResult<()> {
+        recoloring::recolor(self, py, page_number, colorspace)
     }
 
     /// Tokenize a one-based page's joined content as hayro reads it and

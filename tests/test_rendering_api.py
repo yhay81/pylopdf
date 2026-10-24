@@ -147,7 +147,7 @@ def test_rgb_pixmaps_insert_without_a_soft_mask() -> None:
 
 
 def test_colorspace_is_a_string_enum() -> None:
-    assert list(pylopdf.Colorspace) == [pylopdf.Colorspace.GRAY, pylopdf.Colorspace.RGB]
+    assert list(pylopdf.Colorspace) == [pylopdf.Colorspace.GRAY, pylopdf.Colorspace.RGB, pylopdf.Colorspace.CMYK]
     assert pylopdf.Colorspace("gray") is pylopdf.Colorspace.GRAY
     assert pylopdf.Colorspace.RGB == "rgb"
     for name in ("csRGB", "csGRAY", "csCMYK", "CS_RGB", "CS_GRAY", "CS_CMYK"):
