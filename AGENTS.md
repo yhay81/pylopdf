@@ -52,6 +52,18 @@ the concept and API overview.
   filling pylopdf's fields for pylopdf to read back, and `flatten()` against
   `bake()`. Results are written to `bench/results/interaction-latest.md`;
   pymupdf stays a development-only oracle.
+- `uv run --no-sync --with pymupdf python bench/redaction.py` — redact every
+  case of the adversarial corpus in `tests/redaction_corpus.py` (kerned `TJ`
+  arrays, shared and nested Forms, rotated and cropped pages, CID fonts in
+  both writing modes, Type 3 fonts, invisible OCR text, covered, white,
+  tiny, overprinted, and clipped text, replacement text, content after
+  where hayro stops, images with soft masks, stencil masks, inline images,
+  vector art, patterns, annotation appearances, and redaction annotations)
+  and check each result with pymupdf's extraction and MuPDF's rendering of
+  the areas. Results are written to `bench/results/redaction-latest.md`; a
+  leak fails the run. `tests/test_redaction_corpus.py` checks the same
+  cases with pylopdf's own extraction, content model, and rendering. Add a
+  case for every redaction leak found.
 - `py -3.14t bench/free_threaded.py` — measure independent-document extraction
   without the GIL. Results are written separately to
   `bench/results/free-threaded-latest.md` so regular benchmark runs cannot
