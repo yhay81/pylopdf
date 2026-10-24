@@ -44,8 +44,8 @@ use lopdf::Document;
 use pyo3::prelude::*;
 
 use crate::document::{
-    _Document, DEFAULT_MAX_GENERATED_TEXT_SIZE, ImageInput, MAX_PAGE_ANNOTATIONS, PdfError,
-    generated_text_err, limit_err, read_image_input, validate_generated_text_input,
+    _Document, DEFAULT_MAX_GENERATED_TEXT_SIZE, ImageInput, LayerValue, MAX_PAGE_ANNOTATIONS,
+    PdfError, generated_text_err, limit_err, read_image_input, validate_generated_text_input,
     validate_generated_text_line_count, validate_image_input,
 };
 use crate::draw::{self, DeviceColor, ImageParts};
@@ -600,6 +600,9 @@ enum Scope {
         kind: SoftMaskKind,
     },
     Tag(TagSpec),
+    /// Optional content of the `/OC` value at this index of
+    /// `CanvasRecording::layers`.
+    Layer(usize),
 }
 
 /// One recorded drawing operation, in paint order.
@@ -680,6 +683,9 @@ pub(crate) struct CanvasRecording {
     pub(crate) bookmarks: Vec<Bookmark>,
     /// Link annotations of a new document's page, in the order of the calls.
     pub(crate) links: Vec<CanvasLink>,
+    /// The `/OC` values that layer scopes name, as `_Document` checks and
+    /// stores them when the canvas commits.
+    pub(crate) layers: Vec<LayerValue>,
 }
 
 /// Where a text item of a composed canvas comes from: the first item of a
@@ -1195,6 +1201,8 @@ enum ScopeEnd {
     /// `Q` ends the masked drawing, and the mask's drawing becomes the
     /// content of its group.
     Mask { group: usize, sink: usize },
+    /// `EMC` ends the scope's marked content.
+    Marked,
     /// The scope writes no operators.
     Nothing,
 }
@@ -1656,6 +1664,10 @@ impl CanvasRecording {
                             ScopeEnd::Mask { group, sink: *sink }
                         }
                         Scope::Tag(_) => ScopeEnd::Nothing,
+                        Scope::Layer(index) => {
+                            ops.push_str(&format!("/OC /PyloL{index} BDC\n"));
+                            ScopeEnd::Marked
+                        }
                     };
                     scopes.push((end, before, target));
                     // A group's content starts inside it, after its push.
@@ -1673,6 +1685,7 @@ impl CanvasRecording {
                     sinks[target].matrix = before;
                     match end {
                         ScopeEnd::Restore => ops.push_str("Q\n"),
+                        ScopeEnd::Marked => ops.push_str("EMC\n"),
                         ScopeEnd::Nothing => {}
                         ScopeEnd::Group => {
                             let group = sinks[target]
@@ -1896,6 +1909,9 @@ impl CanvasRecording {
                             } else {
                                 Pushed::Nothing
                             }
+                        }
+                        Scope::Layer(_) => {
+                            return Err("a new document's canvas cannot draw layers".into());
                         }
                     };
                     pushed.push(kind);
@@ -2423,6 +2439,31 @@ impl _Canvas {
             return Err(PdfError::new_err("unknown blend mode"));
         }
         self.open_scope(Scope::Blend(mode), None)
+    }
+
+    /// Open a scope whose drawing is optional content of `value`, an `/OC`
+    /// value that the commit checks against the document, and return its
+    /// depth.
+    pub(crate) fn push_layer(&mut self, value: LayerValue) -> PyResult<usize> {
+        if self.new_document {
+            return Err(PdfError::new_err(
+                "a new document's canvas cannot draw layers: krilla writes no optional content",
+            ));
+        }
+        if value.0 == 0 {
+            return Err(PdfError::new_err(
+                "a layer scope needs a group or a membership",
+            ));
+        }
+        grow(&mut self.recording.layers, "layers")?;
+        self.recording.layers.push(value);
+        match self.open_scope(Scope::Layer(self.recording.layers.len() - 1), None) {
+            Ok(depth) => Ok(depth),
+            Err(error) => {
+                self.recording.layers.pop();
+                Err(error)
+            }
+        }
     }
 
     /// Open a scope whose drawing is composited first and then drawn at

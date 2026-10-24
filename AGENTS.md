@@ -2439,6 +2439,15 @@ the concept and API overview.
   top-level elements. The commit adds the elements with `/Pg` and kids that
   are MCRs with `/Stm` naming the Form, appends the key's array to `/Nums`
   (or a new leaf under `/Kids`), and gives the Form `/StructParents`.
+  A layer scope (`Canvas.layer`, `Scope::Layer`) records an `/OC` value
+  in `CanvasRecording::layers` and writes `/OC /PyloLn BDC` … `EMC`;
+  `prepare_canvas_form` checks each value with `layers::prepare_layer`
+  before anything else is prepared, and the commit names the group, or a
+  new `/OCMD` object, as `/Properties /PyloLn` in the shared resources,
+  through a reference because hayro resolves `/Properties` entries only so.
+  Python refuses the commit when the object epoch changed after a layer was
+  recorded, because the scope names the group by object number. New
+  documents refuse layers: krilla 0.8 writes no optional content (#339).
   `tests/test_canvas.py` reads every behavior back through `Page.content()`.
 - `pylopdf.create()` (`src/pylopdf/_create.py`, `_Builder` in
   `rust/src/builder.rs`) collects the recordings of canvases made with

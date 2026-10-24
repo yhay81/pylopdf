@@ -165,6 +165,7 @@ replacement, and the migration hint):
 - Document.ez_save -> Document.save: Use doc.save(path, dedupe=True, renumber=True, object_streams=True), the options that ez_save's defaults stand for.
 - Document.fullcopy_page -> Pages.insert: Use doc.pages.insert(to, doc.pages[i]), or doc.pages.extend(doc.pages[i]) to append.
 - Document.get_layer -> LayerConfiguration: Read doc.layers.configurations[i]: base_state, on, off, locked, and radio_groups hold Layer handles; index 0 is the default configuration, where pymupdf used -1.
+- Document.get_layers -> Layers.configurations: Use doc.layers.configurations: LayerConfiguration handles with name and creator, the default configuration first, instead of dictionaries numbered from 0 that leave the default out.
 - Document.get_new_xref -> Objects.add: Call doc.objects.add(value), which creates the object and returns its object number.
 - Document.get_oc -> ImageObject.layer: Read doc.images[xref].layer for an image; for a Form XObject read doc.objects[xref].get("OC").
 - Document.get_ocgs -> Document.layers: Use doc.layers: Layer handles with name, intent, is_visible, and xref, in /OCGs order, instead of a dictionary keyed by xref.

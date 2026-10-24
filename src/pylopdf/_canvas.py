@@ -30,6 +30,7 @@ from pylopdf._content import (
 from pylopdf._fonts import Font, _regular_instance, _require_winansi, _resolve_generation_font, _textbox_text
 from pylopdf._geometry import Matrix, Point, Rect
 from pylopdf._hints import hinted_getattr
+from pylopdf._layers import Layer, LayerMembership, _layer_to_core
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
     _DEFAULT_MAX_GENERATED_TEXT_SIZE,
@@ -40,7 +41,7 @@ from pylopdf._limits import (
     _validate_optional_positive_int,
 )
 from pylopdf._targets import Destination
-from pylopdf.pylopdf_core import LimitError, Pixmap, _Canvas, _Font
+from pylopdf.pylopdf_core import LimitError, Pixmap, StaleObjectError, _Canvas, _Font
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
@@ -679,6 +680,7 @@ class Canvas:
         self._core = _Canvas(width, height)
         self._target_id = 0
         self._closed = False
+        self._layer_epoch: int | None = None
 
     @classmethod
     def _new_page(cls, builder: Builder, width: float, height: float) -> Canvas:
@@ -690,6 +692,7 @@ class Canvas:
         canvas._core = _Canvas(width, height, new_document=True)
         canvas._target_id = 0
         canvas._closed = False
+        canvas._layer_epoch = None
         return canvas
 
     @property
@@ -728,6 +731,10 @@ class Canvas:
             return
         page = cast("Page", self._page)
         document = page.document
+        if self._layer_epoch is not None and self._layer_epoch != document._object_epoch:
+            self._core.clear()
+            msg = "the canvas's layers were invalidated when the document's objects were renumbered"
+            raise StaleObjectError(msg)
         try:
             document._doc.commit_canvas(page._page_number(), self._core, self._overlay)
         finally:
@@ -1070,6 +1077,32 @@ class Canvas:
         code = list(BlendMode).index(blend_mode)
         return _CanvasScope(self._record, lambda: self._record.push_blend(code))
 
+    def layer(self, layer: Layer | LayerMembership) -> AbstractContextManager[None]:
+        """Draw the block as content of an optional-content group or membership.
+
+        What the block draws shows only while ``layer``, a :class:`Layer`
+        handle of the page's document or a :class:`LayerMembership` of its
+        layers, is visible, in rendering, extraction, and viewers. The block
+        is written as ``/OC`` marked content, so a membership is written as a
+        new membership dictionary when the canvas is committed. A new
+        document's canvas refuses layers, because krilla writes no optional
+        content.
+        """
+        self._check_open()
+        if self._page is None:
+            msg = "a new document's canvas cannot draw layers: krilla writes no optional content"
+            raise ValueError(msg)
+        if layer is None:
+            msg = "layer takes a Layer or a LayerMembership"
+            raise TypeError(msg)
+        document = self._page.document
+        value = _layer_to_core(document, layer)
+        # The scope names the group by object number, which renumbering
+        # would give to another object before the canvas commits.
+        root: Canvas = self._parent if isinstance(self, _MaskCanvas) else self
+        root._layer_epoch = document._object_epoch
+        return _CanvasScope(self._record, lambda: self._record.push_layer(value))
+
     def mask(self, *, subtype: SoftMaskType = SoftMaskType.LUMINOSITY) -> AbstractContextManager[Canvas]:
         """Mask what the block draws with what it draws on the mask canvas.
 
@@ -1296,6 +1329,7 @@ class _MaskCanvas(Canvas):
         canvas._core = parent._core
         canvas._target_id = target
         canvas._closed = False
+        canvas._layer_epoch = None
         canvas._parent = parent
         return canvas
 

@@ -1089,7 +1089,7 @@ with page.draw() as canvas:
     canvas.textbox((48, y + 8, 348, y + 8 + height), note, font=font, size=10.5)
 ```
 
-Five context managers apply to everything drawn inside them, and nest:
+Six context managers apply to everything drawn inside them, and nest:
 
 | Scope | Effect |
 |---|---|
@@ -1098,6 +1098,7 @@ Five context managers apply to everything drawn inside them, and nest:
 | `opacity(alpha)` | Composites the drawing as one group, then paints it at `alpha` |
 | `blend(mode)` | Blends the drawing with what is below it, with a `BlendMode` |
 | `mask(*, subtype=SoftMaskType.LUMINOSITY)` | Returns a canvas for the mask: the drawing shows where the mask's drawing is light, or, with `SoftMaskType.ALPHA`, opaque |
+| `layer(layer)` | Makes the drawing optional content of a [layer](#layers) or a `LayerMembership` of the page's document, shown only while it is visible; a new document's canvas refuses it, because krilla writes no optional content |
 
 ```python
 with page.draw() as canvas, canvas.mask() as mask:

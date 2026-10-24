@@ -814,6 +814,17 @@ impl _Document {
         py: Python<'_>,
         mut recording: CanvasRecording,
     ) -> PyResult<CanvasForm> {
+        // Layer scopes name groups of this document, checked before
+        // anything else is prepared.
+        let mut layers = Vec::new();
+        layers
+            .try_reserve_exact(recording.layers.len())
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate canvas layers: {error}"))
+            })?;
+        for value in &recording.layers {
+            layers.push(prepare_layer(&self.doc, value)?);
+        }
         // Text in embedded faces: one krilla page for each run of text
         // items, imported with the numbers after the target's objects.
         let plan = recording.plan_embedded()?;
@@ -980,6 +991,7 @@ impl _Document {
             pages,
             page_imports,
             composed,
+            layers,
             reused_forms,
             target_revision: self.revision,
         })
@@ -1054,6 +1066,7 @@ pub(super) fn commit_canvas_form(
                 states: graphics_states,
                 structure: _,
             },
+        layers,
         reused_forms,
         target_revision,
     } = form;
@@ -1116,6 +1129,15 @@ pub(super) fn commit_canvas_form(
         }
         let font_id = target.add_object(font_dict);
         fonts.set(format!("PyloS{slot}"), Object::Reference(font_id));
+    }
+    let mut properties = Dictionary::new();
+    for (slot, layer) in layers.into_iter().enumerate() {
+        let id = match layer {
+            PreparedLayer::Group(id) => id,
+            PreparedLayer::Membership(membership) => target.add_object(membership),
+            PreparedLayer::Remove => continue,
+        };
+        properties.set(format!("PyloL{slot}"), Object::Reference(id));
     }
     // The groups and the composed Form share one resource
     // dictionary, which lists the groups and the graphics states,
@@ -1190,6 +1212,9 @@ pub(super) fn commit_canvas_form(
     if !states.is_empty() {
         resources.set("ExtGState", states);
     }
+    if !properties.is_empty() {
+        resources.set("Properties", properties);
+    }
     shared.push((resources_id, Object::Dictionary(resources)));
     target.insert_new_objects(shared, next_id);
     let len = content.len();
@@ -1254,6 +1279,7 @@ pub(super) fn prepare_vector_canvas_form(recording: CanvasRecording) -> PyResult
         pages: Vec::new(),
         page_imports: Vec::new(),
         composed,
+        layers: Vec::new(),
         reused_forms: Vec::new(),
         target_revision: 0,
     })
@@ -1269,6 +1295,8 @@ pub(super) struct CanvasForm {
     pages: Vec<Option<PlacedForm>>,
     page_imports: Vec<(PagesFormImportPlan, Vec<(usize, u32)>)>,
     composed: canvas::Composed,
+    /// The `/OC` values of the layer scopes, by `PyloL` resource slot.
+    layers: Vec<PreparedLayer>,
     /// Pages of this document that an earlier placement imported.
     reused_forms: Vec<(usize, PlacedForm)>,
     /// The document's revision when the canvas was prepared.

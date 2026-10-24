@@ -1376,6 +1376,23 @@
             "returns": "None"
           }
         },
+        "layer": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Layer | LayerMembership",
+                "kind": "positional_or_keyword",
+                "name": "layer"
+              }
+            ],
+            "returns": "AbstractContextManager[None]"
+          }
+        },
         "line": {
           "kind": "method",
           "signature": {
