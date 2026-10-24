@@ -779,12 +779,17 @@ impl _Document {
         let (page_id, drawing_plan) = py.detach(|| {
             self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)
         })?;
-        let form = self.prepare_canvas_form(py, recording)?;
+        let mut form = self.prepare_canvas_form(py, recording)?;
+        let structure =
+            StructureAppend::prepare(&self.doc, std::mem::take(&mut form.composed.structure))?;
 
         // Every fallible step on the input is done; change the document.
         self.invalidate_hayro_pdf_keeping_placements();
         let committed = py.detach(|| -> PyResult<_> {
             let committed = commit_canvas_form(&mut self.doc, form, None)?;
+            if let Some(structure) = structure {
+                structure.apply(&mut self.doc, page_id, committed.form_id);
+            }
             self.place_pdf_page(
                 page_id,
                 (crop, rotation),
@@ -938,12 +943,19 @@ impl _Document {
             }
         }
 
+        // Drawing on a tagged document keeps it tagged: what no tag scope
+        // holds is an artifact.
+        let tagged = self
+            .doc
+            .catalog()
+            .is_ok_and(|catalog| catalog.has(b"StructTreeRoot"));
         let composed = recording.compose(
             &plan,
             &canvas::Placements {
                 images: image_sizes,
                 pages: page_geometry,
             },
+            tagged,
         )?;
 
         // Pages of this document that an earlier placement imported; the
@@ -1040,6 +1052,7 @@ pub(super) fn commit_canvas_form(
                 root: content,
                 groups,
                 states: graphics_states,
+                structure: _,
             },
         reused_forms,
         target_revision,
@@ -1231,6 +1244,7 @@ pub(super) fn prepare_vector_canvas_form(recording: CanvasRecording) -> PyResult
             images: Vec::new(),
             pages: Vec::new(),
         },
+        false,
     )?;
     Ok(CanvasForm {
         size: recording.size,

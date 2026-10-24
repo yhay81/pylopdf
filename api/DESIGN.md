@@ -336,7 +336,7 @@ return one from `builder.page(size)`.
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, rotate=0, ...)` → `TextFit` | Wraps with UAX #14 and places lines as `text` does, the first baseline one ascender below the top; on overflow it draws nothing and reports the shortfall. `rotate` turns the lines inside `rect`, which they then wrap across for 90 and 270. |
 | `image(rect, source, *, keep_aspect=True, rotate=0)` | `source` is a path, encoded bytes, a `Pixmap`, or an `ImageObject`; the same image is stored once. |
 | `page(rect, source, *, clip=None, keep_aspect=True, rotate=0)` | Places another page, which may belong to the same document. |
-| `clip(path)`, `transform(matrix)`, `opacity(alpha)`, `blend(mode)`, `mask(*, subtype=SoftMaskType.LUMINOSITY)`, `layer(layer)`, `tag(role, ...)` | Context managers that scope a graphics state; `tag` scopes build a tagged new document's structure tree. `mask` returns a second canvas, whose drawing in the block is the soft mask of what the block draws on the first, in the user space where the block starts. |
+| `clip(path)`, `transform(matrix)`, `opacity(alpha)`, `blend(mode)`, `mask(*, subtype=SoftMaskType.LUMINOSITY)`, `layer(layer)`, `tag(role, ...)` | Context managers that scope a graphics state; `tag` scopes build a tagged new document's structure tree, and add elements to an open document's structure tree. `mask` returns a second canvas, whose drawing in the block is the soft mask of what the block draws on the first, in the user space where the block starts. |
 | `bookmark(title, *, level=1, at=(0, 0))` | An outline entry of a new document. |
 | `draw(item)` | Paints a content item. |
 

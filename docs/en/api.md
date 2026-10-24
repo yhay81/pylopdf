@@ -1024,6 +1024,26 @@ with page.draw() as canvas, canvas.mask() as mask:
     canvas.image(page.rect, "photo.jpg")
 ```
 
+`canvas.tag(role, ...)` on a page of an open document adds structure
+elements to the document's structure tree, creating it when the document has
+none: the new elements join the tree's single `Document` element when it has
+one, and the root otherwise. The canvas's Form XObject gets a `/StructParents`
+key of its own in the parent tree, and each element names its marked content
+in that Form, so the tags of other content stay as they are. Once a document
+is tagged, drawing outside every tag scope is marked as an artifact, so the
+document stays tagged. A tag scope cannot start inside an `opacity()` scope
+on such a page.
+
+```python
+from pylopdf import TagRole
+
+with page.draw() as canvas:
+    with canvas.tag(TagRole.HEADING_1):
+        canvas.text("Added section", (72, 72), size=18)
+    with canvas.tag(TagRole.FIGURE, alt="Company logo"):
+        canvas.image((72, 100, 172, 150), "logo.png")
+```
+
 The mask canvas draws in the user space where the `mask()` block starts, has
 scopes of its own, and draws only inside the block; scopes of the page's
 canvas inside the block do not move the mask. Nothing shows outside the

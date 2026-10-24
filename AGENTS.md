@@ -2301,6 +2301,22 @@ the concept and API overview.
   (`path_point_count`) and 16 open scopes (`canvas_scope_depth`); text keeps
   the 1 MiB and 4,096-line text budget, and each image its 64 MiB and
   64,000,000-pixel input limits.
+  On an open document's page, tag scopes (`Marking` in `canvas.rs`) write
+  marked content into the canvas Form: drawing inside an element's scope is
+  a `/Role <</MCID n>> BDC` sequence with MCIDs from 0 in that Form, opened
+  lazily before drawing and closed before any scope opens or closes, so it
+  nests with `q` and `Q`; an opacity group is drawn inside the sequence that
+  encloses it, and a tag scope inside an opacity scope is refused. On a
+  tagged document (one with `/StructTreeRoot`), drawing outside every tag
+  scope, and inside an `ARTIFACT` scope, is `/Artifact BMC`. `place_canvas`
+  plans the elements with `StructureAppend::prepare`
+  (`document/structure_tree.rs`) before the commit: the root (created when
+  absent), the parent tree's next key (the larger of `/ParentTreeNextKey`
+  and one past the largest key, from a bounded walk), and the root's single
+  `Document` element, directly or through `/RoleMap`, which takes the new
+  top-level elements. The commit adds the elements with `/Pg` and kids that
+  are MCRs with `/Stm` naming the Form, appends the key's array to `/Nums`
+  (or a new leaf under `/Kids`), and gives the Form `/StructParents`.
   `tests/test_canvas.py` reads every behavior back through `Page.content()`.
 - `pylopdf.create()` (`src/pylopdf/_create.py`, `_Builder` in
   `rust/src/builder.rs`) collects the recordings of canvases made with

@@ -97,6 +97,7 @@ mod rendering;
 mod replacement;
 mod saving;
 mod streams;
+mod structure_tree;
 mod text_insertion;
 
 pub(crate) use self::annotations::*;
@@ -126,6 +127,7 @@ pub(crate) use self::replacement::_parse_operations;
 use self::saving::EncryptionRequest;
 use self::saving::*;
 use self::streams::*;
+use self::structure_tree::*;
 
 // Python-visible exceptions. PdfError subclasses ValueError for compatibility.
 pyo3::create_exception!(
