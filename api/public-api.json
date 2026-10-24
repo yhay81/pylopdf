@@ -2553,6 +2553,30 @@
         "items": {
           "kind": "property"
         },
+        "path_clusters": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "float",
+                "default": 3,
+                "kind": "keyword_only",
+                "name": "x_tolerance"
+              },
+              {
+                "annotation": "float",
+                "default": 3,
+                "kind": "keyword_only",
+                "name": "y_tolerance"
+              }
+            ],
+            "returns": "list[Rect]"
+          }
+        },
         "paths": {
           "kind": "property",
           "returns": "tuple[Path, ...]"
@@ -8987,6 +9011,12 @@
                 "default": false,
                 "kind": "keyword_only",
                 "name": "exact_bboxes"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "styles"
               }
             ],
             "returns": "Layout"
@@ -12881,6 +12911,9 @@
         "is_italic": "bool",
         "is_monospaced": "bool",
         "is_serif": "bool",
+        "is_struck": "bool",
+        "is_superscript": "bool",
+        "is_underlined": "bool",
         "origin": "Point",
         "quad": "Quad",
         "render_mode": "TextRenderMode",
@@ -12897,6 +12930,9 @@
         "is_italic",
         "is_serif",
         "is_monospaced",
+        "is_superscript",
+        "is_underlined",
+        "is_struck",
         "color",
         "render_mode",
         "is_clipped",
@@ -12938,6 +12974,15 @@
           "kind": "property"
         },
         "is_serif": {
+          "kind": "property"
+        },
+        "is_struck": {
+          "kind": "property"
+        },
+        "is_superscript": {
+          "kind": "property"
+        },
+        "is_underlined": {
           "kind": "property"
         },
         "origin": {
@@ -13002,6 +13047,21 @@
             "annotation": "bool",
             "kind": "keyword_only",
             "name": "is_monospaced"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_superscript"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_underlined"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_struck"
           },
           {
             "annotation": "Color | None",

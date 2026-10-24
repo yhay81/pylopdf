@@ -41,7 +41,7 @@ pub(crate) type TextPageKey = (u32, CollectOptions);
 
 /// The text options of the Python views, as one tuple: `(clip, keep clipped
 /// glyphs, unmapped glyphs (0 skip, 1 U+FFFD, 2 glyph ID), exact boxes,
-/// expand ligatures, normalize whitespace, dehyphenate)`.
+/// expand ligatures, normalize whitespace, dehyphenate, styles)`.
 #[derive(Default)]
 pub(crate) struct TextOptions {
     pub(crate) collect: CollectOptions,
@@ -52,6 +52,7 @@ type TextOptionsTuple = (
     Option<(f64, f64, f64, f64)>,
     bool,
     u8,
+    bool,
     bool,
     bool,
     bool,
@@ -70,6 +71,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for TextOptions {
             expand_ligatures,
             normalize_whitespace,
             dehyphenate,
+            styles,
         ): TextOptionsTuple = object.extract()?;
         let unmapped = match unmapped {
             0 => Unmapped::Skip,
@@ -91,6 +93,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for TextOptions {
                 keep_clipped,
                 unmapped,
                 exact_bboxes,
+                styles,
             },
             view: ViewOptions {
                 clip,

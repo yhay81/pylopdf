@@ -12,7 +12,9 @@ if sys.platform == "win32":
 
 # Page.layout(): a span is (bbox, text, size, origin, font, flags, style), and
 # its style (sRGB color and alpha, render mode, clipped, ascender, descender).
-_SpanStyleTuple: TypeAlias = tuple[tuple[float, float, float, float] | None, int, bool, float, float]
+_SpanStyleTuple: TypeAlias = tuple[
+    tuple[float, float, float, float] | None, int, bool, float, float, tuple[bool, bool, bool]
+]
 _QuadTuple: TypeAlias = tuple[tuple[float, float], tuple[float, float], tuple[float, float], tuple[float, float]]
 _SpanTuple: TypeAlias = tuple[
     tuple[float, float, float, float], str, float, tuple[float, float], str, int, _SpanStyleTuple, _QuadTuple
@@ -25,8 +27,8 @@ _BlockTuple: TypeAlias = tuple[tuple[float, float, float, float], list[_LineTupl
 _RawCharTuple: TypeAlias = tuple[str, tuple[float, float, float, float], tuple[float, float], bool]
 # The text options: (clip, keep clipped glyphs, unmapped glyphs (0 skip,
 # 1 U+FFFD, 2 glyph ID), exact boxes, expand ligatures, normalize whitespace,
-# dehyphenate).
-_TextOptions: TypeAlias = tuple[tuple[float, float, float, float] | None, bool, int, bool, bool, bool, bool]
+# dehyphenate, styles).
+_TextOptions: TypeAlias = tuple[tuple[float, float, float, float] | None, bool, int, bool, bool, bool, bool, bool]
 _RawSpanTuple: TypeAlias = tuple[
     tuple[float, float, float, float],
     tuple[str, list[_RawCharTuple]],

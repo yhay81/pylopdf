@@ -727,7 +727,7 @@ space:
 |---|---|
 | `Block` | `text`, `bbox`, `lines` |
 | `Line` | `text`, `bbox`, `direction` (the baseline's unit vector), `is_vertical`, `spans`, `quad` |
-| `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `color`, `render_mode`, `is_clipped`, `ascender`, `descender`, `chars`, `quad` |
+| `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `color`, `render_mode`, `is_clipped`, `ascender`, `descender`, `is_superscript`, `is_underlined`, `is_struck`, `chars`, `quad` |
 | `Char` | `text`, `bbox`, `origin`, `is_synthetic` |
 
 A span is a run of glyphs in one font and size that are painted alike:
@@ -743,10 +743,18 @@ TrueType program; hayro hands out no program for Type 1 fonts, the standard
 
 A `bbox` is axis-aligned; a `quad` is the same box along the baseline, the
 smallest rectangle in the direction of the first glyph's baseline that holds
-every glyph's box, so it follows text that a page sets at an angle; a
-character's quad is its span's, cut to the character's advance, which
-`page.search(char, quads=True)` gives as well. Text at any angle is
-assembled into lines along its baseline.
+every glyph's box, so it follows text that a page sets at an angle.
+Characters have no quad; `page.search(text, quads=True)` gives the quad of
+any run of characters. Text at any angle is assembled into lines along its
+baseline.
+
+`is_superscript` marks a span of a horizontal line that is set smaller than
+the line's largest glyphs and raised above their baseline by more than a
+sixth of their size. `layout(styles=True)` also reads the page's vector rules:
+a horizontal rule that covers at least half of a glyph's advance just below
+its baseline sets `is_underlined`, and one across the middle of its height
+sets `is_struck`; without `styles=True` both are false. Spans also split
+where the baseline rises or falls.
 
 `layout(chars=True)` fills each span's `chars` with its glyphs. A `Char`
 keeps the complete text of one glyph, so a ligature such as "fi" keeps both
@@ -784,8 +792,9 @@ your own.
 [pymupdf's dict, or its rawdict for a layout with characters](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs),
 with text blocks only, without image or vector blocks. Spans have pymupdf's
 `color` (an sRGB integer), `alpha` (0 to 255), `ascender`, `descender`, and
-`char_flags` (16 for filled text, 32 for stroked text, and 64 for clipped
-text), but not `bidi`; characters have `synthetic`. The
+`char_flags` (1 for struck-out text, 2 for underlined text, 16 for filled
+text, 32 for stroked text, and 64 for clipped text), and `flags` holds the
+superscript bit 1, but not `bidi`; characters have `synthetic`. The
 [overlay example](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)
 draws glyph bounds and origins as an HTML preview.
 
@@ -837,6 +846,13 @@ style flags.
   opacity, blend mode, and soft mask in force, so an image's context ends
   with that group. A clip that covers the whole visible area is left out, as
   hayro leaves it out.
+
+`content.path_clusters(*, x_tolerance=3, y_tolerance=3)` returns the box of
+each group of paths that lie near one another, the vector graphics of a
+figure or a table, as pymupdf's `cluster_drawings` does: a group's box grows
+by every path, widened by half its stroke, that comes within the tolerances
+of it. Read `page.content(clip=page.rect)` to leave out the paths outside the
+page.
 
 `text_runs=False`, `paths=False`, and `images=False` leave out that kind of
 item without building it, so reading only the paths or the images of a

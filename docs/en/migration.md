@@ -153,6 +153,7 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `pymupdf.Pixmap(filename)`, `pymupdf.Pixmap(stream)` | `Pixmap.from_file(path)`, `Pixmap.from_bytes(data)` | PNG and JPEG; other formats belong to Pillow, then `Pixmap.from_array(numpy.asarray(image))` |
 | `page.get_image_info()` | `page.content(text_runs=False, paths=False).images` | `Image` records with `xref`, `bbox`, `matrix` (pymupdf's `transform`), size, color space, mask, and resolution; no `hashes=` yet |
 | `page.get_drawings()`, `get_cdrawings()` | `page.content(text_runs=False, images=False).paths` | `Path` records with `segments`, `fill`, `fill_rule`, `stroke`, and `bbox`; each path's `context` holds the clips, groups, and marked content that `extended=True` listed as entries of their own |
+| `page.cluster_drawings(x_tolerance=…, y_tolerance=…)` | `page.content(clip=page.rect).path_clusters(x_tolerance=…, y_tolerance=…)` | Boxes of nearby paths, sorted from top to bottom |
 | `page.get_texttrace()`, `get_bboxlog()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | Text runs with their glyphs, paths, and images as immutable values; see [Page content](api.md#content) |
 | `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | Same | Re-encodes as JPEG only, so resampling needs `quality`; returns statistics instead of `None` |
 | `doc.subset_fonts(verbose=, fallback=)` | `doc.subset_fonts()` | TrueType programs for now, of Identity-encoded CID fonts and simple TrueType fonts; returns a `FontSubsetResult` instead of `None` |

@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     _Box = tuple[float, float, float, float]
     _Pt = tuple[float, float]
     _CoreQuad = tuple[_Pt, _Pt, _Pt, _Pt]
-    _CoreStyle = tuple[tuple[float, float, float, float] | None, int, bool, float, float]
+    _CoreStyle = tuple[tuple[float, float, float, float] | None, int, bool, float, float, tuple[bool, bool, bool]]
     _CoreSpan = tuple[_Box, str, float, _Pt, str, int, _CoreStyle, _CoreQuad]
     _CoreLine = tuple[_Box, list[_CoreSpan], list[tuple[_Box, str]], _Pt, int, _CoreQuad]
     _CoreBlock = tuple[_Box, list[_CoreLine]]
@@ -42,8 +42,8 @@ out with a :class:`PylopdfWarning`, ``"replacement"`` gives U+FFFD, and
 _UNMAPPED_CODES = {"skip": 0, "replacement": 1, "glyph_id": 2}
 
 # The core's text options: (clip, keep clipped glyphs, unmapped code, exact
-# boxes, expand ligatures, normalize whitespace, dehyphenate).
-_TextOptions: TypeAlias = tuple[tuple[float, float, float, float] | None, bool, int, bool, bool, bool, bool]
+# boxes, expand ligatures, normalize whitespace, dehyphenate, styles).
+_TextOptions: TypeAlias = tuple[tuple[float, float, float, float] | None, bool, int, bool, bool, bool, bool, bool]
 
 
 def text_options(  # noqa: PLR0913 - the shared options of the text views.
@@ -55,6 +55,7 @@ def text_options(  # noqa: PLR0913 - the shared options of the text views.
     dehyphenate: bool,
     unmapped: Unmapped,
     exact_bboxes: bool = False,
+    styles: bool = False,
 ) -> _TextOptions | None:
     """Validate the options of the text views; ``None`` stands for the defaults."""
     for name, value in (
@@ -63,6 +64,7 @@ def text_options(  # noqa: PLR0913 - the shared options of the text views.
         ("whitespace", whitespace),
         ("dehyphenate", dehyphenate),
         ("exact_bboxes", exact_bboxes),
+        ("styles", styles),
     ):
         if not isinstance(value, bool):
             msg = f"{name} must be True or False: {value!r}"
@@ -72,18 +74,21 @@ def text_options(  # noqa: PLR0913 - the shared options of the text views.
         msg = f"unmapped must be 'skip', 'replacement', or 'glyph_id': {unmapped!r}"
         raise ValueError(msg)
     box = None if clip is None else _validate_rect(clip, name="clip")
-    options = (box, clipped, code, exact_bboxes, not ligatures, not whitespace, dehyphenate)
+    options = (box, clipped, code, exact_bboxes, not ligatures, not whitespace, dehyphenate, styles)
     return None if options == _DEFAULT_TEXT_OPTIONS else options
 
 
-_DEFAULT_TEXT_OPTIONS: _TextOptions = (None, False, 0, False, False, False, False)
+_DEFAULT_TEXT_OPTIONS: _TextOptions = (None, False, 0, False, False, False, False, False)
 
 # The span flags that pymupdf reports and that the core computes.
+_SUPERSCRIPT = 1
 _ITALIC = 2
 _SERIF = 4
 _MONOSPACED = 8
 _BOLD = 16
 # The character flags of pymupdf's spans that the core computes.
+_STRIKEOUT = 1
+_UNDERLINE = 2
 _FILLED = 16
 _STROKED = 32
 _CLIPPED = 64
@@ -142,6 +147,16 @@ class Span:
     is_italic: bool
     is_serif: bool
     is_monospaced: bool
+    is_superscript: bool
+    """Whether the span is set smaller than the line's largest glyphs and
+    raised above their baseline by more than a sixth of their size, as a
+    superscript is; only horizontal lines have one."""
+    is_underlined: bool
+    """Whether a vector rule underlines the glyphs; found only by
+    ``layout(styles=True)``, and ``False`` otherwise."""
+    is_struck: bool
+    """Whether a vector rule strikes the glyphs out; found only by
+    ``layout(styles=True)``, and ``False`` otherwise."""
     color: Color | None
     """The paint of the glyphs as hayro's sRGB approximation, whose ``alpha``
     is the opacity: the fill of filled text and the stroke of text that is
@@ -338,7 +353,8 @@ _SYNTHETIC = ' synthetic="1"'
 def _xml_span(span: Span) -> str:
     """Return one span of :meth:`Layout.to_xml` as a ``<font>`` element."""
     flags = (
-        (_ITALIC if span.is_italic else 0)
+        (_SUPERSCRIPT if span.is_superscript else 0)
+        | (_ITALIC if span.is_italic else 0)
         | (_SERIF if span.is_serif else 0)
         | (_MONOSPACED if span.is_monospaced else 0)
         | (_BOLD if span.is_bold else 0)
@@ -360,13 +376,16 @@ def _xml_span(span: Span) -> str:
 def _span_dict(span: Span) -> dict[str, Any]:
     """Return one span of :meth:`Layout.to_dict`."""
     flags = (
-        (_ITALIC if span.is_italic else 0)
+        (_SUPERSCRIPT if span.is_superscript else 0)
+        | (_ITALIC if span.is_italic else 0)
         | (_SERIF if span.is_serif else 0)
         | (_MONOSPACED if span.is_monospaced else 0)
         | (_BOLD if span.is_bold else 0)
     )
     char_flags = (
-        (_FILLED if span.render_mode in _FILLED_MODES else 0)
+        (_STRIKEOUT if span.is_struck else 0)
+        | (_UNDERLINE if span.is_underlined else 0)
+        | (_FILLED if span.render_mode in _FILLED_MODES else 0)
         | (_STROKED if span.render_mode in _STROKED_MODES else 0)
         | (_CLIPPED if span.is_clipped else 0)
     )
@@ -513,7 +532,7 @@ def _build_span(  # noqa: PLR0913, PLR0917 - unpacks one core span tuple.
             _char(char, _rect(char_bbox), _point(char_origin), synthetic)
             for char, char_bbox, char_origin, synthetic in glyphs
         )
-    components, render_mode, is_clipped, ascender, descender = style
+    components, render_mode, is_clipped, ascender, descender, (is_underlined, is_struck, is_superscript) = style
     if components is None:
         color = None
     elif (color := colors.get(components)) is None:
@@ -528,6 +547,9 @@ def _build_span(  # noqa: PLR0913, PLR0917 - unpacks one core span tuple.
         is_italic=bool(flags & _ITALIC),
         is_serif=bool(flags & _SERIF),
         is_monospaced=bool(flags & _MONOSPACED),
+        is_superscript=is_superscript,
+        is_underlined=is_underlined,
+        is_struck=is_struck,
         color=color,
         render_mode=_RENDER_MODES[render_mode],
         is_clipped=is_clipped,

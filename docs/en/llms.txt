@@ -361,6 +361,7 @@ replacement, and the migration hint):
 - Page.artbox -> Page.boxes: Read page.boxes.art, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Page.bleedbox -> Page.boxes: Read page.boxes.bleed, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Page.bound -> Page.rect: Read page.rect.
+- Page.cluster_drawings -> Content.path_clusters: Call page.content(clip=page.rect, text_runs=False, images=False).path_clusters(x_tolerance=..., y_tolerance=...), which returns the box of each group of nearby paths.
 - Page.cropbox -> Page.boxes: Read page.boxes.crop, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Page.cropbox_position -> Page.boxes: Read page.boxes.crop: its top-left corner is (crop.x0, crop.y1) in PDF user space.
 - Page.delete_annot -> Annotations: del page.annotations[index] removes an annotation with its popup.
@@ -484,8 +485,10 @@ replacement, and the migration hint):
 - TEXT_ALIGN_RIGHT -> Canvas.textbox: canvas.textbox(rect, text, align="right") takes the alignment as a string.
 - TEXT_CLIP -> Page.text: Glyphs that the page or the clip paths hide entirely are left out by default; pass clipped=True to text(), words(), layout(), or search() to keep them, flagged by Span.is_clipped.
 - TEXT_CLIP_RECT -> Page.text: Pass clip=rect to text(), words(), layout(), or search(); it keeps the glyphs whose box's center lies inside the rectangle.
+- TEXT_COLLECT_STYLES -> Page.layout: Pass styles=True to page.layout(); Span.is_underlined and Span.is_struck flag text that a horizontal vector rule underlines or strikes out.
 - TEXT_COLLECT_VECTORS -> Page.content: Read page.content(text_runs=False, images=False).paths for the vector graphics that pymupdf adds to its text output.
 - TEXT_DEHYPHENATE -> Page.text: Pass dehyphenate=True to text(), words(), layout(), or search() to join a word that a hyphen splits at a line end.
+- TEXT_FONT_* -> Span: Read span.is_superscript, is_italic, is_serif, is_monospaced, and is_bold of page.layout(); Layout.to_dict() gives them as the bits of pymupdf's flags.
 - TEXT_FUZZY_VECTORS -> Page.content: Read page.content(text_runs=False, images=False).paths for the vector graphics that pymupdf adds to its text output.
 - TEXT_LAZY_VECTORS -> Page.content: Read page.content(text_runs=False, images=False).paths for the vector graphics that pymupdf adds to its text output.
 - TEXT_MEDIABOX_CLIP -> Page.text: Glyphs that the page or the clip paths hide entirely are left out by default; pass clipped=True to text(), words(), layout(), or search() to keep them, flagged by Span.is_clipped.

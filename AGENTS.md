@@ -229,7 +229,12 @@ the concept and API overview.
   them, the merged word stays on the first line, and search treats joined
   lines as one unit. `layout(chars=True)` emits each space that `span_text`
   infers as a synthetic char across the gap, so a span's chars join to its
-  text. `bench/reading.py` compares span colors and box IoU with
+  text. `CollectOptions::styles` (`layout(styles=True)`) collects
+  the page's vector rules, as tables do, and `mark_styles` flags glyphs that
+  a horizontal rule underlines or strikes out; `is_superscript` compares a
+  span with its line's largest glyph. Horizontal line clustering anchors a
+  line at its largest glyph's baseline, so a leading superscript does not
+  split it, and spans split where the baseline moves. `bench/reading.py` compares span colors and box IoU with
   pymupdf.
   Overlapping paint runs on one baseline are split into source-order logical
   layers before inline geometry sorting; preserve distinct overprints rather
