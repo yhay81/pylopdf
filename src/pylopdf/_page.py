@@ -10,7 +10,7 @@ from pylopdf import _text
 from pylopdf._annotations import Annotations
 from pylopdf._boxes import PageBoxes
 from pylopdf._canvas import Canvas
-from pylopdf._content import Content, _content_from_core
+from pylopdf._content import Color, Content, _content_from_core
 from pylopdf._errors import StalePageError
 from pylopdf._geometry import Matrix, Quad, Rect
 from pylopdf._hints import hinted_getattr
@@ -31,6 +31,8 @@ from pylopdf._operations import _DEFAULT_MAX_CONTENT_SIZE, InlineImage, Operatio
 from pylopdf._operations import _from_core as _operations_from_core
 from pylopdf._page_labels import _label, _read_page_labels
 from pylopdf._pixmap import Colorspace, _render_background, _render_gray, _render_matrix, _validate_bool
+from pylopdf._redaction import RedactionReport
+from pylopdf._redaction import redact as _redact
 from pylopdf._tables import Table, build_tables
 from pylopdf._widgets import Widgets
 from pylopdf.pylopdf_core import LimitError
@@ -39,6 +41,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from pylopdf._document import Document
+    from pylopdf._geometry import Quad
     from pylopdf._text import Layout, Unmapped, Word
     from pylopdf._types import OcrRotation
     from pylopdf.pylopdf_core import Pixmap
@@ -708,6 +711,50 @@ class Page:
             code = "content_input_size"
             raise LimitError(code, msg)
         self._document._doc.set_page_content(self._page_number(), data)
+
+    def redact(
+        self,
+        areas: Sequence[float] | Quad | Iterable[Sequence[float] | Quad] | None = None,
+        *,
+        text: Literal["remove", "keep"] = "remove",
+        images: Literal["pixels", "remove", "keep"] = "pixels",
+        graphics: Literal["touched", "covered", "keep"] = "touched",
+        fill: Color | None = Color(0.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+    ) -> RedactionReport:
+        """Remove what the page's redaction annotations, or ``areas``, cover, and return a report.
+
+        Without ``areas``, every :class:`Redaction` annotation of the page is
+        applied with its own fill and overlay text, and removed. ``areas`` is
+        a rectangle or quad, or a sequence of up to 4,096 of them, in display
+        space, which are filled with ``fill`` (``None`` for no fill).
+
+        - ``text="remove"`` removes every glyph whose box, from its advance
+          and the font's ascent and descent, meets an area, in every font
+          and writing mode and in every rendering mode, invisible OCR text
+          included. The glyphs after it in the same string keep their
+          positions through ``TJ`` adjustments, and ``/ActualText``,
+          ``/Alt``, and ``/E`` of the marked content around a removed glyph
+          go too.
+        - ``images="pixels"`` blanks the covered pixels of every image that an
+          area meets, in a new copy of the image that only that placement
+          uses, with its masks merged into the copy's alpha; ``"remove"``
+          removes such placements, inline images included.
+        - ``graphics="touched"`` removes every path and shading that meets an
+          area, and ``"covered"`` only those inside one. A path that also
+          clips keeps clipping.
+        - Every annotation and form widget that overlaps an area is removed,
+          with its popup; a field goes with its last widget.
+
+        A Form XObject placement that loses something is replaced by a copy,
+        so other placements and other pages keep the original. Content after
+        the point where the renderer stops reading a stream, which other
+        readers may still draw, is dropped from every stream written again.
+        After the edit, hayro interprets the page again; what it still
+        paints or extracts inside an area is removed in another pass, and a
+        page where that does not converge is refused with :class:`PdfError`,
+        leaving the document unchanged, as every other refusal does.
+        """
+        return _redact(self, areas, text=text, images=images, graphics=graphics, fill=fill)
 
     def replace_text(
         self,

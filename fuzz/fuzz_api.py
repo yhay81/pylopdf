@@ -46,6 +46,11 @@ def test_one_input(data: bytes) -> None:
                         msg = "content operations do not round-trip"
                         raise AssertionError(msg)
                     page.operations = operations
+                    box = page.rect
+                    page.redact(
+                        pylopdf.Rect(box.x0, box.y0, box.x0 + box.width / 2, box.y0 + box.height / 2),
+                        images="pixels",
+                    )
 
                 doc.metadata.update({"producer": "pylopdf fuzz"})
                 saved = doc.to_bytes(dedupe=True, renumber=True, object_streams=True)

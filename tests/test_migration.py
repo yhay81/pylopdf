@@ -50,7 +50,7 @@ def test_hints_module_matches_the_manifest() -> None:
         (pylopdf.Matrix, "prerotate", "pylopdf.Matrix(deg) * m"),
         (pylopdf.Point, "transform", "Use p * m"),
         (lambda: pylopdf, "TOOLS", "does not provide pymupdf's TOOLS."),
-        (lambda: pylopdf, "PDF_REDACT_IMAGE_NONE", "capability of pymupdf's PDF_REDACT_* in the Rewriting milestone"),
+        (lambda: pylopdf, "PDF_REDACT_IMAGE_NONE", 'Page.redact takes strings: images="pixels"'),
     ],
 )
 def test_missing_pymupdf_names_raise_hinted_attribute_errors(
@@ -424,6 +424,12 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ),
         ("import fitz\ndoc = fitz.open()\nlabel = doc[0].get_label()\n", "label = doc.pages[0].label"),
         ("import fitz\ndata = page.read_contents()\n", "data = page.operations.to_bytes()"),
+        ("import fitz\npage.apply_redactions()\n", "page.redact()"),
+        (
+            "import fitz\npage.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=1)\n",
+            'page.redact(images="keep", graphics="covered")',
+        ),
+        ("import fitz\npage.apply_redactions(0, 0, 1)\n", 'page.redact(text="keep", images="keep", graphics="keep")'),
         ("import fitz\ndef f(item: fitz.Outline) -> None: ...\n", "def f(item: pylopdf.OutlineItem) -> None: ..."),
         ("from fitz import Outline\nitem: Outline\n", "from pylopdf import OutlineItem\nitem: OutlineItem"),
         ("import fitz\ndoc = fitz.open()\ndoc[0].set_rotation(90)\n", "doc.pages[0].rotation = 90"),

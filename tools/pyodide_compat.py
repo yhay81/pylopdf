@@ -1063,6 +1063,30 @@ def _operations_results() -> dict[str, Any]:
         }
 
 
+def _redaction_results() -> dict[str, Any]:
+    """Redact text and a path, and read the page back."""
+    import pylopdf  # noqa: PLC0415
+
+    with pylopdf.Document() as document:
+        page = document.pages.new((300, 200))
+        with page.draw() as canvas:
+            canvas.text("Keep secret words", (20, 40), font=pylopdf.Font.standard("Helvetica"), size=14)
+            canvas.rect((150, 100, 190, 140), fill=pylopdf.Color(0, 0, 1))
+        secret = next(word.bbox for word in page.words() if word.text == "secret")
+        page.annotations.add(pylopdf.Redaction(secret, overlay_text="X"))
+        report = page.redact()
+        page.redact(pylopdf.Rect(150, 100, 170, 140), fill=None)
+        saved = document.to_bytes()
+    with pylopdf.open(saved) as reopened:
+        page = reopened.pages[0]
+        return {
+            "glyphs": report.glyphs,
+            "annotations": len(page.annotations),
+            "text": sorted(page.text().split()),
+            "paths": len(page.content().paths),
+        }
+
+
 def _widget_results() -> dict[str, Any]:
     """Read form widgets, restyle them, and draw their values again."""
     import pylopdf  # noqa: PLC0415
@@ -1951,6 +1975,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "widgets": _widget_results(),
         "flatten": _flatten_results(),
         "operations": _operations_results(),
+        "redaction": _redaction_results(),
         "ocr_layer": _ocr_layer_results(),
         "object_model": _object_model_results(),
         "optional_content": _optional_content_results(),

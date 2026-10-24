@@ -789,6 +789,14 @@ class _Document:
         list[tuple[int, int, int | None]],
         list[tuple[int, tuple[int, int] | None, int]],
     ]: ...
+    def redact_page(
+        self,
+        page_number: int,
+        areas: list[tuple[tuple[float, float, float, float], tuple[float, float, float] | None]] | None,
+        text: bool,
+        images: str,
+        graphics: str,
+    ) -> tuple[list[tuple[float, float, float, float]], int, int, int, int, int, int, int]: ...
     def page_operations(self, page_number: int, max_operations: int | None = ...) -> tuple[list[Any], bytes]: ...
     def set_page_content(self, page_number: int, data: bytes) -> None: ...
     def replace_text_on_page(

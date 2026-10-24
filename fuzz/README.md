@@ -7,7 +7,8 @@ pylopdf workflow:
 2. extract positioned text and search;
 3. render at low resolution;
 4. edit metadata and save with object streams;
-5. read and write back each page's content operations;
+5. read and write back each page's content operations, and redact a quarter
+   of the page;
 6. reopen and extract the saved output.
 
 Invalid PDFs may raise `PdfError`. A Rust panic, process crash, hang, excessive
