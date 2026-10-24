@@ -678,6 +678,8 @@ class _Document:
         lossless: bool,
         color: bool,
         gray: bool,
+        encoding: str = ...,
+        to_gray: bool = ...,
     ) -> tuple[int, int, int, int, int]: ...
     def render_page_pixmap(
         self,

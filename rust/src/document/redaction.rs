@@ -532,50 +532,103 @@ pub(super) fn apply_pass(
         ..Counts::default()
     };
 
+    // Every stream's data and operations, read once whatever the number of
+    // its placements.
+    let doc: &Document = &this.doc;
+    let containers = &interpretation.containers;
+    let mut stream_data: HashMap<crate::content::Container, Vec<u8>> = HashMap::new();
+    for (container, info) in containers.iter().enumerate() {
+        if info.annotation.is_none() && !stream_data.contains_key(&info.stream) {
+            let data = container_data(doc, page_id, &interpretation, container)?;
+            stream_data.insert(info.stream, data);
+        }
+    }
+    let mut parsed: HashMap<crate::content::Container, Instructions<'_>> = HashMap::new();
+    for (key, data) in &stream_data {
+        parsed.insert(
+            *key,
+            Instructions::parse(data, None).map_err(replacement::content_error)?,
+        );
+    }
+    let mut operation_cache: HashMap<crate::content::Container, Vec<lopdf::content::Operation>> =
+        HashMap::new();
+    let mut resources_cache: HashMap<usize, Dictionary> = HashMap::new();
+    let mut resources_of = |container: usize| -> Dictionary {
+        resources_cache
+            .entry(container)
+            .or_insert_with(|| {
+                effective_resources(doc, page_resources.as_ref(), &interpretation, container)
+            })
+            .clone()
+    };
+
     // Operations to change, by container.
     let mut edits: HashMap<usize, ContainerEdits> = HashMap::new();
-    let mut parsed: HashMap<usize, Vec<u8>> = HashMap::new();
     let editable = |container: usize| !redact::in_annotation(&interpretation, container);
     let removals =
         redact::text_removals(&interpretation, &selection).map_err(replacement::content_error)?;
-    for (&(container, operation), list) in &removals {
-        if !editable(container) {
-            continue;
-        }
-        let data = match parsed.entry(container) {
-            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                entry.insert(container_data(doc, page_id, &interpretation, container)?)
-            }
-        };
-        let instructions = Instructions::parse(data, None).map_err(replacement::content_error)?;
-        let operations = instructions
-            .to_operations()
-            .map_err(replacement::content_error)?;
-        let bytes = redact::rewrite_text(&operations[operation], list)
-            .map_err(replacement::content_error)?;
-        let edit = if bytes.is_empty() {
-            OperationEdit::Remove
-        } else {
-            OperationEdit::Replace(bytes)
-        };
-        edits
-            .entry(container)
+    // The marked-content sequences of each container, by their start.
+    let mut marked_by_container: HashMap<usize, Vec<(usize, Option<usize>)>> = HashMap::new();
+    for marked in &interpretation.marked {
+        marked_by_container
+            .entry(marked.container)
             .or_default()
-            .operations
-            .insert(operation, edit);
-        // Replacement text in the marked content around the glyphs.
-        for begin in redact::marked_around(&interpretation, container, operation) {
-            if let Some(bytes) = stripped_marked_content(
-                doc,
-                &operations[begin],
-                &effective_resources(doc, page_resources.as_ref(), &interpretation, container),
-            )? {
-                edits
-                    .entry(container)
-                    .or_default()
-                    .operations
-                    .insert(begin, OperationEdit::Replace(bytes));
+            .push((marked.begin, marked.end));
+    }
+    let mut removed_ops: HashMap<usize, Vec<usize>> = HashMap::new();
+    for &(container, operation) in removals.keys() {
+        if editable(container) {
+            removed_ops.entry(container).or_default().push(operation);
+        }
+    }
+    for (container, operations_removed) in &mut removed_ops {
+        operations_removed.sort_unstable();
+        let key = containers[*container].stream;
+        let Some(instructions) = parsed.get(&key) else {
+            continue;
+        };
+        if let std::collections::hash_map::Entry::Vacant(entry) = operation_cache.entry(key) {
+            entry.insert(
+                instructions
+                    .to_operations()
+                    .map_err(replacement::content_error)?,
+            );
+        }
+        let operations = &operation_cache[&key];
+        let container_edits = edits.entry(*container).or_default();
+        for &operation in operations_removed.iter() {
+            let bytes =
+                redact::rewrite_text(&operations[operation], &removals[&(*container, operation)])
+                    .map_err(replacement::content_error)?;
+            let edit = if bytes.is_empty() {
+                OperationEdit::Remove
+            } else {
+                OperationEdit::Replace(bytes)
+            };
+            container_edits.operations.insert(operation, edit);
+        }
+        // Replacement text in the marked content around the glyphs: one sweep
+        // over the sequences, which nest, with the removed operations in order.
+        let mut sequences = marked_by_container.remove(container).unwrap_or_default();
+        sequences.sort_unstable_by_key(|sequence| sequence.0);
+        let mut open: Vec<(usize, Option<usize>)> = Vec::new();
+        let mut next = 0;
+        let mut stripped = HashSet::new();
+        for &operation in operations_removed.iter() {
+            while next < sequences.len() && sequences[next].0 < operation {
+                open.push(sequences[next]);
+                next += 1;
+            }
+            open.retain(|(_, end)| end.is_none_or(|end| operation < end));
+            for &(begin, _) in &open {
+                if stripped.insert(begin)
+                    && let Some(bytes) =
+                        stripped_marked_content(doc, &operations[begin], &resources_of(*container))?
+                {
+                    container_edits
+                        .operations
+                        .insert(begin, OperationEdit::Replace(bytes));
+                }
             }
         }
     }
@@ -584,16 +637,9 @@ pub(super) fn apply_pass(
             continue;
         }
         counts.paths += 1;
-        let data = match parsed.entry(path.container) {
-            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-            std::collections::hash_map::Entry::Vacant(entry) => entry.insert(container_data(
-                doc,
-                page_id,
-                &interpretation,
-                path.container,
-            )?),
+        let Some(instructions) = parsed.get(&containers[path.container].stream) else {
+            continue;
         };
-        let instructions = Instructions::parse(data, None).map_err(replacement::content_error)?;
         let container_edits = edits.entry(path.container).or_default();
         if path.clip {
             // The path still clips; it only stops painting.
@@ -649,22 +695,17 @@ pub(super) fn apply_pass(
     // Content after the point where hayro stops reading may still draw in
     // other readers; every container written again, and every container that
     // holds such content, loses it.
-    for (container, info) in interpretation.containers.iter().enumerate() {
-        if info.annotation.is_some() {
-            continue;
-        }
-        let data = match parsed.entry(container) {
-            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                entry.insert(container_data(doc, page_id, &interpretation, container)?)
-            }
-        };
-        let instructions = Instructions::parse(data, None).map_err(replacement::content_error)?;
-        if !redact::is_blank(instructions.tail()) {
+    for (container, info) in containers.iter().enumerate() {
+        if info.annotation.is_none()
+            && parsed
+                .get(&info.stream)
+                .is_some_and(|instructions| !redact::is_blank(instructions.tail()))
+        {
             edits.entry(container).or_default();
         }
     }
 
+    drop(resources_of);
     // Blanked images become new image objects named in their container.
     let mut additions: HashMap<usize, Vec<(Vec<u8>, ObjectId)>> = HashMap::new();
     let mut taken: HashMap<usize, HashSet<Vec<u8>>> = HashMap::new();
@@ -738,21 +779,27 @@ pub(super) fn apply_pass(
     let mut page_content: Option<Vec<u8>> = None;
     let mut page_dropped: Vec<Vec<u8>> = Vec::new();
     let doc: &Document = &this.doc;
+    // The containers that resolve names through each container's resources:
+    // the Forms it draws, and for the page, the annotation appearances.
+    let mut children: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (index, info) in interpretation.containers.iter().enumerate() {
+        match info.parent {
+            Some((parent, _)) => children.entry(parent).or_default().push(index),
+            None if info.annotation.is_some() => children.entry(0).or_default().push(index),
+            None => {}
+        }
+    }
     for container in (0..interpretation.containers.len()).rev() {
         if !needed[container] {
             continue;
         }
-        let data = match parsed.entry(container) {
-            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                entry.insert(container_data(doc, page_id, &interpretation, container)?)
-            }
+        let Some(instructions) = parsed.get(&interpretation.containers[container].stream) else {
+            continue;
         };
-        let instructions = Instructions::parse(data, None).map_err(replacement::content_error)?;
         let empty = ContainerEdits::default();
         let container_edits = edits.get(&container).unwrap_or(&empty);
         let bytes = py
-            .detach(|| redact::rewrite_container(&instructions, container_edits, true))
+            .detach(|| redact::rewrite_container(instructions, container_edits, true))
             .map_err(replacement::content_error)?;
         let added = additions.remove(&container).unwrap_or_default();
         // XObjects whose drawing went or now names a copy: their resource
@@ -762,14 +809,12 @@ pub(super) fn apply_pass(
         let mut dropped = Vec::new();
         // A copy carries its own resources; an uncopied Form without them
         // still resolves names through these.
-        let inherited = interpretation
-            .containers
-            .iter()
-            .enumerate()
-            .any(|(index, info)| {
-                (info.parent.is_some_and(|(parent, _)| parent == container)
-                    || (container == 0 && info.parent.is_none() && info.annotation.is_some()))
-                    && !needed[index]
+        let inherited = children
+            .get(&container)
+            .into_iter()
+            .flatten()
+            .any(|&index| {
+                !needed[index]
                     && redact::form_id(&interpretation, index)
                         .and_then(|id| doc.get_object(id).ok())
                         .and_then(|object| object.as_stream().ok())
@@ -793,7 +838,7 @@ pub(super) fn apply_pass(
                 }
             } else {
                 for operation in container_edits.operations.keys() {
-                    if let Some(name) = redact::drawn_name(&instructions, *operation)
+                    if let Some(name) = redact::drawn_name(instructions, *operation)
                         && !still_used.contains(&name)
                         && !dropped.contains(&name)
                     {

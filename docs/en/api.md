@@ -361,16 +361,19 @@ attached to their base characters.
 |---|---|
 | `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, colorspace="rgb", format="png", quality=95, workers=None, max_size=512 MiB)` | PNG or JPEG bytes for every page, or the listed pages, in order, rendered in parallel |
 | `images` | The image objects by object number; see [Images](#images) |
-| `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | Downsample and recompress images to make the file smaller |
+| `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, set_to_gray=False, encoding="jpeg", ...)` | Downsample and recompress images to make the file smaller |
 | `recolor(colorspace)` | Convert every colour of every page; see [Recoloring](#recoloring) |
 | `sanitize(*, scripts=True, actions=True, embedded_files=True, metadata=True, hidden_text=True, comments=True, links=False, form_values=False, thumbnails=True)` | Remove scripts, actions, attachments, metadata, hidden text, and comments; see [Sanitization](#sanitization) |
 | `fallback_fonts` | The fonts that render Chinese, Japanese, or Korean text whose font is not embedded, by language; the CJK extras fill it automatically |
 
 `rewrite_images` follows pymupdf's keywords: images with more than
 `dpi_threshold` dots per inch where they are drawn are resampled to
-`dpi_target`, and `quality` (1–100) re-encodes them as JPEG. It changes only
-plain 8-bit gray or RGB images without masks, keeps an image whose new
-encoding would not be smaller, and returns statistics.
+`dpi_target`, and `quality` (1–100) re-encodes them as JPEG.
+`encoding="flate"` writes the 8-bit samples without further loss instead,
+`encoding="bitonal"` one bit per pixel, black below half intensity, and
+`set_to_gray=True` converts colour images to gray. It changes only plain
+8-bit gray or RGB images without masks, keeps an image whose new encoding
+would not be smaller, and returns statistics.
 
 `fallback_fonts` maps `"ja"`, `"ko"`, `"zh-CN"`, and `"zh-TW"`, the
 languages of the Adobe-Japan1, Korea1, GB1, and CNS1 character collections,

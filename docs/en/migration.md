@@ -146,7 +146,7 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `page.get_image_info()` | `page.content(text_runs=False, paths=False).images` | `Image` records with `xref`, `bbox`, `matrix` (pymupdf's `transform`), size, color space, mask, and resolution; no `hashes=` yet |
 | `page.get_drawings()`, `get_cdrawings()` | `page.content(text_runs=False, images=False).paths` | `Path` records with `segments`, `fill`, `fill_rule`, `stroke`, and `bbox`; each path's `context` holds the clips, groups, and marked content that `extended=True` listed as entries of their own |
 | `page.get_texttrace()`, `get_bboxlog()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | Text runs with their glyphs, paths, and images as immutable values; see [Page content](api.md#content) |
-| `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | Same | Re-encodes as JPEG only, so resampling needs `quality`; returns statistics instead of `None` |
+| `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=, set_to_gray=)` | Same | JPEG by default, so resampling to JPEG needs `quality`; `encoding="flate"` or `"bitonal"` writes lossless or one-bit images; returns statistics instead of `None` |
 
 ### Drawing and annotations { #mapping-drawing }
 

@@ -906,8 +906,9 @@ impl _Document {
         )
     }
 
-    /// Downsample and JPEG-recompress the selected safe raster images.
-    #[allow(clippy::too_many_arguments)] // Mirrors pymupdf's keyword arguments.
+    /// Downsample and recompress the selected safe raster images.
+    #[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)] // Mirrors pymupdf's keyword arguments.
+    #[pyo3(signature = (dpi_threshold, dpi_target, quality, lossy, lossless, color, gray, encoding="jpeg", to_gray=false))]
     fn rewrite_images(
         &mut self,
         py: Python<'_>,
@@ -918,7 +919,19 @@ impl _Document {
         lossless: bool,
         color: bool,
         gray: bool,
+        encoding: &str,
+        to_gray: bool,
     ) -> PyResult<image_compression::CompressionResult> {
+        let encoding = match encoding {
+            "jpeg" => image_compression::Encoding::Jpeg,
+            "flate" => image_compression::Encoding::Flate,
+            "bitonal" => image_compression::Encoding::Bitonal,
+            other => {
+                return Err(PyValueError::new_err(format!(
+                    "encoding must be 'jpeg', 'flate', or 'bitonal': {other:?}"
+                )));
+            }
+        };
         let options = image_compression::RewriteOptions {
             dpi_threshold,
             dpi_target,
@@ -927,6 +940,8 @@ impl _Document {
             lossless,
             color,
             gray,
+            encoding,
+            to_gray,
         };
         images::rewrite_images(self, py, options)
     }

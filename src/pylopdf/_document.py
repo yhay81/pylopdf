@@ -1299,8 +1299,9 @@ class Document:
         gray: bool = True,
         set_to_gray: bool = False,
         options: object = None,
+        encoding: Literal["jpeg", "flate", "bitonal"] = "jpeg",
     ) -> ImageCompressionResult:
-        """Downsample and JPEG-recompress raster images in place, as pymupdf's ``rewrite_images`` does.
+        """Downsample and recompress raster images in place, as pymupdf's ``rewrite_images`` does.
 
         An image axis whose effective resolution exceeds ``dpi_threshold`` is
         resampled to ``dpi_target``, which must be lower; reused images keep
@@ -1311,13 +1312,19 @@ class Document:
         DeviceRGB and DeviceGray ones. Both operations are lossy, and a
         rewritten image is kept only when its JPEG payload is smaller.
 
-        pylopdf re-encodes every image it rewrites as JPEG, so resampling
-        requires a ``quality`` above 0; ``set_to_gray`` and MuPDF's
-        ``options`` raise :class:`PdfError` rather than being ignored.
-        Bitonal images, and every other image outside the conservative set
-        below, are counted as ``skipped``. With ``quality=0`` and no
-        ``dpi_threshold`` there is nothing to do, and the call returns zero
-        counts without interpreting the document.
+        ``encoding`` chooses what a rewritten image becomes: ``"jpeg"`` (the
+        default) at ``quality``, ``"flate"`` keeps the 8-bit samples without
+        further loss, and ``"bitonal"`` writes one bit per pixel, black below
+        half intensity. ``set_to_gray=True`` converts colour sources to gray
+        with the weights of gray rendering. With JPEG, resampling and
+        ``set_to_gray`` require a ``quality`` above 0; with ``"flate"`` and
+        ``"bitonal"``, ``quality`` is not used. A rewritten image is kept only
+        when its payload is smaller. MuPDF's ``options`` raise
+        :class:`PdfError` rather than being ignored. Bitonal images, and every
+        other image outside the conservative set below, are counted as
+        ``skipped``. With JPEG, ``quality=0``, and no ``dpi_threshold``
+        there is nothing to do, and the call returns zero counts without
+        interpreting the document.
 
         The conservative implementation rewrites only indirect, single-filter,
         8-bit DeviceGray/DeviceRGB DCT or Flate XObjects without masks or custom
@@ -1336,9 +1343,12 @@ class Document:
         an original document.
         """
         self._ensure_open()
-        if set_to_gray:
-            msg = "rewrite_images(set_to_gray=True) is not supported; pylopdf keeps each image's colour space"
-            raise PdfError(msg)
+        if encoding not in ("jpeg", "flate", "bitonal"):
+            msg = f"encoding must be 'jpeg', 'flate', or 'bitonal': {encoding!r}"
+            raise ValueError(msg)
+        if not isinstance(set_to_gray, bool):
+            msg = f"set_to_gray is a bool: {set_to_gray!r}"
+            raise TypeError(msg)
         if options is not None:
             msg = "rewrite_images(options=...) is not supported; pass its keyword arguments instead"
             raise PdfError(msg)
@@ -1357,13 +1367,18 @@ class Document:
             if target >= threshold:
                 msg = f"dpi_target={dpi_target} must be less than dpi_threshold={dpi_threshold}"
                 raise ValueError(msg)
-            if quality == 0:
-                msg = "resampling requires quality= from 1 through 100; pylopdf re-encodes rewritten images as JPEG"
+            if quality == 0 and encoding == "jpeg":
+                msg = "resampling to JPEG requires quality= from 1 through 100"
                 raise PdfError(msg)
-        if quality == 0:
+        if set_to_gray and quality == 0 and encoding == "jpeg":
+            msg = "set_to_gray=True with JPEG requires quality= from 1 through 100"
+            raise PdfError(msg)
+        if quality == 0 and encoding == "jpeg":
             counts = (0, 0, 0, 0, 0)
         else:
-            counts = self._doc.rewrite_images(threshold, target, quality, lossy, lossless, color, gray)
+            counts = self._doc.rewrite_images(
+                threshold, target, quality, lossy, lossless, color, gray, encoding, set_to_gray
+            )
             self._emit_warnings()
         considered, rewritten, skipped, bytes_before, bytes_after = counts
         return ImageCompressionResult(

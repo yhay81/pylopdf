@@ -3196,6 +3196,12 @@
                 "default": null,
                 "kind": "keyword_only",
                 "name": "options"
+              },
+              {
+                "annotation": "Literal['jpeg', 'flate', 'bitonal']",
+                "default": "jpeg",
+                "kind": "keyword_only",
+                "name": "encoding"
               }
             ],
             "returns": "ImageCompressionResult"
