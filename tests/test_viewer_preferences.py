@@ -129,14 +129,15 @@ def test_assignments_need_a_record_and_the_core_repeats_the_checks() -> None:
     with pytest.raises(TypeError):
         doc.viewer_preferences = {"fit_window": True}  # ty: ignore[invalid-assignment]
     core = doc._doc  # noqa: SLF001 - the core boundary.
-    for entries in (
+    refused: tuple[list[tuple[str, object]], ...] = (
         [("FitWindow", 1)],
         [("Direction", "Up")],
         [("Unknown", True)],
         [("NumCopies", 0)],
         [("PrintPageRange", [(2, 1)])],
         [("Enforce", ["a b"])],
-    ):
+    )
+    for entries in refused:
         with pytest.raises(pylopdf.PdfError):
             core.set_viewer_preferences(entries)
     assert doc.viewer_preferences == ViewerPreferences()
