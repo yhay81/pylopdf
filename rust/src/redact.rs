@@ -93,6 +93,19 @@ fn inside(inner: Rect, outer: Rect) -> bool {
     inner.x0 >= outer.x0 && inner.x1 <= outer.x1 && inner.y0 >= outer.y0 && inner.y1 <= outer.y1
 }
 
+/// Where a glyph may be drawn. For a font that hayro cannot load, other
+/// readers may read the codes in another way and space them up to an em
+/// apart, so such a glyph may lie anywhere up to one em per byte of its
+/// string after the place where hayro puts it.
+fn glyph_reach(glyph: &crate::content::interpret::Glyph) -> Rect {
+    if !glyph.fallback {
+        return glyph.bbox();
+    }
+    let [x0, y0, x1, y1] = glyph.glyph_box;
+    let reach = (glyph.source.offset + glyph.source.len) as f64 * 1000.0;
+    crate::content::transformed_rect(Rect::new(x0, y0, x1 + reach, y1), glyph.transform)
+}
+
 /// Decide what the areas remove. `forced` lists glyph origins in default
 /// user space that verification found inside an area although their boxes
 /// did not reach it.
@@ -111,7 +124,7 @@ pub(crate) fn select(
         .iter()
         .map(|glyph| {
             options.text
-                && (touches(glyph.bbox())
+                && (touches(glyph_reach(glyph))
                     || forced.iter().any(|point| {
                         let origin = glyph.origin();
                         (origin.x - point.x).abs() <= 0.01 && (origin.y - point.y).abs() <= 0.01
@@ -508,23 +521,6 @@ pub(crate) fn text_removals(
 /// Whether a container is a Form placement inside an annotation appearance.
 pub(crate) fn in_annotation(interpretation: &Interpretation, container: usize) -> bool {
     interpretation.containers[container].annotation.is_some()
-}
-
-/// The `BDC` operations whose marked content holds a removed operation.
-pub(crate) fn marked_around(
-    interpretation: &Interpretation,
-    container: usize,
-    operation: usize,
-) -> impl Iterator<Item = usize> + '_ {
-    interpretation
-        .marked
-        .iter()
-        .filter(move |marked| {
-            marked.container == container
-                && marked.begin < operation
-                && marked.end.is_none_or(|end| operation < end)
-        })
-        .map(|marked| marked.begin)
 }
 
 /// The XObject name that a `Do` operation draws.

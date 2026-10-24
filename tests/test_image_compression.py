@@ -447,14 +447,67 @@ def test_rewrite_images_refuses_resampling_without_recompression() -> None:
     assert doc.to_bytes() == original
 
 
-@pytest.mark.parametrize(
-    ("keyword", "value"),
-    [("set_to_gray", True), ("options", object())],
-)
-def test_rewrite_images_refuses_unsupported_options(keyword: str, value: object) -> None:
+def test_rewrite_images_refuses_unsupported_options() -> None:
     doc = pylopdf.open(build_jpeg_pdf([(72, 72, 0, 0)]))
-    with pytest.raises(pylopdf.PdfError, match=keyword):
-        doc.rewrite_images(quality=65, **{keyword: value})  # ty: ignore[invalid-argument-type]
+    with pytest.raises(pylopdf.PdfError, match="options"):
+        doc.rewrite_images(quality=65, options=object())
+
+
+def test_rewrite_images_converts_colour_sources_to_gray() -> None:
+    doc = pylopdf.open(build_jpeg_pdf([(72, 72, 0, 0)]))
+    page = doc.pages[0]
+
+    result = doc.rewrite_images(quality=65, set_to_gray=True)
+
+    assert result.rewritten == 1
+    (image,) = page.content().images
+    assert image.components == 1
+    samples = bytes(page.pixmap(dpi=36))
+    assert all(samples[i] == samples[i + 1] == samples[i + 2] for i in range(0, len(samples), 3))
+    with pytest.raises(pylopdf.PdfError, match="set_to_gray"):
+        pylopdf.open(build_jpeg_pdf([(72, 72, 0, 0)])).rewrite_images(set_to_gray=True)
+
+
+@pytest.mark.parametrize("color_space", ["DeviceRGB", "DeviceGray"])
+def test_rewrite_images_writes_lossless_flate(color_space: str) -> None:
+    source, _ = build_flate_pdf(color_space=color_space, predictor=None)
+    doc = pylopdf.open(source)
+    page = doc.pages[0]
+    before = bytes(page.pixmap(alpha=True))
+
+    result = doc.rewrite_images(dpi_threshold=96, dpi_target=64, encoding="flate")
+
+    assert result.rewritten == 1
+    (image,) = drawn_images(page)
+    assert (image["width"], image["height"]) == (64, 64)
+    assert page.content().images[0].bits == 8
+    obj = doc.objects[page.content().images[0].xref]
+    assert obj["Filter"] == "FlateDecode"
+    assert "PylopdfQuality" not in obj
+    assert len(bytes(page.pixmap(alpha=True))) == len(before)
+
+
+def test_rewrite_images_writes_bitonal_images() -> None:
+    source, _ = build_flate_pdf(color_space="DeviceRGB", predictor=None)
+    doc = pylopdf.open(source)
+    page = doc.pages[0]
+
+    result = doc.rewrite_images(encoding="bitonal")
+
+    assert result.rewritten == 1
+    (image,) = page.content().images
+    assert image.bits == 1
+    assert image.components == 1
+    samples = set(bytes(doc.images[image.xref].to_pixmap()))
+    assert samples == {0, 255}
+    reopened = pylopdf.open(doc.to_bytes())
+    assert reopened.pages[0].content().images[0].bits == 1
+
+
+def test_rewrite_images_refuses_unknown_encodings() -> None:
+    doc = pylopdf.open(build_jpeg_pdf([(72, 72, 0, 0)]))
+    with pytest.raises(ValueError, match="encoding"):
+        doc.rewrite_images(encoding="png")  # ty: ignore[invalid-argument-type]
 
 
 def test_rewrite_images_without_quality_or_threshold_does_nothing() -> None:
@@ -499,7 +552,7 @@ def test_rewrite_images_selects_image_classes(keyword: str, color_space: str, *,
     doc = pylopdf.open(source)
     original = doc.to_bytes()
 
-    excluded = doc.rewrite_images(dpi_threshold=96, dpi_target=64, quality=65, **{keyword: False})
+    excluded = doc.rewrite_images(dpi_threshold=96, dpi_target=64, quality=65, **{keyword: False})  # ty: ignore[invalid-argument-type]
 
     assert (excluded.rewritten, excluded.skipped) == (0, 1)
     assert doc.to_bytes() == original

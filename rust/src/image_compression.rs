@@ -26,7 +26,7 @@ const MAX_JPEG_DIMENSION: usize = u16::MAX as usize;
 /// Unique interpreted images, rewritten images, skipped images, and byte totals.
 pub(crate) type CompressionResult = (u32, u32, u32, u64, u64);
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum ColorModel {
     Gray,
     Rgb,
@@ -236,6 +236,21 @@ pub(crate) struct RewriteOptions {
     pub(crate) color: bool,
     /// Rewrite DeviceGray sources.
     pub(crate) gray: bool,
+    /// How rewritten images are encoded.
+    pub(crate) encoding: Encoding,
+    /// Convert colour sources to gray.
+    pub(crate) to_gray: bool,
+}
+
+/// The encoding of a rewritten image.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Encoding {
+    /// DCT at the requested quality.
+    Jpeg,
+    /// 8-bit samples, Flate-compressed, without loss.
+    Flate,
+    /// One bit per pixel, black below half intensity, Flate-compressed.
+    Bitonal,
 }
 
 impl RewriteOptions {
@@ -632,6 +647,35 @@ fn encode_jpeg(
     Ok(Some(output.bytes))
 }
 
+/// 8-bit RGB samples as 8-bit gray, with the BT.601 weights of gray rendering.
+fn to_gray(pixels: &[u8]) -> Result<Vec<u8>, String> {
+    let mut gray = Vec::new();
+    gray.try_reserve_exact(pixels.len() / 3)
+        .map_err(|error| format!("failed to allocate gray samples: {error}"))?;
+    gray.extend(pixels.as_chunks::<3>().0.iter().map(|pixel| {
+        ((77 * u32::from(pixel[0]) + 150 * u32::from(pixel[1]) + 29 * u32::from(pixel[2]) + 128)
+            >> 8) as u8
+    }));
+    Ok(gray)
+}
+
+/// 8-bit gray samples as one bit per pixel, rows padded to whole bytes;
+/// DeviceGray reads a set bit as white.
+fn bitonal(gray: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
+    let row = (width as usize).div_ceil(8);
+    let mut bits = Vec::new();
+    bits.try_reserve_exact(row * height as usize)
+        .map_err(|error| format!("failed to allocate bitonal samples: {error}"))?;
+    bits.resize(row * height as usize, 0);
+    for (index, sample) in gray.iter().enumerate() {
+        if *sample >= 128 {
+            let (y, x) = (index / width as usize, index % width as usize);
+            bits[y * row + x / 8] |= 0x80 >> (x % 8);
+        }
+    }
+    Ok(bits)
+}
+
 /// Rewrite selected safe JPEG or Flate XObjects when the encoded result is smaller.
 pub(crate) fn rewrite_images(
     doc: &mut Document,
@@ -656,7 +700,9 @@ pub(crate) fn rewrite_images(
             };
             let target_width = options.target_dimension(candidate.width, usage.min_dpi_x);
             let target_height = options.target_dimension(candidate.height, usage.min_dpi_y);
-            if (target_width, target_height) == (candidate.width, candidate.height)
+            if options.encoding == Encoding::Jpeg
+                && !(options.to_gray && candidate.color == ColorModel::Rgb)
+                && (target_width, target_height) == (candidate.width, candidate.height)
                 && candidate
                     .previous_quality
                     .is_some_and(|previous| previous <= quality)
@@ -681,15 +727,32 @@ pub(crate) fn rewrite_images(
                 candidate.color,
             )?;
             let source_len = candidate.source.encoded_len();
-            let Some(encoded) = encode_jpeg(
-                &pixels,
-                target_width,
-                target_height,
-                candidate.color,
-                quality,
-                source_len.saturating_sub(1),
-            )?
-            else {
+            let (pixels, color) = if (options.to_gray || options.encoding == Encoding::Bitonal)
+                && candidate.color == ColorModel::Rgb
+            {
+                (to_gray(&pixels)?, ColorModel::Gray)
+            } else {
+                (pixels, candidate.color)
+            };
+            let encoded = match options.encoding {
+                Encoding::Jpeg => encode_jpeg(
+                    &pixels,
+                    target_width,
+                    target_height,
+                    color,
+                    quality,
+                    source_len.saturating_sub(1),
+                )?,
+                Encoding::Flate => Some(crate::draw::flate_compress(&pixels)?)
+                    .filter(|encoded| encoded.len() < source_len),
+                Encoding::Bitonal => Some(crate::draw::flate_compress(&bitonal(
+                    &pixels,
+                    target_width,
+                    target_height,
+                )?)?)
+                .filter(|encoded| encoded.len() < source_len),
+            };
+            let Some(encoded) = encoded else {
                 continue;
             };
             (
@@ -697,9 +760,10 @@ pub(crate) fn rewrite_images(
                 target_height,
                 candidate.previous_quality,
                 source_len,
-                encoded,
+                (encoded, color),
             )
         };
+        let (encoded, color) = encoded;
 
         let stream = doc
             .get_object_mut(usage.object_id)
@@ -708,14 +772,31 @@ pub(crate) fn rewrite_images(
             .map_err(|error| error.to_string())?;
         stream.dict.set("Width", i64::from(target_width));
         stream.dict.set("Height", i64::from(target_height));
-        stream.dict.set("BitsPerComponent", 8);
-        stream.dict.set("Filter", "DCTDecode");
         stream.dict.remove(b"DecodeParms");
         stream.dict.remove(b"DL");
-        stream.dict.set(
-            "PylopdfQuality",
-            i64::from(previous_quality.map_or(quality, |previous| previous.min(quality))),
-        );
+        if color == ColorModel::Gray {
+            stream.dict.set("ColorSpace", "DeviceGray");
+        }
+        match options.encoding {
+            Encoding::Jpeg => {
+                stream.dict.set("BitsPerComponent", 8);
+                stream.dict.set("Filter", "DCTDecode");
+                stream.dict.set(
+                    "PylopdfQuality",
+                    i64::from(previous_quality.map_or(quality, |previous| previous.min(quality))),
+                );
+            }
+            Encoding::Flate => {
+                stream.dict.set("BitsPerComponent", 8);
+                stream.dict.set("Filter", "FlateDecode");
+                stream.dict.remove(b"PylopdfQuality");
+            }
+            Encoding::Bitonal => {
+                stream.dict.set("BitsPerComponent", 1);
+                stream.dict.set("Filter", "FlateDecode");
+                stream.dict.remove(b"PylopdfQuality");
+            }
+        }
         stream.set_content(encoded);
         stream.allows_compression = false;
         stream.start_position = None;

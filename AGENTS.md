@@ -472,11 +472,15 @@ the concept and API overview.
   `edited_annotation`. `write()` passes the current time as `modified`,
   which `embfile_upd` and `annotation_file_write` store as `/ModDate`.
 - `Document.rewrite_images` follows pymupdf's keywords: an axis above
-  `dpi_threshold` resamples to `dpi_target`, `quality` 0 means no
+  `dpi_threshold` resamples to `dpi_target`, `quality` 0 means no JPEG
   recompression, `lossy`/`lossless` and `color`/`gray` select DCT/Flate and
-  RGB/gray sources, and `set_to_gray` or `options` raise. Because every
-  rewrite produces JPEG, resampling with `quality=0` raises, and a call with
-  neither returns zero counts without interpreting. It interprets indirect
+  RGB/gray sources, `set_to_gray` converts RGB samples to gray with the
+  BT.601 weights of gray rendering, and `options` raises. `encoding`
+  chooses the output: `"jpeg"` (resampling or `set_to_gray` with
+  `quality=0` raises, and a call with neither returns zero counts without
+  interpreting), `"flate"` (8-bit samples, Flate, no `/PylopdfQuality`),
+  or `"bitonal"` (gray, then one bit per pixel set from 128, Flate, BPC 1);
+  every encoding commits only a smaller payload. It interprets indirect
   raster XObject placements
   through a separate hayro Device and aggregates the minimum effective DPI per
   source axis, so a reused image retains enough pixels for its largest
