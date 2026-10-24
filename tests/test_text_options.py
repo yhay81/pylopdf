@@ -28,7 +28,7 @@ def _to_unicode(mappings: dict[int, str]) -> str:
 def build_text_pdf(stream: str, *, to_unicode: dict[int, str] | None = None) -> bytes:
     """Build a 612 by 792 page that draws ``stream`` with Helvetica as /F1."""
     font = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica"
-    objects: dict[int, str] = {
+    objects: dict[int, bytes | str] = {
         1: "<< /Type /Catalog /Pages 2 0 R >>",
         2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
         3: (
@@ -203,8 +203,8 @@ def test_synthetic_spaces_are_chars_that_join_to_the_span_text() -> None:
     assert space.bbox.x0 == pytest.approx(span.chars[0].bbox.x1)
     assert space.bbox.x1 == pytest.approx(span.chars[2].bbox.x0)
     assert space.origin.x == pytest.approx(span.chars[0].bbox.x1)
-    chars = span.chars and page.layout(chars=True).to_dict()["blocks"][0]["lines"][0]["spans"][0]["chars"]
-    assert [char["synthetic"] for char in chars] == [False, True, False, False, False]
+    raw = page.layout(chars=True).to_dict()["blocks"][0]["lines"][0]["spans"][0]["chars"]
+    assert [char["synthetic"] for char in raw] == [False, True, False, False, False]
 
 
 def test_document_text_applies_the_options_to_every_page() -> None:
