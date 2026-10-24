@@ -88,12 +88,26 @@ pub(crate) struct Glyph {
     pub(crate) fallback: bool,
     /// The annotation whose normal appearance drew the glyph, if any.
     pub(crate) annotation: Option<ObjectId>,
+    /// The font in [`Interpretation::fonts`], or `None` for hayro's
+    /// Helvetica fallback.
+    pub(crate) font: Option<usize>,
+    /// The font size, character spacing, word spacing, and horizontal
+    /// scaling (percent) in force.
+    pub(crate) text_state: [f32; 4],
 }
 
 impl Glyph {
     /// The glyph origin in default user space.
     pub(crate) fn origin(&self) -> Point {
         self.transform * Point::ORIGIN
+    }
+
+    /// The bytes of the glyph's code as its string holds them.
+    pub(crate) fn code_bytes(&self) -> Vec<u8> {
+        let len = self.source.len.min(4);
+        (0..len)
+            .map(|index| (self.code >> (8 * (len - 1 - index))) as u8)
+            .collect()
     }
 
     /// The bounding box of the glyph's box in default user space.
@@ -171,6 +185,9 @@ pub(crate) struct Interpretation {
     pub(crate) images: Vec<ImageItem>,
     pub(crate) shadings: Vec<ShadingItem>,
     pub(crate) marked: Vec<MarkedContent>,
+    /// The fonts that glyphs name, with the object of each font dictionary
+    /// when a reference reached it.
+    pub(crate) fonts: Vec<(Option<FontMetrics>, Option<ObjectId>)>,
 }
 
 #[derive(Clone)]
@@ -246,7 +263,6 @@ pub(crate) fn interpret_page(
         doc,
         decode,
         out: Interpretation::default(),
-        fonts: Vec::new(),
         font_index: HashMap::new(),
         operations: 0,
         annotation: None,
@@ -273,7 +289,6 @@ struct Interpreter<'a, 'd> {
     doc: &'a Document,
     decode: &'d Decoder<'d>,
     out: Interpretation,
-    fonts: Vec<Option<FontMetrics>>,
     /// Loaded fonts by the address of their dictionary, which stays stable
     /// for the borrowed document.
     font_index: HashMap<usize, usize>,
@@ -764,26 +779,31 @@ impl<'a> Interpreter<'a, '_> {
         let fonts = resources
             .and_then(|resources| resources.get(b"Font").ok())
             .and_then(|fonts| dict_of(self.doc, Some(fonts)));
-        let Some(font) = fonts
-            .and_then(|fonts| fonts.get(name).ok())
-            .and_then(|font| dict_of(self.doc, Some(font)))
-        else {
+        let value = fonts.and_then(|fonts| fonts.get(name).ok());
+        let Some(font) = value.and_then(|font| dict_of(self.doc, Some(font))) else {
             return Ok(Some(FontRef::Fallback));
         };
-        self.load_font(font)
+        self.load_font(font, value.and_then(|value| value.as_reference().ok()))
     }
 
     /// Load a font dictionary once, returning `None` for a font hayro
     /// cannot use.
-    fn load_font(&mut self, font: &'a Dictionary) -> Result<Option<FontRef>, ContentError> {
+    fn load_font(
+        &mut self,
+        font: &'a Dictionary,
+        id: Option<ObjectId>,
+    ) -> Result<Option<FontRef>, ContentError> {
         let key = std::ptr::from_ref(font) as usize;
         if let Some(&index) = self.font_index.get(&key) {
-            return Ok(self.fonts[index].as_ref().map(|_| FontRef::Loaded(index)));
+            return Ok(self.out.fonts[index]
+                .0
+                .as_ref()
+                .map(|_| FontRef::Loaded(index)));
         }
         let metrics = FontMetrics::read(self.doc, font, self.decode);
-        let index = self.fonts.len();
+        let index = self.out.fonts.len();
         let loaded = metrics.is_some();
-        try_push(&mut self.fonts, metrics, "font cache")?;
+        try_push(&mut self.out.fonts, (metrics, id), "font cache")?;
         self.font_index
             .try_reserve(1)
             .map_err(|error| ContentError::allocation("font index", &error))?;
@@ -832,7 +852,8 @@ impl<'a> Interpreter<'a, '_> {
         ) else {
             return Ok(());
         };
-        let font = self.load_font(font)?;
+        let id = entry.first().and_then(|font| font.as_reference().ok());
+        let font = self.load_font(font, id)?;
         let text = &mut current(states)?.text;
         text.font_size = size;
         text.font = font;
@@ -848,8 +869,12 @@ impl<'a> Interpreter<'a, '_> {
         let state = current(states)?;
         ensure_font(state);
         let fallback_metrics;
+        let font_index = match state.text.font {
+            Some(FontRef::Loaded(index)) if self.out.fonts[index].0.is_some() => Some(index),
+            _ => None,
+        };
         let (metrics, fallback) = match state.text.font {
-            Some(FontRef::Loaded(index)) => match self.fonts[index].as_ref() {
+            Some(FontRef::Loaded(index)) => match self.out.fonts[index].0.as_ref() {
                 Some(metrics) => (metrics, false),
                 None => {
                     fallback_metrics = FontMetrics::fallback();
@@ -880,6 +905,12 @@ impl<'a> Interpreter<'a, '_> {
                 });
             }
             let render_mode = text.render_mode;
+            let text_state = [
+                text.font_size,
+                text.char_space,
+                text.word_space,
+                text.horizontal_scaling,
+            ];
             let (tx, ty) = apply_code_advance(&mut state.text, advance, code, len, horizontal);
             let text = &state.text;
             let compensation = if horizontal {
@@ -906,6 +937,8 @@ impl<'a> Interpreter<'a, '_> {
                     approximate: metrics.is_approximate(),
                     fallback,
                     annotation: self.annotation,
+                    font: font_index,
+                    text_state,
                 },
                 "glyph list",
             )?;
@@ -916,7 +949,8 @@ impl<'a> Interpreter<'a, '_> {
 
     fn adjust(&self, state: &mut State, adjustment: f32) {
         let horizontal = match state.text.font {
-            Some(FontRef::Loaded(index)) => self.fonts[index]
+            Some(FontRef::Loaded(index)) => self.out.fonts[index]
+                .0
                 .as_ref()
                 .is_none_or(FontMetrics::is_horizontal),
             Some(FontRef::Fallback) | None => true,

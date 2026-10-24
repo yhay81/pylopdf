@@ -562,6 +562,18 @@ def _recolor(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     return None if space is None else f"{receiver}.recolor({space})"
 
 
+def _replace_text(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Drop ``max_size`` from pylopdf 0.15's ``replace_text(search, replacement, max_size=...)``.
+
+    ``default_char`` has no counterpart: text that the font cannot draw is
+    now refused, or drawn in ``fallback_font``.
+    """
+    bound = args.bind(("search", "replacement", "default_char", "max_size"))
+    if bound is None or "default_char" in bound or "max_size" not in bound:
+        return None
+    return f"{receiver}.replace_text({bound['search']}, {bound['replacement']})"
+
+
 def _embfile_get(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     bound = args.bind(("item",))
     if bound is None or set(bound) != {"item"} or bound["item"].lstrip("-").isdigit():
@@ -1897,6 +1909,7 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "read_contents": _no_arguments("{receiver}.operations.to_bytes()"),
     "apply_redactions": _apply_redactions,
     "recolor": _recolor,
+    "replace_text": _replace_text,
     "get_form_fields": _no_arguments(
         '[{{"name": name, "type": str(field.type), "value": field.value}} for name, field in {receiver}.form.items()]'
     ),

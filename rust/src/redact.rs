@@ -218,9 +218,10 @@ pub(crate) fn encode(operations: Vec<Operation>) -> Result<Vec<u8>, ContentError
 }
 
 /// Removed glyphs of one text operation: element index, byte offset and
-/// length, and the `TJ` adjustment that keeps the pen where the glyph left
-/// it.
-type Removal = (usize, usize, usize, f32);
+/// length, the `TJ` adjustment that keeps the pen where the glyph left it,
+/// and the codes written in its place with the adjustment that undoes their
+/// advance.
+pub(crate) type Removal = (usize, usize, usize, f32, Option<(Vec<u8>, f32)>);
 
 /// Rewrite one text-showing operation without the removed glyphs, as a
 /// `TJ` whose adjustments keep every later glyph in place: `Tj` becomes
@@ -270,7 +271,7 @@ pub(crate) fn rewrite_text(
                 let mut kept = Vec::new();
                 let mut offset = 0;
                 for removal in removed {
-                    let (_, start, len, compensation) = *removal;
+                    let (_, start, len, compensation, ref insertion) = *removal;
                     if start < offset || start + len > bytes.len() {
                         return Err(ContentError::Malformed(
                             "a removed glyph lies outside its string".to_owned(),
@@ -280,8 +281,20 @@ pub(crate) fn rewrite_text(
                         flush_number(&mut array, &mut pending)?;
                         kept.extend_from_slice(&bytes[offset..start]);
                     }
-                    flush_string(&mut array, &mut kept)?;
-                    pending += compensation;
+                    match insertion {
+                        // The new codes join the string, and the adjustment
+                        // makes up the difference of the advances.
+                        Some((codes, inserted)) => {
+                            flush_number(&mut array, &mut pending)?;
+                            kept.extend_from_slice(codes);
+                            flush_string(&mut array, &mut kept)?;
+                            pending += compensation - inserted;
+                        }
+                        None => {
+                            flush_string(&mut array, &mut kept)?;
+                            pending += compensation;
+                        }
+                    }
                     offset = start + len;
                 }
                 if offset < bytes.len() {
@@ -483,9 +496,15 @@ pub(crate) fn resolve<'a>(doc: &'a Document, value: &'a Object) -> Option<&'a Ob
 pub(crate) fn text_removals(
     interpretation: &Interpretation,
     selection: &Selection,
+    insertions: &HashMap<usize, (Vec<u8>, f32)>,
 ) -> Result<HashMap<(usize, usize), Vec<Removal>>, ContentError> {
     let mut removals: HashMap<(usize, usize), Vec<Removal>> = HashMap::new();
-    for (glyph, removed) in interpretation.glyphs.iter().zip(&selection.glyphs) {
+    for (index, (glyph, removed)) in interpretation
+        .glyphs
+        .iter()
+        .zip(&selection.glyphs)
+        .enumerate()
+    {
         if !removed {
             continue;
         }
@@ -511,7 +530,13 @@ pub(crate) fn text_removals(
             .or_default();
         try_push(
             entry,
-            (source.operand, source.offset, source.len, compensation),
+            (
+                source.operand,
+                source.offset,
+                source.len,
+                compensation,
+                insertions.get(&index).cloned(),
+            ),
             "text removals",
         )?;
     }

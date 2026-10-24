@@ -512,7 +512,7 @@ page.rotation = 90
 | Member | Purpose |
 |---|---|
 | `draw(*, underlay=False)` | A [canvas](#canvas) that draws text, lines, rectangles, and other paths, images, and pages of any document in order; see [Writing text](#writing-text) |
-| `replace_text(search, replacement, *, default_char=None)` | Replace text drawn in simple (single-byte) fonts |
+| `replace_text(search, replacement, *, fallback_font=None)` | Replace text in the font that draws it, keeping the text after it in place; see [Text editing](#text-editing) |
 | `operations` | The page's content as [operations](#operations); assignable |
 | `recolor(colorspace)` | Convert every colour the page draws to `Colorspace.GRAY`, `RGB`, or `CMYK`; see [Recoloring](#recoloring) |
 | `clean_contents()` | Write the content as one stream of normalized, balanced operations and drop unused resources; see [Content operations](#operations) |
@@ -873,6 +873,39 @@ It returns a `RedactionReport` as well.
 | `paths`, `shadings` | Vector graphics removed |
 | `annotations` | Annotations and widgets that overlapped an area, the applied redaction annotations not included |
 | `forms` | Form XObject placements copied |
+
+## Text editing { #text-editing }
+
+`page.replace_text(search, replacement)` replaces every occurrence of a text
+in the font that draws it and returns how many it replaced.
+
+```python
+from pylopdf import Font
+
+doc.pages[0].replace_text("Draft", "Final")
+doc.pages[0].replace_text("機密", "公開済", fallback_font=Font.installed(language="ja"))
+```
+
+- An occurrence is a run of glyphs, in drawing order and in one content
+  stream, whose text as extraction reads it spells `search`. Text that one
+  stream draws across several strings and `TJ` adjustments counts; text split
+  across Form XObjects or annotation appearances does not, and annotation
+  appearances are never edited.
+- The replacement is encoded in the font of the occurrence's first glyph:
+  through the codes the page already draws with that font, its `/ToUnicode`
+  CMap, a predefined UCS-2 or UTF-16 CMap, or, for a simple font that is not
+  embedded, its encoding. Simple, TrueType, Type 3, and composite fonts work
+  in both writing modes.
+- The advance of the new text comes from the font's widths, and one `TJ`
+  adjustment makes up the difference, so the text after the occurrence keeps
+  its position. A Form XObject that other placements share is copied first,
+  and `/ActualText` around the old glyphs goes.
+- Text that the font cannot draw is refused with `PdfError` and nothing
+  changes. With `fallback_font`, an OpenType `Font` that has every glyph of
+  the replacement, the occurrence is removed and the replacement drawn in that
+  font at its position, size, angle, and fill colour instead. Glyphs are not
+  added to an embedded subset, and text drawn in the fallback font is not
+  tagged in the structure tree.
 
 ## Recoloring { #recoloring }
 

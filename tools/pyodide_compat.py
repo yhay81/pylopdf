@@ -1150,6 +1150,38 @@ def _recolor_results() -> dict[str, Any]:
         }
 
 
+def _text_editing_results() -> dict[str, Any]:
+    """Replace kerned text in a standard font, keeping the text after it in place."""
+    import pylopdf  # noqa: PLC0415
+
+    stream = b"BT /F1 12 Tf 20 50 Td [(Hel) -40 (lo w) 120 (orld) -30 (!)] TJ ET"
+    data = _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 100] >>",
+            3: "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+            4: f"<< /Length {len(stream)} >>\nstream\n".encode() + stream + b"\nendstream",
+            5: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+        }
+    )
+
+    def last_origin(page: pylopdf.Page) -> float:
+        chars = [
+            char
+            for block in page.layout(chars=True).blocks
+            for line in block.lines
+            for span in line.spans
+            for char in span.chars
+        ]
+        return round(chars[-1].origin.x, 3)
+
+    with pylopdf.open(data) as document:
+        page = document.pages[0]
+        before = last_origin(page)
+        count = page.replace_text("lo wor", "p")
+        return {"count": count, "text": page.text().strip(), "tail_kept": last_origin(page) == before}
+
+
 def _widget_results() -> dict[str, Any]:
     """Read form widgets, restyle them, and draw their values again."""
     import pylopdf  # noqa: PLC0415
@@ -2072,6 +2104,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "sanitize": _sanitize_results(),
         "cleaning": _cleaning_results(),
         "recolor": _recolor_results(),
+        "text_editing": _text_editing_results(),
         "ocr_layer": _ocr_layer_results(),
         "object_model": _object_model_results(),
         "optional_content": _optional_content_results(),

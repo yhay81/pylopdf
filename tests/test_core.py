@@ -285,13 +285,10 @@ def test_text_replacement_is_bounded_in_core(one_page_pdf: bytes) -> None:
     before = doc.save_bytes()
 
     with pytest.raises(LimitError) as input_limit:
-        doc.replace_text_on_page(1, "PDF", "x" * 4094, None, 64 * 1024 * 1024)
+        doc.replace_text_in_fonts(1, "PDF", "x" * 4094, False)
     assert input_limit.value.args[0] == "replacement_input_size"
-    with pytest.raises(LimitError) as output_limit:
-        doc.replace_text_on_page(1, "PDF", "Cat", None, 16)
-    assert output_limit.value.args[0] == "replacement_output_size"
-    with pytest.raises(ValueError, match="exactly one character"):
-        doc.replace_text_on_page(1, "PDF", "Cat", "??", 64 * 1024 * 1024)
+    with pytest.raises(ValueError, match="at least 1"):
+        doc.replace_text_in_fonts(1, "", "Cat", False)
     assert doc.save_bytes() == before
 
 

@@ -427,6 +427,10 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ("import fitz\npage.apply_redactions()\n", "page.redact()"),
         ("import fitz\npage.recolor(1)\ndoc.recolor(components=4)\n", 'page.recolor("gray")\ndoc.recolor("cmyk")'),
         (
+            'import pylopdf\npage.replace_text("a", "b", max_size=1024)\n',
+            'page.replace_text("a", "b")',
+        ),
+        (
             "import fitz\npage.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=1)\n",
             'page.redact(images="keep", graphics="covered")',
         ),

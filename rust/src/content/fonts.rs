@@ -23,7 +23,7 @@ pub(crate) type Decoder<'d> = dyn Fn(&Stream) -> Result<Vec<u8>, ContentError> +
 
 /// Metrics of the font that a `Tf` operator selected.
 #[derive(Debug)]
-pub(super) struct FontMetrics {
+pub(crate) struct FontMetrics {
     kind: Kind,
     /// A box in glyph space, 1000 units per em, that the glyph's ink stays
     /// inside vertically: the descriptor's `/Descent` and `/Ascent`, or its
@@ -146,7 +146,7 @@ impl FontMetrics {
         self.approximate
     }
 
-    pub(super) fn is_horizontal(&self) -> bool {
+    pub(crate) fn is_horizontal(&self) -> bool {
         match &self.kind {
             Kind::Composite(composite) => composite.horizontal,
             Kind::Simple(_) | Kind::Type3 { .. } => true,
@@ -154,7 +154,7 @@ impl FontMetrics {
     }
 
     /// Read one character code at `offset`, returning it and its length.
-    pub(super) fn read_code(&self, bytes: &[u8], offset: usize) -> (u32, usize) {
+    pub(crate) fn read_code(&self, bytes: &[u8], offset: usize) -> (u32, usize) {
         match &self.kind {
             Kind::Composite(composite) => {
                 let mut code = 0_u32;
@@ -176,7 +176,7 @@ impl FontMetrics {
     }
 
     /// The advance of a code in units of 1/1000 em, as `(x, y)`.
-    pub(super) fn advance(&self, code: u32) -> (f64, f64) {
+    pub(crate) fn advance(&self, code: u32) -> (f64, f64) {
         match &self.kind {
             Kind::Simple(widths) => (f64::from(widths.width(code)), 0.0),
             // hayro's Type3 `glyph_width`, in the same single precision.
@@ -190,7 +190,7 @@ impl FontMetrics {
 
     /// The glyph's horizontal width in 1/1000 em, also for vertical writing,
     /// where it is the width of the column.
-    pub(super) fn width(&self, code: u32) -> f64 {
+    pub(crate) fn width(&self, code: u32) -> f64 {
         match &self.kind {
             Kind::Composite(composite) => {
                 f64::from(composite.horizontal_width(composite.cid(code)))
@@ -202,7 +202,7 @@ impl FontMetrics {
     /// A box in glyph space that the glyph's ink stays inside, as
     /// `[x0, y0, x1, y1]`: from the origin to the glyph's width across, and
     /// the font's extent up and down.
-    pub(super) fn glyph_box(&self, code: u32) -> [f64; 4] {
+    pub(crate) fn glyph_box(&self, code: u32) -> [f64; 4] {
         let width = self.width(code);
         let [x0, y0, x1, y1] = self.extent;
         [x0.min(0.0).min(width), y0, x1.max(width).max(0.0), y1]

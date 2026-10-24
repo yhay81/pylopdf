@@ -238,7 +238,7 @@ page.rotation = 90
 | 멤버 | 용도 |
 |---|---|
 | `draw(*, underlay=False)` | 텍스트, 선이나 사각형 같은 경로, 이미지, 아무 문서의 페이지를 순서대로 그리는 [캔버스](#canvas). [텍스트 쓰기](#writing-text) 참고 |
-| `replace_text(search, replacement, *, default_char=None)` | 단순(단일 바이트) 글꼴로 그려진 텍스트를 교체 |
+| `replace_text(search, replacement, *, fallback_font=None)` | 텍스트를 그리는 글꼴 그대로 교체하고 뒤따르는 텍스트의 위치를 유지 |
 
 같은 이미지나 페이지를 다시 그리면 파일에는 한 번만 저장됩니다.
 

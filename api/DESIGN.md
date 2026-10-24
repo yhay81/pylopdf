@@ -393,7 +393,7 @@ directly, and returns a report that hayro re-interpretation verified.
 `doc.sanitize(...)` removes scripts, actions, embedded files, metadata,
 hidden text, and comments, and returns a report. `doc.rewrite_images(...)`
 recompresses images, and `page.replace_text(search, replacement, ...)`
-replaces text in simple fonts.
+replaces text in the font that draws it, or in a declared fallback font.
 
 ## 11. Low-level objects
 

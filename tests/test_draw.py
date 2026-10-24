@@ -1456,8 +1456,6 @@ def test_replace_text_validates_input_without_mutation() -> None:
     page = doc.pages[0]
     before = doc.to_bytes()
 
-    with pytest.raises(ValueError, match="exactly one character"):
-        page.replace_text("PDF", "Cat", default_char="??")
     with pytest.raises(pylopdf.LimitError) as caught:
         page.replace_text("PDF", "x" * 4094)
     assert caught.value.code == "replacement_input_size"
@@ -1483,14 +1481,7 @@ def test_replace_text_rejects_without_encoding_complete_input() -> None:
     assert doc.to_bytes() == before
 
 
-@pytest.mark.parametrize(
-    ("argument", "value"),
-    [
-        ("search", 1),
-        ("replacement", 1),
-        ("default_char", 1),
-    ],
-)
+@pytest.mark.parametrize(("argument", "value"), [("search", 1), ("replacement", 1)])
 def test_replace_text_rejects_non_string_inputs(argument: str, value: object) -> None:
     doc = pylopdf.open(build_pdf(["Hello PDF"]))
     kwargs: dict[str, object] = {"search": "PDF", "replacement": "Cat", argument: value}
@@ -1498,41 +1489,9 @@ def test_replace_text_rejects_non_string_inputs(argument: str, value: object) ->
         doc.pages[0].replace_text(**kwargs)  # ty: ignore[invalid-argument-type]
 
 
-def test_replace_text_allows_exact_input_boundary_and_linear_fallback() -> None:
+def test_replace_text_allows_exact_input_boundary() -> None:
     boundary = pylopdf.open(build_pdf(["Hello PDF"]))
     assert boundary.pages[0].replace_text("PDF", "x" * 4093) == 1
-
-    fallback = pylopdf.open(build_pdf(["Hello PDF"]))
-    assert fallback.pages[0].replace_text("PDF", "🦀", default_char="!") == 1
-    assert "Hello !" in fallback.pages[0].text()
-
-
-@pytest.mark.parametrize("max_size", [0, -1, True, 1.5])
-def test_replace_text_validates_output_budget(max_size: object) -> None:
-    doc = pylopdf.open(build_pdf(["Hello PDF"]))
-    with pytest.raises((TypeError, ValueError), match="max_size"):
-        doc.pages[0].replace_text("PDF", "Cat", max_size=max_size)  # ty: ignore[invalid-argument-type]
-
-
-def test_replace_text_bounds_content_and_preserves_document() -> None:
-    doc = pylopdf.open(build_pdf(["Hello PDF"]))
-    page = doc.pages[0]
-    before = doc.to_bytes()
-
-    with pytest.raises(pylopdf.LimitError) as caught:
-        page.replace_text("PDF", "Cat", max_size=16)
-    assert caught.value.code == "replacement_output_size"
-    assert doc.to_bytes() == before
-
-
-def test_replace_text_bounds_replacement_growth_before_mutation() -> None:
-    doc = pylopdf.open(build_pdf(["A" * 100]))
-    before = doc.to_bytes()
-
-    with pytest.raises(pylopdf.LimitError) as caught:
-        doc.pages[0].replace_text("A", "BBBBBBBB", max_size=256)
-    assert caught.value.code == "replacement_output_size"
-    assert doc.to_bytes() == before
 
 
 def test_replace_text_rejects_oversized_contents_shape_before_mutation() -> None:
@@ -1568,6 +1527,8 @@ def test_replace_text_error_is_atomic() -> None:
     )
     before = doc.to_bytes()
 
-    with pytest.raises(pylopdf.PdfError, match="text replacement failed"):
+    # The text has no font, so hayro draws it in Helvetica, which this page
+    # does not hold.
+    with pytest.raises(pylopdf.PdfError, match="cannot draw"):
         doc.pages[0].replace_text("Hello", "Goodbye")
     assert doc.to_bytes() == before

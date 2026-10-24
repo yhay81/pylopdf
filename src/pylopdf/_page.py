@@ -12,6 +12,7 @@ from pylopdf._boxes import PageBoxes
 from pylopdf._canvas import Canvas
 from pylopdf._content import Color, Content, _content_from_core
 from pylopdf._errors import StalePageError
+from pylopdf._fonts import Font
 from pylopdf._geometry import Matrix, Quad, Rect
 from pylopdf._hints import hinted_getattr
 from pylopdf._images import Resources
@@ -43,7 +44,7 @@ from pylopdf._redaction import clip_to_rect as _clip_to_rect
 from pylopdf._redaction import redact as _redact
 from pylopdf._tables import Table, build_tables
 from pylopdf._widgets import Widgets
-from pylopdf.pylopdf_core import LimitError
+from pylopdf.pylopdf_core import LimitError, PdfError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -55,7 +56,6 @@ if TYPE_CHECKING:
     from pylopdf.pylopdf_core import Pixmap
 
 
-_DEFAULT_MAX_TEXT_REPLACEMENT_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_CONTENT_ELEMENTS = 262_144
 _MAX_HIGHLIGHT_RECTS = 4096
 _MAX_ANNOTATION_INPUT_TEXT_SIZE = 1024 * 1024
@@ -802,27 +802,27 @@ class Page:
         """
         self._document._doc.clean_page_contents(self._page_number())
 
-    def replace_text(
-        self,
-        search: str,
-        replacement: str,
-        *,
-        default_char: str | None = None,
-        max_size: int | None = _DEFAULT_MAX_TEXT_REPLACEMENT_SIZE,
-    ) -> int:
-        """Replace text on the page and return the number of replacements.
+    def replace_text(self, search: str, replacement: str, *, fallback_font: Font | None = None) -> int:
+        """Replace every occurrence of ``search`` with ``replacement`` in the font that draws it, and count them.
 
-        This follows lopdf's constrained simple-font replacement model. It
-        works only with simply encoded fonts such as WinAnsi, not CID/CJK fonts.
-        Characters absent from the font become ``default_char`` (``"?"`` by
-        default). Widths are not recalculated, so differing text lengths may
-        shift layout. ``max_size`` bounds decoded page/font data and the
-        re-encoded content stream; ``None`` opts out for trusted input.
+        An occurrence is a run of glyphs, in drawing order and in one content
+        stream, whose texts as extraction reads them spell ``search``. The
+        replacement is encoded in the font of the run's first glyph, through
+        the codes the page already draws with it, its ``/ToUnicode`` CMap, a
+        predefined UCS-2 or UTF-16 CMap, or, for a simple font that is not
+        embedded, its encoding; simple, Type 3, and composite fonts, in both
+        writing modes, are covered. The new advance is computed from the
+        font's widths, and one ``TJ`` adjustment keeps the text after the
+        occurrence where it was. A Form XObject placement is copied before
+        it changes, and ``/ActualText`` around the old glyphs is removed.
 
-        Search, replacement, and fallback text are limited to 4,096 aggregate
-        UTF-8 bytes. Resource refusals raise :class:`LimitError` with code
-        ``replacement_input_size`` or ``replacement_output_size``. A no-match
-        result and every refusal leave the document and its caches unchanged.
+        Text that the font cannot draw is refused with :class:`PdfError`,
+        leaving the page unchanged, unless ``fallback_font`` (an OpenType
+        :class:`Font` that has every glyph of ``replacement``) is given: the
+        occurrence is then removed and the replacement drawn in that font at
+        its first glyph's position, size, angle, and fill colour. Search and
+        replacement text are limited to 4,096 UTF-8 bytes together
+        (``replacement_input_size``).
         """
         if not isinstance(search, str):
             msg = f"search must be a string: {type(search).__name__}"
@@ -830,29 +830,44 @@ class Page:
         if not isinstance(replacement, str):
             msg = f"replacement must be a string: {type(replacement).__name__}"
             raise TypeError(msg)
-        if default_char is not None and not isinstance(default_char, str):
-            msg = f"default_char must be a string or None: {type(default_char).__name__}"
-            raise TypeError(msg)
         if not search:
             msg = "search must be at least 1 character"
             raise ValueError(msg)
-        if default_char is not None and len(default_char) != 1:
-            msg = "default_char must contain exactly one character"
-            raise ValueError(msg)
-        _validate_optional_positive_int("max_size", max_size)
         _validate_cumulative_utf8_input(
-            (search, replacement, "" if default_char is None else default_char),
+            (search, replacement),
             _MAX_TEXT_REPLACEMENT_INPUT_BYTES,
             limit_code="replacement_input_size",
             input_label="text replacement input",
         )
-        return self._document._doc.replace_text_on_page(
-            self._page_number(),
-            search,
-            replacement,
-            default_char,
-            max_size,
+        colors = {} if fallback_font is None else self._fallback_colors(fallback_font, replacement)
+        count, fallbacks = self._document._doc.replace_text_in_fonts(
+            self._page_number(), search, replacement, fallback_font is not None
         )
+        self._document._emit_warnings()
+        if fallbacks:
+            with self.draw() as canvas:
+                for (x, y), size, angle, text in fallbacks:
+                    fill = colors.get((round(x, 2), round(y, 2)), Color(0.0, 0.0, 0.0))
+                    cos, sin = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+                    with canvas.transform(Matrix(cos, sin, -sin, cos, x, y)):
+                        canvas.text(text, (0, 0), font=fallback_font, size=size, fill=fill)
+        return count
+
+    def _fallback_colors(self, font: Font, replacement: str) -> dict[tuple[float, float], Color]:
+        """Check a fallback font for ``replace_text`` and map glyph origins to their fill colours."""
+        if not isinstance(font, Font) or font._font.standard_name is not None:
+            msg = "fallback_font is an OpenType Font, such as Font.from_file(path)"
+            raise TypeError(msg)
+        missing = [char for char in replacement if not char.isspace() and not font.has_glyph(char)]
+        if missing:
+            msg = f"fallback_font has no glyph for {missing[0]!r}"
+            raise PdfError(msg)
+        colors: dict[tuple[float, float], Color] = {}
+        for run in self.content(paths=False, images=False).text_runs:
+            if isinstance(run.fill, Color):
+                for glyph in run.glyphs:
+                    colors[round(glyph.origin.x, 2), round(glyph.origin.y, 2)] = run.fill
+        return colors
 
     @property
     def label(self) -> str:

@@ -237,7 +237,7 @@ page.rotation = 90
 | メンバ | 用途 |
 |---|---|
 | `draw(*, underlay=False)` | テキスト、線や四角形などのパス、画像、任意の文書のページを順に描く[キャンバス](#canvas)。[テキストを書く](#writing-text)を参照 |
-| `replace_text(search, replacement, *, default_char=None)` | 単純な（1バイトの）フォントで描かれたテキストを置換 |
+| `replace_text(search, replacement, *, fallback_font=None)` | テキストを描いているフォントのまま置換し、後続のテキストの位置を保つ |
 
 同じ画像やページを再び描いても、ファイルには1回だけ格納されます。
 
