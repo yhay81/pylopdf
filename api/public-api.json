@@ -9521,6 +9521,48 @@
             ]
           }
         },
+        "from_bytes": {
+          "kind": "staticmethod",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "data"
+              },
+              {
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              },
+              {
+                "default": 64000000,
+                "kind": "keyword_only",
+                "name": "max_pixels"
+              }
+            ]
+          }
+        },
+        "from_file": {
+          "kind": "staticmethod",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "path"
+              },
+              {
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              },
+              {
+                "default": 64000000,
+                "kind": "keyword_only",
+                "name": "max_pixels"
+              }
+            ]
+          }
+        },
         "height": {
           "kind": "property"
         },

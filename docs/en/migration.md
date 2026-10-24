@@ -129,6 +129,7 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `page.get_images()` | `page.resources.images` | `ImageObject` handles with `xref`, `width`, `height`, `bits`, `colorspace`, `filters`, and masks instead of tuples |
 | `doc.extract_image(xref)` | `doc.images[xref].extract()` | An `EncodedImage` with `format`, `data`, and `resolution`; the size, color space, and masks are properties of `doc.images[xref]` |
 | `pymupdf.Pixmap(doc, xref)` | `doc.images[xref].to_pixmap()` | `alpha=True` applies the image's masks |
+| `pymupdf.Pixmap(filename)`, `pymupdf.Pixmap(stream)` | `Pixmap.from_file(path)`, `Pixmap.from_bytes(data)` | PNG and JPEG; other formats belong to Pillow, then `Pixmap.from_array(numpy.asarray(image))` |
 | `page.get_image_info()` | `page.content(text_runs=False, paths=False).images` | `Image` records with `xref`, `bbox`, `matrix` (pymupdf's `transform`), size, color space, mask, and resolution; no `hashes=` yet |
 | `page.get_drawings()`, `get_cdrawings()` | `page.content(text_runs=False, images=False).paths` | `Path` records with `segments`, `fill`, `fill_rule`, `stroke`, and `bbox`; each path's `context` holds the clips, groups, and marked content that `extended=True` listed as entries of their own |
 | `page.get_texttrace()`, `get_bboxlog()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | Text runs with their glyphs, paths, and images as immutable values; see [Page content](api.md#content) |

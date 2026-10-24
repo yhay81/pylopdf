@@ -90,6 +90,7 @@ python -m pylopdf.migrate src/
 | `page.get_images()` | `page.resources.images` | タプルの代わりに`xref`、`width`、`height`、`bits`、`colorspace`、`filters`、マスクを持つ`ImageObject`ハンドル |
 | `doc.extract_image(xref)` | `doc.images[xref].extract()` | `format`、`data`、`resolution`を持つ`EncodedImage`。サイズ、色空間、マスクは`doc.images[xref]`のプロパティです |
 | `pymupdf.Pixmap(doc, xref)` | `doc.images[xref].to_pixmap()` | `alpha=True`で画像のマスクを適用します |
+| `pymupdf.Pixmap(filename)`、`pymupdf.Pixmap(stream)` | `Pixmap.from_file(path)`、`Pixmap.from_bytes(data)` | PNGとJPEG。ほかの形式はPillowで読み、`Pixmap.from_array(numpy.asarray(image))`に渡します |
 | `page.get_image_info()` | `page.content(text_runs=False, paths=False).images` | `xref`、`bbox`、`matrix`（pymupdfの`transform`）、サイズ、色空間、マスク、解像度を持つ`Image`レコード。`hashes=`にはまだ対応していません |
 | `page.get_drawings()`, `get_cdrawings()` | `page.content(text_runs=False, images=False).paths` | `segments`、`fill`、`fill_rule`、`stroke`、`bbox`を持つ`Path`レコード。`extended=True`が別の項目として返したクリップ、グループ、マーク付きコンテンツは、各パスの`context`が持ちます |
 | `page.get_texttrace()`, `get_bboxlog()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | グリフを持つテキストラン、パス、画像を不変の値で返します。[ページの内容](api.md#content)を参照 |
