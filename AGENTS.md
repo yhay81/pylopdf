@@ -2864,7 +2864,18 @@ the concept and API overview.
   group, label)`; reads are iterative and cycle-aware, and both directions
   stop at 65,536 entries and 32 levels. `apply()` replaces `/D` with a copy
   of the alternative, keeping `/D /Order` when the copy has none, because
-  only `/D` reaches hayro. hayro ignores `/VE`, an
+  only `/D` reaches hayro. `/OC` values cross the boundary as `(kind, group,
+  policy, groups, expression)`: none, a reference to a group, or a membership
+  (a referenced dictionary with `/Type /OCMD`, or any direct dictionary, as
+  hayro's `xobject_oc` reads them), with `/VE` as preorder entries `(depth,
+  operator, group)`. Assigning a membership always adds a new `/OCMD` object.
+  `layer` on annotations, links, and widgets edits through `annotation_at`
+  and `edited_annotation`, so a direct annotation becomes an object first;
+  `ImageObject.layer` edits the stream dictionary (images and forms), and
+  `page.resources.layers` reads the inherited `/Properties`, listing only
+  OCG references and memberships. Edits keep placements. hayro evaluates a
+  `/Properties` entry only through a reference, so a direct membership
+  there renders as visible; hayro also ignores `/VE`, an
   annotation's own `/OC`, other configurations, and intents (#338).
 - `Document.pdfa_claim` releases the GIL and applies a 1 MiB decoded XMP
   limit to every filter layer; the core's `pdfa_claim(max_size)` takes the

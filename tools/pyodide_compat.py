@@ -1637,6 +1637,10 @@ def _optional_content_results() -> dict[str, Any]:
     printing = document.layers.configurations.add("Print", base_state="OFF", on=[notes])
     printing.apply()
     applied = page.text().split()
+    link = page.links.add((10, 10, 50, 50), "https://example.com")
+    link.layer = pylopdf.LayerMembership(
+        (notes,), expression=pylopdf.LayerExpression("not", (hidden,)), policy=pylopdf.VisibilityPolicy.ALL_OFF
+    )
     saved = pylopdf.open(document.to_bytes())
     _require(before[0] == ["Bravo"] and after[0] == [], "layer visibility did not change extraction")
     _require(before[1] != after[1], "layer visibility did not change rendering")
@@ -1646,6 +1650,8 @@ def _optional_content_results() -> dict[str, Any]:
         "added": [added.name, list(added.intent), added.is_visible],
         "saved": [[layer.name, list(layer.intent), layer.is_visible] for layer in saved.layers],
         "applied": applied,
+        "resources": sorted(saved.pages[0].resources.layers),
+        "link_layer": repr(saved.pages[0].links[0].layer),
         "configurations": [
             [config.name, str(config.base_state), [layer.name for layer in config.on], repr(config.order)]
             for config in saved.layers.configurations

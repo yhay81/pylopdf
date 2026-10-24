@@ -15,6 +15,7 @@ from pylopdf._errors import StalePageError
 from pylopdf._fonts import Font
 from pylopdf._geometry import Point, Quad, Rect
 from pylopdf._hints import hinted_getattr
+from pylopdf._layers import Layer, LayerMembership, _annotation_layer, _set_annotation_layer
 from pylopdf._limits import _validate_cumulative_utf8_input, _validate_optional_positive_int, _validate_rect
 from pylopdf._objects import Dictionary
 from pylopdf.pylopdf_core import LimitError, StaleObjectError
@@ -425,6 +426,24 @@ class Annotation:
         """Return the annotation's object number, or 0 for a dictionary stored in ``/Annots`` itself."""
         self._read()
         return self._xref
+
+    @property
+    def layer(self) -> Layer | LayerMembership | None:
+        """Return the optional-content group or membership that shows or hides the annotation (``/OC``), or ``None``.
+
+        Assigning a :class:`Layer` or a :class:`LayerMembership` sets it, and
+        ``del`` removes it. Viewers hide the annotation with its group; hayro 0.8
+        draws it regardless.
+        """
+        return _annotation_layer(self)
+
+    @layer.setter
+    def layer(self, layer: Layer | LayerMembership | None) -> None:
+        _set_annotation_layer(self, layer)
+
+    @layer.deleter
+    def layer(self) -> None:
+        _set_annotation_layer(self, None)
 
     @property
     def obj(self) -> Dictionary:

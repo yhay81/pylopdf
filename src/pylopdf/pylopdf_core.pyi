@@ -59,6 +59,7 @@ _ObjectRoot: TypeAlias = tuple[int, int] | None
 _PageBox: TypeAlias = tuple[float, float, float, float]
 _Target: TypeAlias = tuple[str, int | None, tuple[float, float] | None, float | None, str | None, str | None]
 _OutlineColor: TypeAlias = tuple[float, float, float] | None
+_LayerValue: TypeAlias = tuple[int, tuple[int, int], str, list[tuple[int, int]], list[tuple[int, str, tuple[int, int]]]]
 _AnnotationTexts: TypeAlias = tuple[
     str | None, str | None, str | None, str | None, str | None, str | None, str | None, str | None
 ]
@@ -550,6 +551,21 @@ class _Document:
         self, slot: int, entries: list[tuple[int, bool, tuple[int, int], str | None]]
     ) -> None: ...
     def apply_layer_configuration(self, slot: int) -> None: ...
+    def annotation_layer(self, page_number: int, index: int, xref: int) -> tuple[int, _LayerValue]: ...
+    def set_annotation_layer(
+        self,
+        page_number: int,
+        index: int,
+        xref: int,
+        value: _LayerValue,
+    ) -> int: ...
+    def xobject_layer(self, xref: int) -> _LayerValue: ...
+    def set_xobject_layer(
+        self,
+        xref: int,
+        value: _LayerValue,
+    ) -> None: ...
+    def page_layers(self, page_number: int) -> list[tuple[str, _LayerValue]]: ...
     def add_layer_configuration(
         self,
         name: str,
