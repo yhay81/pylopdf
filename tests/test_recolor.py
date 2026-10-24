@@ -134,6 +134,11 @@ def test_recolor_refuses_unknown_spaces() -> None:
         doc.pages[0].recolor("lab")  # ty: ignore[invalid-argument-type]
     with pytest.raises(ValueError, match="'gray' or 'rgb'"):
         doc.pages[0].pixmap(colorspace="cmyk")  # ty: ignore[invalid-argument-type]
+    # Recoloring accepts CMYK; rendering still refuses it.
+    with pytest.raises(ValueError, match="'gray' or 'rgb'"):
+        doc.pages[0].pixmap(colorspace=pylopdf.Colorspace.CMYK)
+    with pytest.raises(ValueError, match="'gray' or 'rgb'"):
+        doc.render(colorspace=pylopdf.Colorspace.CMYK)
 
 
 def test_a_page_already_in_the_target_space_is_unchanged() -> None:
