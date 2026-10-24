@@ -1635,6 +1635,20 @@ def _attachment_results() -> dict[str, Any]:
     }
 
 
+def _paper_and_date_results() -> dict[str, Any]:
+    """Add pages of standard paper sizes and convert PDF dates both ways."""
+    import pylopdf  # noqa: PLC0415
+
+    document = pylopdf.Document()
+    document.pages.new(pylopdf.PaperSize.A4)
+    document.pages.new(pylopdf.PaperSize.LETTER.landscape)
+    value = pylopdf.parse_pdf_date("D:20260102030405+09'30'")
+    return {
+        "pages": [list(page.rect) for page in pylopdf.open(document.to_bytes()).pages],
+        "date": [value.isoformat(), pylopdf.pdf_date(value)],
+    }
+
+
 def _document_property_results(root: Path) -> dict[str, Any]:
     """Read and write XMP metadata and the catalog's viewer and marking properties."""
     import pylopdf  # noqa: PLC0415
@@ -1891,6 +1905,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "optional_content": _optional_content_results(),
         "document_properties": _document_property_results(root),
         "attachments": _attachment_results(),
+        "paper_and_dates": _paper_and_date_results(),
         "content_model": _content_model_results(root),
         "canvas": _canvas_results(root),
         "create": _create_results(root),

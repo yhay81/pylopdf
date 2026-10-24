@@ -113,7 +113,7 @@ from pylopdf._images import EncodedImage, ImageObject, Images, Resources
 from pylopdf._layers import Layer, LayerBaseState, LayerConfiguration, LayerConfigurations, LayerOrder, Layers
 from pylopdf._limits import DocumentLimits
 from pylopdf._links import Destinations, Link, Links
-from pylopdf._metadata import MarkInfo, Metadata, PageLayout, PageMode, PdfaClaim
+from pylopdf._metadata import MarkInfo, Metadata, PageLayout, PageMode, PdfaClaim, parse_pdf_date, pdf_date
 from pylopdf._objects import Array, Dictionary, Name, Objects, Stream, String
 from pylopdf._ocr import OcrEngine, OcrWord
 from pylopdf._operations import InlineImage, Operation, Operations
@@ -121,6 +121,7 @@ from pylopdf._outline import Outline, OutlineEntry, OutlineItem
 from pylopdf._page import Page
 from pylopdf._page_labels import PageLabelRange, PageLabelStyle
 from pylopdf._pages import Pages
+from pylopdf._paper import PaperSize
 from pylopdf._pixmap import Colorspace
 from pylopdf._tables import Table, TableDiagnostics
 from pylopdf._targets import Destination, Launch, NamedAction, RemoteDestination, Target
@@ -248,6 +249,7 @@ __all__ = [
     "PageMode",
     "Pages",
     "Paint",
+    "PaperSize",
     "PasswordError",
     "Path",
     "PathBuilder",
@@ -305,6 +307,8 @@ __all__ = [
     "Word",
     "create",
     "open",
+    "parse_pdf_date",
+    "pdf_date",
     "probe",
 ]
 __all__ += ["Pixmap", "PylopdfWarning"]

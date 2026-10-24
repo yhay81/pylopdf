@@ -2798,6 +2798,12 @@ the concept and API overview.
   input copies, and encoded PDF strings grow fallibly; duplicate tracking
   uses a fixed bitset for the nine keys.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
+- PDF dates stay strings everywhere (ROADMAP.md D7); `pdf_date()` and
+  `parse_pdf_date()` in `_metadata.py` convert, following ISO 32000-2
+  §7.9.4 leniently on input (optional `D:`, parts after the year, and
+  apostrophes) and writing `Z` or `+HH'mm'`. `PaperSize` (`_paper.py`) is a
+  `tuple` enum of ISO 216/269 sizes rounded to whole points and the North
+  American sizes, so a member is the `(width, height)` pair itself.
 - Page-label number-tree reads borrow node shapes, visit indirect cycles once,
   release the GIL, and reject the complete result above 4,096 entries/nodes, 32
   levels, or 1 MiB of encoded/decoded style and prefix text. Do not return a

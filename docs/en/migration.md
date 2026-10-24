@@ -81,6 +81,8 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `doc.select(indexes)` | `doc.pages.select(indexes)` | Also removes form fields and tagged-PDF structure of the pages left out |
 | `doc.delete_page(i)`, `delete_pages(a, b)`, `del doc[i]` | `del doc.pages[i]`, `del doc.pages[a:b + 1]` | Keep the other pages of a list with `doc.pages.select(...)` |
 | `doc.new_page(pno, width=, height=)` | `doc.pages.new((width, height), index=pno)` | Appended unless `index` is given |
+| `paper_size("a4")`, `paper_size("a4-l")`, `paper_rect("a4")` | `PaperSize.A4`, `PaperSize.A4.landscape`, `Rect(0, 0, *PaperSize.A4)` | |
+| `get_pdf_now()` | `pdf_date()` | `pdf_date(value)` formats a given `datetime`, and `parse_pdf_date(text)` reads one back |
 | `doc.insert_page(pno, text, ...)` | `doc.pages.new(size, index=pno)`, then `page.draw()` and `canvas.text(...)` | |
 | `doc.copy_page(pno, to)`, `fullcopy_page(pno, to)` | `doc.pages.insert(to, doc.pages[pno])` | pylopdf never shares one page object between two pages |
 | `doc.move_page(pno, to)` | `doc.pages.move(pno, index)` | `index` is where the page ends up; pymupdf inserted before page `to` |
