@@ -1341,7 +1341,13 @@ the concept and API overview.
   64,000,000-pixel `image_pixel_count` limits, sharing `read_image_input` and
   `validate_image_input`; the pixel and 65,535-pixel side checks read the
   headers before any sample is allocated, and a buffer that is not `bytes` is
-  measured before PyO3 copies it. `Pixmap.to_bytes` defaults to a
+  measured before PyO3 copies it. Image processing (tinting, gamma,
+  inversion, alpha, colour statistics, turning, shrinking, and warping) is
+  the NumPy and Pillow recipes of `docs/en/ecosystem.md#image-processing`,
+  not Pixmap methods: `tests/test_image_recipes.py` executes that section's
+  Python blocks and checks each function against pymupdf 2.0's results, so a
+  recipe edit is a test edit, and the localized guides copy the blocks
+  unchanged. `Pixmap.to_bytes` defaults to a
   64 MiB encoded-output boundary; the bounded writer refuses the write
   crossing the limit before Python bytes conversion and grows its retained
   output fallibly. `max_size=None` is the explicit trusted-output opt-out.
