@@ -13,12 +13,13 @@ if sys.platform == "win32":
 # Page.layout(): a span is (bbox, text, size, origin, font, flags, style), and
 # its style (sRGB color and alpha, render mode, clipped, ascender, descender).
 _SpanStyleTuple: TypeAlias = tuple[tuple[float, float, float, float] | None, int, bool, float, float]
+_QuadTuple: TypeAlias = tuple[tuple[float, float], tuple[float, float], tuple[float, float], tuple[float, float]]
 _SpanTuple: TypeAlias = tuple[
-    tuple[float, float, float, float], str, float, tuple[float, float], str, int, _SpanStyleTuple
+    tuple[float, float, float, float], str, float, tuple[float, float], str, int, _SpanStyleTuple, _QuadTuple
 ]
 _WordTuple: TypeAlias = tuple[tuple[float, float, float, float], str]
 _LineTuple: TypeAlias = tuple[
-    tuple[float, float, float, float], list[_SpanTuple], list[_WordTuple], tuple[float, float], int
+    tuple[float, float, float, float], list[_SpanTuple], list[_WordTuple], tuple[float, float], int, _QuadTuple
 ]
 _BlockTuple: TypeAlias = tuple[tuple[float, float, float, float], list[_LineTuple]]
 _RawCharTuple: TypeAlias = tuple[str, tuple[float, float, float, float], tuple[float, float], bool]
@@ -34,9 +35,10 @@ _RawSpanTuple: TypeAlias = tuple[
     str,
     int,
     _SpanStyleTuple,
+    _QuadTuple,
 ]
 _RawLineTuple: TypeAlias = tuple[
-    tuple[float, float, float, float], list[_RawSpanTuple], list[_WordTuple], tuple[float, float], int
+    tuple[float, float, float, float], list[_RawSpanTuple], list[_WordTuple], tuple[float, float], int, _QuadTuple
 ]
 _RawBlockTuple: TypeAlias = tuple[tuple[float, float, float, float], list[_RawLineTuple]]
 
@@ -329,6 +331,12 @@ class Pixmap:
     ) -> None: ...
     def __buffer__(self, flags: int, /) -> memoryview: ...
 
+class _DocumentSnapshot:
+    @property
+    def size(self) -> int: ...
+    @property
+    def is_used(self) -> bool: ...
+
 class _Document:
     def __init__(
         self,
@@ -427,18 +435,29 @@ class _Document:
     def save_bytes(self, max_size: int | None = None) -> bytes: ...
     def save_with_object_streams(self, path: str) -> None: ...
     def save_bytes_with_object_streams(self, max_size: int | None = None) -> bytes: ...
+    def take_snapshot(self) -> _DocumentSnapshot: ...
+    def restore_snapshot(self, snapshot: _DocumentSnapshot) -> None: ...
     def can_save_incrementally(self) -> bool: ...
     def save_incremental(self, path: str, compress: bool) -> None: ...
     def save_bytes_incremental(self, compress: bool, max_size: int | None = None) -> bytes: ...
     def save_encrypted(
-        self, path: str, user_password: str, owner_password: str, permissions: int, file_encryption_key: bytes
-    ) -> None: ...
-    def save_bytes_encrypted(
         self,
+        path: str,
+        method: str,
         user_password: str,
         owner_password: str,
         permissions: int,
         file_encryption_key: bytes,
+        document_id: bytes,
+    ) -> None: ...
+    def save_bytes_encrypted(
+        self,
+        method: str,
+        user_password: str,
+        owner_password: str,
+        permissions: int,
+        file_encryption_key: bytes,
+        document_id: bytes,
         max_size: int | None = None,
     ) -> bytes: ...
     def outline_entries(
@@ -603,6 +622,20 @@ class _Document:
         max_hits: int | None = 4096,
         options: _TextOptions | None = None,
     ) -> list[tuple[float, float, float, float]]: ...
+    def select_text(
+        self,
+        page_number: int,
+        start: tuple[float, float],
+        end: tuple[float, float],
+        options: _TextOptions | None = None,
+    ) -> str: ...
+    def search_page_quads(
+        self,
+        page_number: int,
+        needle: str,
+        max_hits: int | None = 4096,
+        options: _TextOptions | None = None,
+    ) -> list[_QuadTuple]: ...
     def extract_images(
         self, page_number: int
     ) -> list[tuple[int, int, tuple[float, float, float, float], str, bytes]]: ...

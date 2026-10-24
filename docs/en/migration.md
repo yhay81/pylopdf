@@ -71,15 +71,22 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `doc.authenticate(password)` | `doc.unlock(password)` | Returns `Access.USER` or `Access.OWNER` and raises `PasswordError` for a wrong password instead of returning 0 |
 | `doc.permissions`, `is_dirty` | Same | `permissions` is a `Permissions` flag value: `Permissions.ALL` instead of `-4` |
 | `doc.save(garbage=4, deflate=True)` | `doc.save(dedupe=True, renumber=True)` | Saving compresses streams and removes unused objects by default; `garbage=0` becomes `prune=False` and `deflate=False` `compress=False`. Pages, annotations, form fields, and layers are never merged |
-| `doc.save(encryption=PDF_ENCRYPT_AES_256, user_pw=…, owner_pw=…, permissions=…)` | `doc.save(encryption=Encryption(user_password=…, owner_password=…, permissions=…))` | AES-256 only |
+| `doc.save(encryption=PDF_ENCRYPT_AES_256, user_pw=…, owner_pw=…, permissions=…)` | `doc.save(encryption=Encryption(user_password=…, owner_password=…, permissions=…))` | `PDF_ENCRYPT_AES_128` adds `method="aes-128"`; RC4 is not written |
+| `doc.save(encryption=PDF_ENCRYPT_KEEP)`, pymupdf's default | `doc.save(encryption=Encryption.KEEP)` | pylopdf's default, `None`, writes no encryption; `KEEP` keeps AES-128 and AES-256 and refuses RC4 |
 | `doc.tobytes(...)`, `doc.write(...)` | `doc.to_bytes(...)` | The options of `save()` |
 | `doc.save(use_objstms=True)` | `doc.save(object_streams=True)` | |
 | `doc.saveIncr()`, `doc.save(name, incremental=True)` | `doc.save(path, incremental=True)` | Any path, including the file the document came from; refuses `dedupe`, `renumber`, `object_streams`, and `encryption` |
 | `doc.can_save_incrementally()` | `doc.can_save_incrementally` | A property |
 | `doc.ez_save(path)` | `doc.save(path, dedupe=True, renumber=True, object_streams=True)` | |
+| `doc.journal_enable()`, `journal_start_op(name)` … `journal_stop_op()` | `with doc.transaction(name):` | Always available; a block that raises is undone |
+| `doc.journal_undo()`, `journal_redo()`, `journal_can_do()` | `doc.history.undo()`, `redo()`, `can_undo`, `can_redo` | |
+| `doc.journal_position()`, `journal_op_name(i)` | `doc.history.position`, `doc.history.steps[i]` | |
+| `doc.journal_save()`, `journal_load()`, `save_snapshot()` | None | Steps stay in memory, within `doc.history.max_size` |
 | `doc.select(indexes)` | `doc.pages.select(indexes)` | Also removes form fields and tagged-PDF structure of the pages left out |
 | `doc.delete_page(i)`, `delete_pages(a, b)`, `del doc[i]` | `del doc.pages[i]`, `del doc.pages[a:b + 1]` | Keep the other pages of a list with `doc.pages.select(...)` |
 | `doc.new_page(pno, width=, height=)` | `doc.pages.new((width, height), index=pno)` | Appended unless `index` is given |
+| `paper_size("a4")`, `paper_size("a4-l")`, `paper_rect("a4")` | `PaperSize.A4`, `PaperSize.A4.landscape`, `Rect(0, 0, *PaperSize.A4)` | |
+| `get_pdf_now()` | `pdf_date()` | `pdf_date(value)` formats a given `datetime`, and `parse_pdf_date(text)` reads one back |
 | `doc.insert_page(pno, text, ...)` | `doc.pages.new(size, index=pno)`, then `page.draw()` and `canvas.text(...)` | |
 | `doc.copy_page(pno, to)`, `fullcopy_page(pno, to)` | `doc.pages.insert(to, doc.pages[pno])` | pylopdf never shares one page object between two pages |
 | `doc.move_page(pno, to)` | `doc.pages.move(pno, index)` | `index` is where the page ends up; pymupdf inserted before page `to` |
@@ -116,7 +123,10 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `page.get_text("xhtml")` | `page.markdown()` | The semantic form of headings, paragraphs, lists, and tables |
 | `page.get_textpage()`, `TextPage`, `page.extend_textpage()` | The page's own `text()`, `words()`, `layout()`, and `search()` | There is no text-page object: each page caches its interpretation, which every view reads |
 | `doc.search_page_for(i, text)` | `doc.pages[i].search(text)` | |
-| `page.search_for(text)` | `page.search(text)` | Returns rectangles; no `quads=`; at most 4,096 results unless `max_hits=` is raised |
+| `page.get_textbox(rect)` | `page.text(clip=rect)` | Keeps the characters whose box's center lies inside |
+| `page.get_text_selection(p1, p2, clip)` | `page.selection(p1, p2, clip=clip)` | From the character nearest each point, in reading order |
+| `page.search_for(text, clip=…, quads=…)` | `page.search(text, clip=…, quads=…)` | At most 4,096 matches unless `max_hits=` is raised |
+| `recover_quad()`, `recover_span_quad()`, `recover_line_quad()`, `recover_char_quad()` | `span.quad`, `line.quad` of `page.layout()` | Characters have no quad of their own; `page.search(text, quads=True)` gives the quad of any run of characters |
 | `page.find_tables()` | `page.tables()` | A list of `Table` records: `table.rows` replaces `extract()`, `len(table.rows)` replaces `row_count`, and `table.cells` holds the boxes row by row. No tuning keywords, `header`, or `to_pandas()` yet |
 | `page.get_textpage_ocr()` | `page.ocr()`, `page.apply_ocr()` | Built-in offline OCR; see [Offline OCR](ocr.md) |
 | `pymupdf4llm.to_markdown(doc)` | `doc.markdown()` | Built in |

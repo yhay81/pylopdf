@@ -143,8 +143,9 @@ class Pages(Sequence[Page]):
         """Add a blank page of ``size`` points and return it.
 
         The page is appended unless ``index`` is given, which is clamped as
-        ``list.insert`` clamps it. The default size is A4, rounded to
-        595 × 842 points.
+        ``list.insert`` clamps it. ``size`` takes a :class:`PaperSize`
+        member such as ``PaperSize.LETTER``. The default size is A4, rounded
+        to 595 × 842 points.
         """
         document = self._document
         width, height = _page_size(size)

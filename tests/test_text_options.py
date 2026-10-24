@@ -248,7 +248,7 @@ def test_text_options_are_validated(options: dict[str, object], error: type[Exce
         with pytest.raises(error, match=message):
             view(**options)  # ty: ignore[invalid-argument-type]
     with pytest.raises(error, match=message):
-        page.search("A", **options)  # ty: ignore[invalid-argument-type]
+        page.search("A", **options)  # ty: ignore[no-matching-overload]
     with pytest.raises(TypeError, match="exact_bboxes must be True or False"):
         page.words(exact_bboxes="yes")  # ty: ignore[invalid-argument-type]
 

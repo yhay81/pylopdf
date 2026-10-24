@@ -58,6 +58,7 @@
     "Glyph",
     "GraphicsContext",
     "Highlight",
+    "History",
     "IRect",
     "Image",
     "ImageCompressionResult",
@@ -113,6 +114,7 @@
     "PageMode",
     "Pages",
     "Paint",
+    "PaperSize",
     "PasswordError",
     "Path",
     "PathBuilder",
@@ -172,6 +174,8 @@
     "Word",
     "create",
     "open",
+    "parse_pdf_date",
+    "pdf_date",
     "probe"
   ],
   "schema": 1,
@@ -2893,6 +2897,10 @@
           "kind": "property",
           "returns": "Form"
         },
+        "history": {
+          "kind": "property",
+          "returns": "History"
+        },
         "images": {
           "kind": "property",
           "returns": "Images"
@@ -3326,6 +3334,24 @@
           "kind": "property",
           "returns": "Dictionary"
         },
+        "transaction": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "default": "",
+                "kind": "positional_or_keyword",
+                "name": "name"
+              }
+            ],
+            "returns": "Generator[None]"
+          }
+        },
         "unlock": {
           "kind": "method",
           "signature": {
@@ -3619,7 +3645,8 @@
     },
     "Encryption": {
       "annotations": {
-        "method": "Literal['aes-256']",
+        "KEEP": "ClassVar[Encryption]",
+        "method": "Literal['aes-256', 'aes-128', 'keep']",
         "owner_password": "str | None",
         "permissions": "Permissions",
         "user_password": "str"
@@ -3632,6 +3659,12 @@
       ],
       "kind": "class",
       "members": {
+        "KEEP": {
+          "kind": "attribute",
+          "value": {
+            "repr": "Encryption.KEEP"
+          }
+        },
         "method": {
           "kind": "property"
         },
@@ -3666,7 +3699,7 @@
             "name": "permissions"
           },
           {
-            "annotation": "Literal['aes-256']",
+            "annotation": "Literal['aes-256', 'aes-128', 'keep']",
             "default": "aes-256",
             "kind": "keyword_only",
             "name": "method"
@@ -4811,6 +4844,77 @@
             "default": null,
             "kind": "keyword_only",
             "name": "contents"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "History": {
+      "kind": "class",
+      "members": {
+        "can_redo": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "can_undo": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "clear": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "max_size": {
+          "kind": "property",
+          "returns": "int | None"
+        },
+        "position": {
+          "kind": "property",
+          "returns": "int"
+        },
+        "redo": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "steps": {
+          "kind": "property",
+          "returns": "tuple[str, ...]"
+        },
+        "undo": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "None"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
           }
         ],
         "returns": "None"
@@ -6211,6 +6315,7 @@
         "bbox": "Rect",
         "direction": "Point",
         "is_vertical": "bool",
+        "quad": "Quad",
         "spans": "tuple[Span, ...]",
         "text": "str"
       },
@@ -6219,7 +6324,8 @@
         "bbox",
         "direction",
         "is_vertical",
-        "spans"
+        "spans",
+        "quad"
       ],
       "kind": "class",
       "members": {
@@ -6230,6 +6336,9 @@
           "kind": "property"
         },
         "is_vertical": {
+          "kind": "property"
+        },
+        "quad": {
           "kind": "property"
         },
         "spans": {
@@ -6265,6 +6374,11 @@
             "annotation": "tuple[Span, ...]",
             "kind": "keyword_only",
             "name": "spans"
+          },
+          {
+            "annotation": "Quad",
+            "kind": "keyword_only",
+            "name": "quad"
           }
         ],
         "returns": "None"
@@ -8465,6 +8579,12 @@
                 "name": "clip"
               },
               {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "quads"
+              },
+              {
                 "annotation": "int | None",
                 "default": 4096,
                 "kind": "keyword_only",
@@ -8507,7 +8627,35 @@
                 "name": "exact_bboxes"
               }
             ],
-            "returns": "list[Rect]"
+            "returns": "list[Rect] | list[Quad]"
+          }
+        },
+        "selection": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "start"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "end"
+              },
+              {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              }
+            ],
+            "returns": "str"
           }
         },
         "svg": {
@@ -9045,6 +9193,163 @@
     "Paint": {
       "kind": "type-alias",
       "target": "pylopdf.Color | pylopdf.ShadingPattern | pylopdf.TilingPattern"
+    },
+    "PaperSize": {
+      "kind": "enum",
+      "members": {
+        "A0": [
+          2384,
+          3370
+        ],
+        "A1": [
+          1684,
+          2384
+        ],
+        "A10": [
+          74,
+          105
+        ],
+        "A2": [
+          1191,
+          1684
+        ],
+        "A3": [
+          842,
+          1191
+        ],
+        "A4": [
+          595,
+          842
+        ],
+        "A5": [
+          420,
+          595
+        ],
+        "A6": [
+          298,
+          420
+        ],
+        "A7": [
+          210,
+          298
+        ],
+        "A8": [
+          147,
+          210
+        ],
+        "A9": [
+          105,
+          147
+        ],
+        "B0": [
+          2835,
+          4008
+        ],
+        "B1": [
+          2004,
+          2835
+        ],
+        "B10": [
+          88,
+          125
+        ],
+        "B2": [
+          1417,
+          2004
+        ],
+        "B3": [
+          1001,
+          1417
+        ],
+        "B4": [
+          709,
+          1001
+        ],
+        "B5": [
+          499,
+          709
+        ],
+        "B6": [
+          354,
+          499
+        ],
+        "B7": [
+          249,
+          354
+        ],
+        "B8": [
+          176,
+          249
+        ],
+        "B9": [
+          125,
+          176
+        ],
+        "C0": [
+          2599,
+          3677
+        ],
+        "C1": [
+          1837,
+          2599
+        ],
+        "C10": [
+          79,
+          113
+        ],
+        "C2": [
+          1298,
+          1837
+        ],
+        "C3": [
+          918,
+          1298
+        ],
+        "C4": [
+          649,
+          918
+        ],
+        "C5": [
+          459,
+          649
+        ],
+        "C6": [
+          323,
+          459
+        ],
+        "C7": [
+          230,
+          323
+        ],
+        "C8": [
+          162,
+          230
+        ],
+        "C9": [
+          113,
+          162
+        ],
+        "EXECUTIVE": [
+          522,
+          756
+        ],
+        "HALF_LETTER": [
+          396,
+          612
+        ],
+        "LEGAL": [
+          612,
+          1008
+        ],
+        "LETTER": [
+          612,
+          792
+        ],
+        "TABLOID": [
+          792,
+          1224
+        ]
+      }
     },
     "PasswordError": {
       "bases": [
@@ -11654,6 +11959,7 @@
         "is_monospaced": "bool",
         "is_serif": "bool",
         "origin": "Point",
+        "quad": "Quad",
         "render_mode": "TextRenderMode",
         "size": "float",
         "text": "str"
@@ -11673,7 +11979,8 @@
         "is_clipped",
         "ascender",
         "descender",
-        "chars"
+        "chars",
+        "quad"
       ],
       "kind": "class",
       "members": {
@@ -11711,6 +12018,9 @@
           "kind": "property"
         },
         "origin": {
+          "kind": "property"
+        },
+        "quad": {
           "kind": "property"
         },
         "render_mode": {
@@ -11799,6 +12109,11 @@
             "annotation": "tuple[Char, ...]",
             "kind": "keyword_only",
             "name": "chars"
+          },
+          {
+            "annotation": "Quad",
+            "kind": "keyword_only",
+            "name": "quad"
           }
         ],
         "returns": "None"
@@ -13348,6 +13663,33 @@
           }
         ],
         "returns": "Document"
+      }
+    },
+    "parse_pdf_date": {
+      "kind": "function",
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "text"
+          }
+        ],
+        "returns": "datetime"
+      }
+    },
+    "pdf_date": {
+      "kind": "function",
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "datetime | None",
+            "default": null,
+            "kind": "positional_or_keyword",
+            "name": "value"
+          }
+        ],
+        "returns": "str"
       }
     },
     "probe": {

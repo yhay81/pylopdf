@@ -24,7 +24,7 @@ use hayro::vello_cpu::color::AlphaColor;
 use hayro::vello_cpu::peniko::ImageAlphaType;
 use hayro::vello_cpu::{RasterizerSettings, RenderContext, Resources, TargetInit};
 use hayro::{PixmapSettings, RenderCache, RenderSettings, render_into};
-use lopdf::encryption::crypt_filters::{Aes256CryptFilter, CryptFilter};
+use lopdf::encryption::crypt_filters::{Aes128CryptFilter, Aes256CryptFilter, CryptFilter};
 use lopdf::encryption::{EncryptionState, EncryptionVersion, Permissions};
 use lopdf::{
     DecompressError, Dictionary, Document, LoadOptions, Object, ObjectId, PdfMetadata, SaveOptions,
@@ -70,6 +70,8 @@ mod flattening;
 mod fonts;
 mod forms;
 mod geometry;
+/// Snapshots that transactions and undo restore.
+mod history;
 mod images;
 /// Incremental saves that append one update to the original bytes.
 mod incremental;
@@ -103,6 +105,7 @@ use self::extraction::*;
 pub(crate) use self::fonts::*;
 pub(crate) use self::forms::*;
 use self::geometry::*;
+pub(crate) use self::history::_DocumentSnapshot;
 pub(crate) use self::images::*;
 use self::incremental::IncrementalBase;
 pub(crate) use self::input::*;
@@ -118,6 +121,7 @@ use self::outline::*;
 use self::page_tree::*;
 use self::rendering::*;
 pub(crate) use self::replacement::_parse_operations;
+use self::saving::EncryptionRequest;
 use self::saving::*;
 use self::streams::*;
 
@@ -684,6 +688,16 @@ impl _Document {
         py.detach(|| serialize_pdf(&mut self.doc, Some(modern_save_options()), max_size))
     }
 
+    /// Copy the editable state, for a transaction or an undo step.
+    fn take_snapshot(&self, py: Python<'_>) -> PyResult<_DocumentSnapshot> {
+        history::take_snapshot(self, py)
+    }
+
+    /// Return to the state of `snapshot`, which this uses up.
+    fn restore_snapshot(&mut self, mut snapshot: PyRefMut<'_, _DocumentSnapshot>) -> PyResult<()> {
+        history::restore_snapshot(self, &mut snapshot)
+    }
+
     /// Whether an incremental save can extend the original bytes.
     fn can_save_incrementally(&self) -> bool {
         self.incremental_base.is_some()
@@ -932,6 +946,56 @@ impl _Document {
             needle,
             max_hits,
             options.unwrap_or_default(),
+            crate::extract::TextPage::search,
+        )
+    }
+
+    /// Return the text of a one-based page from the glyph nearest `start` to
+    /// the one nearest `end`, in reading order.
+    #[pyo3(signature = (page_number, start, end, options=None))]
+    fn select_text(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        start: (f64, f64),
+        end: (f64, f64),
+        options: Option<TextOptions>,
+    ) -> PyResult<String> {
+        extraction::select_text(
+            self,
+            py,
+            page_number,
+            start,
+            end,
+            options.unwrap_or_default(),
+        )
+    }
+
+    /// Search a one-based page case-insensitively and return the quad of
+    /// every line of every match.
+    #[pyo3(signature = (
+        page_number,
+        needle,
+        max_hits=Some(DEFAULT_MAX_SEARCH_HITS),
+        options=None
+    ))]
+    #[allow(clippy::type_complexity)]
+    fn search_page_quads(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        needle: &str,
+        max_hits: Option<usize>,
+        options: Option<TextOptions>,
+    ) -> PyResult<Vec<crate::extract::QuadTuple>> {
+        extraction::search_page(
+            self,
+            py,
+            page_number,
+            needle,
+            max_hits,
+            options.unwrap_or_default(),
+            crate::extract::TextPage::search_quads,
         )
     }
 
@@ -1148,53 +1212,64 @@ impl _Document {
         outline::set_outline_open(self, item, is_open)
     }
 
-    /// Save an AES-256 encrypted clone to a file while this document stays plaintext.
+    /// Save an encrypted clone to a file while this document stays plaintext.
+    ///
+    /// `method` is `aes-256`, `aes-128`, or `keep`, which keeps the
+    /// encryption the document was opened with.
+    #[allow(clippy::too_many_arguments)] // One argument per Encryption field.
     fn save_encrypted(
         &self,
         py: Python<'_>,
         path: &str,
+        method: &str,
         user_password: &str,
         owner_password: &str,
         permissions: u64,
         file_encryption_key: &[u8],
+        document_id: &[u8],
     ) -> PyResult<()> {
-        saving::save_encrypted(
-            self,
-            py,
-            path,
+        let request = EncryptionRequest {
+            method,
             user_password,
             owner_password,
             permissions,
             file_encryption_key,
-        )
+            document_id,
+        };
+        saving::save_encrypted(self, py, path, &request)
     }
 
-    /// Serialize an AES-256 encrypted clone while this document stays plaintext.
+    /// Serialize an encrypted clone while this document stays plaintext.
     #[pyo3(signature = (
+        method,
         user_password,
         owner_password,
         permissions,
         file_encryption_key,
+        document_id,
         max_size=None
     ))]
+    #[allow(clippy::too_many_arguments)] // One argument per Encryption field.
     fn save_bytes_encrypted(
         &self,
         py: Python<'_>,
+        method: &str,
         user_password: &str,
         owner_password: &str,
         permissions: u64,
         file_encryption_key: &[u8],
+        document_id: &[u8],
         max_size: Option<usize>,
     ) -> PyResult<Vec<u8>> {
-        saving::save_bytes_encrypted(
-            self,
-            py,
+        let request = EncryptionRequest {
+            method,
             user_password,
             owner_password,
             permissions,
             file_encryption_key,
-            max_size,
-        )
+            document_id,
+        };
+        saving::save_bytes_encrypted(self, py, &request, max_size)
     }
 
     /// Return inherited, normalized 0..360 rotation for a one-based page.

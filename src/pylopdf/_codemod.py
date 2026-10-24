@@ -46,6 +46,7 @@ MODULE_RENAMES = {
     "FileDataError": "MalformedPdfError",
     "EmptyFileError": "MalformedPdfError",
     "peek_metadata": "probe",
+    "get_pdf_now": "pdf_date",
 }
 #: pymupdf module attributes that pylopdf names otherwise; pylopdf's own ``Outline`` is the item sequence.
 PYMUPDF_MODULE_RENAMES = {"Outline": "OutlineItem", "Annot": "Annotation"}
@@ -752,7 +753,8 @@ _TRUE = frozenset({"True", "1"})
 SAVE_MESSAGE = (
     "save() and to_bytes() take compress, prune, dedupe, renumber, object_streams, and "
     "encryption=Encryption(user_password=..., owner_password=..., permissions=...); "
-    "pylopdf writes AES-256 encryption only and has no clean, linear, or ascii option; incremental=True "
+    "pylopdf writes AES-256 and AES-128 encryption only and has no clean, linear, or ascii option; "
+    "incremental=True "
     "takes neither dedupe, renumber, object_streams, nor encryption."
 )
 UNLOCK_MESSAGE = (
@@ -783,8 +785,9 @@ def _encryption_method(text: str) -> str | None:
 def _encryption_option(migrator: _Migrator, bound: dict[str, str]) -> str | None:
     """Return the ``encryption=`` option, ``""`` for none, or ``None`` when it cannot be migrated.
 
-    pymupdf encrypts only with ``encryption=PDF_ENCRYPT_AES_256`` and ignores
-    the passwords otherwise; pylopdf 0.15 encrypted whenever a password was
+    pymupdf encrypts with ``encryption=PDF_ENCRYPT_AES_256`` or ``AES_128``,
+    keeps the input's encryption with ``KEEP``, and ignores the passwords
+    otherwise; pylopdf 0.15 encrypted whenever a password was
     given. An unrecognized value can already use pylopdf's ``Encryption``
     API; a pymupdf module needs a manual review of such a value.
     """
@@ -795,8 +798,8 @@ def _encryption_option(migrator: _Migrator, bound: dict[str, str]) -> str | None
         return None if passwords or migrator.pymupdf() else f"encryption={value}"
     if method is None:
         encrypts = not migrator.pymupdf() and any(bound.get(key, "None") != "None" for key in ("user_pw", "owner_pw"))
-    elif method in {"AES_256", "NONE"}:
-        encrypts = method == "AES_256"
+    elif method in {"AES_256", "AES_128", "NONE", "KEEP"}:
+        encrypts = method != "NONE"
     else:
         return None
     if not encrypts:
@@ -804,12 +807,17 @@ def _encryption_option(migrator: _Migrator, bound: dict[str, str]) -> str | None
     name = migrator.class_name("Encryption")
     if name is None:
         return None
+    if method == "KEEP":
+        # pymupdf ignores the passwords when it keeps the encryption.
+        return f"encryption={name}.KEEP"
     fields = (("user_pw", "user_password"), ("owner_pw", "owner_password"), ("permissions", "permissions"))
     arguments = [
         f"{field}={bound[key]}"
         for key, field in fields
         if key in bound and not (key in {"user_pw", "owner_pw"} and bound[key] == "None")
     ]
+    if method == "AES_128":
+        arguments.append('method="aes-128"')
     return f"encryption={name}({', '.join(arguments)})"
 
 
@@ -1029,6 +1037,17 @@ def _get_text(migrator: _Migrator, receiver: str, args: _Arguments) -> str | Non
     return f"{receiver}.{method}({', '.join(arguments)}){suffix}"
 
 
+def _get_text_selection(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``get_text_selection(p1, p2, clip)`` to ``selection(p1, p2, clip=...)``."""
+    bound = args.bind(("p1", "p2", "clip", "textpage"))
+    if bound is None or not {"p1", "p2"} <= set(bound) or "textpage" in bound:
+        return None
+    arguments = [bound["p1"], bound["p2"]]
+    if bound.get("clip", "None") != "None":
+        arguments.append(f"clip={bound['clip']}")
+    return f"{receiver}.selection({', '.join(arguments)})"
+
+
 def _get_textbox(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     """Rewrite ``get_textbox(rect)`` to ``text(clip=rect)``."""
     bound = args.bind(("rect", "textpage"))
@@ -1038,18 +1057,20 @@ def _get_textbox(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
 
 
 def _search_for(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
-    """Rewrite ``search_for(needle, ...)`` to ``search(text, ...)``; quads come with Reading."""
+    """Rewrite ``search_for(needle, ...)`` to ``search(text, ...)``."""
     keywords = {"needle" if key == "text" else key: value for key, value in args.keywords.items()}
     bound = _Arguments(args.positional, keywords).bind(
         ("needle", "clip", "quads", "flags", "textpage", "hit_max", "max_hits")
     )
     if bound is None or "needle" not in bound or {"flags", "textpage"} & set(bound):
         return None
-    if bound.get("quads", "False") not in _FALSE or ("hit_max" in bound and "max_hits" in bound):
+    if "hit_max" in bound and "max_hits" in bound:
         return None
     arguments = [bound["needle"]]
     if bound.get("clip", "None") != "None":
         arguments.append(f"clip={bound['clip']}")
+    if bound.get("quads", "False") not in _FALSE:
+        arguments.append(f"quads={bound['quads']}")
     if "hit_max" in bound or "max_hits" in bound:
         arguments.append(f"max_hits={bound.get('max_hits', bound.get('hit_max'))}")
     return f"{receiver}.search({', '.join(arguments)})"
@@ -1856,6 +1877,11 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "update_stream": _update_stream,
     "save": _save,
     "ez_save": _ez_save,
+    "journal_undo": _no_arguments("{receiver}.history.undo()"),
+    "journal_redo": _no_arguments("{receiver}.history.redo()"),
+    "journal_can_do": _no_arguments('{{"undo": {receiver}.history.can_undo, "redo": {receiver}.history.can_redo}}'),
+    "journal_position": _no_arguments("({receiver}.history.position, len({receiver}.history.steps))"),
+    "journal_op_name": _one_argument("step", "{receiver}.history.steps[{value}]"),
     "saveIncr": _no_arguments("{receiver}.save({receiver}.path, incremental=True)"),
     "can_save_incrementally": _no_arguments("{receiver}.can_save_incrementally"),
     "tobytes": _tobytes,
@@ -1864,6 +1890,7 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "get_text": _get_text,
     "search_for": _search_for,
     "get_textbox": _get_textbox,
+    "get_text_selection": _get_text_selection,
     "to_markdown": _renamed("markdown"),
     "find_tables": _find_tables,
     "get_text_ocr": _get_text_ocr,
@@ -2614,6 +2641,34 @@ def _geometry_constant(_: _Migrator, __: str | None, function: str, args: _Argum
     return None if args.positional or args.keywords else function
 
 
+def _paper_member(text: str) -> tuple[str, bool] | None:
+    """Return the ``PaperSize`` member and orientation that a pymupdf paper name literal names, or None."""
+    literal = _string_literal(text)
+    if literal is None:
+        return None
+    name, _, orientation = literal.lower().partition("-")
+    member = name.upper().replace(" ", "_")
+    if member not in pylopdf.PaperSize.__members__ or orientation not in {"", "l", "p"}:
+        return None
+    return member, orientation == "l"
+
+
+def _paper(migrator: _Migrator, prefix: str | None, function: str, args: _Arguments) -> str | None:
+    """Rewrite pymupdf's ``paper_size(name)`` and ``paper_rect(name)`` for a literal name to ``PaperSize``."""
+    bound = args.bind(("s",))
+    if bound is None or "s" not in bound:
+        return None
+    member = _paper_member(bound["s"])
+    paper = f"{prefix}PaperSize" if prefix else migrator.class_name("PaperSize")
+    if member is None or paper is None:
+        return None
+    size = f"{paper}.{member[0]}" + (".landscape" if member[1] else "")
+    if function.rsplit(".", 1)[-1] == "paper_size":
+        return size
+    rect = f"{prefix}Rect" if prefix else migrator.class_name("Rect")
+    return None if rect is None else f"{rect}(0, 0, *{size})"
+
+
 #: Module calls whose arguments changed, keyed by their name in the module.
 MODULE_CALL_RULES: dict[str, Callable[[_Migrator, str | None, str, _Arguments], str | None]] = {
     "open": _open_document,
@@ -2621,6 +2676,8 @@ MODULE_CALL_RULES: dict[str, Callable[[_Migrator, str | None, str, _Arguments], 
     "peek_metadata": _probe,
     "Font": _font,
     "get_text_length": _get_text_length,
+    "paper_size": _paper,
+    "paper_rect": _paper,
     **dict.fromkeys(GEOMETRY_CONSTANTS, _geometry_constant),
 }
 

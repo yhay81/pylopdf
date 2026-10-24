@@ -3,10 +3,12 @@
 This script regenerates the committed ``*.pdf`` files in this directory. Run
 it only when the fixture set needs to change:
 
-    uv run --with pypdf --with cryptography python tests/assets/encrypted/generate.py
+    uv run --group interop --with pypdf --with cryptography python tests/assets/encrypted/generate.py
 
 Passwords are user="userpw" and owner="ownerpw"; owneronly-* uses an empty
-user password.
+user password. pypdf writes the handlers it supports; qpdf, through
+pikepdf, writes revision 4 with RC4 crypt filters, metadata left
+unencrypted, and object streams.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
+import pikepdf
 from pypdf import PdfReader, PdfWriter
 
 BASE = Path(__file__).parent
@@ -64,6 +67,39 @@ def main() -> None:
         writer.encrypt(user_password=user_pw, owner_password="ownerpw", algorithm=algorithm)
         with (BASE / name).open("wb") as f:
             writer.write(f)
+        print(f"{name}: {(BASE / name).stat().st_size} bytes")
+    pypdf_variants = [("user-aes-256-r5.pdf", "AES-256-R5")]
+    for name, algorithm in pypdf_variants:
+        reader = PdfReader(io.BytesIO(plain))
+        writer = PdfWriter(clone_from=reader)
+        writer.encrypt(user_password="userpw", owner_password="ownerpw", algorithm=algorithm)
+        with (BASE / name).open("wb") as f:
+            writer.write(f)
+        print(f"{name}: {(BASE / name).stat().st_size} bytes")
+    qpdf_variants = [
+        ("user-r4-rc4-128.pdf", pikepdf.Encryption(owner="ownerpw", user="userpw", R=4, aes=False, metadata=False), {}),
+        (
+            "user-aes-128-plain-metadata.pdf",
+            pikepdf.Encryption(owner="ownerpw", user="userpw", R=4, aes=True, metadata=False),
+            {},
+        ),
+        (
+            "user-aes-256-object-streams.pdf",
+            pikepdf.Encryption(owner="ownerpw", user="userpw", R=6),
+            {"object_stream_mode": pikepdf.ObjectStreamMode.generate},
+        ),
+    ]
+    for name, encryption, options in qpdf_variants:
+        with pikepdf.open(io.BytesIO(plain)) as pdf:
+            # An XMP packet shows whether /EncryptMetadata is honoured.
+            with pdf.open_metadata(set_pikepdf_as_editor=False) as metadata:
+                metadata["dc:title"] = "Encrypted fixture"
+            pdf.save(
+                BASE / name,
+                encryption=encryption,
+                static_id=True,
+                **options,
+            )
         print(f"{name}: {(BASE / name).stat().st_size} bytes")
 
 

@@ -533,6 +533,14 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
         lambda: decrypted.to_bytes(object_streams=True, encryption=pylopdf.Encryption())
     )
     _require(object_streams_error == "ValueError", "encryption with object streams was not refused")
+    aes_128 = decrypted.to_bytes(encryption=pylopdf.Encryption(user_password="user", method="aes-128"))  # noqa: S106
+    aes_128_method = pylopdf.open(aes_128, password="user").encryption_method  # noqa: S106
+    _require(aes_128_method == "Standard V4 R4 128-bit AES", "AES-128 output described the wrong encryption")
+    kept = pylopdf.open(decrypted.to_bytes(encryption=pylopdf.Encryption.KEEP), password="ownerpw")  # noqa: S106
+    _require(kept.encryption_method == encryption_description, "Encryption.KEEP changed the encryption")
+    _require("Encrypted page one" in kept.pages[0].text(), "Encryption.KEEP lost the text")
+    rc4_error = _exception_name(lambda: pylopdf.Encryption(method="rc4-128"))  # ty: ignore[invalid-argument-type]
+    _require(rc4_error == "ValueError", "RC4 output was not refused")
 
     return {
         "pdf20": {
@@ -671,7 +679,13 @@ def _layout_results() -> dict[str, Any]:
         "clip": painted.text(clip=(0, 0, 400, 75)),
         "dehyphenated": columns.text(dehyphenate=True, ligatures=False, whitespace=False),
         "exact_word": [round(value, 3) for value in columns.words(exact_bboxes=True)[0].bbox],
+        "quads": [
+            [[round(value, 3) for value in point] for point in quad] for quad in columns.search("Left", quads=True)
+        ],
     }
+    _require(len(text_options["quads"]) == 2, "search quads changed")  # noqa: PLR2004 - two matching lines.
+    text_options["selection"] = columns.selection((41, 66), (210, 86))
+    _require(text_options["selection"] == "Left one\nLeft two\nRight one\nRi", "selection changed")
     _require(text_options["default"] == "Red\nOutline\nHidden\n", "hidden glyphs were extracted by default")
     _require(text_options["clipped"].endswith("Clipped\n"), "clipped=True left out a clipped glyph")
     _require(text_options["clip"] == "Red\nOutline\n", "clip= kept other text")
@@ -1255,6 +1269,44 @@ def _save_option_results() -> dict[str, Any]:
     return results
 
 
+def _history_results() -> dict[str, Any]:
+    """Undo, redo, and roll back transactions."""
+    import pylopdf  # noqa: PLC0415
+
+    document = pylopdf.open(
+        _build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 200 200] >>",
+                3: "<< /Type /Page /Parent 2 0 R >>",
+                4: "<< /Type /Page /Parent 2 0 R >>",
+            }
+        )
+    )
+    with document.transaction("title"):
+        document.metadata["title"] = "Step"
+    with document.transaction("delete"):
+        del document.pages[1]
+    rollback = "none"
+    try:
+        with document.transaction("broken"):
+            document.metadata["title"] = "Lost"
+            raise RuntimeError  # noqa: TRY301 - the rollback under test.
+    except RuntimeError:
+        rollback = document.metadata["title"]
+    document.history.undo()
+    pages_after_undo = len(document.pages)
+    document.history.redo()
+    _require(rollback == "Step", "a failing transaction kept its edits")
+    _require(pages_after_undo == _EXPECTED_TWO_PAGES, "undo did not restore the page")
+    return {
+        "steps": list(document.history.steps),
+        "position": document.history.position,
+        "pages": len(document.pages),
+        "rollback": rollback,
+    }
+
+
 def _geometry_results() -> dict[str, Any]:
     """Check immutable affine values and their use by the PDF drawing API."""
     from pylopdf import Color, Document, LineTo, Matrix, MoveTo, Point, Stroke, open  # noqa: A004, PLC0415
@@ -1627,6 +1679,20 @@ def _attachment_results() -> dict[str, Any]:
     }
 
 
+def _paper_and_date_results() -> dict[str, Any]:
+    """Add pages of standard paper sizes and convert PDF dates both ways."""
+    import pylopdf  # noqa: PLC0415
+
+    document = pylopdf.Document()
+    document.pages.new(pylopdf.PaperSize.A4)
+    document.pages.new(pylopdf.PaperSize.LETTER.landscape)
+    value = pylopdf.parse_pdf_date("D:20260102030405+09'30'")
+    return {
+        "pages": [list(page.rect) for page in pylopdf.open(document.to_bytes()).pages],
+        "date": [value.isoformat(), pylopdf.pdf_date(value)],
+    }
+
+
 def _document_property_results(root: Path) -> dict[str, Any]:
     """Read and write XMP metadata and the catalog's viewer and marking properties."""
     import pylopdf  # noqa: PLC0415
@@ -1873,6 +1939,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "form_page_deletion": _form_page_deletion_results(),
         "structure_page_deletion": _structure_page_deletion_results(),
         "save_options": _save_option_results(),
+        "history": _history_results(),
         "content_isolation": _content_isolation_results(),
         "annotations": _annotation_results(),
         "widgets": _widget_results(),
@@ -1883,6 +1950,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "optional_content": _optional_content_results(),
         "document_properties": _document_property_results(root),
         "attachments": _attachment_results(),
+        "paper_and_dates": _paper_and_date_results(),
         "content_model": _content_model_results(root),
         "canvas": _canvas_results(root),
         "create": _create_results(root),

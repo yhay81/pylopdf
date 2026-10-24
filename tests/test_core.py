@@ -102,7 +102,7 @@ def test_save_bytes_paths_are_bounded_in_core(one_page_pdf: bytes) -> None:
 
     encrypted = _Document.load_bytes(one_page_pdf)
     with pytest.raises(LimitError) as encrypted_limit:
-        encrypted.save_bytes_encrypted("", "owner", 0, bytes(32), 16)
+        encrypted.save_bytes_encrypted("aes-256", "", "owner", 0, bytes(32), bytes(16), 16)
     assert encrypted_limit.value.args[0] == "pdf_output_size"
 
 
@@ -433,14 +433,14 @@ def test_password_input_limits_are_repeated_in_core(one_page_pdf: bytes) -> None
 
     doc = _Document.load_bytes(one_page_pdf)
     for save_call in (
-        lambda: doc.save_bytes_encrypted(oversized, "owner", 0, key),
-        lambda: doc.save_bytes_encrypted("user", oversized, 0, key),
+        lambda: doc.save_bytes_encrypted("aes-256", oversized, "owner", 0, key, bytes(16)),
+        lambda: doc.save_bytes_encrypted("aes-256", "user", oversized, 0, key, bytes(16)),
     ):
         with pytest.raises(LimitError) as caught:
             save_call()
         assert caught.value.args[0] == "password_input_size"
 
-    encrypted = doc.save_bytes_encrypted("user", "owner", 0, key)
+    encrypted = doc.save_bytes_encrypted("aes-256", "user", "owner", 0, key, bytes(16))
     locked = _Document.load_bytes(encrypted)
     with pytest.raises(LimitError) as user_limit:
         locked.authenticate_user_password(oversized)

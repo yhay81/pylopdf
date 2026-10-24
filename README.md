@@ -98,7 +98,8 @@ covers each area in more detail.
   drawings, pages from other PDFs, highlights, and links
 - **Forms**: fill in form fields
 - **OCR**: make scanned pages searchable without installing Tesseract
-- **Saving**: compression, cleanup of unused objects, and AES-256 encryption
+- **Saving**: compression, cleanup of unused objects, incremental updates that
+  keep signatures valid, and AES-256 or AES-128 encryption
 
 ## Why pylopdf
 

@@ -62,8 +62,14 @@ and streams, `renumber=True` numbers the remaining objects consecutively, and
 `object_streams=True` packs objects into compressed object streams. These
 options change the document itself, not only the output. To encrypt, pass
 `encryption=Encryption(user_password=..., owner_password=...,
-permissions=...)`, which writes AES-256 encryption; the owner password
-defaults to the user password, and the document in memory stays unencrypted.
+permissions=...)`, which writes AES-256 encryption, or add
+`method="aes-128"` for AES-128, which PDF 1.6 readers open as well; the
+owner password defaults to the user password, and the document in memory
+stays unencrypted. pylopdf reads every standard encryption, RC4 included, but
+never writes RC4. `encryption=Encryption.KEEP` writes the encryption the
+document was opened with, keeping its passwords and permissions; it keeps
+AES-128 and AES-256 and refuses RC4. `None`, the default, writes no
+encryption, even for a document that was encrypted.
 
 ```python
 doc.save("out.pdf", dedupe=True, object_streams=True)
@@ -93,6 +99,34 @@ with pylopdf.open("signed.pdf") as doc:
     doc.form["Name"].value = "Alice"
     doc.save("signed.pdf", incremental=True)
 ```
+
+### Transactions and undo { #transactions }
+
+`with doc.transaction(name):` groups edits: when the block raises, the
+document returns to its state before the block, and otherwise the block's
+edits become one step of `doc.history`, which undoes and redoes them. A
+transaction inside another one restores its own edits when it raises and
+leaves the step to the outer one. Only transactions record steps, and an
+edit outside one ends the history; saving keeps it.
+
+| `doc.history` member | Purpose |
+|---|---|
+| `undo()`, `redo()` | Return to the state before the latest applied step, or apply the latest undone step again |
+| `can_undo`, `can_redo` | Whether there is a step to undo or redo |
+| `steps`, `position` | The step names, oldest first, and how many of them are applied |
+| `max_size` | The bytes that the steps' copies of the document may hold, 256 MiB by default; the oldest steps go first, and `None` keeps every step |
+| `clear()` | Forget every step |
+
+```python
+with doc.transaction("stamp"):
+    for page in doc.pages:
+        with page.draw() as canvas:
+            canvas.text("Draft", (36, 36))
+doc.history.undo()
+```
+
+Each transaction copies the document when it starts, and undo and redo
+replace its objects, so pages and other handles taken before go stale.
 
 ### Pages { #document-pages }
 
@@ -361,7 +395,8 @@ no page was added, deleted, or reordered in between.
 | `text(*, clip=None, ...)` | The page's text in reading order, or the text in a rectangle |
 | `words(*, clip=None, ...)` | The words in reading order, as `Word` records |
 | `layout(*, clip=None, chars=False, ...)` | Blocks, lines, and spans as a `Layout`; see [Positioned text](#positioned-text) |
-| `search(text, *, clip=None, max_hits=4096, ...)` | Case-insensitive search; returns a list of `Rect` |
+| `selection(start, end, *, clip=None)` | The text a viewer selects by dragging from one display-space point to another, in reading order |
+| `search(text, *, clip=None, quads=False, max_hits=4096, ...)` | Case-insensitive search; returns a list of `Rect`, or with `quads=True` one `Quad` per line of each match |
 | `tables(*, strategy="lines", clip=None)` | Tables as a list of `Table` records; see [Tables](#tables) |
 | `markdown(*, table_strategy="lines")` | Markdown for this page |
 | `ocr(...)`, `apply_ocr(*, words=None, ...)` | OCR, and an invisible text layer from it or from another engine's words; see [Offline OCR](ocr.md) |
@@ -621,8 +656,8 @@ space:
 | Record | Fields |
 |---|---|
 | `Block` | `text`, `bbox`, `lines` |
-| `Line` | `text`, `bbox`, `direction` (the baseline's unit vector), `is_vertical`, `spans` |
-| `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `color`, `render_mode`, `is_clipped`, `ascender`, `descender`, `chars` |
+| `Line` | `text`, `bbox`, `direction` (the baseline's unit vector), `is_vertical`, `spans`, `quad` |
+| `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `color`, `render_mode`, `is_clipped`, `ascender`, `descender`, `chars`, `quad` |
 | `Char` | `text`, `bbox`, `origin`, `is_synthetic` |
 
 A span is a run of glyphs in one font and size that are painted alike:
@@ -635,6 +670,13 @@ true when the clip paths leave no part of the glyphs visible. `ascender` and
 TrueType program; hayro hands out no program for Type 1 fonts, the standard
 14 fonts among them, which therefore report MuPDF's defaults of 0.8 and
 -0.2.
+
+A `bbox` is axis-aligned; a `quad` is the same box along the baseline, the
+smallest rectangle in the direction of the first glyph's baseline that holds
+every glyph's box, so it follows text that a page sets at an angle; a
+character's quad is its span's, cut to the character's advance, which
+`page.search(char, quads=True)` gives as well. Text at any angle is
+assembled into lines along its baseline.
 
 `layout(chars=True)` fills each span's `chars` with its glyphs. A `Char`
 keeps the complete text of one glyph, so a ligature such as "fi" keeps both
@@ -1391,6 +1433,8 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [Outline and page labels](#outline) |
 | `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `AnnotationSpecification`, `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Note`, `NoteIcon`, `FreeText`, `Stamp`, `StampIcon`, `Caret`, `FileAttachment`, `AttachmentIcon`, `AnnotationFile`, `Redaction`, `Square`, `Circle`, `LineAnnotation`, `Polygon`, `PolyLine`, `Ink`, `Border`, `BorderStyle`, `LineEnding`, `Link`, `Links` | [Annotations and links](#page-annotations) |
 | `PageBoxes` | [Page geometry](#page-geometry) |
+| `PaperSize` | Standard paper sizes as `(width, height)` pairs of points that `doc.pages.new()` takes: the ISO A, B, and C series and the North American sizes (`LETTER`, `LEGAL`, `TABLOID`, `EXECUTIVE`, `HALF_LETTER`), each with `width`, `height`, and `landscape` |
+| `pdf_date(value=None)`, `parse_pdf_date(text)` | Format a `datetime`, or the current local time, as a PDF date string such as `D:20260101120000+09'00'`, and parse one, every part after the year optional, into a `datetime` that is aware when the string gives an offset |
 | `Form`, `Field`, `FieldType`, `FieldFlags`, `FieldChoice` | [Forms](#forms) |
 | `FallbackFont`, `FallbackFonts` | [Rendering and images](#document-rendering) |
 

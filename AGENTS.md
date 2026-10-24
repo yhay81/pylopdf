@@ -106,8 +106,8 @@ the concept and API overview.
   append-only registrations):
   - Objects: `garbage.rs`, `prune.rs`, `renumber.rs`, `recovery.rs`,
     `object_recovery.rs`, `object_stream_work.rs`, `unallocated.rs`;
-    `document/{loading,saving,incremental,limits,streams,lowlevel}.rs`;
-    `src/pylopdf/_objects.py`.
+    `document/{loading,saving,incremental,history,limits,streams,lowlevel}.rs`;
+    `src/pylopdf/_objects.py` and `_history.py`.
   - Structure: `page_cleanup.rs`, `structure_prune.rs`;
     `document/{page_tree,navigation,outline,labels,layers,metadata,attachments}.rs`;
     `src/pylopdf/_attachments.py`, `_boxes.py`, `_layers.py`, `_metadata.py`,
@@ -343,6 +343,13 @@ the concept and API overview.
   `Page.rect` use (see the drawing bullet). Baseline direction is retained and
   exposed in line dicts. Rotated
   baselines assemble along their direction while remaining writing mode 0.
+  Baselines more than about a degree from both axes (`has_oblique_baseline`)
+  cluster in `cluster_oblique`, by quantized angle and the baseline's offset
+  across its direction, and order along it. Line, span, and search quads
+  (`glyphs_quad`) are the smallest rectangle along the first glyph's baseline
+  that holds every glyph box; a search match across a dehyphenation join
+  gives one quad per line. Chars carry no quad: building one per char
+  doubled `layout(chars=True)` (1.5 µs a char on the bundled corpus).
   Uniform axis-aligned pages derive logical inline and block axes from that
   direction, so 90/180/270-degree lines and sustained columns preserve reading
   order. Explicitly rotated glyph bboxes follow the baseline and cross-axis;
@@ -1617,8 +1624,29 @@ the concept and API overview.
   save; `dedupe`, `renumber`, `object_streams`, and `encryption` refuse
   before any change. `tests/test_interop.py` validates pyHanko signatures
   after incremental form fills and metadata edits.
+- Transactions and undo: `Document.transaction` takes a
+  `_DocumentSnapshot` (`rust/src/document/history.rs`, a clone of the lopdf
+  graph and of `isolated_content_pages`, with an estimated size) before the
+  block and restores it with `restore_snapshot` when the block raises;
+  restoring forgets placements and every cache, and Python bumps the page
+  generation and the object epoch. `src/pylopdf/_history.py` keeps the
+  outermost transaction's snapshot as an undo step; undo and redo swap the
+  current state for a step's snapshot. Steps are valid while the document
+  revision equals the one the history recorded: any edit outside a
+  transaction ends the history lazily, while saves, failed transactions, and
+  undo or redo carry the recorded revision forward. The steps' estimated
+  sizes stay within `History.max_size` (256 MiB), dropping the oldest undo
+  steps, then the farthest redo steps.
 - Encryption during `save` operates on a clone, so the in-memory document always
-  remains plaintext. Python generates the key with `os.urandom(32)`. Open,
+  remains plaintext. Python generates the AES-256 file key with
+  `os.urandom(32)` and, for a document without `/ID`, the ID that the clone
+  gains with `os.urandom(16)`: an encrypted file needs one, and AES-128
+  (revision 4, `AESV2` crypt filters) derives its key from it.
+  `Encryption.KEEP` re-encrypts the clone with lopdf's retained
+  `encryption_state`, which keeps the file key, `/O`, `/U`, and `/P`, and
+  only for `Standard V4 R4 128-bit AES` and `Standard V5 R6 256-bit AES`:
+  RC4 and revision 5 are read but never written. `tests/assets/encrypted`
+  holds a fixture for every standard handler revision. Open,
   unlock, fast metadata probe, and `Encryption` passwords stop at the PDF 2.0
   boundary of 127 UTF-8 bytes before PyO3 copying or KDF work; `Encryption`
   checks its passwords on construction. Direct Rust entry points repeat the
@@ -2796,6 +2824,12 @@ the concept and API overview.
   input copies, and encoded PDF strings grow fallibly; duplicate tracking
   uses a fixed bitset for the nine keys.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
+- PDF dates stay strings everywhere (ROADMAP.md D7); `pdf_date()` and
+  `parse_pdf_date()` in `_metadata.py` convert, following ISO 32000-2
+  §7.9.4 leniently on input (optional `D:`, parts after the year, and
+  apostrophes) and writing `Z` or `+HH'mm'`. `PaperSize` (`_paper.py`) is a
+  `tuple` enum of ISO 216/269 sizes rounded to whole points and the North
+  American sizes, so a member is the `(width, height)` pair itself.
 - Page-label number-tree reads borrow node shapes, visit indirect cycles once,
   release the GIL, and reject the complete result above 4,096 entries/nodes, 32
   levels, or 1 MiB of encoded/decoded style and prefix text. Do not return a
