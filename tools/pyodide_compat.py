@@ -867,7 +867,7 @@ def _variable_font_form_results(bold: Any) -> dict[str, Any]:  # noqa: ANN401 - 
         "a right-aligned form appearance did not end its text at the measured advance",
     )
     cell = 256 / 6
-    origins = sorted(char["origin"][0] for span in code["spans"] for char in span["chars"])
+    origins = sorted(char["origin"][0] for span in code["spans"] for char in span["chars"] if not char["synthetic"])
     expected = [22 + (1 + index) * cell + (cell - bold.text_width(char, 12)) / 2 for index, char in enumerate("A12")]
     _require(
         len(origins) == len(expected) and all(abs(a - b) < 0.01 for a, b in zip(origins, expected, strict=True)),  # noqa: PLR2004 - PDF real precision.
