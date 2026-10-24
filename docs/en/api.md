@@ -362,6 +362,7 @@ attached to their base characters.
 | `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, colorspace="rgb", format="png", quality=95, workers=None, max_size=512 MiB)` | PNG or JPEG bytes for every page, or the listed pages, in order, rendered in parallel |
 | `images` | The image objects by object number; see [Images](#images) |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | Downsample and recompress images to make the file smaller |
+| `recolor(colorspace)` | Convert every colour of every page; see [Recoloring](#recoloring) |
 | `sanitize(*, scripts=True, actions=True, embedded_files=True, metadata=True, hidden_text=True, comments=True, links=False, form_values=False, thumbnails=True)` | Remove scripts, actions, attachments, metadata, hidden text, and comments; see [Sanitization](#sanitization) |
 | `fallback_fonts` | The fonts that render Chinese, Japanese, or Korean text whose font is not embedded, by language; the CJK extras fill it automatically |
 
@@ -510,6 +511,7 @@ page.rotation = 90
 | `draw(*, underlay=False)` | A [canvas](#canvas) that draws text, lines, rectangles, and other paths, images, and pages of any document in order; see [Writing text](#writing-text) |
 | `replace_text(search, replacement, *, default_char=None)` | Replace text drawn in simple (single-byte) fonts |
 | `operations` | The page's content as [operations](#operations); assignable |
+| `recolor(colorspace)` | Convert every colour the page draws to `Colorspace.GRAY`, `RGB`, or `CMYK`; see [Recoloring](#recoloring) |
 | `clean_contents()` | Write the content as one stream of normalized, balanced operations and drop unused resources; see [Content operations](#operations) |
 | `clip_to_rect(rect)` | Remove what lies outside a rectangle and clip the content to it; see [Redaction](#redaction) |
 | `redact(areas=None, *, text="remove", images="pixels", graphics="touched", fill=Color(0, 0, 0))` | Remove what redaction annotations or areas cover; see [Redaction](#redaction) |
@@ -868,6 +870,34 @@ It returns a `RedactionReport` as well.
 | `paths`, `shadings` | Vector graphics removed |
 | `annotations` | Annotations and widgets that overlapped an area, the applied redaction annotations not included |
 | `forms` | Form XObject placements copied |
+
+## Recoloring { #recoloring }
+
+`page.recolor(colorspace)` converts every colour a page draws to
+`Colorspace.GRAY`, `RGB`, or `CMYK`, and `doc.recolor(colorspace)` does so
+for every page.
+
+```python
+from pylopdf import Colorspace
+
+doc.recolor(Colorspace.GRAY)        # the whole document, for black-and-white print
+doc.pages[0].recolor("cmyk")        # one page; pages that share its images keep theirs
+```
+
+- The colour operators of the content (`g`, `rg`, `k`, `cs`, `sc`, and their
+  stroking forms) are converted, in the page's content and in the Form
+  XObjects, tiling patterns, Type 3 glyphs, and annotation appearances it
+  draws. ICCBased, CalGray, and CalRGB colours convert like the device space
+  with their number of components.
+- Images and inline images are drawn by the renderer and written again as
+  8-bit samples in the target space; their soft masks stay.
+- Shadings with exponential or stitching functions, and Indexed palettes,
+  are converted; Separation, DeviceN, and Lab colours and mesh shadings keep
+  theirs.
+- The conversions are the naive ones of ISO 32000-2 §10.4; gray uses the
+  weights of gray rendering.
+- `page.recolor` copies the objects that other pages also draw before it
+  changes them; `doc.recolor` converts each object once, in place.
 
 ## Sanitization { #sanitization }
 
@@ -1586,7 +1616,7 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `RedactionReport` | [Redaction](#redaction) |
 | `SanitizationReport` | [Sanitization](#sanitization) |
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |
-| `Colorspace` | The color spaces of a [`Pixmap`](#pixmap): `GRAY` and `RGB` |
+| `Colorspace` | The color spaces of a [`Pixmap`](#pixmap), `GRAY` and `RGB`, and `CMYK` for [recoloring](#recoloring) |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [Outline and page labels](#outline) |
 | `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `AnnotationSpecification`, `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Note`, `NoteIcon`, `FreeText`, `Stamp`, `StampIcon`, `Caret`, `FileAttachment`, `AttachmentIcon`, `AnnotationFile`, `Redaction`, `Square`, `Circle`, `LineAnnotation`, `Polygon`, `PolyLine`, `Ink`, `Border`, `BorderStyle`, `LineEnding`, `Link`, `Links` | [Annotations and links](#page-annotations) |
 | `PageBoxes` | [Page geometry](#page-geometry) |
