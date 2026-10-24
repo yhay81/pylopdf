@@ -21,19 +21,65 @@ use hayro::hayro_syntax::{Filter, Pdf};
 use kurbo::{Affine, PathSeg, Point, Rect};
 use unicode_bidi::{BidiClass, bidi_class};
 
-use crate::content_model::{ContentCollector, ContentError, ContentSink, ItemKinds};
+use crate::content_model::{
+    ContentCollector, ContentError, ContentSink, GlyphStyle, ItemKinds, RENDER_FILL,
+    RENDER_FILL_STROKE,
+};
+use crate::generate::{ShapingFont, font_line_metrics};
 
 /// Per-font display attributes propagated to spans with pymupdf-compatible flags.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct FontInfo {
     /// PostScript name, or empty when unavailable.
     name: Arc<str>,
     /// pymupdf-compatible flags: italic=2, serif=4, monospace=8, bold=16.
     flags: i64,
+    /// The ascender and descender in em, as MuPDF reads them from the font
+    /// program, or 0.8 and -0.2 without one.
+    ascender: f64,
+    descender: f64,
+}
+
+impl Default for FontInfo {
+    fn default() -> Self {
+        Self {
+            name: Arc::from(""),
+            flags: 0,
+            ascender: DEFAULT_ASCENDER,
+            descender: DEFAULT_DESCENDER,
+        }
+    }
+}
+
+/// The ascender and descender of a font without metrics, MuPDF's defaults.
+const DEFAULT_ASCENDER: f64 = 0.8;
+const DEFAULT_DESCENDER: f64 = -0.2;
+
+/// The font programs that pylopdf hands hayro in place of fonts that are not
+/// embedded, by the address and length of their bytes: their metrics are
+/// those of the substitute, not of the PDF's font.
+#[derive(Default)]
+pub(crate) struct SubstitutePrograms(Vec<(usize, usize)>);
+
+impl SubstitutePrograms {
+    pub(crate) fn new<'a>(programs: impl Iterator<Item = &'a [u8]>) -> Self {
+        Self(
+            programs
+                .map(|program| (program.as_ptr() as usize, program.len()))
+                .collect(),
+        )
+    }
+
+    fn contains(&self, program: &[u8]) -> bool {
+        self.0.contains(&(program.as_ptr() as usize, program.len()))
+    }
 }
 
 /// Derive a font name and flags from OutlineGlyph, once per font.
-fn font_info_of(glyph: &hayro::hayro_interpret::font::OutlineGlyph) -> FontInfo {
+fn font_info_of(
+    glyph: &hayro::hayro_interpret::font::OutlineGlyph,
+    substitutes: &SubstitutePrograms,
+) -> FontInfo {
     let Some(data) = glyph.font_data() else {
         return FontInfo::default();
     };
@@ -52,7 +98,19 @@ fn font_info_of(glyph: &hayro::hayro_interpret::font::OutlineGlyph) -> FontInfo 
     if data.weight.is_some_and(|w| w >= 600) || lower.contains("bold") {
         flags |= 16;
     }
-    FontInfo { name, flags }
+    // A bare CFF program, which OpenType tables do not describe, keeps the
+    // defaults, and so does a substitute for a font that is not embedded.
+    let metrics = if substitutes.contains((*data.data).as_ref()) {
+        None
+    } else {
+        ShapingFont::new(data.data, 0).and_then(|font| font_line_metrics(&font).ok())
+    };
+    FontInfo {
+        name,
+        flags,
+        ascender: metrics.map_or(DEFAULT_ASCENDER, |metrics| metrics.ascender),
+        descender: metrics.map_or(DEFAULT_DESCENDER, |metrics| metrics.descender),
+    }
 }
 
 /// Unicode text of one glyph, mirroring hayro's `BfString` shape.
@@ -68,6 +126,28 @@ enum GlyphText {
 }
 
 impl GlyphText {
+    /// Copy the text, failing instead of aborting when memory runs out.
+    fn try_clone(&self) -> Result<Self, TextPageLimit> {
+        match self {
+            Self::Char(ch) => Ok(Self::Char(*ch)),
+            Self::Heap(text) => Self::try_from_str(text),
+        }
+    }
+
+    /// Hold `text`, inline when it is one character.
+    fn try_from_str(text: &str) -> Result<Self, TextPageLimit> {
+        let mut chars = text.chars();
+        if let (Some(ch), None) = (chars.next(), chars.next()) {
+            return Ok(Self::Char(ch));
+        }
+        let mut owned = String::new();
+        owned.try_reserve_exact(text.len()).map_err(|error| {
+            TextPageLimit::Allocation(format!("failed to copy glyph text: {error}"))
+        })?;
+        owned.push_str(text);
+        Ok(Self::Heap(owned.into_boxed_str()))
+    }
+
     /// UTF-8 byte length.
     fn len(&self) -> usize {
         match self {
@@ -144,6 +224,55 @@ impl Iterator for GlyphTextChars<'_> {
     }
 }
 
+/// What a glyph without a Unicode mapping becomes.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub(crate) enum Unmapped {
+    /// Leave it out, with one warning per interpretation.
+    #[default]
+    Skip,
+    /// U+FFFD REPLACEMENT CHARACTER.
+    Replacement,
+    /// The character whose code point is the glyph ID, as pymupdf's
+    /// `TEXT_USE_GID_FOR_UNKNOWN_UNICODE` gives it; U+FFFD for a Type 3 glyph
+    /// or a glyph ID that is no character.
+    GlyphId,
+}
+
+/// The options that decide which glyphs an interpretation collects and how
+/// it measures them; each combination is cached on its own.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub(crate) struct CollectOptions {
+    /// Keep glyphs that the page boundary or the clip paths hide entirely.
+    pub(crate) keep_clipped: bool,
+    pub(crate) unmapped: Unmapped,
+    /// Box each glyph with its exact ink box instead of its advance and font
+    /// metrics.
+    pub(crate) exact_bboxes: bool,
+}
+
+/// The options that turn a cached interpretation into text, words, layout,
+/// and search results.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ViewOptions {
+    /// Keep the glyphs whose box's center lies inside this display box.
+    pub(crate) clip: Option<BBox>,
+    /// Expand the ligatures of U+FB00 to U+FB06 to their letters.
+    pub(crate) expand_ligatures: bool,
+    /// Make every whitespace character a space.
+    pub(crate) normalize_whitespace: bool,
+    /// Join a word that a hyphen splits at the end of a line.
+    pub(crate) dehyphenate: bool,
+}
+
+impl ViewOptions {
+    fn changes_lines(&self) -> bool {
+        self.clip.is_some()
+            || self.expand_ligatures
+            || self.normalize_whitespace
+            || self.dehyphenate
+    }
+}
+
 /// One collected glyph in top-left-origin, downward-y display coordinates after
 /// the renderer's `initial_transform`, with page rotation resolved.
 struct GlyphRecord {
@@ -171,6 +300,19 @@ struct GlyphRecord {
     font_key: u128,
     /// Font display attributes: name plus pymupdf-compatible flags.
     font: FontInfo,
+    /// The sRGB approximation and alpha of the paint, or `None` for a pattern
+    /// or invisible text.
+    color: Option<[f32; 4]>,
+    /// The `RENDER_*` mode of the run that painted the glyph.
+    render_mode: u8,
+    /// Whether the clip paths leave no part of the glyph's box visible.
+    is_clipped: bool,
+    /// The exact ink box, collected with [`CollectOptions::exact_bboxes`];
+    /// `None` without it and for a glyph without ink.
+    ink: Option<BBox>,
+    /// Whether the glyph continues the word of the line before, which
+    /// dehyphenation removed the hyphen of.
+    joins_previous: bool,
     /// Glyph callback order before geometric clustering.
     source_order: usize,
 }
@@ -237,7 +379,7 @@ struct RuleSegment {
 }
 
 /// A Device that collects glyphs and table-rule candidates.
-struct TextCollector {
+struct TextCollector<'s> {
     glyphs: Vec<GlyphRecord>,
     rules: Vec<RuleSegment>,
     /// Skip vector-rule collection for ordinary text extraction.
@@ -258,9 +400,24 @@ struct TextCollector {
     /// Glyphs hayro delivered without any Unicode mapping, e.g. from a
     /// Type 3 font that has no ToUnicode CMap (LaurenzV/hayro#1331).
     skipped_no_unicode: usize,
+    /// The paint, render mode, and clip of the glyphs being received.
+    style: RunStyle,
+    /// The index of the first glyph that the latest run recorded.
+    run_start: usize,
+    substitutes: &'s SubstitutePrograms,
+    options: CollectOptions,
+    /// The visible page in display space, outside which glyphs are hidden.
+    page_box: Rect,
 }
 
-impl TextCollector {
+/// The parts of a [`GlyphStyle`] that glyph records keep.
+struct RunStyle {
+    color: Option<[f32; 4]>,
+    render_mode: u8,
+    clip: Option<Rect>,
+}
+
+impl TextCollector<'_> {
     fn push_rule(&mut self, rule: RuleSegment) -> bool {
         if self.rules.len() >= MAX_TABLE_RULES {
             return false;
@@ -280,7 +437,7 @@ impl TextCollector {
 
 /// Text extraction reads the paths and glyphs of the content model's single
 /// device, so a fill-and-stroke text run contributes its glyphs once.
-impl ContentSink for TextCollector {
+impl ContentSink for TextCollector<'_> {
     fn path(&mut self, path: &kurbo::BezPath, transform: Affine, mode: &DrawMode) {
         if !self.collect_rules || self.rules.len() >= MAX_TABLE_RULES || self.limit_error.is_some()
         {
@@ -335,8 +492,29 @@ impl ContentSink for TextCollector {
         }
     }
 
-    fn glyph(&mut self, glyph: &Glyph<'_>, transform: Affine) {
-        self.collect_glyph(glyph, transform);
+    fn glyph_run(&mut self, style: &GlyphStyle) {
+        self.style = RunStyle {
+            color: style.color,
+            render_mode: style.render_mode,
+            clip: style.clip,
+        };
+        self.run_start = self.glyphs.len();
+    }
+
+    fn glyph(&mut self, glyph: &Glyph<'_>, transform: Affine, ink: Option<Rect>) {
+        self.collect_glyph(glyph, transform, ink);
+    }
+
+    fn wants_ink(&self) -> bool {
+        self.options.exact_bboxes
+    }
+
+    fn stroke_completes_fill(&mut self) {
+        for glyph in &mut self.glyphs[self.run_start..] {
+            if glyph.render_mode == RENDER_FILL {
+                glyph.render_mode = RENDER_FILL_STROKE;
+            }
+        }
     }
 
     fn stopped(&self) -> bool {
@@ -344,15 +522,24 @@ impl ContentSink for TextCollector {
     }
 }
 
-impl TextCollector {
+impl TextCollector<'_> {
     /// Record one glyph whose combined transform maps glyph space to display space.
-    fn collect_glyph(&mut self, glyph: &Glyph<'_>, combined: Affine) {
+    fn collect_glyph(&mut self, glyph: &Glyph<'_>, combined: Affine, ink: Option<Rect>) {
         if self.limit_error.is_some() {
             return;
         }
-        let Some(unicode) = glyph.as_unicode() else {
-            self.skipped_no_unicode = self.skipped_no_unicode.saturating_add(1);
-            return;
+        let unicode = match (glyph.as_unicode(), self.options.unmapped) {
+            (Some(unicode), _) => unicode,
+            (None, Unmapped::Skip) => {
+                self.skipped_no_unicode = self.skipped_no_unicode.saturating_add(1);
+                return;
+            }
+            (None, Unmapped::Replacement) => BfString::Char(char::REPLACEMENT_CHARACTER),
+            (None, Unmapped::GlyphId) => BfString::Char(match glyph {
+                Glyph::Outline(outline) => char::from_u32(outline.glyph_id().to_u32())
+                    .unwrap_or(char::REPLACEMENT_CHARACTER),
+                Glyph::Type3(_) => char::REPLACEMENT_CHARACTER,
+            }),
         };
         let text = match unicode {
             BfString::Char(c) => GlyphText::Char(c),
@@ -436,7 +623,7 @@ impl TextCollector {
                     let info = self
                         .font_infos
                         .entry(key)
-                        .or_insert_with(|| font_info_of(g))
+                        .or_insert_with(|| font_info_of(g, self.substitutes))
                         .clone();
                     self.last_font = Some((key, info.clone()));
                     info
@@ -455,12 +642,11 @@ impl TextCollector {
         if !origin.x.is_finite() || !origin.y.is_finite() {
             return;
         }
-        self.text_size = next_text_size;
         // Context initial_transform already flips y and applies rotation, so
         // transformed coordinates are directly in top-left-origin display space.
         let source_order = self.glyphs.len();
         let bidi_flags = glyph_bidi_flags(&text);
-        self.glyphs.push(GlyphRecord {
+        let mut record = GlyphRecord {
             text,
             bidi_flags,
             x: origin.x,
@@ -471,8 +657,34 @@ impl TextCollector {
             writing_mode: 0,
             font_key,
             font,
+            color: self.style.color,
+            render_mode: self.style.render_mode,
+            is_clipped: false,
+            ink: None,
+            joins_previous: false,
             source_order,
-        });
+        };
+        // A glyph is clipped away when the page or the clip paths leave no
+        // part of its box visible.
+        let visible = self
+            .style
+            .clip
+            .map_or(self.page_box, |clip| clip.intersect(self.page_box));
+        let (x0, y0, x1, y1) = font_bbox(&record);
+        record.is_clipped =
+            x1 <= visible.x0 || y1 <= visible.y0 || x0 >= visible.x1 || y0 >= visible.y1;
+        if record.is_clipped && !self.options.keep_clipped {
+            return;
+        }
+        record.ink = ink
+            .filter(|ink| {
+                [ink.x0, ink.y0, ink.x1, ink.y1]
+                    .iter()
+                    .all(|value| value.is_finite())
+            })
+            .map(|ink| (ink.x0, ink.y0, ink.x1, ink.y1));
+        self.text_size = next_text_size;
+        self.glyphs.push(record);
     }
 }
 
@@ -596,9 +808,30 @@ const MIN_FILLED_RULE_ASPECT: f64 = 4.0;
 /// Snap rule coordinates and intersections within this distance.
 const TABLE_SNAP_TOLERANCE: f64 = 1.0;
 
-/// Approximate top/bottom from the baseline without real font metrics.
+/// The top and bottom of a line from the baseline, in em, for reading order,
+/// which does not depend on font metrics.
 const ASCENT: f64 = 0.8;
 const DESCENT: f64 = 0.2;
+
+impl GlyphRecord {
+    /// The distances of a glyph box's top above and bottom below the baseline.
+    ///
+    /// Like pymupdf, the box spans the font's ascender and descender, scaled
+    /// to one em together when they span less, and 0.9 and -0.1 em when the
+    /// ascender is not positive, as in a glyphless OCR font.
+    fn vertical_extent(&self) -> (f64, f64) {
+        let (mut ascender, mut descender) = (self.font.ascender, self.font.descender);
+        if ascender < 1e-3 {
+            (ascender, descender) = (0.9, -0.1);
+        }
+        let height = ascender - descender;
+        if height < 1.0 {
+            ascender /= height;
+            descender /= height;
+        }
+        (self.size * ascender, -self.size * descender)
+    }
+}
 
 /// Snap near-axis direction components so common horizontal text stays exact.
 fn normalize_direction((x, y): (f64, f64)) -> (f64, f64) {
@@ -955,7 +1188,7 @@ fn indexed_glyphs_bbox(arena: &[GlyphRecord], indexes: &[usize]) -> BBox {
     let mut x1 = f64::NEG_INFINITY;
     let mut y1 = f64::NEG_INFINITY;
     for &index in indexes {
-        let (glyph_x0, glyph_y0, glyph_x1, glyph_y1) = glyph_bbox(&arena[index]);
+        let (glyph_x0, glyph_y0, glyph_x1, glyph_y1) = font_bbox(&arena[index]);
         x0 = x0.min(glyph_x0);
         y0 = y0.min(glyph_y0);
         x1 = x1.max(glyph_x1);
@@ -1391,7 +1624,18 @@ fn order_vertical_page_lines(
 
 /// Return a line's bbox without exposing the internal glyph representation.
 fn line_bbox(line: &[GlyphRecord]) -> BBox {
-    glyphs_bbox(line)
+    let mut x0 = f64::INFINITY;
+    let mut y0 = f64::INFINITY;
+    let mut x1 = f64::NEG_INFINITY;
+    let mut y1 = f64::NEG_INFINITY;
+    for glyph in line {
+        let (glyph_x0, glyph_y0, glyph_x1, glyph_y1) = font_bbox(glyph);
+        x0 = x0.min(glyph_x0);
+        y0 = y0.min(glyph_y0);
+        x1 = x1.max(glyph_x1);
+        y1 = y1.max(glyph_y1);
+    }
+    (x0, y0, x1, y1)
 }
 
 /// Sort whole lines by one precomputed geometry key with the explicit
@@ -2154,6 +2398,7 @@ fn search_allocation_error(error: TextPageLimit) -> SearchError {
 }
 
 impl TextPage {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new<'a>(
         pdf: &'a Pdf,
         page: &Page<'a>,
@@ -2161,6 +2406,8 @@ impl TextPage {
         settings: InterpreterSettings,
         max_text_size: Option<usize>,
         max_glyph_count: Option<usize>,
+        substitutes: &SubstitutePrograms,
+        options: CollectOptions,
     ) -> Result<Self, TextPageLimit> {
         let (width, height) = page.render_dimensions();
         let marks = collect_page_marks(
@@ -2171,6 +2418,8 @@ impl TextPage {
             false,
             max_text_size,
             max_glyph_count,
+            substitutes,
+            options,
         )?;
         let physical_lines = cluster_lines(marks.glyphs)?;
         let mut lines = order_page_lines(physical_lines)?;
@@ -2187,18 +2436,52 @@ impl TextPage {
         })
     }
 
-    pub(crate) fn text(&self, max_size: Option<usize>) -> Result<String, TextPageLimit> {
+    /// The cached lines as the view options make them: borrowed without
+    /// options, else a copy that keeps the glyphs inside the clip and
+    /// rewrites their text.
+    fn view_lines(&self, view: &ViewOptions) -> Result<ViewLines<'_>, TextPageLimit> {
+        if !view.changes_lines() {
+            return Ok(ViewLines::Cached(&self.lines));
+        }
+        let mut lines = Vec::new();
+        for line in &self.lines {
+            let mut kept = Vec::new();
+            for glyph in line {
+                if let Some((x0, y0, x1, y1)) = view.clip {
+                    let (gx0, gy0, gx1, gy1) = glyph_bbox(glyph);
+                    let (cx, cy) = ((gx0 + gx1) * 0.5, (gy0 + gy1) * 0.5);
+                    if !(cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) {
+                        continue;
+                    }
+                }
+                try_push_text(&mut kept, view_glyph(glyph, view)?, "text view glyphs")?;
+            }
+            if !kept.is_empty() {
+                try_push_text(&mut lines, kept, "text view lines")?;
+            }
+        }
+        if view.dehyphenate {
+            dehyphenate_lines(&mut lines);
+        }
+        Ok(ViewLines::Copied(lines))
+    }
+
+    pub(crate) fn text(
+        &self,
+        max_size: Option<usize>,
+        view: &ViewOptions,
+    ) -> Result<String, TextPageLimit> {
+        let lines = self.view_lines(view)?;
         let size = max_size
             .map(|limit| {
-                let size =
-                    assembled_text_size(&self.lines).ok_or(TextPageLimit::TextSize(limit))?;
+                let size = assembled_text_size(&lines).ok_or(TextPageLimit::TextSize(limit))?;
                 if size > limit {
                     return Err(TextPageLimit::TextSize(limit));
                 }
                 Ok(size)
             })
             .transpose()?;
-        assemble_text(&self.lines, size)
+        assemble_text(&lines, size)
     }
 
     pub(crate) fn text_size(&self) -> usize {
@@ -2213,21 +2496,170 @@ impl TextPage {
         self.skipped_no_unicode
     }
 
-    pub(crate) fn layout(&self) -> Result<(f64, f64, Vec<BlockTuple>), TextPageLimit> {
-        Ok((self.width, self.height, assemble_layout(&self.lines)?))
+    pub(crate) fn layout(
+        &self,
+        view: &ViewOptions,
+    ) -> Result<(f64, f64, Vec<BlockTuple>), TextPageLimit> {
+        let lines = self.view_lines(view)?;
+        let mut blocks = assemble_layout(&lines)?;
+        merge_joined_words(&lines, &mut blocks, |line| &mut line.2)?;
+        Ok((self.width, self.height, blocks))
     }
 
-    pub(crate) fn raw_layout(&self) -> Result<(f64, f64, Vec<RawBlockTuple>), TextPageLimit> {
-        Ok((self.width, self.height, assemble_raw_layout(&self.lines)?))
+    pub(crate) fn raw_layout(
+        &self,
+        view: &ViewOptions,
+    ) -> Result<(f64, f64, Vec<RawBlockTuple>), TextPageLimit> {
+        let lines = self.view_lines(view)?;
+        let mut blocks = assemble_raw_layout(&lines)?;
+        merge_joined_words(&lines, &mut blocks, |line| &mut line.2)?;
+        Ok((self.width, self.height, blocks))
     }
 
     pub(crate) fn search(
         &self,
         needle: &str,
         max_hits: Option<usize>,
+        view: &ViewOptions,
     ) -> Result<Vec<BBox>, SearchError> {
-        search_lines(&self.lines, needle, max_hits)
+        let lines = self.view_lines(view).map_err(search_allocation_error)?;
+        search_lines(&lines, needle, max_hits)
     }
+}
+
+/// The lines of one view: the cached ones, or a copy that options changed.
+enum ViewLines<'a> {
+    Cached(&'a [Vec<GlyphRecord>]),
+    Copied(Vec<Vec<GlyphRecord>>),
+}
+
+impl std::ops::Deref for ViewLines<'_> {
+    type Target = [Vec<GlyphRecord>];
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Cached(lines) => lines,
+            Self::Copied(lines) => lines,
+        }
+    }
+}
+
+/// Copy one glyph with the text that the view options make of it.
+fn view_glyph(glyph: &GlyphRecord, view: &ViewOptions) -> Result<GlyphRecord, TextPageLimit> {
+    let text = if view.expand_ligatures || view.normalize_whitespace {
+        let mut text = String::new();
+        for ch in glyph.text.chars() {
+            let expanded = match ch {
+                '\u{FB00}' if view.expand_ligatures => "ff",
+                '\u{FB01}' if view.expand_ligatures => "fi",
+                '\u{FB02}' if view.expand_ligatures => "fl",
+                '\u{FB03}' if view.expand_ligatures => "ffi",
+                '\u{FB04}' if view.expand_ligatures => "ffl",
+                '\u{FB05}' | '\u{FB06}' if view.expand_ligatures => "st",
+                ch if view.normalize_whitespace && ch.is_whitespace() => " ",
+                ch => {
+                    let mut encoded = [0u8; 4];
+                    try_push_str_text(
+                        &mut text,
+                        ch.encode_utf8(&mut encoded),
+                        "text view glyph text",
+                    )?;
+                    continue;
+                }
+            };
+            try_push_str_text(&mut text, expanded, "text view glyph text")?;
+        }
+        GlyphText::try_from_str(&text)?
+    } else {
+        glyph.text.try_clone()?
+    };
+    Ok(GlyphRecord {
+        bidi_flags: glyph_bidi_flags(&text),
+        text,
+        x: glyph.x,
+        y: glyph.y,
+        size: glyph.size,
+        advance: glyph.advance,
+        direction: glyph.direction,
+        writing_mode: glyph.writing_mode,
+        font_key: glyph.font_key,
+        font: glyph.font.clone(),
+        color: glyph.color,
+        render_mode: glyph.render_mode,
+        is_clipped: glyph.is_clipped,
+        ink: glyph.ink,
+        joins_previous: glyph.joins_previous,
+        source_order: glyph.source_order,
+    })
+}
+
+/// Whether a glyph's text is one hyphen that can end a hyphenated line:
+/// HYPHEN-MINUS, SOFT HYPHEN, or HYPHEN.
+fn is_line_end_hyphen(glyph: &GlyphRecord) -> bool {
+    matches!(glyph.text, GlyphText::Char('-' | '\u{00AD}' | '\u{2010}'))
+}
+
+/// Remove the hyphen that ends a line between two letters of one word and
+/// mark the next line's first glyph as continuing that word.
+///
+/// The next line must belong to the same block, as `assemble_layout` groups
+/// lines, and start with a lowercase letter, so that a hyphenated compound
+/// before a capital, such as a name, keeps its hyphen.
+fn dehyphenate_lines(lines: &mut [Vec<GlyphRecord>]) {
+    for index in 1..lines.len() {
+        let (before, after) = lines.split_at_mut(index);
+        let line = &mut before[index - 1];
+        let next = &mut after[0];
+        if starts_block(line, next) || line.len() < 2 {
+            continue;
+        }
+        let hyphen = &line[line.len() - 1];
+        let letter = &line[line.len() - 2];
+        let continues = next[0].text.chars().next().is_some_and(char::is_lowercase);
+        let ends_word = letter.text.chars().last().is_some_and(char::is_alphabetic);
+        if is_line_end_hyphen(hyphen) && ends_word && continues {
+            line.pop();
+            next[0].joins_previous = true;
+        }
+    }
+}
+
+/// Merge the last word of each line that dehyphenation joined with the first
+/// word of the next line, which drops that word: the merged word keeps its
+/// line and spans both boxes.
+fn merge_joined_words<T>(
+    lines: &[Vec<GlyphRecord>],
+    blocks: &mut [(BBox, Vec<T>)],
+    words: impl Fn(&mut T) -> &mut Vec<WordTuple>,
+) -> Result<(), TextPageLimit> {
+    let mut tuples: Vec<&mut T> = Vec::new();
+    for (_, block_lines) in blocks.iter_mut() {
+        for line in block_lines.iter_mut() {
+            try_push_text(&mut tuples, line, "joined words")?;
+        }
+    }
+    for index in 1..lines.len().min(tuples.len()) {
+        if !lines[index][0].joins_previous {
+            continue;
+        }
+        let (before, after) = tuples.split_at_mut(index);
+        let next_words = words(after[0]);
+        if next_words.is_empty() {
+            continue;
+        }
+        let (tail_box, tail) = next_words.remove(0);
+        let Some((head_box, head)) = words(before[index - 1]).last_mut() else {
+            continue;
+        };
+        try_push_str_text(head, &tail, "joined words")?;
+        *head_box = (
+            head_box.0.min(tail_box.0),
+            head_box.1.min(tail_box.1),
+            head_box.2.max(tail_box.2),
+            head_box.3.max(tail_box.3),
+        );
+    }
+    Ok(())
 }
 
 /// Reusable table interpretation kept separate from normal text extraction.
@@ -2247,6 +2679,7 @@ impl TablePage {
         settings: InterpreterSettings,
         max_text_size: Option<usize>,
         max_glyph_count: Option<usize>,
+        substitutes: &SubstitutePrograms,
     ) -> Result<Self, TextPageLimit> {
         let marks = collect_page_marks(
             pdf,
@@ -2256,6 +2689,8 @@ impl TablePage {
             true,
             max_text_size,
             max_glyph_count,
+            substitutes,
+            CollectOptions::default(),
         )?;
         let physical_lines = cluster_lines(marks.glyphs)?;
         let tables = detect_grid_tables(&physical_lines, &marks.rules)?;
@@ -2631,9 +3066,20 @@ fn assembled_text_size(lines: &[Vec<GlyphRecord>]) -> Option<usize> {
             }
         }
         line_size = line_size.checked_sub(trailing_spaces)?;
-        total = total.checked_add(line_size)?.checked_add(1)?;
+        total = total.checked_add(line_size)?;
+        if !joins_next(lines, line_index) {
+            total = total.checked_add(1)?;
+        }
     }
     Some(total)
+}
+
+/// Whether dehyphenation joins line `index` to the line after it.
+fn joins_next(lines: &[Vec<GlyphRecord>], index: usize) -> bool {
+    lines
+        .get(index + 1)
+        .and_then(|line| line.first())
+        .is_some_and(|glyph| glyph.joins_previous)
 }
 
 /// Assemble glyphs into top-to-bottom, left-to-right plain text.
@@ -2647,7 +3093,7 @@ fn assemble_text(
             TextPageLimit::Allocation(format!("failed to reserve plain text output: {error}"))
         })?;
     }
-    for line in lines {
+    for (index, line) in lines.iter().enumerate() {
         let mut previous: Option<&GlyphRecord> = None;
         for glyph in line {
             if needs_gap(previous, glyph) && !out.ends_with(' ') && !out.ends_with('\n') {
@@ -2662,7 +3108,10 @@ fn assemble_text(
         while out.ends_with(' ') {
             out.pop();
         }
-        try_push_str_text(&mut out, "\n", "plain text output")?;
+        // A line that dehyphenation joins to the next ends without a break.
+        if !joins_next(lines, index) {
+            try_push_str_text(&mut out, "\n", "plain text output")?;
+        }
     }
     if let Some(size) = exact_size {
         debug_assert_eq!(out.len(), size);
@@ -2672,12 +3121,16 @@ fn assemble_text(
 
 /// Bbox `(x0, y0, x1, y1)` with top-left origin and downward y.
 type BBox = (f64, f64, f64, f64);
-/// Span: `(bbox, content, size, origin, font name, flags)`.
-type LayoutSpanTuple<T> = (BBox, T, f64, (f64, f64), String, i64);
+/// Span: `(bbox, content, size, origin, font name, flags, style)`.
+type LayoutSpanTuple<T> = (BBox, T, f64, (f64, f64), String, i64, SpanStyleTuple);
+/// A span's paint and metrics: `(sRGB color and alpha, render mode, clipped,
+/// ascender, descender)`.
+type SpanStyleTuple = (Option<(f32, f32, f32, f32)>, u8, bool, f64, f64);
 /// Span with assembled text, including inferred spaces.
 type SpanTuple = LayoutSpanTuple<String>;
-/// One retained glyph: `(whole Unicode mapping, bbox, baseline origin)`.
-type RawCharTuple = (String, BBox, (f64, f64));
+/// One retained glyph: `(whole Unicode mapping, bbox, baseline origin,
+/// synthetic)`; a synthetic char is a space inferred from a gap.
+type RawCharTuple = (String, BBox, (f64, f64), bool);
 /// Span with its assembled text and its glyph records, which hold no inferred
 /// spaces.
 type RawSpanTuple = LayoutSpanTuple<(String, Vec<RawCharTuple>)>;
@@ -2722,24 +3175,25 @@ fn bbox_is_inside((x0, y0, x1, y1): BBox, (clip_x0, clip_y0, clip_x1, clip_y1): 
         && y1 <= clip_y1 + TABLE_SNAP_TOLERANCE
 }
 
-/// One glyph bbox with vertical extents approximated from baseline and size.
+/// One glyph's box: its exact ink box when collected, else [`font_bbox`].
 fn glyph_bbox(glyph: &GlyphRecord) -> BBox {
-    if glyph.writing_mode == 1 {
+    glyph.ink.unwrap_or_else(|| font_bbox(glyph))
+}
+
+/// One glyph bbox from its advance and the font's ascender and descender,
+/// which reading order uses whatever the box options.
+fn font_bbox(glyph: &GlyphRecord) -> BBox {
+    let (above, below) = glyph.vertical_extent();
+    if glyph.writing_mode == 1
+        || (glyph.direction.0 >= 1.0 - 1e-6 && glyph.direction.1.abs() <= 1e-6)
+    {
         // Inferred mode-1 CJK retains upright glyph geometry; only its
         // conservative line ordering is vertical.
         return (
             glyph.x,
-            glyph.y - glyph.size * ASCENT,
+            glyph.y - above,
             glyph.x + glyph.advance,
-            glyph.y + glyph.size * DESCENT,
-        );
-    }
-    if glyph.direction.0 >= 1.0 - 1e-6 && glyph.direction.1.abs() <= 1e-6 {
-        return (
-            glyph.x,
-            glyph.y - glyph.size * ASCENT,
-            glyph.x + glyph.advance,
-            glyph.y + glyph.size * DESCENT,
+            glyph.y + below,
         );
     }
     let block = (-glyph.direction.1, glyph.direction.0);
@@ -2748,7 +3202,7 @@ fn glyph_bbox(glyph: &GlyphRecord) -> BBox {
     let mut x1 = f64::NEG_INFINITY;
     let mut y1 = f64::NEG_INFINITY;
     for inline in [0.0, glyph.advance] {
-        for cross in [-glyph.size * ASCENT, glyph.size * DESCENT] {
+        for cross in [-above, below] {
             let x = glyph.x + glyph.direction.0 * inline + block.0 * cross;
             let y = glyph.y + glyph.direction.1 * inline + block.1 * cross;
             x0 = x0.min(x);
@@ -2776,7 +3230,8 @@ fn glyphs_bbox(glyphs: &[GlyphRecord]) -> BBox {
     (x0, y0, x1, y1)
 }
 
-/// Borrow contiguous spans sharing size and font without allocating a partition.
+/// Borrow contiguous spans sharing size, font, paint, render mode, and
+/// clipping without allocating a partition.
 fn span_glyph_slices(line: &[GlyphRecord]) -> impl Iterator<Item = &[GlyphRecord]> {
     let mut start = 0;
     std::iter::from_fn(move || {
@@ -2786,7 +3241,12 @@ fn span_glyph_slices(line: &[GlyphRecord]) -> impl Iterator<Item = &[GlyphRecord
         let mut end = start + 1;
         while end < line.len() {
             let (a, b) = (&line[end - 1], &line[end]);
-            if b.font_key != a.font_key || (b.size - a.size).abs() > 0.1 {
+            if b.font_key != a.font_key
+                || (b.size - a.size).abs() > 0.1
+                || b.color != a.color
+                || b.render_mode != a.render_mode
+                || b.is_clipped != a.is_clipped
+            {
                 break;
             }
             end += 1;
@@ -2815,6 +3275,15 @@ fn span_with_content<T>(
         (glyphs[0].x, glyphs[0].y),
         font_name,
         glyphs[0].font.flags,
+        (
+            glyphs[0]
+                .color
+                .map(|[red, green, blue, alpha]| (red, green, blue, alpha)),
+            glyphs[0].render_mode,
+            glyphs[0].is_clipped,
+            glyphs[0].font.ascender,
+            glyphs[0].font.descender,
+        ),
     ))
 }
 
@@ -2837,14 +3306,33 @@ fn split_raw_spans(line: &[GlyphRecord]) -> Result<Vec<RawSpanTuple>, TextPageLi
     let mut spans = Vec::new();
     for glyphs in span_glyph_slices(line) {
         let mut chars = Vec::new();
+        let mut previous: Option<&GlyphRecord> = None;
+        let mut ends_with_space = false;
         for glyph in glyphs {
+            // The space that span_text infers here becomes a synthetic char
+            // across the gap, so that the chars join to the span's text.
+            if let Some(before) = previous
+                && needs_gap(previous, glyph)
+                && !ends_with_space
+            {
+                let (origin, bbox) = gap_geometry(before, glyph);
+                try_push_text(
+                    &mut chars,
+                    (" ".to_owned(), bbox, origin, true),
+                    "raw layout glyphs",
+                )?;
+            }
             let mut text = String::new();
             try_push_glyph_text(&mut text, &glyph.text, "raw layout glyph text")?;
+            ends_with_space = text.ends_with(' ');
             try_push_text(
                 &mut chars,
-                (text, glyph_bbox(glyph), (glyph.x, glyph.y)),
+                (text, glyph_bbox(glyph), (glyph.x, glyph.y), false),
                 "raw layout glyphs",
             )?;
+            if !glyph_is_nonspacing_mark(glyph) {
+                previous = Some(glyph);
+            }
         }
         try_push_text(
             &mut spans,
@@ -2853,6 +3341,36 @@ fn split_raw_spans(line: &[GlyphRecord]) -> Result<Vec<RawSpanTuple>, TextPageLi
         )?;
     }
     Ok(spans)
+}
+
+/// The origin and box of the space inferred between two glyphs: from the end
+/// of the advance of the one before to the start of the next, along the
+/// baseline of the one before and across its ascender and descender.
+fn gap_geometry(before: &GlyphRecord, after: &GlyphRecord) -> ((f64, f64), BBox) {
+    let start = (
+        before.x + before.direction.0 * before.advance,
+        before.y + before.direction.1 * before.advance,
+    );
+    let length = ((after.x - start.0) * before.direction.0
+        + (after.y - start.1) * before.direction.1)
+        .max(0.0);
+    let (above, below) = before.vertical_extent();
+    let block = (-before.direction.1, before.direction.0);
+    let mut x0 = f64::INFINITY;
+    let mut y0 = f64::INFINITY;
+    let mut x1 = f64::NEG_INFINITY;
+    let mut y1 = f64::NEG_INFINITY;
+    for inline in [0.0, length] {
+        for cross in [-above, below] {
+            let x = start.0 + before.direction.0 * inline + block.0 * cross;
+            let y = start.1 + before.direction.1 * inline + block.1 * cross;
+            x0 = x0.min(x);
+            x1 = x1.max(x);
+            y0 = y0.min(y);
+            y1 = y1.max(y);
+        }
+    }
+    (start, (x0, y0, x1, y1))
 }
 
 /// Assemble a span's text, with a space for each inferred gap.
@@ -3851,34 +4369,31 @@ fn assemble_raw_layout(lines: &[Vec<GlyphRecord>]) -> Result<Vec<RawBlockTuple>,
 }
 
 /// Share block grouping and geometry while materializing only the requested output.
+/// Whether `line` starts a new block after `previous`: vertical lines stand
+/// alone, and so does a line whose baseline is more than `BLOCK_GAP` sizes
+/// below, or more than `LINE_TOLERANCE` sizes above, the one before.
+fn starts_block(previous: &[GlyphRecord], line: &[GlyphRecord]) -> bool {
+    let size = |line: &[GlyphRecord]| line.iter().map(|glyph| glyph.size).fold(0.0, f64::max);
+    let vertical = has_vertical_baseline(&line[0]);
+    let scale = size(previous).max(size(line)).max(1.0);
+    let (prev, baseline) = (previous[0].y, line[0].y);
+    vertical
+        || has_vertical_baseline(&previous[0]) != vertical
+        || baseline - prev > scale * BLOCK_GAP
+        || prev - baseline > scale * LINE_TOLERANCE
+}
+
 fn assemble_layout_with<T>(
     lines: &[Vec<GlyphRecord>],
     materialize_line: impl Fn(&[GlyphRecord], BBox) -> Result<T, TextPageLimit>,
 ) -> Result<Vec<(BBox, Vec<T>)>, TextPageLimit> {
     let mut blocks = Vec::new();
-    let mut prev_baseline: Option<f64> = None;
-    let mut prev_size = 0.0_f64;
-    let mut prev_vertical = false;
+    let mut previous: Option<&[GlyphRecord]> = None;
     for line in lines {
-        let baseline = line[0].y;
-        let line_size = line.iter().map(|g| g.size).fold(0.0, f64::max);
-        let vertical = has_vertical_baseline(&line[0]);
-        let new_block = match prev_baseline {
-            Some(prev) => {
-                let scale = prev_size.max(line_size).max(1.0);
-                vertical
-                    || prev_vertical != vertical
-                    || baseline - prev > scale * BLOCK_GAP
-                    || prev - baseline > scale * LINE_TOLERANCE
-            }
-            None => true,
-        };
-        if new_block {
+        if previous.is_none_or(|previous| starts_block(previous, line)) {
             try_push_text(&mut blocks, Vec::new(), "layout block lines")?;
         }
-        prev_baseline = Some(baseline);
-        prev_size = line_size;
-        prev_vertical = vertical;
+        previous = Some(line);
         try_push_text(
             blocks
                 .last_mut()
@@ -3913,35 +4428,44 @@ fn assemble_layout_with<T>(
     Ok(output)
 }
 
-/// Build lowercase search text and a character-to-glyph map from a line.
+/// The `(line, glyph)` of each character of a search unit's text, `None` for
+/// an inferred space.
+type SearchMap = Vec<Option<(usize, usize)>>;
+
+/// Build lowercase search text and a character-to-glyph map from the lines of
+/// one search unit: a line, or the lines that dehyphenation joins.
 ///
 /// Insert synthetic spaces with no glyph mapping between words. When a ligature
-/// or lowercasing yields multiple characters, map all of them to the same glyph.
-fn line_search_index(line: &[GlyphRecord]) -> Result<(String, Vec<Option<usize>>), SearchError> {
+/// or lowercasing yields multiple characters, map all of them to the same glyph,
+/// as `(line, glyph)` indexes into the unit.
+fn line_search_index(unit: &[Vec<GlyphRecord>]) -> Result<(String, SearchMap), SearchError> {
     let mut haystack = String::new();
     let mut map = Vec::new();
-    let mut previous: Option<&GlyphRecord> = None;
-    for (index, glyph) in line.iter().enumerate() {
-        if needs_gap(previous, glyph) && !haystack.ends_with(' ') {
-            try_push_str_text(&mut haystack, " ", "search lowercase index")
-                .map_err(search_allocation_error)?;
-            try_push_text(&mut map, None, "search glyph map").map_err(search_allocation_error)?;
-        }
-        for ch in glyph.text.chars() {
-            for lowered in ch.to_lowercase() {
-                let mut encoded = [0u8; 4];
-                try_push_str_text(
-                    &mut haystack,
-                    lowered.encode_utf8(&mut encoded),
-                    "search lowercase index",
-                )
-                .map_err(search_allocation_error)?;
-                try_push_text(&mut map, Some(index), "search glyph map")
+    for (line_index, line) in unit.iter().enumerate() {
+        let mut previous: Option<&GlyphRecord> = None;
+        for (index, glyph) in line.iter().enumerate() {
+            if needs_gap(previous, glyph) && !haystack.ends_with(' ') {
+                try_push_str_text(&mut haystack, " ", "search lowercase index")
+                    .map_err(search_allocation_error)?;
+                try_push_text(&mut map, None, "search glyph map")
                     .map_err(search_allocation_error)?;
             }
-        }
-        if !glyph_is_nonspacing_mark(glyph) {
-            previous = Some(glyph);
+            for ch in glyph.text.chars() {
+                for lowered in ch.to_lowercase() {
+                    let mut encoded = [0u8; 4];
+                    try_push_str_text(
+                        &mut haystack,
+                        lowered.encode_utf8(&mut encoded),
+                        "search lowercase index",
+                    )
+                    .map_err(search_allocation_error)?;
+                    try_push_text(&mut map, Some((line_index, index)), "search glyph map")
+                        .map_err(search_allocation_error)?;
+                }
+            }
+            if !glyph_is_nonspacing_mark(glyph) {
+                previous = Some(glyph);
+            }
         }
     }
     Ok((haystack, map))
@@ -3949,7 +4473,9 @@ fn line_search_index(line: &[GlyphRecord]) -> Result<(String, Vec<Option<usize>>
 
 /// Search page text case-insensitively and return one bbox per match.
 ///
-/// Search is line-based and does not detect matches across lines.
+/// Search is line-based and does not detect matches across lines, except
+/// across the lines that dehyphenation joins, where a match spans the boxes
+/// of its glyphs on both.
 fn search_lines(
     lines: &[Vec<GlyphRecord>],
     needle: &str,
@@ -3971,8 +4497,15 @@ fn search_lines(
         return Ok(Vec::new());
     }
     let mut hits = Vec::new();
-    for line in lines {
-        let (haystack, map) = line_search_index(line)?;
+    let mut start_line = 0;
+    while start_line < lines.len() {
+        let mut end_line = start_line + 1;
+        while end_line < lines.len() && lines[end_line][0].joins_previous {
+            end_line += 1;
+        }
+        let unit = &lines[start_line..end_line];
+        start_line = end_line;
+        let (haystack, map) = line_search_index(unit)?;
         let mut byte_cursor = 0;
         let mut char_cursor = 0;
         for (start, _) in haystack.match_indices(&needle_lower) {
@@ -3987,8 +4520,29 @@ fn search_lines(
                 if max_hits.is_some_and(|limit| hits.len() == limit) {
                     return Err(SearchError::TooManyHits);
                 }
-                let matched = &line[first..=last];
-                try_push_text(&mut hits, glyphs_bbox(matched), "search result geometry")
+                let mut bbox = (
+                    f64::INFINITY,
+                    f64::INFINITY,
+                    f64::NEG_INFINITY,
+                    f64::NEG_INFINITY,
+                );
+                for (offset, line) in unit[first.0..=last.0].iter().enumerate() {
+                    let index = first.0 + offset;
+                    let from = if index == first.0 { first.1 } else { 0 };
+                    let to = if index == last.0 {
+                        last.1
+                    } else {
+                        line.len() - 1
+                    };
+                    let (x0, y0, x1, y1) = glyphs_bbox(&line[from..=to]);
+                    bbox = (
+                        bbox.0.min(x0),
+                        bbox.1.min(y0),
+                        bbox.2.max(x1),
+                        bbox.3.max(y1),
+                    );
+                }
+                try_push_text(&mut hits, bbox, "search result geometry")
                     .map_err(search_allocation_error)?;
             }
             byte_cursor = end;
@@ -4732,6 +5286,7 @@ struct PageMarks {
 ///
 /// The caller owns the interpreter cache so one batched call can reuse parsed
 /// fonts across pages instead of re-parsing them for every page.
+#[allow(clippy::too_many_arguments)]
 fn collect_page_marks<'a>(
     pdf: &'a Pdf,
     page: &Page<'a>,
@@ -4740,7 +5295,10 @@ fn collect_page_marks<'a>(
     collect_rules: bool,
     max_text_size: Option<usize>,
     max_glyph_count: Option<usize>,
+    substitutes: &SubstitutePrograms,
+    options: CollectOptions,
 ) -> Result<PageMarks, TextPageLimit> {
+    let (width, height) = page.render_dimensions();
     let mut context = extraction_context(pdf, page, cache, settings);
     let text = TextCollector {
         glyphs: Vec::new(),
@@ -4753,6 +5311,15 @@ fn collect_page_marks<'a>(
         max_glyph_count,
         limit_error: None,
         skipped_no_unicode: 0,
+        style: RunStyle {
+            color: None,
+            render_mode: RENDER_FILL,
+            clip: None,
+        },
+        run_start: 0,
+        substitutes,
+        options,
+        page_box: Rect::new(0.0, 0.0, f64::from(width), f64::from(height)),
     };
     let mut device = ContentCollector::new(text, ItemKinds::NONE, None);
     interpret_page(page, &mut context, &mut device);

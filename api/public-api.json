@@ -66,8 +66,13 @@
     "ImageObject",
     "Images",
     "Ink",
+    "InlineImage",
     "Launch",
     "Layer",
+    "LayerBaseState",
+    "LayerConfiguration",
+    "LayerConfigurations",
+    "LayerOrder",
     "Layers",
     "Layout",
     "LimitError",
@@ -96,6 +101,8 @@
     "OcrError",
     "OcrRotation",
     "OcrWord",
+    "Operation",
+    "Operations",
     "Outline",
     "OutlineEntry",
     "OutlineItem",
@@ -160,6 +167,7 @@
     "TilingPattern",
     "TransparencyGroup",
     "Underline",
+    "Unmapped",
     "Widget",
     "Widgets",
     "Word",
@@ -324,13 +332,21 @@
     "AnnotationFile": {
       "kind": "class",
       "members": {
+        "created": {
+          "kind": "property",
+          "returns": "str | None"
+        },
         "description": {
           "kind": "property",
-          "returns": "str"
+          "returns": "str | None"
         },
         "filename": {
           "kind": "property",
           "returns": "str"
+        },
+        "modified": {
+          "kind": "property",
+          "returns": "str | None"
         },
         "read": {
           "kind": "method",
@@ -641,21 +657,21 @@
     "Attachment": {
       "kind": "class",
       "members": {
-        "creation_date": {
+        "created": {
           "kind": "property",
-          "returns": "str"
+          "returns": "str | None"
         },
         "description": {
           "kind": "property",
-          "returns": "str"
+          "returns": "str | None"
         },
         "filename": {
           "kind": "property",
           "returns": "str"
         },
-        "mod_date": {
+        "modified": {
           "kind": "property",
-          "returns": "str"
+          "returns": "str | None"
         },
         "name": {
           "kind": "property",
@@ -1860,17 +1876,22 @@
     "Char": {
       "annotations": {
         "bbox": "Rect",
+        "is_synthetic": "bool",
         "origin": "Point",
         "text": "str"
       },
       "dataclass_fields": [
         "text",
         "bbox",
-        "origin"
+        "origin",
+        "is_synthetic"
       ],
       "kind": "class",
       "members": {
         "bbox": {
+          "kind": "property"
+        },
+        "is_synthetic": {
           "kind": "property"
         },
         "origin": {
@@ -1896,6 +1917,12 @@
             "annotation": "Point",
             "kind": "keyword_only",
             "name": "origin"
+          },
+          {
+            "annotation": "bool",
+            "default": false,
+            "kind": "keyword_only",
+            "name": "is_synthetic"
           }
         ],
         "returns": "None"
@@ -3199,6 +3226,42 @@
                 "default": null,
                 "kind": "positional_or_keyword",
                 "name": "pages"
+              },
+              {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "clipped"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "ligatures"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "whitespace"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "dehyphenate"
+              },
+              {
+                "annotation": "Unmapped",
+                "default": "skip",
+                "kind": "keyword_only",
+                "name": "unmapped"
               }
             ],
             "returns": "str"
@@ -5764,6 +5827,50 @@
         "returns": "None"
       }
     },
+    "InlineImage": {
+      "annotations": {
+        "_source": "bytes | None",
+        "data": "bytes",
+        "dictionary": "Mapping[str, Any]"
+      },
+      "dataclass_fields": [
+        "dictionary",
+        "data",
+        "_source"
+      ],
+      "kind": "class",
+      "members": {
+        "data": {
+          "kind": "property"
+        },
+        "dictionary": {
+          "kind": "property"
+        },
+        "operands": {
+          "kind": "property",
+          "returns": "tuple[Any, ...]"
+        },
+        "operator": {
+          "kind": "property",
+          "returns": "str"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Mapping[str, Any]",
+            "kind": "positional_or_keyword",
+            "name": "dictionary"
+          },
+          {
+            "annotation": "bytes",
+            "kind": "positional_or_keyword",
+            "name": "data"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "Launch": {
       "annotations": {
         "file": "str"
@@ -5828,6 +5935,214 @@
             "annotation": "int",
             "kind": "positional_or_keyword",
             "name": "generation"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "LayerBaseState": {
+      "kind": "enum",
+      "members": {
+        "OFF": "OFF",
+        "ON": "ON",
+        "UNCHANGED": "Unchanged"
+      }
+    },
+    "LayerConfiguration": {
+      "kind": "class",
+      "members": {
+        "apply": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "base_state": {
+          "kind": "property",
+          "returns": "LayerBaseState"
+        },
+        "creator": {
+          "kind": "property",
+          "returns": "str | None"
+        },
+        "index": {
+          "kind": "property",
+          "returns": "int"
+        },
+        "locked": {
+          "kind": "property",
+          "returns": "tuple[Layer, ...]"
+        },
+        "name": {
+          "kind": "property",
+          "returns": "str | None"
+        },
+        "off": {
+          "kind": "property",
+          "returns": "tuple[Layer, ...]"
+        },
+        "on": {
+          "kind": "property",
+          "returns": "tuple[Layer, ...]"
+        },
+        "order": {
+          "kind": "property",
+          "returns": "tuple[Layer | LayerOrder, ...]"
+        },
+        "radio_groups": {
+          "kind": "property",
+          "returns": "tuple[tuple[Layer, ...], ...]"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "slot"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "LayerConfigurations": {
+      "kind": "class",
+      "members": {
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | slice",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              }
+            ],
+            "returns": "LayerConfiguration | list[LayerConfiguration]"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[LayerConfiguration]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        },
+        "add": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_only",
+                "name": "name"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "creator"
+              },
+              {
+                "annotation": "LayerBaseState | str",
+                "default": "ON",
+                "kind": "keyword_only",
+                "name": "base_state"
+              },
+              {
+                "annotation": "Iterable[Layer]",
+                "default": [],
+                "kind": "keyword_only",
+                "name": "on"
+              },
+              {
+                "annotation": "Iterable[Layer]",
+                "default": [],
+                "kind": "keyword_only",
+                "name": "off"
+              }
+            ],
+            "returns": "LayerConfiguration"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "LayerOrder": {
+      "annotations": {
+        "items": "tuple[Layer | LayerOrder, ...]",
+        "label": "str | None"
+      },
+      "dataclass_fields": [
+        "label",
+        "items"
+      ],
+      "kind": "class",
+      "members": {
+        "items": {
+          "kind": "property"
+        },
+        "label": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str | None",
+            "kind": "positional_or_keyword",
+            "name": "label"
+          },
+          {
+            "annotation": "tuple[Layer | LayerOrder, ...]",
+            "default": [],
+            "kind": "positional_or_keyword",
+            "name": "items"
           }
         ],
         "returns": "None"
@@ -5907,6 +6222,10 @@
             ],
             "returns": "Layer"
           }
+        },
+        "configurations": {
+          "kind": "property",
+          "returns": "LayerConfigurations"
         }
       },
       "signature": {
@@ -7424,6 +7743,149 @@
         "returns": "None"
       }
     },
+    "Operation": {
+      "annotations": {
+        "_source": "bytes | None",
+        "operands": "tuple[Any, ...]",
+        "operator": "str"
+      },
+      "dataclass_fields": [
+        "operator",
+        "operands",
+        "_source"
+      ],
+      "kind": "class",
+      "members": {
+        "operands": {
+          "kind": "property"
+        },
+        "operator": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "operator"
+          },
+          {
+            "annotation": "tuple[Any, ...]",
+            "default": [],
+            "kind": "positional_or_keyword",
+            "name": "operands"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "Operations": {
+      "kind": "class",
+      "members": {
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | slice",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              }
+            ],
+            "returns": "Operation | InlineImage | Operations"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[Operation | InlineImage]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        },
+        "parse": {
+          "kind": "classmethod",
+          "signature": {
+            "parameters": [
+              {
+                "annotation": "bytes",
+                "kind": "positional_only",
+                "name": "data"
+              },
+              {
+                "annotation": "int | None",
+                "default": 1048576,
+                "kind": "keyword_only",
+                "name": "max_operations"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              }
+            ],
+            "returns": "Operations"
+          }
+        },
+        "tail": {
+          "kind": "property",
+          "returns": "bytes"
+        },
+        "to_bytes": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "bytes"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Iterable[Operation | InlineImage]",
+            "default": [],
+            "kind": "positional_or_keyword",
+            "name": "items"
+          },
+          {
+            "annotation": "bytes",
+            "default": {
+              "repr": "b''"
+            },
+            "kind": "keyword_only",
+            "name": "tail"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "Outline": {
       "kind": "class",
       "members": {
@@ -7843,10 +8305,52 @@
                 "name": "self"
               },
               {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              },
+              {
                 "annotation": "bool",
                 "default": false,
                 "kind": "keyword_only",
                 "name": "chars"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "clipped"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "ligatures"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "whitespace"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "dehyphenate"
+              },
+              {
+                "annotation": "Unmapped",
+                "default": "skip",
+                "kind": "keyword_only",
+                "name": "unmapped"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "exact_bboxes"
               }
             ],
             "returns": "Layout"
@@ -7937,6 +8441,10 @@
             ],
             "returns": "list[OcrWord]"
           }
+        },
+        "operations": {
+          "kind": "property",
+          "returns": "Operations"
         },
         "pixmap": {
           "kind": "method",
@@ -8052,10 +8560,52 @@
                 "name": "text"
               },
               {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              },
+              {
                 "annotation": "int | None",
                 "default": 4096,
                 "kind": "keyword_only",
                 "name": "max_hits"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "clipped"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "ligatures"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "whitespace"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "dehyphenate"
+              },
+              {
+                "annotation": "Unmapped",
+                "default": "skip",
+                "kind": "keyword_only",
+                "name": "unmapped"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "exact_bboxes"
               }
             ],
             "returns": "list[Rect]"
@@ -8116,6 +8666,42 @@
               {
                 "kind": "positional_or_keyword",
                 "name": "self"
+              },
+              {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "clipped"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "ligatures"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "whitespace"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "dehyphenate"
+              },
+              {
+                "annotation": "Unmapped",
+                "default": "skip",
+                "kind": "keyword_only",
+                "name": "unmapped"
               }
             ],
             "returns": "str"
@@ -8136,6 +8722,48 @@
               {
                 "kind": "positional_or_keyword",
                 "name": "self"
+              },
+              {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "clipped"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "ligatures"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "whitespace"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "dehyphenate"
+              },
+              {
+                "annotation": "Unmapped",
+                "default": "skip",
+                "kind": "keyword_only",
+                "name": "unmapped"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "exact_bboxes"
               }
             ],
             "returns": "list[Word]"
@@ -8985,11 +9613,61 @@
               {
                 "kind": "positional_only",
                 "name": "array"
+              },
+              {
+                "default": null,
+                "kind": "keyword_only",
+                "name": "resolution"
+              }
+            ]
+          }
+        },
+        "from_bytes": {
+          "kind": "staticmethod",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "data"
+              },
+              {
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              },
+              {
+                "default": 64000000,
+                "kind": "keyword_only",
+                "name": "max_pixels"
+              }
+            ]
+          }
+        },
+        "from_file": {
+          "kind": "staticmethod",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "path"
+              },
+              {
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              },
+              {
+                "default": 64000000,
+                "kind": "keyword_only",
+                "name": "max_pixels"
               }
             ]
           }
         },
         "height": {
+          "kind": "property"
+        },
+        "resolution": {
           "kind": "property"
         },
         "save": {
@@ -11065,14 +11743,19 @@
     },
     "Span": {
       "annotations": {
+        "ascender": "float",
         "bbox": "Rect",
         "chars": "tuple[Char, ...]",
+        "color": "Color | None",
+        "descender": "float",
         "font": "str",
         "is_bold": "bool",
+        "is_clipped": "bool",
         "is_italic": "bool",
         "is_monospaced": "bool",
         "is_serif": "bool",
         "origin": "Point",
+        "render_mode": "TextRenderMode",
         "size": "float",
         "text": "str"
       },
@@ -11086,20 +11769,37 @@
         "is_italic",
         "is_serif",
         "is_monospaced",
+        "color",
+        "render_mode",
+        "is_clipped",
+        "ascender",
+        "descender",
         "chars"
       ],
       "kind": "class",
       "members": {
+        "ascender": {
+          "kind": "property"
+        },
         "bbox": {
           "kind": "property"
         },
         "chars": {
           "kind": "property"
         },
+        "color": {
+          "kind": "property"
+        },
+        "descender": {
+          "kind": "property"
+        },
         "font": {
           "kind": "property"
         },
         "is_bold": {
+          "kind": "property"
+        },
+        "is_clipped": {
           "kind": "property"
         },
         "is_italic": {
@@ -11112,6 +11812,9 @@
           "kind": "property"
         },
         "origin": {
+          "kind": "property"
+        },
+        "render_mode": {
           "kind": "property"
         },
         "size": {
@@ -11167,6 +11870,31 @@
             "annotation": "bool",
             "kind": "keyword_only",
             "name": "is_monospaced"
+          },
+          {
+            "annotation": "Color | None",
+            "kind": "keyword_only",
+            "name": "color"
+          },
+          {
+            "annotation": "TextRenderMode",
+            "kind": "keyword_only",
+            "name": "render_mode"
+          },
+          {
+            "annotation": "bool",
+            "kind": "keyword_only",
+            "name": "is_clipped"
+          },
+          {
+            "annotation": "float",
+            "kind": "keyword_only",
+            "name": "ascender"
+          },
+          {
+            "annotation": "float",
+            "kind": "keyword_only",
+            "name": "descender"
           },
           {
             "annotation": "tuple[Char, ...]",
@@ -12391,6 +13119,12 @@
           }
         ],
         "returns": "None"
+      }
+    },
+    "Unmapped": {
+      "kind": "constant",
+      "value": {
+        "repr": "typing.Literal['skip', 'replacement', 'glyph_id']"
       }
     },
     "Widget": {

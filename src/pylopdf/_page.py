@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Literal
 
 from pylopdf import _text
@@ -25,16 +26,19 @@ from pylopdf._limits import (
 from pylopdf._links import Links
 from pylopdf._objects import Dictionary
 from pylopdf._ocr import OcrEngine, OcrWord, _default_ocr_engine, _validate_ocr_rotation
+from pylopdf._operations import _DEFAULT_MAX_CONTENT_SIZE, InlineImage, Operation, Operations
+from pylopdf._operations import _from_core as _operations_from_core
 from pylopdf._page_labels import _label, _read_page_labels
 from pylopdf._pixmap import Colorspace, _render_background, _render_gray, _render_matrix, _validate_bool
 from pylopdf._tables import Table, build_tables
 from pylopdf._widgets import Widgets
+from pylopdf.pylopdf_core import LimitError
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Sequence
 
     from pylopdf._document import Document
-    from pylopdf._text import Layout, Word
+    from pylopdf._text import Layout, Unmapped, Word
     from pylopdf._types import OcrRotation
     from pylopdf.pylopdf_core import Pixmap
 
@@ -194,42 +198,117 @@ class Page:
         """
         return Matrix(*self._document._doc.page_display_matrix(self._page_number()))
 
-    def text(self) -> str:
+    def text(  # noqa: PLR0913 - the shared text options are keyword-only.
+        self,
+        *,
+        clip: Sequence[float] | None = None,
+        clipped: bool = False,
+        ligatures: bool = True,
+        whitespace: bool = True,
+        dehyphenate: bool = False,
+        unmapped: Unmapped = "skip",
+    ) -> str:
         """Return the page's text in reading order.
 
         Reading order follows the geometry and script heuristics described in
         the documentation rather than the document's semantic order. Spaces
         between words are inferred from glyph positions, and lines end with a
         newline.
-        """
-        self._page_number()
-        return self._document._page_text(self._pno)
 
-    def words(self) -> list[Word]:
+        ``clip`` keeps the glyphs whose box's center lies inside a
+        display-space rectangle, in the page's reading order, which gives the
+        text in a rectangle. Glyphs that the page boundary or the clip paths
+        hide entirely are left out unless ``clipped=True``; invisible text,
+        such as an OCR layer, is kept. ``ligatures=False`` expands the
+        ligature characters U+FB00 to U+FB06 to their letters;
+        ``whitespace=False`` makes every whitespace character a space;
+        ``dehyphenate=True`` removes a hyphen that ends a line between two
+        letters of a word that continues in lowercase on the next line of the
+        block, and joins the two lines; and ``unmapped`` decides what a glyph
+        without Unicode becomes (see :data:`Unmapped`).
+        """
+        options = _text.text_options(
+            clip=clip,
+            clipped=clipped,
+            ligatures=ligatures,
+            whitespace=whitespace,
+            dehyphenate=dehyphenate,
+            unmapped=unmapped,
+        )
+        self._page_number()
+        return self._document._page_text(self._pno, options)
+
+    def words(  # noqa: PLR0913 - the shared text options are keyword-only.
+        self,
+        *,
+        clip: Sequence[float] | None = None,
+        clipped: bool = False,
+        ligatures: bool = True,
+        whitespace: bool = True,
+        dehyphenate: bool = False,
+        unmapped: Unmapped = "skip",
+        exact_bboxes: bool = False,
+    ) -> list[Word]:
         """Return the page's words in reading order, as :class:`Word` records.
 
-        Boxes are in display space and come from glyph advances and the font
-        size rather than from glyph outlines.
+        Boxes are in display space and span the glyphs' advances and the
+        font's ascender and descender, or their outlines with
+        ``exact_bboxes=True``. The other options are those of :meth:`text`; a
+        word that dehyphenation joins is one :class:`Word` on its first line
+        whose box spans both parts.
         """
-        width_height_blocks = self._document._page_layout(self._page_number())
+        options = _text.text_options(
+            clip=clip,
+            clipped=clipped,
+            ligatures=ligatures,
+            whitespace=whitespace,
+            dehyphenate=dehyphenate,
+            unmapped=unmapped,
+            exact_bboxes=exact_bboxes,
+        )
+        width_height_blocks = self._document._page_layout(self._page_number(), options)
         return _text.build_words(width_height_blocks[2])
 
-    def layout(self, *, chars: bool = False) -> Layout:
+    def layout(  # noqa: PLR0913 - the shared text options are keyword-only.
+        self,
+        *,
+        clip: Sequence[float] | None = None,
+        chars: bool = False,
+        clipped: bool = False,
+        ligatures: bool = True,
+        whitespace: bool = True,
+        dehyphenate: bool = False,
+        unmapped: Unmapped = "skip",
+        exact_bboxes: bool = False,
+    ) -> Layout:
         """Return the page's text as blocks, lines, and spans, in reading order.
 
-        With ``chars=True``, every span also lists its glyphs as :class:`Char`
-        records: each keeps the glyph's complete Unicode mapping, ligatures
-        included, and inferred spaces have none. Boxes are in display space and
-        come from glyph advances and the font size rather than from glyph
-        outlines. :meth:`Layout.to_dict` serializes the result.
+        With ``chars=True``, every span also lists its characters as
+        :class:`Char` records: each glyph keeps its complete Unicode mapping,
+        ligatures included, and each space that pylopdf infers from a gap is a
+        char with ``is_synthetic`` set, so that a span's chars join to its
+        text. Boxes are in display space and span the glyphs' advances and the
+        font's ascender and descender, or their outlines with
+        ``exact_bboxes=True``. Dehyphenation removes the hyphen from the end
+        of the line and keeps both lines. The other options are those of
+        :meth:`text`. :meth:`Layout.to_dict` serializes the result.
         """
         if not isinstance(chars, bool):
             msg = f"chars must be True or False: {chars!r}"
             raise TypeError(msg)
+        options = _text.text_options(
+            clip=clip,
+            clipped=clipped,
+            ligatures=ligatures,
+            whitespace=whitespace,
+            dehyphenate=dehyphenate,
+            unmapped=unmapped,
+            exact_bboxes=exact_bboxes,
+        )
         page_number = self._page_number()
         if chars:
-            return _text.build_layout(*self._document._page_raw_layout(page_number))
-        return _text.build_layout(*self._document._page_layout(page_number))
+            return _text.build_layout(*self._document._page_raw_layout(page_number, options))
+        return _text.build_layout(*self._document._page_layout(page_number, options))
 
     def ocr(  # noqa: PLR0913 - OCR resource controls are keyword-only.
         self,
@@ -358,18 +437,28 @@ class Page:
             max_size=max_size,
         )
 
-    def search(
+    def search(  # noqa: PLR0913 - the shared text options are keyword-only.
         self,
         text: str,
         *,
+        clip: Sequence[float] | None = None,
         max_hits: int | None = _DEFAULT_MAX_SEARCH_HITS,
+        clipped: bool = False,
+        ligatures: bool = True,
+        whitespace: bool = True,
+        dehyphenate: bool = False,
+        unmapped: Unmapped = "skip",
+        exact_bboxes: bool = False,
     ) -> list[Rect]:
         """Search page text case-insensitively for ``text``.
 
         Return one :class:`Rect` per match. Search is line-based and does not
-        detect matches spanning lines. ``text`` is limited to 4,096 UTF-8
+        detect matches spanning lines, except that ``dehyphenate=True`` joins
+        a hyphenated word's lines, and a match across that join gives one
+        rectangle that spans both parts. ``text`` is limited to 4,096 UTF-8
         bytes. Results default to 4,096 matches; ``max_hits=None`` explicitly
-        opts trusted workloads out.
+        opts trusted workloads out. The other options are those of
+        :meth:`words`.
         """
         if not text:
             msg = "text must be at least 1 character"
@@ -381,7 +470,16 @@ class Page:
             limit_code="search_input_size",
             input_label="search text",
         )
-        hits = self._document._doc.search_page(self._page_number(), text, max_hits)
+        options = _text.text_options(
+            clip=clip,
+            clipped=clipped,
+            ligatures=ligatures,
+            whitespace=whitespace,
+            dehyphenate=dehyphenate,
+            unmapped=unmapped,
+            exact_bboxes=exact_bboxes,
+        )
+        hits = self._document._doc.search_page(self._page_number(), text, max_hits, options)
         self._document._emit_warnings()
         return [Rect(*hit) for hit in hits]
 
@@ -488,6 +586,44 @@ class Page:
         normally: above the page's content, or below it with ``underlay=True``.
         """
         return Canvas(self, underlay=underlay)
+
+    @property
+    def operations(self) -> Operations:
+        """Return the page's content as :class:`Operations`, as hayro reads it.
+
+        The content streams of ``/Contents`` are decoded and joined as the
+        renderer joins them, each stream of an array followed by one space,
+        and tokenized with hayro's parser, so the operations are the ones
+        that rendering and extraction interpret. Assigning a sequence of
+        :class:`Operation` and :class:`InlineImage` values writes them as one
+        new content stream, Flate-compressed, that replaces ``/Contents``;
+        operations read from a page or parsed keep their original bytes, so
+        ``page.operations = page.operations`` keeps the content as hayro
+        reads it. The page's resources are not changed: operations that name
+        a font or XObject need the page's ``/Resources`` to hold it.
+
+        Reading refuses more than 1,048,576 operations
+        (``content_operation_count``), and reading or writing more than
+        64 MiB of content raises ``content_stream_size`` or
+        ``content_input_size``; use :meth:`Operations.parse` with
+        ``max_operations=None`` on ``page.obj["Contents"].read()`` for larger
+        trusted content.
+        """
+        return _operations_from_core(self._document._doc.page_operations(self._page_number()))
+
+    @operations.setter
+    def operations(self, operations: Iterable[Operation | InlineImage]) -> None:
+        if not isinstance(operations, Operations):
+            if isinstance(operations, (str, bytes)) or not isinstance(operations, Iterable):
+                msg = f"assign a sequence of Operation and InlineImage values: {type(operations).__name__}"
+                raise TypeError(msg)
+            operations = Operations(operations)
+        data = operations.to_bytes()
+        if len(data) > _DEFAULT_MAX_CONTENT_SIZE:
+            msg = f"page content of {len(data)} bytes exceeds the {_DEFAULT_MAX_CONTENT_SIZE}-byte limit"
+            code = "content_input_size"
+            raise LimitError(code, msg)
+        self._document._doc.set_page_content(self._page_number(), data)
 
     def replace_text(
         self,

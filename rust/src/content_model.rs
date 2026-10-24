@@ -111,10 +111,10 @@ const CURVE: u8 = b'c';
 const CLOSE: u8 = b'h';
 
 /// Text render modes the Device API distinguishes.
-const RENDER_FILL: u8 = 0;
-const RENDER_STROKE: u8 = 1;
-const RENDER_FILL_STROKE: u8 = 2;
-const RENDER_INVISIBLE: u8 = 3;
+pub(crate) const RENDER_FILL: u8 = 0;
+pub(crate) const RENDER_STROKE: u8 = 1;
+pub(crate) const RENDER_FILL_STROKE: u8 = 2;
+pub(crate) const RENDER_INVISIBLE: u8 = 3;
 
 /// Image mask kinds.
 const MASK_NONE: u8 = 0;
@@ -563,10 +563,31 @@ enum Pending {
 /// reach `glyph` once: hayro paints the fill-and-stroke text render mode as a
 /// fill followed by a stroke of the same glyphs, and the stroke that completes
 /// such a fill sends no glyphs again.
+/// How the glyphs of one run are painted, as a sink receives it before them.
+pub(crate) struct GlyphStyle {
+    /// The sRGB approximation and alpha of a color paint; `None` for a
+    /// pattern, or for invisible text.
+    pub(crate) color: Option<[f32; 4]>,
+    /// One of the `RENDER_*` modes.
+    pub(crate) render_mode: u8,
+    /// The intersection of the boxes of the clip paths in force, in display
+    /// space, or `None` when no clip path is.
+    pub(crate) clip: Option<Rect>,
+}
+
 pub(crate) trait ContentSink {
+    /// Receive the style of the glyphs that follow, once per text run.
+    fn glyph_run(&mut self, style: &GlyphStyle);
     /// Receive one glyph with the transform from hayro's 1000-unit glyph space
-    /// to display space.
-    fn glyph(&mut self, glyph: &Glyph<'_>, transform: Affine);
+    /// to display space, and its exact ink box when the sink wants it.
+    fn glyph(&mut self, glyph: &Glyph<'_>, transform: Affine, ink: Option<Rect>);
+    /// Whether [`ContentSink::glyph`] should receive exact ink boxes.
+    fn wants_ink(&self) -> bool {
+        false
+    }
+    /// The stroke of the glyphs of the latest fill run, which completes that
+    /// run as fill-and-stroke text; the glyphs are not sent again.
+    fn stroke_completes_fill(&mut self);
     /// Receive one path paint callback.
     fn path(&mut self, path: &BezPath, transform: Affine, mode: &DrawMode);
     /// Whether the sink refused more input, so that the collector stops
@@ -578,7 +599,9 @@ pub(crate) trait ContentSink {
 pub(crate) struct NoSink;
 
 impl ContentSink for NoSink {
-    fn glyph(&mut self, _: &Glyph<'_>, _: Affine) {}
+    fn glyph_run(&mut self, _: &GlyphStyle) {}
+    fn glyph(&mut self, _: &Glyph<'_>, _: Affine, _: Option<Rect>) {}
+    fn stroke_completes_fill(&mut self) {}
     fn path(&mut self, _: &BezPath, _: Affine, _: &DrawMode) {}
     fn stopped(&self) -> bool {
         false
@@ -686,6 +709,9 @@ pub(crate) struct ContentCollector<S> {
     marks: Vec<MarkTuple>,
     states: Vec<StateTuple>,
     clip_stack: Vec<u32>,
+    /// The intersected box of the clip paths in force at each clip depth,
+    /// kept for the sink whatever the item kinds.
+    clip_boxes: Vec<Rect>,
     group_stack: Vec<u32>,
     mark_stack: Vec<u32>,
     /// The interned state of the current stacks, or `None` after a change.
@@ -716,6 +742,7 @@ impl<S: ContentSink> ContentCollector<S> {
             marks: Vec::new(),
             states: Vec::new(),
             clip_stack: Vec::new(),
+            clip_boxes: Vec::new(),
             group_stack: Vec::new(),
             mark_stack: Vec::new(),
             state: None,
@@ -964,7 +991,26 @@ impl<S: ContentSink> ContentCollector<S> {
                     ContentError::Allocation(format!("failed to keep glyph transforms: {error}"))
                 })?;
         }
-        if !completes_fill {
+        if completes_fill {
+            if !self.sink.stopped() {
+                self.sink.stroke_completes_fill();
+            }
+        } else {
+            if !self.sink.stopped() {
+                self.sink.glyph_run(&GlyphStyle {
+                    color: match (&props.paint, mode) {
+                        (_, DrawMode::Invisible) | (Paint::Pattern(_), _) => None,
+                        (Paint::Color(color), _) => Some(color.to_rgba().components()),
+                    },
+                    render_mode: match mode {
+                        DrawMode::Fill(_) => RENDER_FILL,
+                        DrawMode::Stroke(_) => RENDER_STROKE,
+                        DrawMode::FillAndStroke(..) => RENDER_FILL_STROKE,
+                        DrawMode::Invisible => RENDER_INVISIBLE,
+                    },
+                    clip: self.clip_boxes.last().copied(),
+                });
+            }
             for glyph in glyphs {
                 let transform = props.transform * glyph.transform();
                 if is_fill {
@@ -972,7 +1018,17 @@ impl<S: ContentSink> ContentCollector<S> {
                         .extend_from_slice(&transform.as_coeffs());
                 }
                 if !self.sink.stopped() {
-                    self.sink.glyph(glyph, transform);
+                    let ink = if self.sink.wants_ink() {
+                        match &**glyph {
+                            Glyph::Outline(outline) => self.outline_box(outline, transform)?,
+                            Glyph::Type3(type3) => {
+                                self.type3_box(type3, &props.paint, transform)?
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    self.sink.glyph(glyph, transform, ink);
                 }
             }
         }
@@ -1169,6 +1225,19 @@ impl<S: ContentSink> ContentCollector<S> {
         self.push_clip_entry(segments, clip.fill == FillRule::EvenOdd, bbox)
     }
 
+    /// Push the box of a clip path, intersected with the boxes in force.
+    fn push_clip_box(&mut self, clip: &ClipPath) -> Result<(), ContentError> {
+        // A clip that no finite path describes leaves nothing visible.
+        let bbox = path_bbox(&clip.path, Affine::IDENTITY)
+            .filter(|bbox| rect_is_finite(*bbox))
+            .unwrap_or(Rect::ZERO);
+        let bbox = self
+            .clip_boxes
+            .last()
+            .map_or(bbox, |outer| outer.intersect(bbox));
+        push(&mut self.clip_boxes, bbox, "the clip boxes")
+    }
+
     fn push_clip_entry(
         &mut self,
         segments: Segments,
@@ -1295,6 +1364,7 @@ impl<'a, S: ContentSink> Device<'a> for ContentCollector<S> {
 
     fn push_clip_path(&mut self, clip: &ClipPath) {
         self.pending = None;
+        self.run(|this| this.push_clip_box(clip));
         if self.kinds.any() {
             self.run(|this| this.push_clip(clip));
         }
@@ -1326,6 +1396,7 @@ impl<'a, S: ContentSink> Device<'a> for ContentCollector<S> {
 
     fn pop_clip(&mut self) {
         self.pending = None;
+        self.clip_boxes.pop();
         self.clip_stack.pop();
         self.state = None;
     }

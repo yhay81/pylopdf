@@ -654,7 +654,9 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 | `width`, `height`, `channels`, `alpha`, `stride`, `colorspace` | 크기와 배치. `channels`는 그레이면 1, 알파가 있는 그레이면 2, RGB면 3, 알파가 있는 RGB면 4. `colorspace`는 `Colorspace.GRAY` 또는 `Colorspace.RGB` |
 | `numpy.asarray(pix)`, `memoryview(pix)` | 복사 없이 픽셀에 접근. 모양은 그레이면 `(height, width)`, 그 밖에는 `(height, width, channels)` |
 | `bytes(pix)` | 픽셀의 사본 |
-| `Pixmap.from_array(array)` | 같은 모양의 `uint8` 배열을 복사한 pixmap |
+| `resolution` | 가로와 세로 해상도(dpi). 렌더링한 페이지는 그 해상도, 그 밖에는 96이며 PNG와 JPEG 출력에 기록됩니다 |
+| `Pixmap.from_array(array, /, *, resolution=None)` | 같은 모양의 `uint8` 배열을 복사한 pixmap. `resolution`은 1부터 65,535까지의 정수로 된 `(x, y)` 튜플이며 기본값은 96. `Pixmap`을 전달하면 픽셀을 공유하고, 지정하지 않으면 그 해상도를 이어받음 |
+| `Pixmap.from_file(path, /, *, max_size=64 MiB, max_pixels=64,000,000)`, `Pixmap.from_bytes(data, /, ...)` | PNG 또는 JPEG를 디코딩. PNG는 그레이, RGB, 알파를 8비트 샘플로 유지하고, JPEG는 그레이 또는 RGB가 되며(CMYK는 변환), 해상도는 파일에서, 없으면 96. 한도를 넘는 입력은 `image_input_size` 또는 `image_pixel_count` 코드의 `LimitError` |
 | `to_bytes(format="png", *, quality=95, max_size=64 MiB)` | PNG 또는 JPEG bytes. JPEG에는 알파가 없음 |
 | `save(path, /, *, format=None, quality=95)` | PNG 또는 JPEG로 기록. `format`이 없으면 확장자 `.png`, `.jpg`, `.jpeg`로 정함 |
 

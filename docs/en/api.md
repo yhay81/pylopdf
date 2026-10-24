@@ -279,9 +279,40 @@ for layer in doc.layers:
 doc.layers[0].is_visible = False
 ```
 
+`doc.layers.configurations` lists the configurations, each a
+`LayerConfiguration` handle: the default configuration first, which viewers
+apply when they open the document and which rendering and extraction use,
+then the alternatives that a viewer can switch to.
+
+| `LayerConfiguration` member | Purpose |
+|---|---|
+| `index` | 0 for the default configuration |
+| `name`, `creator` | The name a viewer shows and the application that made it, or `None`; assignable |
+| `base_state` | The `LayerBaseState` (`ON`, `OFF`, or `UNCHANGED`) of the groups that `on` and `off` leave out; assignable |
+| `on`, `off`, `locked` | Tuples of `Layer` handles: shown, hidden, and not to be changed by the user; a group in both `on` and `off` is hidden; assignable |
+| `radio_groups` | Tuples of layers of which at most one shows; assignable |
+| `order` | The tree a viewer's layer panel shows: `Layer` handles and `LayerOrder(label, items)` values, where an unlabeled `LayerOrder` after a layer holds its children; assignable |
+| `apply()` | Makes the configuration the default; the default keeps its `order` when this one has none |
+
+`doc.layers.configurations.add(name, *, creator=None, base_state=LayerBaseState.ON, on=(), off=())`
+adds an alternative.
+
+```python
+from pylopdf import LayerOrder
+
+default = doc.layers.configurations[0]
+notes, draft = doc.layers
+default.order = [LayerOrder("Review", (notes, draft))]
+default.radio_groups = [(notes, draft)]
+printing = doc.layers.configurations.add("Print", off=[notes, draft])
+printing.apply()  # rendering and extraction now hide both
+```
+
 Reads stop at 65,536 groups in one array (`LimitError` code `layer_count`)
-and 1 MiB of name and intent text per group (`layer_text_size`); a name above
-1 MiB is refused before it is written (`layer_input_size`).
+or `order` entries and 32 levels of `order`, and 1 MiB of name and intent
+text per group or of name, creator, and label text per configuration
+(`layer_text_size`); names and labels above 1 MiB are refused before they are
+written (`layer_input_size`).
 
 ### Text and Markdown { #document-text }
 
@@ -361,10 +392,10 @@ no page was added, deleted, or reordered in between.
 
 | Member | Purpose |
 |---|---|
-| `text()` | The page's text in reading order |
-| `words()` | The words in reading order, as `Word` records |
-| `layout(*, chars=False)` | Blocks, lines, and spans as a `Layout`; see [Positioned text](#positioned-text) |
-| `search(text, *, max_hits=4096)` | Case-insensitive search; returns a list of `Rect` |
+| `text(*, clip=None, ...)` | The page's text in reading order, or the text in a rectangle |
+| `words(*, clip=None, ...)` | The words in reading order, as `Word` records |
+| `layout(*, clip=None, chars=False, ...)` | Blocks, lines, and spans as a `Layout`; see [Positioned text](#positioned-text) |
+| `search(text, *, clip=None, max_hits=4096, ...)` | Case-insensitive search; returns a list of `Rect` |
 | `tables(*, strategy="lines", clip=None)` | Tables as a list of `Table` records; see [Tables](#tables) |
 | `markdown(*, table_strategy="lines")` | Markdown for this page |
 | `ocr(...)`, `apply_ocr(*, words=None, ...)` | OCR, and an invisible text layer from it or from another engine's words; see [Offline OCR](ocr.md) |
@@ -378,6 +409,27 @@ and of the word in that line.
 Reading order follows lines and columns, including right-to-left text and
 vertical Japanese and Chinese. Ruby, warichu, and text in mixed orientations
 are not interpreted.
+
+The text views share keyword-only options, and `doc.text()` takes those of
+`text()` for every page:
+
+| Option | Default | Effect |
+|---|---|---|
+| `clip` | `None` | Keep the glyphs whose box's center lies inside a display-space rectangle, in the page's reading order |
+| `clipped` | `False` | Keep the glyphs that the page boundary or the clip paths hide entirely; `Span.is_clipped` flags them. Invisible text, such as an OCR layer, is always kept |
+| `ligatures` | `True` | Keep a ligature character such as U+FB01; `False` expands U+FB00 to U+FB06 to their letters |
+| `whitespace` | `True` | Keep whitespace characters; `False` makes each one a space |
+| `dehyphenate` | `False` | Remove a hyphen that ends a line between two letters when the word continues in lowercase on the next line of the block, and join the word |
+| `unmapped` | `"skip"` | What a glyph without Unicode becomes: `"skip"` leaves it out with a `PylopdfWarning`, `"replacement"` gives U+FFFD, and `"glyph_id"` the character whose code point is its glyph ID (U+FFFD for Type 3 glyphs) |
+| `exact_bboxes` | `False` | Box each glyph by its outline, as `page.content()` does, instead of by its advance and the font's ascender and descender; not taken by `text()` |
+
+A dehyphenated word is one `Word` on its first line, whose box spans both
+parts, and `Line.text` puts it on that line, while the spans keep their
+glyphs; `text()` joins the two lines, and `search()` finds a match across
+the join as one rectangle. Each combination of `clipped`, `unmapped`, and
+`exact_bboxes` interprets the page once and is cached on its own; a page's
+glyphs count once against `DocumentLimits.max_text_glyphs`, at the largest of
+its interpretations.
 
 ### Rendering { #page-rendering }
 
@@ -428,6 +480,7 @@ page.rotation = 90
 |---|---|
 | `draw(*, underlay=False)` | A [canvas](#canvas) that draws text, lines, rectangles, and other paths, images, and pages of any document in order; see [Writing text](#writing-text) |
 | `replace_text(search, replacement, *, default_char=None)` | Replace text drawn in simple (single-byte) fonts |
+| `operations` | The page's content as [operations](#operations); assignable |
 
 The same image or page drawn again is stored once in the file.
 
@@ -603,8 +656,19 @@ space:
 |---|---|
 | `Block` | `text`, `bbox`, `lines` |
 | `Line` | `text`, `bbox`, `direction` (the baseline's unit vector), `is_vertical`, `spans` |
-| `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `chars` |
-| `Char` | `text`, `bbox`, `origin` |
+| `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `color`, `render_mode`, `is_clipped`, `ascender`, `descender`, `chars` |
+| `Char` | `text`, `bbox`, `origin`, `is_synthetic` |
+
+A span is a run of glyphs in one font and size that are painted alike:
+`color` is the paint as an sRGB `Color` whose `alpha` is the opacity (the
+fill of filled text, the stroke of text that is only stroked, and `None` for
+a pattern paint and for invisible text), `render_mode` is the
+`TextRenderMode` that `page.content()` reports as well, and `is_clipped` is
+true when the clip paths leave no part of the glyphs visible. `ascender` and
+`descender` are the font's, in em, as MuPDF reads them from an OpenType or
+TrueType program; hayro hands out no program for Type 1 fonts, the standard
+14 fonts among them, which therefore report MuPDF's defaults of 0.8 and
+-0.2.
 
 `layout(chars=True)` fills each span's `chars` with its glyphs. A `Char`
 keeps the complete text of one glyph, so a ligature such as "fi" keeps both
@@ -620,15 +684,21 @@ with pylopdf.open("report.pdf") as doc:
                     print(char.text, char.bbox, char.origin)
 ```
 
-Bounds are estimated from the baseline and font size, not from the glyph
-outlines. Spaces that pylopdf infers from gaps are not added as characters, so
-joining the characters does not always reproduce `text()`. Glyphs that have no
-Unicode mapping in the PDF are skipped with a `PylopdfWarning`.
+Bounds span the glyph's advance and, across the baseline, the font's
+ascender and descender, scaled to one em together when they span less, as
+pymupdf's boxes do; `exact_bboxes=True` uses the glyph outlines instead.
+Each space that pylopdf infers from a gap is a `Char` whose `is_synthetic`
+is true and whose box spans the gap, as MuPDF reports such spaces, so a
+span's characters join to its text. Glyphs that have no Unicode mapping in
+the PDF are skipped with a `PylopdfWarning` unless `unmapped=` asks for a
+placeholder.
 
 `layout.to_dict()` returns plain dictionaries for JSON, in the shape of
 [pymupdf's dict, or its rawdict for a layout with characters](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs),
-with text blocks only, without image or vector blocks and without color,
-opacity, or extra font metrics. The
+with text blocks only, without image or vector blocks. Spans have pymupdf's
+`color` (an sRGB integer), `alpha` (0 to 255), `ascender`, `descender`, and
+`char_flags` (16 for filled text, 32 for stroked text, and 64 for clipped
+text), but not `bidi`; characters have `synthetic`. The
 [overlay example](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)
 draws glyph bounds and origins as an HTML preview.
 
@@ -693,6 +763,56 @@ components of a color, layer names and the other marked-content properties,
 the font dictionary behind a `FontRef`, and the object of an image mask. They
 are listed as
 [engine work](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#engine-work).
+
+## Content operations { #operations }
+
+`page.operations` is the page's content as a sequence of operations, for
+programs that work below the [content model](#content). It reads the content
+streams as the renderer reads them, joined in order, and tokenized with
+hayro's parser, so the operations are the ones that rendering and extraction
+interpret.
+
+```python
+from pylopdf import Name, Operation, Operations, String
+
+ops = page.operations
+for op in ops:
+    print(op.operator, op.operands)
+
+# Drop marked-content properties, keep everything else as it was written.
+page.operations = [op for op in ops if op.operator not in ("BDC", "BMC", "EMC")]
+
+# Draw on top, with an operation written from values.
+page.operations = [*ops, Operation("re", (10, 10, 50, 20)), Operation("f")]
+
+# A Form XObject's content.
+form = doc.objects[12]
+Operations.parse(form.read()).to_bytes() == form.read()   # True
+```
+
+| Value | Fields |
+|---|---|
+| `Operations` | An immutable sequence of `Operation` and `InlineImage` items, with `tail`, the bytes after the last operation; `Operations.parse(data)` and `to_bytes()` |
+| `Operation(operator, operands=())` | The operator's text, such as `"Tj"`, and the operand values |
+| `InlineImage(dictionary, data)` | An inline image's dictionary as written (`W`, `H`, `BPC`, `CS`, `F`) and its still-encoded data |
+
+Operands are object-model values: `None`, `bool`, `int`, `float`, `Name`,
+`String`, tuples for arrays, and dictionaries keyed by name text.
+
+- Every operation that a parse produced keeps its bytes, with the comments
+  and white space before it, so `Operations.parse(data).to_bytes() == data`
+  and writing back an edited sequence rewrites only the operations that
+  changed. New operations are written from their values.
+- Assigning `page.operations` writes one new compressed stream as
+  `/Contents`, owned by the page, so other pages that shared the old streams
+  keep them. Resources are not changed: a new operation that names a font or
+  XObject needs the page's `/Resources` to hold it.
+- hayro stops reading content at an operation it cannot read, such as one
+  with more than ten operands. The rest stays in `tail`, which `to_bytes()`
+  writes last; a list of operations has no tail.
+- `page.operations` reads and writes at most 64 MiB of content and reads at
+  most 1,048,576 operations; `Operations.parse(data, max_size=None,
+  max_operations=None)` lifts both for trusted content.
 
 ## Images { #images }
 
@@ -1151,8 +1271,18 @@ doc.attachments["data.csv"].write(new_bytes)
 del doc.attachments["data.csv"]
 ```
 
-`Attachment` also has `name`, `creation_date`, and `mod_date`. A missing name
-raises `KeyError`.
+`Attachment` also has `name`, `created`, and `modified`, the dates as the PDF
+date strings stored. `filename`, `description`, `created`, and `modified` are
+assignable, and `del` removes the last three; `write()` sets `modified` to the
+current time. `Annotation.file` of a file attachment has the same members. A
+missing name raises `KeyError`.
+
+```python
+item = doc.attachments["data.csv"]
+item.filename = "rows.csv"
+item.created = "D:20260101120000+09'00'"
+del item.description
+```
 
 ## Low-level objects { #low-level-objects }
 
@@ -1267,9 +1397,11 @@ checking whether a rectangle lies inside a quad tests all four corners.
 | Member | Purpose |
 |---|---|
 | `width`, `height`, `channels`, `alpha`, `stride`, `colorspace` | Size and layout: `channels` is 1 for gray, 2 for gray with alpha, 3 for RGB, and 4 for RGB with alpha; `colorspace` is `Colorspace.GRAY` or `Colorspace.RGB` |
+| `resolution` | The horizontal and vertical dots per inch: a rendered page's resolution, else 96; PNG and JPEG output states it |
 | `numpy.asarray(pix)`, `memoryview(pix)` | The pixels without copying, shaped `(height, width)` for gray and `(height, width, channels)` otherwise |
 | `bytes(pix)` | A copy of the pixels |
-| `Pixmap.from_array(array)` | A pixmap with a copy of a `uint8` array shaped as above |
+| `Pixmap.from_array(array, /, *, resolution=None)` | A pixmap with a copy of a `uint8` array shaped as above, at `resolution`, an `(x, y)` tuple of integers from 1 through 65,535 that defaults to 96; given a `Pixmap`, it shares its pixels and keeps its resolution unless told otherwise |
+| `Pixmap.from_file(path, /, *, max_size=64 MiB, max_pixels=64,000,000)`, `Pixmap.from_bytes(data, /, ...)` | Decode a PNG or JPEG: PNG keeps gray, RGB, and alpha as 8-bit samples, JPEG decodes to gray or RGB (CMYK converts), and the resolution comes from the file, else 96; larger input raises `LimitError` with `image_input_size` or `image_pixel_count` |
 | `to_bytes(format="png", *, quality=95, max_size=64 MiB)` | PNG or JPEG bytes; JPEG has no alpha |
 | `save(path, /, *, format=None, quality=95)` | Write PNG or JPEG; the extension `.png`, `.jpg`, or `.jpeg` names the format unless `format` does |
 

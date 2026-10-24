@@ -130,7 +130,7 @@ the concept and API overview.
     `document/{forms,annotations,flattening}.rs`; `src/pylopdf/_annotations.py`,
     `_form.py`, and `_links.py`.
   - Rewriting: `content/`, `text_replace.rs`, `image_compression.rs`;
-    `document/replacement.rs`.
+    `document/replacement.rs`; `src/pylopdf/_operations.py`.
   - Shared: `lib.rs`, `document/mod.rs`,
     `document/{errors,input,objects,indexed}.rs`; and in `src/pylopdf/`,
     the re-export surface `__init__.py` plus `_document.py`, `_page.py`,
@@ -187,7 +187,36 @@ the concept and API overview.
   static `PylopdfWarning` through the pending-warnings sink, and
   `pdfium-type3.pdf` pins the extraction gap as an upstream-linked expected
   failure. Hayro normalizes glyph space to 1000 upem, so font size is the transform
-  factor × 1000. Vertical bboxes approximate baseline ± a size ratio.
+  factor × 1000. Glyph boxes span the advance and, across the baseline, the
+  ascender and descender that `generate::font_line_metrics` reads from the
+  font program, scaled to one em together when they span less, as pymupdf's
+  boxes do; hayro hands out no program for Type 1 and non-embedded fonts,
+  and the CJK fallback programs that pylopdf substitutes for fonts that are
+  not embedded (`SubstitutePrograms`, matched by the address of their shared
+  bytes) describe no font of the PDF, so these take MuPDF's 0.8 and -0.2
+  until hayro identifies a glyph's font dictionary (#338). The logical line boxes of column discovery keep fixed
+  0.8 and 0.2 em extents, so font metrics do not move gutters. The sink receives a
+  `GlyphStyle` (sRGB color and alpha, render mode, and the intersected box of
+  the clip paths in force, which the collector tracks for every sink) before
+  each run's glyphs and `stroke_completes_fill` when a stroke repaints the
+  latest fill run; spans split where the paint, render mode, or clipping
+  changes, and a glyph is clipped only when the page box and the clip box
+  leave none of its font box visible. The text options split in two:
+  `CollectOptions` (keep clipped glyphs, unmapped placeholders, exact ink
+  boxes, which the sink then receives from `ContentCollector::outline_box`)
+  decide what an interpretation collects and key the `TextPage` cache
+  together with the page, while `ViewOptions` (clip, ligature expansion,
+  whitespace normalization, dehyphenation) turn the cached lines into a
+  fallibly copied view and leave the borrowed lines untouched without them.
+  Reading order and paint layers use `font_bbox`, never the ink box, so the
+  box option cannot reorder text. A page's text budget admission is the
+  largest of its interpretations, so variants never charge twice. Dehyphenated
+  lines mark the next line's first glyph `joins_previous`: plain text joins
+  them, the merged word stays on the first line, and search treats joined
+  lines as one unit. `layout(chars=True)` emits each space that `span_text`
+  infers as a synthetic char across the gap, so a span's chars join to its
+  text. `bench/reading.py` compares span colors and box IoU with
+  pymupdf.
   Overlapping paint runs on one baseline are split into source-order logical
   layers before inline geometry sorting; preserve distinct overprints rather
   than interleaving or deduplicating their glyphs. Run detection compares the
@@ -411,6 +440,16 @@ the concept and API overview.
   attachment-data copying in Python and again in Rust, and validate inline
   FileSpecs before cloning at 4,096 direct objects, 32 levels, and 1 MiB of
   direct string/name/stream data. Indirect references are leaves.
+  `Attachment` and `AnnotationFile` share `_FileFields` (`filename`,
+  `description`, `size`, `created`, `modified`; absent text and dates read
+  as `None`). Their edits go through `plan_filespec_edit` in
+  `attachments.rs`, which checks the keys, the 1 MiB text bound, and
+  1-to-64-byte printable dates, then plans a new FileSpec dictionary and,
+  for dates, the embedded stream's dictionary with a direct `/Params`, before
+  any mutation; `embfile_edit` stores an inline FileSpec through the name
+  tree rewrite and `annotation_file_edit` a direct `/FS` after
+  `edited_annotation`. `write()` passes the current time as `modified`,
+  which `embfile_upd` and `annotation_file_write` store as `/ModDate`.
 - `Document.rewrite_images` follows pymupdf's keywords: an axis above
   `dpi_threshold` resamples to `dpi_target`, `quality` 0 means no
   recompression, `lossy`/`lossless` and `color`/`gray` select DCT/Flate and
@@ -1278,7 +1317,23 @@ the concept and API overview.
   (jpeg-encoder, which `rewrite_images` already uses, at the default Huffman
   tables; JPEG refuses alpha). `write_image` serves every writer:
   `Pixmap.to_bytes` and `Document.render` through bounded writers and
-  `Pixmap.save` straight to its sibling file. `Pixmap.to_bytes` defaults to a
+  `Pixmap.save` straight to its sibling file. Every Pixmap carries a
+  `Resolution` in dots per inch, 1 through 65,535 (the JFIF density's
+  range): `render_resolution` derives a rendered page's from the matrix as
+  the page's pixels per inch along each raster axis (`72 |det| / hypot(b, d)`
+  and `72 |det| / hypot(a, c)`, rounded and clamped), and other Pixmaps take
+  96, `extract::DEFAULT_IMAGE_RESOLUTION`. `write_image` states it as PNG
+  `pHYs` in whole pixels per metre, which round-trips every integer dpi, and
+  as JPEG JFIF density in inches; `Document.render` writes the same.
+  `Pixmap.from_array` of a Pixmap clones its `Arc` instead of copying the
+  samples, which is how a resolution changes. `Pixmap.from_file` and
+  `from_bytes` decode PNG (png's `normalize_to_color8`, keeping gray, RGB,
+  and alpha) and JPEG (zune-jpeg to gray or RGB, CMYK and YCCK converted,
+  inside `catch_unwind`) under `canvas.image`'s 64 MiB `image_input_size` and
+  64,000,000-pixel `image_pixel_count` limits, sharing `read_image_input` and
+  `validate_image_input`; the pixel and 65,535-pixel side checks read the
+  headers before any sample is allocated, and a buffer that is not `bytes` is
+  measured before PyO3 copies it. `Pixmap.to_bytes` defaults to a
   64 MiB encoded-output boundary; the bounded writer refuses the write
   crossing the limit before Python bytes conversion and grows its retained
   output fallibly. `max_size=None` is the explicit trusted-output opt-out.
@@ -1763,9 +1818,7 @@ the concept and API overview.
   interprets: strings, comments, and inline image data hold no operators, a
   `q` or `Q` with stray operands still counts, and counting ends where hayro
   stops interpreting, which then never reaches the appended content either.
-  The content engine in `rust/src/content/` reads lopdf's strict parse instead,
-  which redaction must edit but which rejects some content that hayro reads;
-  the count only reads and must neither disagree with hayro nor fail.
+  The count only reads and must neither disagree with hayro nor fail.
   The opening stream holds one `q` more than the content's `Q` that find no
   `q`, and the closing stream a newline and one `Q` more than the `q` that the
   content leaves open, so the page balances and appended content starts from
@@ -1921,10 +1974,19 @@ the concept and API overview.
   no-match and failure paths must preserve document bytes and caches. A
   successful replacement materializes inherited page attributes and clears
   the drawing isolation marker for that page.
-- The content engine (`rust/src/content/`) interprets content
-  over lopdf's `Content::decode_strict`, which redaction can edit and
-  serialize, and places glyphs as hayro-interpret 0.8 does, so that hayro's
-  extraction is its oracle and hayro re-interpretation can verify an edit.
+- The content engine (`rust/src/content/`) interprets content tokenized by
+  hayro-syntax's `UntypedIter` (`content/syntax.rs`), so its operations are
+  the ones that hayro reads, and places glyphs as hayro-interpret 0.8 does,
+  so that hayro's extraction is its oracle and hayro re-interpretation can
+  verify an edit. `Instructions` keeps each operation's bytes, from the end of
+  the previous operation to the end of its operator (to the end of `EI` for
+  an inline image, whose data pointer hayro borrows from the stream), and the
+  bytes after the last operation as the tail, so concatenating them
+  reproduces the stream. An operator written with a `#` escape decodes to an
+  owned copy that has no place in the stream and is refused. Operands
+  convert to lopdf values for the interpreter (`to_lopdf`; arrays through
+  hayro's typed iteration, which stops at an element that does not read) and
+  to tagged Python values for `Page.operations`.
   Mirror hayro, not the specification, wherever they differ: the text state is
   saved by `q`; every content stream and Form runs inside a saved state that
   is restored afterwards; fixed-arity operators take their last operands;
@@ -1948,7 +2010,11 @@ the concept and API overview.
   holds is marked approximate rather than guessed. Interpretation stops at
   16,777,216 operations counting Form repetitions (`content_operation_count`)
   or 1,048,576 glyphs (`content_glyph_count`) and returns no partial result;
-  content that the strict parse rejects is refused. `_Document.content_glyphs`
+  it reads nothing after the point where hayro stops tokenizing, such as an
+  eleventh operand. A page's content is joined as `Page::page_stream` joins it
+  (`replacement::page_content`): a single stream as it decodes, or each
+  stream of an array followed by one space up to the first entry that is no
+  stream, skipping streams that do not decode. `_Document.content_glyphs`
   is the private test hook, and `tests/test_content_interpreter.py` checks it
   against hayro's extraction on the bundled corpus. Glyph origins agree with
   hayro's within 0.0001 pt for all 375,334 glyphs of the bundled corpus, and
@@ -1958,9 +2024,25 @@ the concept and API overview.
   program (4 files); two streams without a usable `/Length`, which
   `object_recovery` now loads as hayro reads them (`issue1293r.pdf` and
   `operator-in-TJ-array.pdf`); and one stream that lopdf cannot decode.
-  Content that lopdf's strict parse rejects (13 files) or cannot decode (5)
-  is refused. Re-run this pdf.js-corpus sweep after any change to the
-  interpreter or to hayro.
+  Content that lopdf's strict parse rejected (13 files) reads since the
+  engine tokenizes as hayro does. Re-run this pdf.js-corpus sweep after any
+  change to the interpreter or to hayro.
+- `Page.operations` (`src/pylopdf/_operations.py`) is operator-level content:
+  an immutable `Operations` sequence of `Operation(operator, operands)` and
+  `InlineImage(dictionary, data)` values and a `tail` of the bytes after the
+  last operation that hayro reads. Each parsed item keeps its bytes in the
+  non-init `_source` slot, which `dataclasses.replace` does not copy, so
+  `to_bytes()` writes unchanged items as they were and serializes only new
+  ones, inserting a newline where two regular tokens would run together or
+  where no white space follows an inline image's `EI`. An inline image's
+  data leaves out the white-space byte before `EI`, which hayro's data
+  holds. The core's `page_operations` and `_parse_operations` return tagged
+  items; `set_page_content` writes one new Flate stream as the page's
+  `/Contents` (the page owns it, so pages that shared the old streams keep
+  them), drops the page from `isolated_content_pages`, and keeps
+  placements. Reads stop at 1,048,576 operations (`content_operation_count`)
+  and 64 MiB of joined content (`content_stream_size`); writes at 64 MiB
+  (`content_input_size`).
 - Embedded-font text generation lives in `rust/src/generate.rs`. krilla is
   pinned to 0.8.2 with all default features disabled; HarfRust 0.15 supplies
   shaping without krilla's unmaintained rustybuzz/ttf-parser path. Raster and
@@ -2761,7 +2843,15 @@ the concept and API overview.
   and appends to an existing `/Order` only. Arrays stop at 65,536 entries
   (`layer_count`), one group's name and intents at 1 MiB (`layer_text_size`),
   and written names at 1 MiB (`layer_input_size`); intents are 1 to 64 PDF
-  names of printable ASCII without delimiters. hayro ignores `/VE`, an
+  names of printable ASCII without delimiters. `doc.layers.configurations`
+  addresses a configuration by slot, 0 for `/D` and `n` for `/Configs[n-1]`
+  (configurations are never removed, so a slot stays valid), and edits it
+  through the same plan, storing a direct alternative back into `/Configs`.
+  `/Order` crosses the boundary as preorder entries `(depth, is_array,
+  group, label)`; reads are iterative and cycle-aware, and both directions
+  stop at 65,536 entries and 32 levels. `apply()` replaces `/D` with a copy
+  of the alternative, keeping `/D /Order` when the copy has none, because
+  only `/D` reaches hayro. hayro ignores `/VE`, an
   annotation's own `/OC`, other configurations, and intents (#338).
 - `Document.pdfa_claim` releases the GIL and applies a 1 MiB decoded XMP
   limit to every filter layer; the core's `pdfa_claim(max_size)` takes the

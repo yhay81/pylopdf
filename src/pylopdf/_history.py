@@ -35,6 +35,7 @@ class History:
     though save options such as ``prune`` change the document. Undo and redo
     replace the document's objects, so pages and other handles taken before
     raise :class:`StalePageError` or :class:`StaleObjectError` afterwards.
+    Undo and redo are unavailable inside an active transaction.
     """
 
     __slots__ = ("_document", "_max_size", "_redo", "_revision", "_undo")
@@ -51,6 +52,8 @@ class History:
     def _sync(self) -> None:
         """Drop the steps when the document changed outside a transaction."""
         self._document._ensure_not_closed()
+        if self._document._transaction_depth:
+            return
         if self._revision is not None and self._revision != self._document._doc.edit_revision():
             self.clear()
 
@@ -96,6 +99,7 @@ class History:
 
     def undo(self) -> None:
         """Return the document to its state before the latest applied step."""
+        self._ensure_outside_transaction()
         self._sync()
         if not self._undo:
             msg = "there is nothing to undo"
@@ -106,6 +110,7 @@ class History:
 
     def redo(self) -> None:
         """Apply the latest undone step again."""
+        self._ensure_outside_transaction()
         self._sync()
         if not self._redo:
             msg = "there is nothing to redo"
@@ -113,6 +118,12 @@ class History:
         step = self._redo.pop()
         self._undo.append(_Step(step.name, self._swap(step.snapshot)))
         self._fit()
+
+    def _ensure_outside_transaction(self) -> None:
+        """Keep undo and redo from replacing an active transaction's graph."""
+        if self._document._transaction_depth:
+            msg = "undo and redo are unavailable inside a transaction"
+            raise PdfError(msg)
 
     def clear(self) -> None:
         """Forget every step and the memory that their copies hold."""

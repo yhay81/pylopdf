@@ -120,6 +120,7 @@ pub(crate) use self::objects::*;
 use self::outline::*;
 use self::page_tree::*;
 use self::rendering::*;
+pub(crate) use self::replacement::_parse_operations;
 use self::saving::EncryptionRequest;
 use self::saving::*;
 use self::streams::*;
@@ -187,10 +188,11 @@ pub struct _Document {
     /// reads, so that the current snapshot holds a cut copy of it. Every
     /// operation that interprets one of them is refused.
     pages_too_deep: Vec<u32>,
-    /// Recently interpreted pages, keyed by one-based page number.
-    text_pages: HashMap<u32, crate::extract::TextPage>,
+    /// Recently interpreted pages, keyed by one-based page number and the
+    /// options that decided which glyphs they collected.
+    text_pages: HashMap<TextPageKey, crate::extract::TextPage>,
     /// Least-recently-used to most-recently-used text-page keys.
-    text_page_order: VecDeque<u32>,
+    text_page_order: VecDeque<TextPageKey>,
     /// Recently interpreted table pages, keyed by one-based page number.
     table_pages: HashMap<u32, crate::extract::TablePage>,
     /// Least-recently-used to most-recently-used table-page keys.
@@ -774,36 +776,47 @@ impl _Document {
     ///
     /// Collect glyph Unicode/positions through the hayro interpreter and
     /// assemble reading-order text. CJK fallbacks also apply to extraction.
-    fn extract_text(&mut self, py: Python<'_>, page_numbers: Vec<u32>) -> PyResult<String> {
-        extraction::extract_text(self, py, page_numbers)
+    #[pyo3(signature = (page_numbers, options=None))]
+    fn extract_text(
+        &mut self,
+        py: Python<'_>,
+        page_numbers: Vec<u32>,
+        options: Option<TextOptions>,
+    ) -> PyResult<String> {
+        extraction::extract_text(self, py, page_numbers, options.unwrap_or_default())
     }
 
     /// Return layout for a one-based page.
     ///
     /// Return `(width, height, blocks)`, where block=`(bbox, lines)`,
     /// line=`(bbox, spans, words, direction, writing mode)`,
-    /// span=`(bbox, text, size, origin, font, flags)`, and word=`(bbox, text)`.
+    /// span=`(bbox, text, size, origin, font, flags, style)`, and
+    /// word=`(bbox, text)`.
     #[allow(clippy::type_complexity)]
+    #[pyo3(signature = (page_number, options=None))]
     fn extract_layout(
         &mut self,
         py: Python<'_>,
         page_number: u32,
+        options: Option<TextOptions>,
     ) -> PyResult<(f64, f64, Vec<crate::extract::BlockTuple>)> {
-        extraction::extract_layout(self, py, page_number)
+        extraction::extract_layout(self, py, page_number, options.unwrap_or_default())
     }
 
     /// Return the layout of a one-based page with every span's glyphs.
     ///
     /// Return the blocks of [`Self::extract_layout`], except that a span is
-    /// `(bbox, (text, chars), size, origin, font, flags)` with
-    /// char=`(whole Unicode mapping, bbox, baseline origin)`.
+    /// `(bbox, (text, chars), size, origin, font, flags, style)` with
+    /// char=`(whole Unicode mapping, bbox, baseline origin, synthetic)`.
     #[allow(clippy::type_complexity)]
+    #[pyo3(signature = (page_number, options=None))]
     fn extract_raw_layout(
         &mut self,
         py: Python<'_>,
         page_number: u32,
+        options: Option<TextOptions>,
     ) -> PyResult<(f64, f64, Vec<crate::extract::RawBlockTuple>)> {
-        extraction::extract_raw_layout(self, py, page_number)
+        extraction::extract_raw_layout(self, py, page_number, options.unwrap_or_default())
     }
 
     /// Detect high-confidence tables on a one-based page.
@@ -915,7 +928,8 @@ impl _Document {
     #[pyo3(signature = (
         page_number,
         needle,
-        max_hits=Some(DEFAULT_MAX_SEARCH_HITS)
+        max_hits=Some(DEFAULT_MAX_SEARCH_HITS),
+        options=None
     ))]
     fn search_page(
         &mut self,
@@ -923,8 +937,16 @@ impl _Document {
         page_number: u32,
         needle: &str,
         max_hits: Option<usize>,
+        options: Option<TextOptions>,
     ) -> PyResult<Vec<(f64, f64, f64, f64)>> {
-        extraction::search_page(self, py, page_number, needle, max_hits)
+        extraction::search_page(
+            self,
+            py,
+            page_number,
+            needle,
+            max_hits,
+            options.unwrap_or_default(),
+        )
     }
 
     /// Append every page from another document, whatever its page count.
@@ -1384,7 +1406,7 @@ impl _Document {
 
     /// Replace the data of the file that one file attachment embeds and
     /// return the annotation's object number.
-    #[pyo3(signature = (page_number, index, xref, data, max_size=Some(DEFAULT_MAX_EMBEDDED_FILE_SIZE)))]
+    #[pyo3(signature = (page_number, index, xref, data, max_size=Some(DEFAULT_MAX_EMBEDDED_FILE_SIZE), modified=None))]
     fn annotation_file_write(
         &mut self,
         page_number: u32,
@@ -1392,8 +1414,21 @@ impl _Document {
         xref: u32,
         data: Vec<u8>,
         max_size: Option<usize>,
+        modified: Option<String>,
     ) -> PyResult<u32> {
-        annotations::annotation_file_write(self, page_number, index, xref, data, max_size)
+        annotations::annotation_file_write(self, page_number, index, xref, data, max_size, modified)
+    }
+
+    /// Change the file name, description, or dates of the file that one
+    /// file attachment embeds; returns the annotation's object number.
+    fn annotation_file_edit(
+        &mut self,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+        edit: FileSpecEdit,
+    ) -> PyResult<u32> {
+        annotations::annotation_file_edit(self, page_number, index, xref, edit)
     }
 
     /// Read the display points and line endings of one annotation of a
@@ -1712,6 +1747,78 @@ impl _Document {
         layers::set_layer_intent(self, layer, intents)
     }
 
+    /// Return how many configurations there are: `/D` and `/Configs`.
+    fn layer_configuration_count(&self) -> PyResult<usize> {
+        layers::layer_configuration_count(self)
+    }
+
+    /// Return one configuration; slot 0 is `/D`, slot n is `/Configs[n - 1]`.
+    fn layer_configuration(&self, slot: usize) -> PyResult<ConfigurationInfo> {
+        layers::layer_configuration(self, slot)
+    }
+
+    /// Replace or, for `None`, remove a configuration's `/Name` or `/Creator`.
+    #[pyo3(signature = (slot, key, value))]
+    fn set_layer_configuration_text(
+        &mut self,
+        slot: usize,
+        key: &str,
+        value: Option<&str>,
+    ) -> PyResult<()> {
+        layers::set_layer_configuration_text(self, slot, key, value)
+    }
+
+    /// Replace a configuration's `/BaseState`.
+    fn set_layer_configuration_base_state(&mut self, slot: usize, state: &str) -> PyResult<()> {
+        layers::set_layer_configuration_base_state(self, slot, state)
+    }
+
+    /// Replace a configuration's `/ON`, `/OFF`, or `/Locked`.
+    fn set_layer_configuration_refs(
+        &mut self,
+        slot: usize,
+        key: &str,
+        ids: Vec<(u32, u16)>,
+    ) -> PyResult<()> {
+        layers::set_layer_configuration_refs(self, slot, key, ids)
+    }
+
+    /// Replace a configuration's `/RBGroups`.
+    fn set_layer_configuration_radio_groups(
+        &mut self,
+        slot: usize,
+        groups: Vec<Vec<(u32, u16)>>,
+    ) -> PyResult<()> {
+        layers::set_layer_configuration_radio_groups(self, slot, groups)
+    }
+
+    /// Replace a configuration's `/Order` from preorder entries.
+    fn set_layer_configuration_order(
+        &mut self,
+        slot: usize,
+        entries: Vec<OrderEntry>,
+    ) -> PyResult<()> {
+        layers::set_layer_configuration_order(self, slot, entries)
+    }
+
+    /// Make configuration `slot` the default configuration.
+    fn apply_layer_configuration(&mut self, slot: usize) -> PyResult<()> {
+        layers::apply_layer_configuration(self, slot)
+    }
+
+    /// Append a configuration to `/Configs` and return its slot.
+    #[pyo3(signature = (name, creator, base_state, on, off))]
+    fn add_layer_configuration(
+        &mut self,
+        name: &str,
+        creator: Option<&str>,
+        base_state: &str,
+        on: Vec<(u32, u16)>,
+        off: Vec<(u32, u16)>,
+    ) -> PyResult<usize> {
+        layers::add_layer_configuration(self, name, creator, base_state, on, off)
+    }
+
     /// Return AcroForm fields as `(full name, xref, kind, value, flags)`.
     ///
     /// Kind is text/checkbox/radio/pushbutton/combobox/listbox/signature or
@@ -1872,15 +1979,21 @@ impl _Document {
     }
 
     /// Replace one attachment's data, raising an error when absent.
-    #[pyo3(signature = (name, data, max_size=Some(DEFAULT_MAX_EMBEDDED_FILE_SIZE)))]
+    #[pyo3(signature = (name, data, max_size=Some(DEFAULT_MAX_EMBEDDED_FILE_SIZE), modified=None))]
     fn embfile_upd(
         &mut self,
         py: Python<'_>,
         name: &str,
         data: Vec<u8>,
         max_size: Option<usize>,
+        modified: Option<String>,
     ) -> PyResult<()> {
-        attachments::embfile_upd(self, py, name, data, max_size)
+        attachments::embfile_upd(self, py, name, data, max_size, modified)
+    }
+
+    /// Change one attachment's file name, description, or dates.
+    fn embfile_edit(&mut self, name: &str, edit: FileSpecEdit) -> PyResult<()> {
+        attachments::embfile_edit(self, name, edit)
     }
 
     /// Insert display-coordinate OCR words as an invisible text layer.
@@ -1923,6 +2036,36 @@ impl _Document {
         page_number: u32,
     ) -> PyResult<Vec<replacement::ContentGlyphTuple>> {
         replacement::content_glyphs(self, py, page_number)
+    }
+
+    /// Interpret a one-based page's content with the redaction engine and
+    /// return its paths, image placements, shadings, and marked-content
+    /// sequences with the operations that painted them. A private hook for
+    /// the agreement tests.
+    fn content_items(
+        &self,
+        py: Python<'_>,
+        page_number: u32,
+    ) -> PyResult<replacement::ContentItems> {
+        replacement::content_items(self, py, page_number)
+    }
+
+    /// Tokenize a one-based page's joined content as hayro reads it and
+    /// return its operations with their bytes, and the bytes after the last
+    /// one, for `Page.operations`.
+    #[pyo3(signature = (page_number, max_operations=Some(replacement::DEFAULT_MAX_OPERATIONS)))]
+    fn page_operations(
+        &self,
+        py: Python<'_>,
+        page_number: u32,
+        max_operations: Option<usize>,
+    ) -> PyResult<(Vec<Py<PyAny>>, Py<pyo3::types::PyBytes>)> {
+        replacement::page_operations(self, py, page_number, max_operations)
+    }
+
+    /// Replace a one-based page's `/Contents` with one new stream of `data`.
+    fn set_page_content(&mut self, py: Python<'_>, page_number: u32, data: &[u8]) -> PyResult<()> {
+        replacement::set_page_content(self, py, page_number, data)
     }
 
     /// Replace text on a one-based page and return the replacement count.

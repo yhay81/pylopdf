@@ -653,7 +653,9 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | `width`, `height`, `channels`, `alpha`, `stride`, `colorspace` | サイズと配置。`channels`はグレーなら1、アルファ付きグレーなら2、RGBなら3、アルファ付きRGBなら4。`colorspace`は`Colorspace.GRAY`か`Colorspace.RGB` |
 | `numpy.asarray(pix)`, `memoryview(pix)` | コピーせずに画素を参照。形はグレーなら`(height, width)`、それ以外は`(height, width, channels)` |
 | `bytes(pix)` | 画素のコピー |
-| `Pixmap.from_array(array)` | 同じ形の`uint8`配列をコピーしたピクセルマップ |
+| `resolution` | 横と縦の解像度（dpi）。描画したページはその解像度、それ以外は96。PNGとJPEGの出力に書き込まれます |
+| `Pixmap.from_array(array, /, *, resolution=None)` | 同じ形の`uint8`配列をコピーしたピクセルマップ。`resolution`は1から65,535までの整数の`(x, y)`タプルで、既定は96。`Pixmap`を渡すと画素を共有し、指定がなければその解像度を引き継ぎます |
+| `Pixmap.from_file(path, /, *, max_size=64 MiB, max_pixels=64,000,000)`、`Pixmap.from_bytes(data, /, ...)` | PNGかJPEGをデコードします。PNGはグレー、RGB、アルファを8ビットの値で保ち、JPEGはグレーかRGBになり（CMYKは変換します）、解像度はファイルから、なければ96です。上限を超える入力は`image_input_size`か`image_pixel_count`の`LimitError`になります |
 | `to_bytes(format="png", *, quality=95, max_size=64 MiB)` | PNGかJPEGのbytes。JPEGにアルファはありません |
 | `save(path, /, *, format=None, quality=95)` | PNGかJPEGを書き出し。`format`を省くと拡張子`.png`、`.jpg`、`.jpeg`で決まります |
 

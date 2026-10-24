@@ -653,7 +653,9 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 | `width`、`height`、`channels`、`alpha`、`stride`、`colorspace` | 尺寸和布局：灰度时`channels`为1，带alpha的灰度为2，RGB为3，带alpha的RGB为4；`colorspace`为`Colorspace.GRAY`或`Colorspace.RGB` |
 | `numpy.asarray(pix)`、`memoryview(pix)` | 无需复制即可访问像素，灰度时形状为`(height, width)`，否则为`(height, width, channels)` |
 | `bytes(pix)` | 像素的副本 |
-| `Pixmap.from_array(array)` | 复制上述形状的`uint8`数组得到的pixmap |
+| `resolution` | 水平和垂直分辨率（dpi）：渲染的页面为其渲染分辨率，否则为96；PNG和JPEG输出会写入它 |
+| `Pixmap.from_array(array, /, *, resolution=None)` | 复制上述形状的`uint8`数组得到的pixmap，`resolution`是由1到65,535的整数组成的`(x, y)`元组，默认为96；传入`Pixmap`时共享其像素，未指定时沿用其分辨率 |
+| `Pixmap.from_file(path, /, *, max_size=64 MiB, max_pixels=64,000,000)`、`Pixmap.from_bytes(data, /, ...)` | 解码PNG或JPEG：PNG以8位样本保留灰度、RGB和alpha，JPEG解码为灰度或RGB（CMYK会转换），分辨率取自文件，否则为96；超出上限的输入引发代码为`image_input_size`或`image_pixel_count`的`LimitError` |
 | `to_bytes(format="png", *, quality=95, max_size=64 MiB)` | PNG或JPEG bytes；JPEG没有alpha |
 | `save(path, /, *, format=None, quality=95)` | 写出PNG或JPEG；未指定`format`时由扩展名`.png`、`.jpg`或`.jpeg`决定 |
 

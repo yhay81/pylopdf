@@ -269,3 +269,48 @@ def test_a_closed_document_has_no_history() -> None:
 
     with pytest.raises(pylopdf.DocumentClosedError):
         doc.history  # noqa: B018 - the property raises.
+
+
+def test_reading_history_inside_a_transaction_keeps_previous_steps() -> None:
+    doc = _two_steps()
+
+    with doc.transaction("subject"):
+        doc.metadata["subject"] = "New"
+        assert doc.history.steps == ("title", "delete")
+        assert doc.history.can_undo
+
+    assert doc.history.steps == ("title", "delete", "subject")
+    doc.history.undo()
+    doc.history.undo()
+    assert len(doc.pages) == 2
+
+
+def test_a_failed_transaction_restores_the_clean_state() -> None:
+    doc = pylopdf.open(build_pdf(["One"]))
+    assert not doc.is_dirty
+
+    def abort() -> None:
+        with doc.transaction():
+            doc.metadata["title"] = "Discarded"
+            raise ValueError("abort")  # noqa: EM101 - the test's own exception.
+
+    with pytest.raises(ValueError, match="abort"):
+        abort()
+
+    assert not doc.is_dirty
+    assert doc.metadata.get("title") is None
+    assert doc.history.steps == ()
+
+
+@pytest.mark.parametrize("operation", ["undo", "redo"])
+def test_history_cannot_replace_the_graph_inside_a_transaction(operation: str) -> None:
+    doc = _two_steps()
+    if operation == "redo":
+        doc.history.undo()
+    steps, position = doc.history.steps, doc.history.position
+
+    with doc.transaction("read"), pytest.raises(pylopdf.PdfError, match="inside a transaction"):
+        getattr(doc.history, operation)()
+
+    assert doc.history.steps == steps
+    assert doc.history.position == position
