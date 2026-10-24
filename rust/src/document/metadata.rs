@@ -761,6 +761,144 @@ pub(super) fn set_mark_info(
     Ok(())
 }
 
+/// One `/ViewerPreferences` value as Python passes it.
+#[derive(FromPyObject)]
+pub(super) enum ViewerValue {
+    Bool(bool),
+    Int(i64),
+    Name(String),
+    Ranges(Vec<(i64, i64)>),
+    Names(Vec<String>),
+}
+
+/// The `/ViewerPreferences` keys and the names each takes, `None` for a
+/// boolean, an integer, or an array (ISO 32000-2 Table 147).
+const VIEWER_PREFERENCE_KEYS: [(&str, Option<&[&str]>); 18] = [
+    ("HideToolbar", None),
+    ("HideMenubar", None),
+    ("HideWindowUI", None),
+    ("FitWindow", None),
+    ("CenterWindow", None),
+    ("DisplayDocTitle", None),
+    ("PickTrayByPDFSize", None),
+    (
+        "NonFullScreenPageMode",
+        Some(&["UseNone", "UseOutlines", "UseThumbs", "UseOC"]),
+    ),
+    ("Direction", Some(&["L2R", "R2L"])),
+    ("ViewArea", Some(&PAGE_BOUNDARIES)),
+    ("ViewClip", Some(&PAGE_BOUNDARIES)),
+    ("PrintArea", Some(&PAGE_BOUNDARIES)),
+    ("PrintClip", Some(&PAGE_BOUNDARIES)),
+    ("PrintScaling", Some(&["None", "AppDefault"])),
+    (
+        "Duplex",
+        Some(&["Simplex", "DuplexFlipShortEdge", "DuplexFlipLongEdge"]),
+    ),
+    ("PrintPageRange", None),
+    ("NumCopies", None),
+    ("Enforce", None),
+];
+
+const PAGE_BOUNDARIES: [&str; 5] = ["MediaBox", "CropBox", "BleedBox", "TrimBox", "ArtBox"];
+
+/// The most page ranges and enforced names that a write takes.
+const MAX_PRINT_PAGE_RANGES: usize = 4_096;
+const MAX_ENFORCED_PREFERENCES: usize = 64;
+
+/// Implements [`_Document::set_viewer_preferences`]: replace the catalog's
+/// `/ViewerPreferences` with `entries`, or remove it for `None`.
+pub(super) fn set_viewer_preferences(
+    this: &mut _Document,
+    entries: Option<Vec<(String, ViewerValue)>>,
+) -> PyResult<()> {
+    this.doc.catalog().map_err(to_py_err)?;
+    let Some(entries) = entries else {
+        if this
+            .doc
+            .catalog()
+            .map_err(to_py_err)?
+            .has(b"ViewerPreferences")
+        {
+            this.invalidate_hayro_pdf_keeping_placements();
+            this.doc
+                .catalog_mut()
+                .map_err(to_py_err)?
+                .remove(b"ViewerPreferences");
+        }
+        return Ok(());
+    };
+    let mut preferences = Dictionary::new();
+    for (key, value) in entries {
+        let Some((key, names)) = VIEWER_PREFERENCE_KEYS
+            .iter()
+            .find(|(known, _)| *known == key)
+        else {
+            return Err(PdfError::new_err(format!(
+                "unknown viewer preference: {key:?}"
+            )));
+        };
+        let object = match (*key, names, value) {
+            (_, Some(names), ViewerValue::Name(name)) if names.contains(&name.as_str()) => {
+                Object::Name(name.into_bytes())
+            }
+            ("NumCopies", _, ViewerValue::Int(copies)) if copies >= 1 => Object::Integer(copies),
+            ("PrintPageRange", _, ViewerValue::Ranges(ranges))
+                if ranges.len() <= MAX_PRINT_PAGE_RANGES
+                    && ranges
+                        .iter()
+                        .all(|&(first, last)| 1 <= first && first <= last) =>
+            {
+                let mut pages = Vec::new();
+                pages.try_reserve_exact(ranges.len() * 2).map_err(|error| {
+                    PdfError::new_err(format!("failed to allocate print page ranges: {error}"))
+                })?;
+                for (first, last) in ranges {
+                    pages.push(Object::Integer(first));
+                    pages.push(Object::Integer(last));
+                }
+                Object::Array(pages)
+            }
+            ("Enforce", _, ViewerValue::Names(enforced))
+                if enforced.len() <= MAX_ENFORCED_PREFERENCES
+                    && enforced.iter().all(|name| {
+                        (1..=127).contains(&name.len())
+                            && name
+                                .bytes()
+                                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+                    }) =>
+            {
+                Object::Array(
+                    enforced
+                        .into_iter()
+                        .map(|name| Object::Name(name.into_bytes()))
+                        .collect(),
+                )
+            }
+            ("Enforce", _, ViewerValue::Ranges(empty)) if empty.is_empty() => {
+                Object::Array(Vec::new())
+            }
+            (_, None, ViewerValue::Bool(flag))
+                if !matches!(*key, "NumCopies" | "PrintPageRange" | "Enforce") =>
+            {
+                Object::Boolean(flag)
+            }
+            (key, ..) => {
+                return Err(PdfError::new_err(format!(
+                    "bad value for viewer preference {key}"
+                )));
+            }
+        };
+        preferences.set(*key, object);
+    }
+    this.invalidate_hayro_pdf_keeping_placements();
+    this.doc
+        .catalog_mut()
+        .map_err(to_py_err)?
+        .set("ViewerPreferences", preferences);
+    Ok(())
+}
+
 /// Implements [`_Document::pdfa_claim`].
 pub(super) fn pdfa_claim(
     this: &_Document,

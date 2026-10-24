@@ -2969,10 +2969,14 @@ the concept and API overview.
   written XMP stays readable under the read default. Rewriting an existing
   stream forgets placements, because `/Metadata` may name any stream; adding
   one keeps them. Info metadata writes never synchronize XMP. The catalog's
-  `/PageMode`, `/PageLayout`, and `/MarkInfo` read through the object model
-  as `PageMode`, `PageLayout`, and `MarkInfo` (a name outside ISO 32000-2
+  `/PageMode`, `/PageLayout`, `/MarkInfo`, and `/ViewerPreferences` read
+  through the object model as `PageMode`, `PageLayout`, `MarkInfo`, and
+  `ViewerPreferences` (a name outside ISO 32000-2
   Table 29 reads as the default) and write through `set_catalog_name` and
-  `set_mark_info`, which keep placements; assignments take an enum member or
+  `set_mark_info`, which keep placements, as `set_viewer_preferences` writes
+  the `ViewerPreferences` record (Table 147; page ranges cross as one-based
+  pairs, malformed entries read as `None`, and the core checks every key,
+  type, and name again); assignments take an enum member or
   its exact value, where pymupdf matched names case-insensitively.
   `Document.language` reads and writes the complete BCP 47 `/Lang` tag,
   where MuPDF packs it into at most three letters, so pymupdf reads `en-US`

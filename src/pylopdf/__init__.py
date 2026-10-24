@@ -124,7 +124,20 @@ from pylopdf._layers import (
 )
 from pylopdf._limits import DocumentLimits
 from pylopdf._links import Destinations, Link, Links
-from pylopdf._metadata import MarkInfo, Metadata, PageLayout, PageMode, PdfaClaim, parse_pdf_date, pdf_date
+from pylopdf._metadata import (
+    Duplex,
+    MarkInfo,
+    Metadata,
+    PageBoundary,
+    PageLayout,
+    PageMode,
+    PdfaClaim,
+    PrintScaling,
+    ReadingDirection,
+    ViewerPreferences,
+    parse_pdf_date,
+    pdf_date,
+)
 from pylopdf._objects import Array, Dictionary, Name, Objects, Stream, String
 from pylopdf._ocr import OcrEngine, OcrWord
 from pylopdf._operations import InlineImage, Operation, Operations
@@ -186,6 +199,7 @@ __all__ = [
     "DocumentClosedError",
     "DocumentComplexity",
     "DocumentLimits",
+    "Duplex",
     "EncodedImage",
     "EncryptedDocumentError",
     "Encryption",
@@ -257,6 +271,7 @@ __all__ = [
     "OutlineEntry",
     "OutlineItem",
     "Page",
+    "PageBoundary",
     "PageBoxes",
     "PageLabelRange",
     "PageLabelStyle",
@@ -274,10 +289,12 @@ __all__ = [
     "Point",
     "PolyLine",
     "Polygon",
+    "PrintScaling",
     "Probe",
     "PushButton",
     "Quad",
     "RadioButton",
+    "ReadingDirection",
     "Rect",
     "Redaction",
     "RedactionReport",
@@ -318,6 +335,7 @@ __all__ = [
     "TransparencyGroup",
     "Underline",
     "Unmapped",
+    "ViewerPreferences",
     "VisibilityPolicy",
     "Widget",
     "Widgets",
