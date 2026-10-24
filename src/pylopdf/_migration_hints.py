@@ -206,7 +206,7 @@ HINTS: dict[str, str] = {
     "Document.resolve_names": "Document.resolve_names is Document.destinations in pylopdf. doc.destinations maps each named destination to its Destination(page, point, zoom), or None when it names no page.",
     "Document.saveIncr": "Document.saveIncr is Document.save in pylopdf. Use doc.save(path, incremental=True), which appends one update to the bytes the document was opened from and may write to any path.",
     "Document.save_snapshot": "pylopdf does not provide pymupdf's Document.save_snapshot.",
-    "Document.scrub": "pylopdf plans the capability of pymupdf's Document.scrub in the Rewriting milestone of ROADMAP.md.",
+    "Document.scrub": "Document.scrub is Document.sanitize in pylopdf. doc.sanitize(links=True, form_values=True) removes what scrub() removes by default; javascript= is scripts=, attached_files= and embedded_files= are embedded_files=, xml_metadata= goes with metadata=, remove_links= is links=, reset_fields= is form_values=, and redactions=True is page.redact() on every page.",
     "Document.search_page_for": "Document.search_page_for is Page.search in pylopdf. Call doc.pages[i].search(text).",
     "Document.select": "Document.select is Pages.select in pylopdf. Use doc.pages.select(indexes).",
     "Document.set_fallback_font": "Document.set_fallback_font is Document.fallback_fonts in pylopdf. Assign doc.fallback_fonts[language] = FallbackFont(Font.from_file(path)), with Font.from_bytes(data) for bytes and serif= for the serif slot; doc.fallback_fonts = {} turns fallback off.",

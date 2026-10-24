@@ -143,7 +143,8 @@ the concept and API overview.
     `_form.py`, and `_links.py`.
   - Rewriting: `content/`, `text_replace.rs`, `image_compression.rs`;
     `redact.rs`; `document/{replacement,redaction,redaction_images}.rs`;
-    `src/pylopdf/_operations.py` and `_redaction.py`.
+    `src/pylopdf/_operations.py`, `_redaction.py`, and `_sanitize.py`;
+    `document/sanitize.rs`.
   - Shared: `lib.rs`, `document/mod.rs`,
     `document/{errors,input,objects,indexed}.rs`; and in `src/pylopdf/`,
     the re-export surface `__init__.py` plus `_document.py`, `_page.py`,
@@ -2096,6 +2097,24 @@ the concept and API overview.
   drops `incremental_base`, since the original bytes still hold what it
   removed. At most 4,096 areas (`redaction_area_count`); images above
   64,000,000 pixels refuse with `image_pixel_count`.
+- `Document.sanitize` (`src/pylopdf/_sanitize.py`, `document/sanitize.rs`)
+  runs on the document and restores a clone on any error. Hidden text
+  (rendering modes 3 and 7) goes through `redaction::apply_pass` with a
+  glyph `Selector`, which removes those glyphs with compensating `TJ`
+  adjustments and drops each rewritten stream's tail; comments (every
+  annotation but links and widgets, with popups), links, and file
+  attachment annotations go from each page's `/Annots`; thumbnails are the
+  page `/Thumb`. Indirect action dictionaries are classified once
+  (JavaScript by `/S /JavaScript` or `/JS`, navigation by `GoTo`, `URI`, and
+  `Named`) before one walk over every dictionary of the graph, which then
+  drops script values under `/A`, `/OpenAction`, `/Next` (arrays filtered),
+  and `/AA` triggers, every `/AA` and `/OpenAction` and every
+  non-navigation action with `actions`, the catalog's `/Names /JavaScript`
+  and an AcroForm `/XFA` with `scripts`, `/Names /EmbeddedFiles`,
+  `/Collection`, and `/AF` with `embedded_files`, and `/Metadata`,
+  `/PieceInfo`, `/LastModified`, and the trailer `/Info` with `metadata`.
+  Unreachable objects are pruned and `incremental_base` dropped in every
+  case. `form_values` resets fields in Python after the core call.
 - `Page.operations` (`src/pylopdf/_operations.py`) is operator-level content:
   an immutable `Operations` sequence of `Operation(operator, operands)` and
   `InlineImage(dictionary, data)` values and a `tail` of the bytes after the

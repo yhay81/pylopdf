@@ -135,6 +135,7 @@ from pylopdf._pages import Pages
 from pylopdf._paper import PaperSize
 from pylopdf._pixmap import Colorspace
 from pylopdf._redaction import RedactionReport
+from pylopdf._sanitize import SanitizationReport
 from pylopdf._tables import Table, TableDiagnostics
 from pylopdf._targets import Destination, Launch, NamedAction, RemoteDestination, Target
 from pylopdf._text import Block, Char, Layout, Line, Span, Unmapped, Word
@@ -283,6 +284,7 @@ __all__ = [
     "RedactionReport",
     "RemoteDestination",
     "Resources",
+    "SanitizationReport",
     "ScriptTrigger",
     "Scripts",
     "Segment",

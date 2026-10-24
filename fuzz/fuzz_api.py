@@ -52,6 +52,7 @@ def test_one_input(data: bytes) -> None:
                         images="pixels",
                     )
 
+                doc.sanitize(links=True)
                 doc.metadata.update({"producer": "pylopdf fuzz"})
                 saved = doc.to_bytes(dedupe=True, renumber=True, object_streams=True)
 

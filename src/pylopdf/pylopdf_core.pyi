@@ -797,6 +797,17 @@ class _Document:
         images: str,
         graphics: str,
     ) -> tuple[list[tuple[float, float, float, float]], int, int, int, int, int, int, int]: ...
+    def sanitize(
+        self,
+        scripts: bool,
+        actions: bool,
+        embedded_files: bool,
+        metadata: bool,
+        hidden_text: bool,
+        comments: bool,
+        links: bool,
+        thumbnails: bool,
+    ) -> tuple[int, int, int, int, int, int, int, int, int]: ...
     def page_operations(self, page_number: int, max_operations: int | None = ...) -> tuple[list[Any], bytes]: ...
     def set_page_content(self, page_number: int, data: bytes) -> None: ...
     def replace_text_on_page(

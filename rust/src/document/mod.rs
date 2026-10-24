@@ -95,6 +95,7 @@ mod redaction;
 mod redaction_images;
 mod rendering;
 mod replacement;
+mod sanitize;
 mod saving;
 mod streams;
 mod text_insertion;
@@ -2152,6 +2153,38 @@ impl _Document {
         graphics: &str,
     ) -> PyResult<redaction::RedactionTuple> {
         redaction::redact_page(self, py, page_number, areas, text, images, graphics)
+    }
+
+    /// Remove what the document carries besides its pages; see
+    /// `Document.sanitize`.
+    #[pyo3(signature = (scripts, actions, embedded_files, metadata, hidden_text, comments, links, thumbnails))]
+    #[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
+    fn sanitize(
+        &mut self,
+        py: Python<'_>,
+        scripts: bool,
+        actions: bool,
+        embedded_files: bool,
+        metadata: bool,
+        hidden_text: bool,
+        comments: bool,
+        links: bool,
+        thumbnails: bool,
+    ) -> PyResult<sanitize::SanitizationTuple> {
+        sanitize::sanitize(
+            self,
+            py,
+            sanitize::SanitizeOptions {
+                scripts,
+                actions,
+                embedded_files,
+                metadata,
+                hidden_text,
+                comments,
+                links,
+                thumbnails,
+            },
+        )
     }
 
     /// Tokenize a one-based page's joined content as hayro reads it and

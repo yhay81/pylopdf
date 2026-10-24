@@ -61,6 +61,8 @@ from pylopdf._pixmap import (
     _validate_bool,
     _validate_encoding,
 )
+from pylopdf._sanitize import SanitizationReport
+from pylopdf._sanitize import sanitize as _sanitize
 from pylopdf._tables import (
     _bounded_markdown_page_output,
     _markdown_output_limit_error,
@@ -1183,6 +1185,59 @@ class Document:
         """Emit recoverable interpretation warnings as ``PylopdfWarning``."""
         for message in self._doc.take_warnings():
             _warnings.warn(message, PylopdfWarning, stacklevel=stacklevel)
+
+    def sanitize(  # noqa: PLR0913 - the categories to remove.
+        self,
+        *,
+        scripts: bool = True,
+        actions: bool = True,
+        embedded_files: bool = True,
+        metadata: bool = True,
+        hidden_text: bool = True,
+        comments: bool = True,
+        links: bool = False,
+        form_values: bool = False,
+        thumbnails: bool = True,
+    ) -> SanitizationReport:
+        """Remove what the document carries besides its visible pages, and return a report.
+
+        - ``scripts`` removes every JavaScript action, wherever it is named
+          (``/OpenAction``, ``/AA`` triggers, ``/A`` of links, outline items,
+          and widgets, ``/Next`` chains), the document's JavaScript name
+          tree, and an XFA form, which carries scripts of its own.
+        - ``actions`` removes the other automatic actions (every ``/AA`` and
+          the ``/OpenAction``) and every action of a link or outline item
+          other than navigation (``GoTo``, ``URI``, and ``Named``), such as
+          launching files and submitting forms.
+        - ``embedded_files`` removes the attached files, file attachment
+          annotations, associated files (``/AF``), and portfolios.
+        - ``metadata`` removes the Info dictionary and every ``/Metadata``,
+          ``/PieceInfo``, and ``/LastModified`` entry.
+        - ``hidden_text`` removes text drawn in an invisible rendering mode,
+          such as an OCR layer, through the redaction engine, so the text
+          around it keeps its position.
+        - ``comments`` removes every annotation but links and widgets, with
+          popups; ``links`` removes links; ``form_values`` resets every field
+          to its default; ``thumbnails`` removes page thumbnails.
+
+        Objects that nothing reaches any more are removed in every case, and
+        the document can no longer be saved with ``incremental=True``, since
+        the bytes it was opened from still hold what went. The operation is
+        atomic apart from ``form_values``, which resets the fields one by one
+        afterwards.
+        """
+        return _sanitize(
+            self,
+            scripts=scripts,
+            actions=actions,
+            embedded_files=embedded_files,
+            metadata=metadata,
+            hidden_text=hidden_text,
+            comments=comments,
+            links=links,
+            form_values=form_values,
+            thumbnails=thumbnails,
+        )
 
     def rewrite_images(  # noqa: PLR0913  # pymupdf's keyword arguments.
         self,

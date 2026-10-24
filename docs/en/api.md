@@ -362,6 +362,7 @@ attached to their base characters.
 | `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, colorspace="rgb", format="png", quality=95, workers=None, max_size=512 MiB)` | PNG or JPEG bytes for every page, or the listed pages, in order, rendered in parallel |
 | `images` | The image objects by object number; see [Images](#images) |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | Downsample and recompress images to make the file smaller |
+| `sanitize(*, scripts=True, actions=True, embedded_files=True, metadata=True, hidden_text=True, comments=True, links=False, form_values=False, thumbnails=True)` | Remove scripts, actions, attachments, metadata, hidden text, and comments; see [Sanitization](#sanitization) |
 | `fallback_fonts` | The fonts that render Chinese, Japanese, or Korean text whose font is not embedded, by language; the CJK extras fill it automatically |
 
 `rewrite_images` follows pymupdf's keywords: images with more than
@@ -846,8 +847,9 @@ doc.save("redacted.pdf")   # a full save; see below
   that does not converge raises `PdfError` and stays as it was.
 - The bytes the document was opened from still hold the removed content, so
   a redacted document can no longer be saved with `incremental=True`; save it
-  in full. Metadata, attachments, bookmarks, and the structure tree can hold
-  the same text elsewhere in the file.
+  in full, and run [`doc.sanitize()`](#sanitization) as well: metadata,
+  attachments, bookmarks, and the structure tree can hold the same text
+  elsewhere in the file.
 
 | `RedactionReport` field | Counts |
 |---|---|
@@ -857,6 +859,37 @@ doc.save("redacted.pdf")   # a full save; see below
 | `paths`, `shadings` | Vector graphics removed |
 | `annotations` | Annotations and widgets that overlapped an area, the applied redaction annotations not included |
 | `forms` | Form XObject placements copied |
+
+## Sanitization { #sanitization }
+
+`doc.sanitize()` removes what a document carries besides its visible pages
+and returns a `SanitizationReport`. Run it before sharing a file, after
+[redaction](#redaction).
+
+```python
+report = doc.sanitize()                       # every category below except links and form values
+report = doc.sanitize(links=True, form_values=True, metadata=False)
+print(report.scripts, report.embedded_files, report.hidden_glyphs, report.objects)
+doc.save("clean.pdf")                         # a full save
+```
+
+| Keyword | Default | Removes |
+|---|---|---|
+| `scripts` | `True` | JavaScript actions wherever they are named, the JavaScript name tree, and an XFA form |
+| `actions` | `True` | Automatic actions (`/OpenAction`, every `/AA`) and link or outline actions other than `GoTo`, `URI`, and `Named` |
+| `embedded_files` | `True` | Attached files, file attachment annotations, associated files, and portfolios |
+| `metadata` | `True` | The Info dictionary and every `/Metadata`, `/PieceInfo`, and `/LastModified` entry |
+| `hidden_text` | `True` | Text in an invisible rendering mode, such as an OCR layer; the text around it keeps its position |
+| `comments` | `True` | Every annotation except links and widgets, with popups |
+| `links` | `False` | Link annotations |
+| `form_values` | `False` | Field values, reset to their defaults |
+| `thumbnails` | `True` | Page thumbnails |
+
+Objects that nothing reaches any more go in every case. The document can no
+longer be saved with `incremental=True` afterwards, since the bytes it was
+opened from still hold what went. The call is atomic, except that
+`form_values` resets the fields one by one afterwards. The report counts each
+category, the fields reset, and the unreachable objects removed.
 
 ## Content operations { #operations }
 
@@ -1516,6 +1549,7 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [Low-level objects](#low-level-objects) |
 | `Operations`, `Operation`, `InlineImage` | [Content operations](#operations) |
 | `RedactionReport` | [Redaction](#redaction) |
+| `SanitizationReport` | [Sanitization](#sanitization) |
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`, and the other content types | The [content model](#content) |
 | `Colorspace` | The color spaces of a [`Pixmap`](#pixmap): `GRAY` and `RGB` |
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [Outline and page labels](#outline) |

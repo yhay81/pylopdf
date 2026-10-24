@@ -61,8 +61,8 @@ pub(super) type RedactionTuple = (
 );
 
 #[derive(Default)]
-struct Counts {
-    glyphs: usize,
+pub(super) struct Counts {
+    pub(super) glyphs: usize,
     images_removed: usize,
     images_blanked: usize,
     paths: usize,
@@ -200,10 +200,12 @@ fn redact_inner(
             this,
             py,
             page_id,
-            &user_areas,
-            options,
-            &forced_glyphs,
-            &forced_boxes,
+            &Selector::Areas {
+                areas: &user_areas,
+                options,
+                forced_glyphs: &forced_glyphs,
+                forced_boxes: &forced_boxes,
+            },
             &applied,
         )?;
         let leftovers = verify(this, py, page_number, &display_areas, options)?;
@@ -450,17 +452,24 @@ fn xobject_names(doc: &Document, resources: &Dictionary) -> Dictionary {
 
 const CONSTRUCTION: [&str; 7] = ["m", "l", "c", "v", "y", "h", "re"];
 
+/// What one pass removes: what areas reach, or the glyphs that a test picks.
+pub(super) enum Selector<'a> {
+    Areas {
+        areas: &'a [Rect],
+        options: Options,
+        forced_glyphs: &'a [Point],
+        forced_boxes: &'a [Rect],
+    },
+    Glyphs(fn(&crate::content::interpret::Glyph) -> bool),
+}
+
 /// Remove what one selection reaches, write every container that changed,
 /// and remove the annotations that overlap the areas.
-#[allow(clippy::too_many_arguments)]
-fn apply_pass(
+pub(super) fn apply_pass(
     this: &mut _Document,
     py: Python<'_>,
     page_id: ObjectId,
-    areas: &[Rect],
-    options: Options,
-    forced_glyphs: &[Point],
-    forced_boxes: &[Rect],
+    selector: &Selector<'_>,
     applied: &[ObjectId],
 ) -> PyResult<Counts> {
     let page_resources = this.resolve_page_attr(page_id, b"Resources")?;
@@ -471,8 +480,28 @@ fn apply_pass(
     let doc: &Document = &this.doc;
     let interpretation =
         py.detach(|| replacement::interpret(doc, page_id, page_resources.as_ref()))?;
-    let mut selection = redact::select(&interpretation, areas, options, forced_glyphs);
-    force_boxes(&interpretation, &mut selection, forced_boxes, options);
+    let (selection, areas) = match selector {
+        Selector::Areas {
+            areas,
+            options,
+            forced_glyphs,
+            forced_boxes,
+        } => {
+            let mut selection = redact::select(&interpretation, areas, *options, forced_glyphs);
+            force_boxes(&interpretation, &mut selection, forced_boxes, *options);
+            (selection, *areas)
+        }
+        Selector::Glyphs(test) => {
+            let selection = Selection {
+                glyphs: interpretation.glyphs.iter().map(test).collect(),
+                paths: vec![false; interpretation.paths.len()],
+                shadings: vec![false; interpretation.shadings.len()],
+                images: vec![ImageAction::Keep; interpretation.images.len()],
+                annotations: HashSet::new(),
+            };
+            (selection, &[][..])
+        }
+    };
     let mut counts = Counts {
         glyphs: selection.glyph_count(),
         ..Counts::default()
