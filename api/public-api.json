@@ -72,6 +72,8 @@
     "LayerBaseState",
     "LayerConfiguration",
     "LayerConfigurations",
+    "LayerExpression",
+    "LayerMembership",
     "LayerOrder",
     "Layers",
     "Layout",
@@ -132,6 +134,7 @@
     "RadioButton",
     "Rect",
     "Redaction",
+    "RedactionReport",
     "RemoteDestination",
     "Resources",
     "ScriptTrigger",
@@ -169,6 +172,7 @@
     "TransparencyGroup",
     "Underline",
     "Unmapped",
+    "VisibilityPolicy",
     "Widget",
     "Widgets",
     "Word",
@@ -249,6 +253,10 @@
         "language": {
           "kind": "property",
           "returns": "str | None"
+        },
+        "layer": {
+          "kind": "property",
+          "returns": "Layer | LayerMembership | None"
         },
         "line_endings": {
           "kind": "property",
@@ -5619,6 +5627,10 @@
           "kind": "property",
           "returns": "bool"
         },
+        "layer": {
+          "kind": "property",
+          "returns": "Layer | LayerMembership | None"
+        },
         "mask": {
           "kind": "property",
           "returns": "ImageObject | None"
@@ -6116,6 +6128,88 @@
         "returns": "None"
       }
     },
+    "LayerExpression": {
+      "annotations": {
+        "operands": "tuple[Layer | LayerExpression, ...]",
+        "operator": "Literal['and', 'or', 'not']"
+      },
+      "dataclass_fields": [
+        "operator",
+        "operands"
+      ],
+      "kind": "class",
+      "members": {
+        "operands": {
+          "kind": "property"
+        },
+        "operator": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Literal['and', 'or', 'not']",
+            "kind": "positional_or_keyword",
+            "name": "operator"
+          },
+          {
+            "annotation": "tuple[Layer | LayerExpression, ...]",
+            "kind": "positional_or_keyword",
+            "name": "operands"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "LayerMembership": {
+      "annotations": {
+        "_": "KW_ONLY",
+        "expression": "LayerExpression | None",
+        "layers": "tuple[Layer, ...]",
+        "policy": "VisibilityPolicy"
+      },
+      "dataclass_fields": [
+        "layers",
+        "policy",
+        "expression"
+      ],
+      "kind": "class",
+      "members": {
+        "expression": {
+          "kind": "property"
+        },
+        "layers": {
+          "kind": "property"
+        },
+        "policy": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "tuple[Layer, ...]",
+            "default": [],
+            "kind": "positional_or_keyword",
+            "name": "layers"
+          },
+          {
+            "annotation": "VisibilityPolicy",
+            "default": "AnyOn",
+            "kind": "keyword_only",
+            "name": "policy"
+          },
+          {
+            "annotation": "LayerExpression | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "expression"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "LayerOrder": {
       "annotations": {
         "items": "tuple[Layer | LayerOrder, ...]",
@@ -6315,6 +6409,7 @@
         "bbox": "Rect",
         "direction": "Point",
         "is_vertical": "bool",
+        "quad": "Quad",
         "spans": "tuple[Span, ...]",
         "text": "str"
       },
@@ -6323,7 +6418,8 @@
         "bbox",
         "direction",
         "is_vertical",
-        "spans"
+        "spans",
+        "quad"
       ],
       "kind": "class",
       "members": {
@@ -6334,6 +6430,9 @@
           "kind": "property"
         },
         "is_vertical": {
+          "kind": "property"
+        },
+        "quad": {
           "kind": "property"
         },
         "spans": {
@@ -6369,6 +6468,11 @@
             "annotation": "tuple[Span, ...]",
             "kind": "keyword_only",
             "name": "spans"
+          },
+          {
+            "annotation": "Quad",
+            "kind": "keyword_only",
+            "name": "quad"
           }
         ],
         "returns": "None"
@@ -6550,6 +6654,10 @@
     "Link": {
       "kind": "class",
       "members": {
+        "layer": {
+          "kind": "property",
+          "returns": "Layer | LayerMembership | None"
+        },
         "obj": {
           "kind": "property",
           "returns": "Dictionary"
@@ -8507,6 +8615,50 @@
           "kind": "property",
           "returns": "Rect"
         },
+        "redact": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float] | Quad | Iterable[Sequence[float] | Quad] | None",
+                "default": null,
+                "kind": "positional_or_keyword",
+                "name": "areas"
+              },
+              {
+                "annotation": "Literal['remove', 'keep']",
+                "default": "remove",
+                "kind": "keyword_only",
+                "name": "text"
+              },
+              {
+                "annotation": "Literal['pixels', 'remove', 'keep']",
+                "default": "pixels",
+                "kind": "keyword_only",
+                "name": "images"
+              },
+              {
+                "annotation": "Literal['touched', 'covered', 'keep']",
+                "default": "touched",
+                "kind": "keyword_only",
+                "name": "graphics"
+              },
+              {
+                "annotation": "Color | None",
+                "default": {
+                  "repr": "Color(red=0.0, green=0.0, blue=0.0, alpha=1.0)"
+                },
+                "kind": "keyword_only",
+                "name": "fill"
+              }
+            ],
+            "returns": "RedactionReport"
+          }
+        },
         "remove_rotation": {
           "kind": "method",
           "signature": {
@@ -8581,6 +8733,12 @@
                 "name": "clip"
               },
               {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "quads"
+              },
+              {
                 "annotation": "int | None",
                 "default": 4096,
                 "kind": "keyword_only",
@@ -8623,7 +8781,35 @@
                 "name": "exact_bboxes"
               }
             ],
-            "returns": "list[Rect]"
+            "returns": "list[Rect] | list[Quad]"
+          }
+        },
+        "selection": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "start"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "end"
+              },
+              {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              }
+            ],
+            "returns": "str"
           }
         },
         "svg": {
@@ -11548,6 +11734,100 @@
         "returns": "None"
       }
     },
+    "RedactionReport": {
+      "annotations": {
+        "annotations": "int",
+        "areas": "tuple[Rect, ...]",
+        "blanked_images": "int",
+        "forms": "int",
+        "glyphs": "int",
+        "images": "int",
+        "paths": "int",
+        "shadings": "int"
+      },
+      "dataclass_fields": [
+        "areas",
+        "glyphs",
+        "images",
+        "blanked_images",
+        "paths",
+        "shadings",
+        "annotations",
+        "forms"
+      ],
+      "kind": "class",
+      "members": {
+        "annotations": {
+          "kind": "property"
+        },
+        "areas": {
+          "kind": "property"
+        },
+        "blanked_images": {
+          "kind": "property"
+        },
+        "forms": {
+          "kind": "property"
+        },
+        "glyphs": {
+          "kind": "property"
+        },
+        "images": {
+          "kind": "property"
+        },
+        "paths": {
+          "kind": "property"
+        },
+        "shadings": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "tuple[Rect, ...]",
+            "kind": "keyword_only",
+            "name": "areas"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "glyphs"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "images"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "blanked_images"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "paths"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "shadings"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "annotations"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "forms"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "RemoteDestination": {
       "annotations": {
         "file": "str",
@@ -11600,6 +11880,10 @@
         "images": {
           "kind": "property",
           "returns": "tuple[ImageObject, ...]"
+        },
+        "layers": {
+          "kind": "property",
+          "returns": "dict[str, Layer | LayerMembership]"
         }
       },
       "signature": {
@@ -11927,6 +12211,7 @@
         "is_monospaced": "bool",
         "is_serif": "bool",
         "origin": "Point",
+        "quad": "Quad",
         "render_mode": "TextRenderMode",
         "size": "float",
         "text": "str"
@@ -11946,7 +12231,8 @@
         "is_clipped",
         "ascender",
         "descender",
-        "chars"
+        "chars",
+        "quad"
       ],
       "kind": "class",
       "members": {
@@ -11984,6 +12270,9 @@
           "kind": "property"
         },
         "origin": {
+          "kind": "property"
+        },
+        "quad": {
           "kind": "property"
         },
         "render_mode": {
@@ -12072,6 +12361,11 @@
             "annotation": "tuple[Char, ...]",
             "kind": "keyword_only",
             "name": "chars"
+          },
+          {
+            "annotation": "Quad",
+            "kind": "keyword_only",
+            "name": "quad"
           }
         ],
         "returns": "None"
@@ -13299,6 +13593,15 @@
         "repr": "typing.Literal['skip', 'replacement', 'glyph_id']"
       }
     },
+    "VisibilityPolicy": {
+      "kind": "enum",
+      "members": {
+        "ALL_OFF": "AllOff",
+        "ALL_ON": "AllOn",
+        "ANY_OFF": "AnyOff",
+        "ANY_ON": "AnyOn"
+      }
+    },
     "Widget": {
       "kind": "class",
       "members": {
@@ -13337,6 +13640,10 @@
         "font_size": {
           "kind": "property",
           "returns": "float"
+        },
+        "layer": {
+          "kind": "property",
+          "returns": "Layer | LayerMembership | None"
         },
         "obj": {
           "kind": "property",

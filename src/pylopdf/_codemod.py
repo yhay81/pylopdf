@@ -512,6 +512,47 @@ def _one_argument(name: str, template: str) -> Callable[[_Migrator, str, _Argume
     return rule
 
 
+#: pymupdf's redaction constants, by option, as the strings of ``Page.redact``.
+_REDACT_OPTIONS = {
+    "images": {
+        "PDF_REDACT_IMAGE_NONE": "keep",
+        "PDF_REDACT_IMAGE_REMOVE": "remove",
+        "PDF_REDACT_IMAGE_PIXELS": "pixels",
+    },
+    "graphics": {
+        "PDF_REDACT_LINE_ART_NONE": "keep",
+        "PDF_REDACT_LINE_ART_REMOVE_IF_COVERED": "covered",
+        "PDF_REDACT_LINE_ART_REMOVE_IF_TOUCHED": "touched",
+    },
+    "text": {"PDF_REDACT_TEXT_REMOVE": "remove", "PDF_REDACT_TEXT_NONE": "keep"},
+}
+#: The same options by pymupdf's integer values.
+_REDACT_VALUES = {
+    "images": {"0": "keep", "1": "remove", "2": "pixels"},
+    "graphics": {"0": "keep", "1": "covered", "2": "touched"},
+    "text": {"0": "remove", "1": "keep"},
+}
+
+
+def _apply_redactions(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """``page.apply_redactions(images=..., graphics=..., text=...)`` → ``page.redact(...)``."""
+    bound = args.bind(("images", "graphics", "text"))
+    if bound is None:
+        return None
+    options = []
+    for name in ("text", "images", "graphics"):
+        if name not in bound:
+            continue
+        value = bound[name]
+        constant = value.rsplit(".", 1)[-1]
+        choice = _REDACT_OPTIONS[name].get(constant) or _REDACT_VALUES[name].get(value)
+        if choice is None:
+            # PDF_REDACT_IMAGE_REMOVE_UNLESS_INVISIBLE has no counterpart.
+            return None
+        options.append(f'{name}="{choice}"')
+    return f"{receiver}.redact({', '.join(options)})"
+
+
 def _embfile_get(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     bound = args.bind(("item",))
     if bound is None or set(bound) != {"item"} or bound["item"].lstrip("-").isdigit():
@@ -1037,6 +1078,17 @@ def _get_text(migrator: _Migrator, receiver: str, args: _Arguments) -> str | Non
     return f"{receiver}.{method}({', '.join(arguments)}){suffix}"
 
 
+def _get_text_selection(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``get_text_selection(p1, p2, clip)`` to ``selection(p1, p2, clip=...)``."""
+    bound = args.bind(("p1", "p2", "clip", "textpage"))
+    if bound is None or not {"p1", "p2"} <= set(bound) or "textpage" in bound:
+        return None
+    arguments = [bound["p1"], bound["p2"]]
+    if bound.get("clip", "None") != "None":
+        arguments.append(f"clip={bound['clip']}")
+    return f"{receiver}.selection({', '.join(arguments)})"
+
+
 def _get_textbox(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     """Rewrite ``get_textbox(rect)`` to ``text(clip=rect)``."""
     bound = args.bind(("rect", "textpage"))
@@ -1046,18 +1098,20 @@ def _get_textbox(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
 
 
 def _search_for(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
-    """Rewrite ``search_for(needle, ...)`` to ``search(text, ...)``; quads come with Reading."""
+    """Rewrite ``search_for(needle, ...)`` to ``search(text, ...)``."""
     keywords = {"needle" if key == "text" else key: value for key, value in args.keywords.items()}
     bound = _Arguments(args.positional, keywords).bind(
         ("needle", "clip", "quads", "flags", "textpage", "hit_max", "max_hits")
     )
     if bound is None or "needle" not in bound or {"flags", "textpage"} & set(bound):
         return None
-    if bound.get("quads", "False") not in _FALSE or ("hit_max" in bound and "max_hits" in bound):
+    if "hit_max" in bound and "max_hits" in bound:
         return None
     arguments = [bound["needle"]]
     if bound.get("clip", "None") != "None":
         arguments.append(f"clip={bound['clip']}")
+    if bound.get("quads", "False") not in _FALSE:
+        arguments.append(f"quads={bound['quads']}")
     if "hit_max" in bound or "max_hits" in bound:
         arguments.append(f"max_hits={bound.get('max_hits', bound.get('hit_max'))}")
     return f"{receiver}.search({', '.join(arguments)})"
@@ -1832,6 +1886,7 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     ),
     "get_label": _no_arguments("{receiver}.label"),
     "read_contents": _no_arguments("{receiver}.operations.to_bytes()"),
+    "apply_redactions": _apply_redactions,
     "get_form_fields": _no_arguments(
         '[{{"name": name, "type": str(field.type), "value": field.value}} for name, field in {receiver}.form.items()]'
     ),
@@ -1877,6 +1932,7 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "get_text": _get_text,
     "search_for": _search_for,
     "get_textbox": _get_textbox,
+    "get_text_selection": _get_text_selection,
     "to_markdown": _renamed("markdown"),
     "find_tables": _find_tables,
     "get_text_ocr": _get_text_ocr,
@@ -3459,7 +3515,7 @@ class _Migrator(cst.CSTTransformer):
     def visit_Attribute(self, node: cst.Attribute) -> None:
         self._attribute_names.add(id(node.attr))
 
-    def visit_Call(self, node: cst.Call) -> None:
+    def visit_Call(self, node: cst.Call) -> None:  # noqa: C901 - one branch per rule that consumes arguments.
         self._call_functions.add(id(node.func))
         if isinstance(node.func, cst.Attribute) and node.func.attr.value in {"save", "tobytes", "write"}:
             # The save rules turn a PDF_ENCRYPT_* argument into Encryption(...), or mark the call.
@@ -3470,6 +3526,13 @@ class _Migrator(cst.CSTTransformer):
             # The insert_textbox rule turns a TEXT_ALIGN_* argument into an align option, or marks the call.
             for arg in node.args:
                 part = arg.value if arg.keyword is not None and arg.keyword.value == "align" else None
+                while isinstance(part, cst.Attribute):
+                    self._consumed.add(id(part))
+                    part = part.value
+        if isinstance(node.func, cst.Attribute) and node.func.attr.value == "apply_redactions":
+            # The apply_redactions rule turns PDF_REDACT_* arguments into option strings, or marks the call.
+            for arg in node.args:
+                part = arg.value
                 while isinstance(part, cst.Attribute):
                     self._consumed.add(id(part))
                     part = part.value

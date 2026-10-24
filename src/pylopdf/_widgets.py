@@ -19,6 +19,7 @@ from pylopdf._errors import StalePageError
 from pylopdf._fonts import Font
 from pylopdf._geometry import Rect
 from pylopdf._hints import hinted_getattr
+from pylopdf._layers import Layer, LayerMembership, _annotation_layer, _set_annotation_layer
 from pylopdf._limits import _validate_rect
 from pylopdf.pylopdf_core import StaleObjectError
 
@@ -99,6 +100,24 @@ class Widget:
         """Return the widget's object number, or 0 for a dictionary stored in ``/Annots`` itself."""
         self._read()
         return self._xref
+
+    @property
+    def layer(self) -> Layer | LayerMembership | None:
+        """Return the optional-content group or membership that shows or hides the widget (``/OC``), or ``None``.
+
+        Assigning a :class:`Layer` or a :class:`LayerMembership` sets it, and
+        ``del`` removes it. Viewers hide the widget with its group; hayro 0.8
+        draws it regardless.
+        """
+        return _annotation_layer(self)
+
+    @layer.setter
+    def layer(self, layer: Layer | LayerMembership | None) -> None:
+        _set_annotation_layer(self, layer)
+
+    @layer.deleter
+    def layer(self) -> None:
+        _set_annotation_layer(self, None)
 
     @property
     def obj(self) -> Dictionary:

@@ -130,7 +130,8 @@ the concept and API overview.
     `document/{forms,annotations,flattening}.rs`; `src/pylopdf/_annotations.py`,
     `_form.py`, and `_links.py`.
   - Rewriting: `content/`, `text_replace.rs`, `image_compression.rs`;
-    `document/replacement.rs`; `src/pylopdf/_operations.py`.
+    `redact.rs`; `document/{replacement,redaction,redaction_images}.rs`;
+    `src/pylopdf/_operations.py` and `_redaction.py`.
   - Shared: `lib.rs`, `document/mod.rs`,
     `document/{errors,input,objects,indexed}.rs`; and in `src/pylopdf/`,
     the re-export surface `__init__.py` plus `_document.py`, `_page.py`,
@@ -343,6 +344,13 @@ the concept and API overview.
   `Page.rect` use (see the drawing bullet). Baseline direction is retained and
   exposed in line dicts. Rotated
   baselines assemble along their direction while remaining writing mode 0.
+  Baselines more than about a degree from both axes (`has_oblique_baseline`)
+  cluster in `cluster_oblique`, by quantized angle and the baseline's offset
+  across its direction, and order along it. Line, span, and search quads
+  (`glyphs_quad`) are the smallest rectangle along the first glyph's baseline
+  that holds every glyph box; a search match across a dehyphenation join
+  gives one quad per line. Chars carry no quad: building one per char
+  doubled `layout(chars=True)` (1.5 µs a char on the bundled corpus).
   Uniform axis-aligned pages derive logical inline and block axes from that
   direction, so 90/180/270-degree lines and sustained columns preserve reading
   order. Explicitly rotated glyph bboxes follow the baseline and cross-axis;
@@ -2045,6 +2053,55 @@ the concept and API overview.
   Content that lopdf's strict parse rejected (13 files) reads since the
   engine tokenizes as hayro does. Re-run this pdf.js-corpus sweep after any
   change to the interpreter or to hayro.
+- `Page.redact` (`src/pylopdf/_redaction.py`, `rust/src/redact.rs`,
+  `document/redaction.rs`, `document/redaction_images.rs`) removes what
+  areas cover. The content engine also records paths (construction
+  operations through the paint, exact geometry box and stroke-widened
+  painted box), image placements (XObject or inline, matrix, clip box),
+  `sh` with its clip box, and marked-content sequences; every item names its
+  container, the page content or one placement of a Form XObject with the
+  container and operation that drew it, or an annotation appearance. Glyphs
+  carry a box from the font's extent (`/Ascent` and `/Descent`, else
+  `/FontBBox`, else 200 below and 800 above; Type 3 `/FontBBox` through
+  `/FontMatrix`) and the `TJ` adjustment that reproduces their advance. The
+  engine bounds items at 2,097,152 per page (`content_item_count`).
+  `redact::select` removes a glyph whose box overlaps an area by more than
+  0.001 pt (a degenerate box when it crosses the area's inside), a path whose
+  painted box touches (`touched`) or lies inside (`covered`) one, a shading
+  by its clip box (an unclipped one touches every area), and an image whose
+  clipped box meets one. A text operation loses its removed codes and
+  becomes a `TJ` whose adjustments keep the following glyphs in place (`'`
+  becomes `T*` and `TJ`, `"` also sets `Tw` and `Tc`); a glyph at font size
+  0 that still moves the pen is refused. The `BDC` around a removed glyph
+  loses `/ActualText`, `/Alt`, and `/E`, inline or through `/Properties`. A
+  removed path loses its construction operations and paint, or only turns
+  its paint into `n` when it also clips. Every container that changes, and
+  every container that holds content after the point where hayro stops
+  reading, is written again with unchanged operations keeping their bytes
+  and the tail dropped; each Form placement on the way from the page to it
+  becomes a new object named `PylopdfRedactedN` in its parent's XObject
+  resources (a copy of the effective resources), so other placements keep
+  the original. Annotation appearances are never edited: an annotation
+  goes when its rectangle overlaps an area or its appearance paints
+  something removed, widgets through `remove_widget_object`, and direct
+  annotation dictionaries are stored as objects first so their appearances
+  can be attributed. Blanked images are drawn by hayro with their masks at
+  pixel size (`image_pixmap`), the pixels whose squares meet an area (a
+  separating-axis test in unit space) become opaque black, and the result is
+  written as 8-bit DeviceRGB with an SMask, or as a stencil mask whose
+  covered samples paint nothing; inline images become image XObjects with
+  their abbreviations expanded first, and an image hayro cannot draw is
+  removed. The whole call runs on the document, restored from a clone on
+  any error. After each pass hayro interprets the page (`hayro_view_for`,
+  the content model, and the raw text layout); a glyph whose ink box or
+  whose extraction box meets an area is removed in the next pass by its
+  origin (0.01 pt), and a path, shading, or removed-mode image by its box
+  (0.05 pt); after three passes the page is refused. Fills and overlay text
+  go on top through the canvas (`place_canvas`), the overlay shrinking by
+  0.8 down to one point until it fits. A successful redaction with areas
+  drops `incremental_base`, since the original bytes still hold what it
+  removed. At most 4,096 areas (`redaction_area_count`); images above
+  64,000,000 pixels refuse with `image_pixel_count`.
 - `Page.operations` (`src/pylopdf/_operations.py`) is operator-level content:
   an immutable `Operations` sequence of `Operation(operator, operands)` and
   `InlineImage(dictionary, data)` values and a `tail` of the bytes after the
@@ -2875,7 +2932,18 @@ the concept and API overview.
   group, label)`; reads are iterative and cycle-aware, and both directions
   stop at 65,536 entries and 32 levels. `apply()` replaces `/D` with a copy
   of the alternative, keeping `/D /Order` when the copy has none, because
-  only `/D` reaches hayro. hayro ignores `/VE`, an
+  only `/D` reaches hayro. `/OC` values cross the boundary as `(kind, group,
+  policy, groups, expression)`: none, a reference to a group, or a membership
+  (a referenced dictionary with `/Type /OCMD`, or any direct dictionary, as
+  hayro's `xobject_oc` reads them), with `/VE` as preorder entries `(depth,
+  operator, group)`. Assigning a membership always adds a new `/OCMD` object.
+  `layer` on annotations, links, and widgets edits through `annotation_at`
+  and `edited_annotation`, so a direct annotation becomes an object first;
+  `ImageObject.layer` edits the stream dictionary (images and forms), and
+  `page.resources.layers` reads the inherited `/Properties`, listing only
+  OCG references and memberships. Edits keep placements. hayro evaluates a
+  `/Properties` entry only through a reference, so a direct membership
+  there renders as visible; hayro also ignores `/VE`, an
   annotation's own `/OC`, other configurations, and intents (#338).
 - `Document.pdfa_claim` releases the GIL and applies a 1 MiB decoded XMP
   limit to every filter layer; the core's `pdfa_claim(max_size)` takes the

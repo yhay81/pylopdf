@@ -227,7 +227,7 @@ pub(super) fn page_display(this: &_Document, page_id: ObjectId) -> PyResult<Affi
     ))
 }
 
-fn interpreted_stream(stream: &Stream) -> Result<Vec<u8>, crate::content::ContentError> {
+pub(super) fn interpreted_stream(stream: &Stream) -> Result<Vec<u8>, crate::content::ContentError> {
     decoded_stream_content(
         stream,
         Some(MAX_INTERPRETED_STREAM_BYTES),
@@ -237,7 +237,7 @@ fn interpreted_stream(stream: &Stream) -> Result<Vec<u8>, crate::content::Conten
     .map_err(|error| crate::content::ContentError::Malformed(error.to_string()))
 }
 
-fn content_error(error: crate::content::ContentError) -> PyErr {
+pub(super) fn content_error(error: crate::content::ContentError) -> PyErr {
     match error {
         crate::content::ContentError::Limit { code, message } => limit_err(code, message),
         crate::content::ContentError::Malformed(message)

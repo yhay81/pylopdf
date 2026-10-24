@@ -17,7 +17,7 @@ def test_search_takes_the_text_keyword() -> None:
     assert page.search(text="world") == page.search("world")
     assert len(page.search("world")) == 1
     with pytest.raises(TypeError, match="needle"):
-        page.search(needle="world")  # ty: ignore[unknown-argument, missing-argument]
+        page.search(needle="world")  # ty: ignore[no-matching-overload]
     with pytest.raises(ValueError, match="text must be at least 1 character"):
         page.search("")
 

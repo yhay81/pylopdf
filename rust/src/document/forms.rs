@@ -3351,31 +3351,38 @@ pub(super) fn remove_widget(
                 }
                 return Ok(());
             };
-            let owner = this.widget_fields()?.get(&widget_id).map(|field| field.0);
-            this.unlist_widget(widget_id)?;
-            match owner {
-                Some(field_id)
-                    if field_id == widget_id || this.field_widgets(field_id)?.len() <= 1 =>
-                {
-                    this.remove_form_field(field_id)
-                }
-                Some(_) => {
-                    let parent = this
-                        .doc
-                        .get_dictionary(widget_id)
-                        .ok()
-                        .and_then(|dict| dict.get(b"Parent").ok())
-                        .and_then(|parent| parent.as_reference().ok());
-                    this.detach_form_node(parent, widget_id)
-                }
-                None => Ok(()),
-            }
+            this.remove_widget_object(widget_id)
         })();
         if result.is_err() {
             this.doc.replace(original);
         }
         result
     })
+}
+
+impl _Document {
+    /// Take a widget off every page and out of the field tree, removing its
+    /// field with its last widget. The caller restores the document on
+    /// failure.
+    pub(super) fn remove_widget_object(&mut self, widget_id: ObjectId) -> PyResult<()> {
+        let owner = self.widget_fields()?.get(&widget_id).map(|field| field.0);
+        self.unlist_widget(widget_id)?;
+        match owner {
+            Some(field_id) if field_id == widget_id || self.field_widgets(field_id)?.len() <= 1 => {
+                self.remove_form_field(field_id)
+            }
+            Some(_) => {
+                let parent = self
+                    .doc
+                    .get_dictionary(widget_id)
+                    .ok()
+                    .and_then(|dict| dict.get(b"Parent").ok())
+                    .and_then(|parent| parent.as_reference().ok());
+                self.detach_form_node(parent, widget_id)
+            }
+            None => Ok(()),
+        }
+    }
 }
 
 /// Implements [`_Document::remove_field`].

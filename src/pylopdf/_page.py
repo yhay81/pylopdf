@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, overload
 
 from pylopdf import _text
 from pylopdf._annotations import Annotations
 from pylopdf._boxes import PageBoxes
 from pylopdf._canvas import Canvas
-from pylopdf._content import Content, _content_from_core
+from pylopdf._content import Color, Content, _content_from_core
 from pylopdf._errors import StalePageError
-from pylopdf._geometry import Matrix, Rect
+from pylopdf._geometry import Matrix, Quad, Rect
 from pylopdf._hints import hinted_getattr
 from pylopdf._images import Resources
 from pylopdf._limits import (
@@ -30,6 +31,8 @@ from pylopdf._operations import _DEFAULT_MAX_CONTENT_SIZE, InlineImage, Operatio
 from pylopdf._operations import _from_core as _operations_from_core
 from pylopdf._page_labels import _label, _read_page_labels
 from pylopdf._pixmap import Colorspace, _render_background, _render_gray, _render_matrix, _validate_bool
+from pylopdf._redaction import RedactionReport
+from pylopdf._redaction import redact as _redact
 from pylopdf._tables import Table, build_tables
 from pylopdf._widgets import Widgets
 from pylopdf.pylopdf_core import LimitError
@@ -38,6 +41,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from pylopdf._document import Document
+    from pylopdf._geometry import Quad
     from pylopdf._text import Layout, Unmapped, Word
     from pylopdf._types import OcrRotation
     from pylopdf.pylopdf_core import Pixmap
@@ -325,6 +329,45 @@ class Page:
             return _text.build_layout(*self._document._page_raw_layout(page_number, options))
         return _text.build_layout(*self._document._page_layout(page_number, options))
 
+    def selection(
+        self,
+        start: Sequence[float],
+        end: Sequence[float],
+        *,
+        clip: Sequence[float] | None = None,
+    ) -> str:
+        """Return the text that a viewer selects by dragging from ``start`` to ``end``.
+
+        The selection runs in reading order from the character nearest
+        ``start`` to the one nearest ``end``, whichever comes first, with the
+        first and last lines in part and the lines between them whole, as
+        :meth:`text` assembles them, and without a final line break. Both
+        points are in display space; ``clip`` limits the characters as
+        :meth:`text` does. A page without text selects ``""``.
+        """
+        points = []
+        for name, point in (("start", start), ("end", end)):
+            try:
+                x, y = (float(value) for value in point)
+            except (TypeError, ValueError) as error:
+                msg = f"{name} must be a point (x, y): {point!r}"
+                raise ValueError(msg) from error
+            if not (math.isfinite(x) and math.isfinite(y)):
+                msg = f"{name} must be a finite point: {point!r}"
+                raise ValueError(msg)
+            points.append((x, y))
+        options = _text.text_options(
+            clip=clip,
+            clipped=False,
+            ligatures=True,
+            whitespace=True,
+            dehyphenate=False,
+            unmapped="skip",
+        )
+        text = self._document._doc.select_text(self._page_number(), points[0], points[1], options)
+        self._document._emit_warnings()
+        return text
+
     def ocr(  # noqa: PLR0913 - OCR resource controls are keyword-only.
         self,
         *,
@@ -452,11 +495,44 @@ class Page:
             max_size=max_size,
         )
 
+    @overload
+    def search(
+        self,
+        text: str,
+        *,
+        clip: Sequence[float] | None = ...,
+        quads: Literal[False] = ...,
+        max_hits: int | None = ...,
+        clipped: bool = ...,
+        ligatures: bool = ...,
+        whitespace: bool = ...,
+        dehyphenate: bool = ...,
+        unmapped: Unmapped = ...,
+        exact_bboxes: bool = ...,
+    ) -> list[Rect]: ...
+
+    @overload
+    def search(
+        self,
+        text: str,
+        *,
+        clip: Sequence[float] | None = ...,
+        quads: Literal[True],
+        max_hits: int | None = ...,
+        clipped: bool = ...,
+        ligatures: bool = ...,
+        whitespace: bool = ...,
+        dehyphenate: bool = ...,
+        unmapped: Unmapped = ...,
+        exact_bboxes: bool = ...,
+    ) -> list[Quad]: ...
+
     def search(  # noqa: PLR0913 - the shared text options are keyword-only.
         self,
         text: str,
         *,
         clip: Sequence[float] | None = None,
+        quads: bool = False,
         max_hits: int | None = _DEFAULT_MAX_SEARCH_HITS,
         clipped: bool = False,
         ligatures: bool = True,
@@ -464,13 +540,16 @@ class Page:
         dehyphenate: bool = False,
         unmapped: Unmapped = "skip",
         exact_bboxes: bool = False,
-    ) -> list[Rect]:
+    ) -> list[Rect] | list[Quad]:
         """Search page text case-insensitively for ``text``.
 
-        Return one :class:`Rect` per match. Search is line-based and does not
-        detect matches spanning lines, except that ``dehyphenate=True`` joins
-        a hyphenated word's lines, and a match across that join gives one
-        rectangle that spans both parts. ``text`` is limited to 4,096 UTF-8
+        Return one :class:`Rect` per match, or with ``quads=True`` one
+        :class:`Quad` per line of each match: a quad follows the baseline, so
+        that it covers rotated text tightly where a rectangle is
+        axis-aligned. Search is line-based and does not detect matches
+        spanning lines, except that ``dehyphenate=True`` joins a hyphenated
+        word's lines; a match across that join gives one rectangle that spans
+        both parts, or one quad per line. ``text`` is limited to 4,096 UTF-8
         bytes. Results default to 4,096 matches; ``max_hits=None`` explicitly
         opts trusted workloads out. The other options are those of
         :meth:`words`.
@@ -478,6 +557,9 @@ class Page:
         if not text:
             msg = "text must be at least 1 character"
             raise ValueError(msg)
+        if not isinstance(quads, bool):
+            msg = f"quads must be True or False: {quads!r}"
+            raise TypeError(msg)
         _validate_optional_positive_int("max_hits", max_hits)
         _validate_utf8_text_input(
             text,
@@ -494,9 +576,14 @@ class Page:
             unmapped=unmapped,
             exact_bboxes=exact_bboxes,
         )
-        hits = self._document._doc.search_page(self._page_number(), text, max_hits, options)
+        core = self._document._doc
+        if quads:
+            hits = core.search_page_quads(self._page_number(), text, max_hits, options)
+            self._document._emit_warnings()
+            return [_text._quad(hit) for hit in hits]
+        boxes = core.search_page(self._page_number(), text, max_hits, options)
         self._document._emit_warnings()
-        return [Rect(*hit) for hit in hits]
+        return [Rect(*hit) for hit in boxes]
 
     def tables(
         self,
@@ -639,6 +726,50 @@ class Page:
             code = "content_input_size"
             raise LimitError(code, msg)
         self._document._doc.set_page_content(self._page_number(), data)
+
+    def redact(
+        self,
+        areas: Sequence[float] | Quad | Iterable[Sequence[float] | Quad] | None = None,
+        *,
+        text: Literal["remove", "keep"] = "remove",
+        images: Literal["pixels", "remove", "keep"] = "pixels",
+        graphics: Literal["touched", "covered", "keep"] = "touched",
+        fill: Color | None = Color(0.0, 0.0, 0.0),  # noqa: B008 - Color is immutable.
+    ) -> RedactionReport:
+        """Remove what the page's redaction annotations, or ``areas``, cover, and return a report.
+
+        Without ``areas``, every :class:`Redaction` annotation of the page is
+        applied with its own fill and overlay text, and removed. ``areas`` is
+        a rectangle or quad, or a sequence of up to 4,096 of them, in display
+        space, which are filled with ``fill`` (``None`` for no fill).
+
+        - ``text="remove"`` removes every glyph whose box, from its advance
+          and the font's ascent and descent, meets an area, in every font
+          and writing mode and in every rendering mode, invisible OCR text
+          included. The glyphs after it in the same string keep their
+          positions through ``TJ`` adjustments, and ``/ActualText``,
+          ``/Alt``, and ``/E`` of the marked content around a removed glyph
+          go too.
+        - ``images="pixels"`` blanks the covered pixels of every image that an
+          area meets, in a new copy of the image that only that placement
+          uses, with its masks merged into the copy's alpha; ``"remove"``
+          removes such placements, inline images included.
+        - ``graphics="touched"`` removes every path and shading that meets an
+          area, and ``"covered"`` only those inside one. A path that also
+          clips keeps clipping.
+        - Every annotation and form widget that overlaps an area is removed,
+          with its popup; a field goes with its last widget.
+
+        A Form XObject placement that loses something is replaced by a copy,
+        so other placements and other pages keep the original. Content after
+        the point where the renderer stops reading a stream, which other
+        readers may still draw, is dropped from every stream written again.
+        After the edit, hayro interprets the page again; what it still
+        paints or extracts inside an area is removed in another pass, and a
+        page where that does not converge is refused with :class:`PdfError`,
+        leaving the document unchanged, as every other refusal does.
+        """
+        return _redact(self, areas, text=text, images=images, graphics=graphics, fill=fill)
 
     def replace_text(
         self,

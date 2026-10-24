@@ -5,8 +5,8 @@ from __future__ import annotations
 import enum
 import itertools
 from collections.abc import Iterable, Iterator, Sequence
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, overload
+from dataclasses import KW_ONLY, dataclass
+from typing import TYPE_CHECKING, Literal, Protocol, overload
 
 from pylopdf._limits import _validate_utf8_text_input
 from pylopdf._objects import Dictionary
@@ -14,6 +14,7 @@ from pylopdf.pylopdf_core import LimitError, StaleObjectError
 
 if TYPE_CHECKING:
     from pylopdf._document import Document
+    from pylopdf._page import Page
     from pylopdf.pylopdf_core import _Document
 
 #: The longest group name that a write takes, in UTF-8 bytes; the core's
@@ -526,6 +527,184 @@ class LayerConfigurations(Sequence[LayerConfiguration]):
         return f"LayerConfigurations({self._configurations()!r})"
 
 
+class VisibilityPolicy(enum.StrEnum):
+    """How a membership's groups decide its visibility (``/P``, ISO 32000-2 Table 97)."""
+
+    ALL_ON = "AllOn"
+    """Visible when every group is shown."""
+    ANY_ON = "AnyOn"
+    """Visible when any group is shown; the default."""
+    ANY_OFF = "AnyOff"
+    """Visible when any group is hidden."""
+    ALL_OFF = "AllOff"
+    """Visible when every group is hidden."""
+
+
+_OPERATORS: dict[str, Literal["and", "or", "not"]] = {"and": "and", "or": "or", "not": "not"}
+
+
+@dataclass(frozen=True, slots=True)
+class LayerExpression:
+    """A visibility expression (``/VE``): an operator over layers and expressions.
+
+    ``"not"`` takes exactly one operand, ``"and"`` and ``"or"`` one or more.
+    An expression takes precedence over a membership's ``layers`` and
+    ``policy`` in viewers that read it; hayro 0.8 does not.
+    """
+
+    operator: Literal["and", "or", "not"]
+    operands: tuple[Layer | LayerExpression, ...]
+
+    def __post_init__(self) -> None:
+        """Validate the operator and the operands, and keep the operands as a tuple."""
+        if self.operator not in _OPERATORS:
+            msg = f"a LayerExpression operator is 'and', 'or', or 'not': {self.operator!r}"
+            raise ValueError(msg)
+        operands = tuple(self.operands)
+        for operand in operands:
+            if not isinstance(operand, (Layer, LayerExpression)):
+                msg = f"a LayerExpression operand is a Layer or a LayerExpression: {operand!r}"
+                raise TypeError(msg)
+        if not operands or (self.operator == "not" and len(operands) != 1):
+            msg = f"{self.operator!r} takes {'one operand' if self.operator == 'not' else 'operands'}: {operands!r}"
+            raise ValueError(msg)
+        object.__setattr__(self, "operands", operands)
+
+
+@dataclass(frozen=True, slots=True)
+class LayerMembership:
+    """An optional-content membership dictionary (``/OCMD``) as a value.
+
+    Content, an annotation, or an XObject that names a membership is
+    visible as ``policy`` decides from the visibility of ``layers``; content
+    whose membership names no group is visible. Assigning one to a
+    ``layer`` property writes a new membership dictionary.
+    """
+
+    layers: tuple[Layer, ...] = ()
+    _: KW_ONLY
+    policy: VisibilityPolicy = VisibilityPolicy.ANY_ON
+    expression: LayerExpression | None = None
+
+    def __post_init__(self) -> None:
+        """Validate the fields and keep ``layers`` as a tuple."""
+        if isinstance(self.layers, Layer) or not isinstance(self.layers, Iterable):
+            msg = f"LayerMembership takes an iterable of Layer handles: {self.layers!r}"
+            raise TypeError(msg)
+        layers = tuple(self.layers)
+        for layer in layers:
+            if not isinstance(layer, Layer):
+                msg = f"LayerMembership takes Layer handles: {layer!r}"
+                raise TypeError(msg)
+        if self.expression is not None and not isinstance(self.expression, LayerExpression):
+            msg = f"expression must be a LayerExpression or None: {self.expression!r}"
+            raise TypeError(msg)
+        object.__setattr__(self, "layers", layers)
+        object.__setattr__(self, "policy", VisibilityPolicy(self.policy))
+
+
+_ExpressionEntry = tuple[int, str, tuple[int, int]]
+_LayerValue = tuple[int, tuple[int, int], str, list[tuple[int, int]], list[_ExpressionEntry]]
+_NO_LAYER: _LayerValue = (0, (0, 0), "", [], [])
+
+
+def _expression_from_core(document: Document, entries: list[_ExpressionEntry]) -> LayerExpression | None:
+    """Build a visibility expression from the core's preorder entries.
+
+    An expression that breaks the operand rules of :class:`LayerExpression`,
+    such as a ``Not`` of two operands, reads as ``None``.
+    """
+    position = 0
+
+    def node() -> Layer | LayerExpression:
+        nonlocal position
+        depth, operator, (xref, generation) = entries[position]
+        position += 1
+        if not operator:
+            return Layer(document, xref, generation)
+        operands: list[Layer | LayerExpression] = []
+        while position < len(entries) and entries[position][0] == depth + 1:
+            operands.append(node())
+        return LayerExpression(_OPERATORS[operator], tuple(operands))
+
+    if not entries:
+        return None
+    try:
+        root = node()
+    except ValueError:
+        return None
+    return root if isinstance(root, LayerExpression) else None
+
+
+def _expression_to_core(document: Document, expression: LayerExpression) -> list[_ExpressionEntry]:
+    """Flatten a visibility expression into the core's preorder entries."""
+    entries: list[_ExpressionEntry] = []
+    stack: list[tuple[Layer | LayerExpression, int]] = [(expression, 0)]
+    while stack:
+        item, depth = stack.pop()
+        if len(entries) == _MAX_LAYER_ENTRIES:
+            code = "layer_count"
+            msg = f"a visibility expression lists more than {_MAX_LAYER_ENTRIES} entries"
+            raise LimitError(code, msg)
+        if isinstance(item, Layer):
+            entries.append((depth, "", _layer_ids(document, (item,), "expression")[0]))
+            continue
+        entries.append((depth, item.operator, (0, 0)))
+        stack.extend((operand, depth + 1) for operand in reversed(item.operands))
+    return entries
+
+
+def _layer_from_core(document: Document, value: _LayerValue) -> Layer | LayerMembership | None:
+    """Turn the core's ``/OC`` value into a handle or a membership value."""
+    kind, (xref, generation), policy, groups, expression = value
+    if kind == 0:
+        return None
+    if kind == 1:
+        return Layer(document, xref, generation)
+    return LayerMembership(
+        tuple(Layer(document, *group) for group in groups),
+        policy=VisibilityPolicy(policy),
+        expression=_expression_from_core(document, expression),
+    )
+
+
+def _layer_to_core(document: Document, value: object) -> _LayerValue:
+    """Check a ``layer`` assignment and turn it into the core's form."""
+    if value is None:
+        return _NO_LAYER
+    if isinstance(value, Layer):
+        return (1, _layer_ids(document, (value,), "layer")[0], "", [], [])
+    if isinstance(value, LayerMembership):
+        groups = _layer_ids(document, value.layers, "LayerMembership")
+        expression = [] if value.expression is None else _expression_to_core(document, value.expression)
+        return (2, (0, 0), value.policy.value, groups, expression)
+    msg = f"layer takes a Layer, a LayerMembership, or None: {value!r}"
+    raise TypeError(msg)
+
+
+class _AnnotationHandle(Protocol):
+    """The fields of an annotation, link, or widget handle."""
+
+    _page: Page
+    _xref: int
+    _index: int
+
+
+def _annotation_layer(handle: _AnnotationHandle) -> Layer | LayerMembership | None:
+    """Read the ``/OC`` of an annotation, link, or widget handle."""
+    page = handle._page
+    index, value = page._document._doc.annotation_layer(page._page_number(), handle._index, handle._xref)
+    handle._index = index
+    return _layer_from_core(page._document, value)
+
+
+def _set_annotation_layer(handle: _AnnotationHandle, layer: object) -> None:
+    """Write or remove the ``/OC`` of an annotation, link, or widget handle."""
+    page = handle._page
+    value = _layer_to_core(page._document, layer)
+    handle._xref = page._document._doc.set_annotation_layer(page._page_number(), handle._index, handle._xref, value)
+
+
 class Layers(Sequence[Layer]):
     """The document's optional-content groups, as ``doc.layers`` returns it.
 
@@ -593,5 +772,15 @@ class Layers(Sequence[Layer]):
 
 
 # The package re-exports these names; reprs, pickles, and documentation name it.
-for _public in (Layer, LayerBaseState, LayerConfiguration, LayerConfigurations, LayerOrder, Layers):
+for _public in (
+    Layer,
+    LayerBaseState,
+    LayerConfiguration,
+    LayerConfigurations,
+    LayerExpression,
+    LayerMembership,
+    LayerOrder,
+    Layers,
+    VisibilityPolicy,
+):
     _public.__module__ = "pylopdf"

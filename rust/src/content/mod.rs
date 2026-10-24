@@ -9,7 +9,7 @@
 //! Rewriting milestone; a private `_Document.content_glyphs` hook drives the tests.
 
 mod fonts;
-mod interpret;
+pub(crate) mod interpret;
 pub(crate) mod syntax;
 
 pub(crate) use interpret::{

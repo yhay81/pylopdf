@@ -679,7 +679,13 @@ def _layout_results() -> dict[str, Any]:
         "clip": painted.text(clip=(0, 0, 400, 75)),
         "dehyphenated": columns.text(dehyphenate=True, ligatures=False, whitespace=False),
         "exact_word": [round(value, 3) for value in columns.words(exact_bboxes=True)[0].bbox],
+        "quads": [
+            [[round(value, 3) for value in point] for point in quad] for quad in columns.search("Left", quads=True)
+        ],
     }
+    _require(len(text_options["quads"]) == 2, "search quads changed")  # noqa: PLR2004 - two matching lines.
+    text_options["selection"] = columns.selection((41, 66), (210, 86))
+    _require(text_options["selection"] == "Left one\nLeft two\nRight one\nRi", "selection changed")
     _require(text_options["default"] == "Red\nOutline\nHidden\n", "hidden glyphs were extracted by default")
     _require(text_options["clipped"].endswith("Clipped\n"), "clipped=True left out a clipped glyph")
     _require(text_options["clip"] == "Red\nOutline\n", "clip= kept other text")
@@ -1054,6 +1060,30 @@ def _operations_results() -> dict[str, Any]:
             "operators": [op.operator for op in operations],
             "tail": operations.tail.decode(),
             "text": reopened.pages[0].text().split(),
+        }
+
+
+def _redaction_results() -> dict[str, Any]:
+    """Redact text and a path, and read the page back."""
+    import pylopdf  # noqa: PLC0415
+
+    with pylopdf.Document() as document:
+        page = document.pages.new((300, 200))
+        with page.draw() as canvas:
+            canvas.text("Keep secret words", (20, 40), font=pylopdf.Font.standard("Helvetica"), size=14)
+            canvas.rect((150, 100, 190, 140), fill=pylopdf.Color(0, 0, 1))
+        secret = next(word.bbox for word in page.words() if word.text == "secret")
+        page.annotations.add(pylopdf.Redaction(secret, overlay_text="X"))
+        report = page.redact()
+        page.redact(pylopdf.Rect(150, 100, 170, 140), fill=None)
+        saved = document.to_bytes()
+    with pylopdf.open(saved) as reopened:
+        page = reopened.pages[0]
+        return {
+            "glyphs": report.glyphs,
+            "annotations": len(page.annotations),
+            "text": sorted(page.text().split()),
+            "paths": len(page.content().paths),
         }
 
 
@@ -1631,6 +1661,10 @@ def _optional_content_results() -> dict[str, Any]:
     printing = document.layers.configurations.add("Print", base_state="OFF", on=[notes])
     printing.apply()
     applied = page.text().split()
+    link = page.links.add((10, 10, 50, 50), "https://example.com")
+    link.layer = pylopdf.LayerMembership(
+        (notes,), expression=pylopdf.LayerExpression("not", (hidden,)), policy=pylopdf.VisibilityPolicy.ALL_OFF
+    )
     saved = pylopdf.open(document.to_bytes())
     _require(before[0] == ["Bravo"] and after[0] == [], "layer visibility did not change extraction")
     _require(before[1] != after[1], "layer visibility did not change rendering")
@@ -1640,6 +1674,8 @@ def _optional_content_results() -> dict[str, Any]:
         "added": [added.name, list(added.intent), added.is_visible],
         "saved": [[layer.name, list(layer.intent), layer.is_visible] for layer in saved.layers],
         "applied": applied,
+        "resources": sorted(saved.pages[0].resources.layers),
+        "link_layer": repr(saved.pages[0].links[0].layer),
         "configurations": [
             [config.name, str(config.base_state), [layer.name for layer in config.on], repr(config.order)]
             for config in saved.layers.configurations
@@ -1962,6 +1998,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "widgets": _widget_results(),
         "flatten": _flatten_results(),
         "operations": _operations_results(),
+        "redaction": _redaction_results(),
         "ocr_layer": _ocr_layer_results(),
         "object_model": _object_model_results(),
         "optional_content": _optional_content_results(),

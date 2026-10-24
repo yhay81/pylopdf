@@ -13,12 +13,13 @@ if sys.platform == "win32":
 # Page.layout(): a span is (bbox, text, size, origin, font, flags, style), and
 # its style (sRGB color and alpha, render mode, clipped, ascender, descender).
 _SpanStyleTuple: TypeAlias = tuple[tuple[float, float, float, float] | None, int, bool, float, float]
+_QuadTuple: TypeAlias = tuple[tuple[float, float], tuple[float, float], tuple[float, float], tuple[float, float]]
 _SpanTuple: TypeAlias = tuple[
-    tuple[float, float, float, float], str, float, tuple[float, float], str, int, _SpanStyleTuple
+    tuple[float, float, float, float], str, float, tuple[float, float], str, int, _SpanStyleTuple, _QuadTuple
 ]
 _WordTuple: TypeAlias = tuple[tuple[float, float, float, float], str]
 _LineTuple: TypeAlias = tuple[
-    tuple[float, float, float, float], list[_SpanTuple], list[_WordTuple], tuple[float, float], int
+    tuple[float, float, float, float], list[_SpanTuple], list[_WordTuple], tuple[float, float], int, _QuadTuple
 ]
 _BlockTuple: TypeAlias = tuple[tuple[float, float, float, float], list[_LineTuple]]
 _RawCharTuple: TypeAlias = tuple[str, tuple[float, float, float, float], tuple[float, float], bool]
@@ -34,9 +35,10 @@ _RawSpanTuple: TypeAlias = tuple[
     str,
     int,
     _SpanStyleTuple,
+    _QuadTuple,
 ]
 _RawLineTuple: TypeAlias = tuple[
-    tuple[float, float, float, float], list[_RawSpanTuple], list[_WordTuple], tuple[float, float], int
+    tuple[float, float, float, float], list[_RawSpanTuple], list[_WordTuple], tuple[float, float], int, _QuadTuple
 ]
 _RawBlockTuple: TypeAlias = tuple[tuple[float, float, float, float], list[_RawLineTuple]]
 
@@ -57,6 +59,7 @@ _ObjectRoot: TypeAlias = tuple[int, int] | None
 _PageBox: TypeAlias = tuple[float, float, float, float]
 _Target: TypeAlias = tuple[str, int | None, tuple[float, float] | None, float | None, str | None, str | None]
 _OutlineColor: TypeAlias = tuple[float, float, float] | None
+_LayerValue: TypeAlias = tuple[int, tuple[int, int], str, list[tuple[int, int]], list[tuple[int, str, tuple[int, int]]]]
 _AnnotationTexts: TypeAlias = tuple[
     str | None, str | None, str | None, str | None, str | None, str | None, str | None, str | None
 ]
@@ -548,6 +551,21 @@ class _Document:
         self, slot: int, entries: list[tuple[int, bool, tuple[int, int], str | None]]
     ) -> None: ...
     def apply_layer_configuration(self, slot: int) -> None: ...
+    def annotation_layer(self, page_number: int, index: int, xref: int) -> tuple[int, _LayerValue]: ...
+    def set_annotation_layer(
+        self,
+        page_number: int,
+        index: int,
+        xref: int,
+        value: _LayerValue,
+    ) -> int: ...
+    def xobject_layer(self, xref: int) -> _LayerValue: ...
+    def set_xobject_layer(
+        self,
+        xref: int,
+        value: _LayerValue,
+    ) -> None: ...
+    def page_layers(self, page_number: int) -> list[tuple[str, _LayerValue]]: ...
     def add_layer_configuration(
         self,
         name: str,
@@ -621,6 +639,20 @@ class _Document:
         max_hits: int | None = 4096,
         options: _TextOptions | None = None,
     ) -> list[tuple[float, float, float, float]]: ...
+    def select_text(
+        self,
+        page_number: int,
+        start: tuple[float, float],
+        end: tuple[float, float],
+        options: _TextOptions | None = None,
+    ) -> str: ...
+    def search_page_quads(
+        self,
+        page_number: int,
+        needle: str,
+        max_hits: int | None = 4096,
+        options: _TextOptions | None = None,
+    ) -> list[_QuadTuple]: ...
     def extract_images(
         self, page_number: int
     ) -> list[tuple[int, int, tuple[float, float, float, float], str, bytes]]: ...
@@ -758,6 +790,14 @@ class _Document:
         list[tuple[int, int, int | None]],
         list[tuple[int, tuple[int, int] | None, int]],
     ]: ...
+    def redact_page(
+        self,
+        page_number: int,
+        areas: list[tuple[tuple[float, float, float, float], tuple[float, float, float] | None]] | None,
+        text: bool,
+        images: str,
+        graphics: str,
+    ) -> tuple[list[tuple[float, float, float, float]], int, int, int, int, int, int, int]: ...
     def page_operations(self, page_number: int, max_operations: int | None = ...) -> tuple[list[Any], bytes]: ...
     def set_page_content(self, page_number: int, data: bytes) -> None: ...
     def replace_text_on_page(

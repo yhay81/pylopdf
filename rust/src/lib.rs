@@ -34,6 +34,7 @@ mod postscript_scan;
 mod prune;
 mod read_depth;
 mod recovery;
+mod redact;
 mod render_cache;
 mod renumber;
 mod structure_prune;

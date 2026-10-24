@@ -139,6 +139,7 @@ change.
 | `text_size`, `text_glyph_count`, `interpretation_size` | Extraction or rendering would read more than the policy allows |
 | `content_element_count` | A page paints more glyphs, segments, dash lengths, and items than `max_elements` |
 | `content_operation_count`, `content_stream_size`, `content_input_size` | Content holds more operations than allowed, or a page's content, read or written, is larger than 64 MiB |
+| `content_item_count`, `redaction_area_count` | Redaction finds more than 2,097,152 paths, images, shadings, and Form placements on a page, or is given more than 4,096 areas |
 | `content_nesting_depth`, `resource_nesting_depth` | A page is built so deeply nested that interpreting it is unsafe; see [below](#built-in-protections) |
 | `pdf_output_size`, `render_output_size`, `markdown_output_size`, `svg_output_size`, `pixmap_output_size`, `replacement_output_size` | Output would exceed `max_size` |
 | `search_input_size`, `search_hit_count` | The search text is over 4,096 bytes, or there are more results than `max_hits` |
@@ -187,9 +188,11 @@ These apply to every document, with or without `DocumentLimits`:
   with a CPU or wall-clock deadline in the worker, process, or container.
 - **Isolate batch processing.** Process untrusted files in a sandbox or
   container when you can.
-- **Do not rely on page deletion for redaction.** Deleting pages removes
-  their links, form fields, and structure entries, but copies of their content
-  can remain elsewhere in the file, such as in attachments or metadata.
+- **Redact with `page.redact()`, then save in full.** It removes the
+  content from the file and verifies the page with the renderer; deleting
+  pages or drawing boxes over text does not. Copies of the same text can
+  remain elsewhere in the file, such as in attachments, metadata, or the
+  structure tree, so sanitize the document too.
 - **Use `doc.render()` for parallel rendering.** It already limits its own
   memory use, so do not wrap it in additional unbounded parallelism.
 

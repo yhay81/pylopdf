@@ -50,7 +50,7 @@ def test_hints_module_matches_the_manifest() -> None:
         (pylopdf.Matrix, "prerotate", "pylopdf.Matrix(deg) * m"),
         (pylopdf.Point, "transform", "Use p * m"),
         (lambda: pylopdf, "TOOLS", "does not provide pymupdf's TOOLS."),
-        (lambda: pylopdf, "PDF_REDACT_IMAGE_NONE", "capability of pymupdf's PDF_REDACT_* in the Rewriting milestone"),
+        (lambda: pylopdf, "PDF_REDACT_IMAGE_NONE", 'Page.redact takes strings: images="pixels"'),
     ],
 )
 def test_missing_pymupdf_names_raise_hinted_attribute_errors(
@@ -306,9 +306,12 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ("import fitz\nlayout = page.get_text(option='rawdict')\n", "layout = page.layout(chars=True).to_dict()"),
         ("import fitz\nhits = page.search_for('total', hit_max=10)\n", "hits = page.search('total', max_hits=10)"),
         ("import fitz\nhits = page.search_for('a', clip=r)\n", "hits = page.search('a', clip=r)"),
+        ("import fitz\nhits = page.search_for('a', quads=True)\n", "hits = page.search('a', quads=True)"),
         ("import fitz\ntext = page.get_text('text', clip=r)\n", "text = page.text(clip=r)"),
         ("import fitz\nraw = page.get_text('rawdict', clip=r)\n", "raw = page.layout(clip=r, chars=True).to_dict()"),
         ("import fitz\ntext = page.get_textbox(r)\n", "text = page.text(clip=r)"),
+        ("import fitz\ntext = page.get_text_selection(a, b)\n", "text = page.selection(a, b)"),
+        ("import fitz\ntext = page.get_text_selection(a, b, clip=r)\n", "text = page.selection(a, b, clip=r)"),
         ("import fitz\ntext = doc.get_page_text(2)\n", "text = doc.pages[2].text()"),
         ("import fitz\nwords = [w[4] for w in page.get_text('words')]\n", "words = [w.text for w in page.words()]"),
         (
@@ -421,6 +424,12 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ),
         ("import fitz\ndoc = fitz.open()\nlabel = doc[0].get_label()\n", "label = doc.pages[0].label"),
         ("import fitz\ndata = page.read_contents()\n", "data = page.operations.to_bytes()"),
+        ("import fitz\npage.apply_redactions()\n", "page.redact()"),
+        (
+            "import fitz\npage.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=1)\n",
+            'page.redact(images="keep", graphics="covered")',
+        ),
+        ("import fitz\npage.apply_redactions(0, 0, 1)\n", 'page.redact(text="keep", images="keep", graphics="keep")'),
         ("import fitz\ndef f(item: fitz.Outline) -> None: ...\n", "def f(item: pylopdf.OutlineItem) -> None: ..."),
         ("from fitz import Outline\nitem: Outline\n", "from pylopdf import OutlineItem\nitem: OutlineItem"),
         ("import fitz\ndoc = fitz.open()\ndoc[0].set_rotation(90)\n", "doc.pages[0].rotation = 90"),
@@ -1026,7 +1035,6 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ),
         ("import fitz\nfor w in page.get_text('words'):\n    print(w)\n", "Word records with text, bbox, block"),
         ("import fitz\nhtml = page.get_text('html')\n", "Page.get_text is Page.text in pylopdf"),
-        ("import fitz\nhits = page.search_for('a', quads=True)\n", "Page.search_for is Page.search in pylopdf"),
         ("import fitz\ntables = page.find_tables(vertical_strategy='text')\n", "Page.find_tables is Page.tables"),
         ("import fitz\ntables = page.find_tables(strategy='explicit')\n", "Page.find_tables is Page.tables"),
         ("import fitz\nfor tab in page.find_tables():\n    frame = tab.to_pandas()\n", "come with the Understanding"),
