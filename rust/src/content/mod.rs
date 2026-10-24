@@ -12,7 +12,9 @@ mod fonts;
 mod interpret;
 pub(crate) mod syntax;
 
-pub(crate) use interpret::{Container, interpret_page};
+pub(crate) use interpret::{
+    Container, ContainerInfo, Interpretation, interpret_page, transformed_rect,
+};
 
 use hayro::kurbo::Affine;
 
@@ -24,6 +26,9 @@ pub(crate) const MAX_FORM_NESTING: usize = 50;
 pub(crate) const MAX_CONTENT_OPERATIONS: usize = 1 << 24;
 /// Glyph records produced for one page.
 pub(crate) const MAX_GLYPHS: usize = 1 << 20;
+/// Paths, images, shadings, marked-content sequences, and Form placements
+/// recorded for one page, together.
+pub(crate) const MAX_CONTENT_ITEMS: usize = 1 << 21;
 
 /// Why interpretation stopped; no partial result accompanies it.
 #[derive(Debug)]

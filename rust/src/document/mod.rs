@@ -1992,6 +1992,18 @@ impl _Document {
         replacement::content_glyphs(self, py, page_number)
     }
 
+    /// Interpret a one-based page's content with the redaction engine and
+    /// return its paths, image placements, shadings, and marked-content
+    /// sequences with the operations that painted them. A private hook for
+    /// the agreement tests.
+    fn content_items(
+        &self,
+        py: Python<'_>,
+        page_number: u32,
+    ) -> PyResult<replacement::ContentItems> {
+        replacement::content_items(self, py, page_number)
+    }
+
     /// Tokenize a one-based page's joined content as hayro reads it and
     /// return its operations with their bytes, and the bytes after the last
     /// one, for `Page.operations`.

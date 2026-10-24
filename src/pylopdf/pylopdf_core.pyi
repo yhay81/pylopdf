@@ -701,7 +701,27 @@ class _Document:
             tuple[int, int, int, int, int],
             tuple[bool, bool],
             int,
+            tuple[float, float, float, float],
+            float | None,
         ]
+    ]: ...
+    def content_items(
+        self, page_number: int
+    ) -> tuple[
+        list[
+            tuple[
+                int,
+                int,
+                int,
+                tuple[float, float, float, float],
+                tuple[float, float, float, float],
+                tuple[bool, bool, bool],
+            ]
+        ],
+        list[tuple[int, int, int, tuple[float, float, float, float], tuple[float, float, float, float] | None]],
+        list[tuple[int, int, tuple[float, float, float, float] | None]],
+        list[tuple[int, int, int | None]],
+        list[tuple[int, tuple[int, int] | None, int]],
     ]: ...
     def page_operations(self, page_number: int, max_operations: int | None = ...) -> tuple[list[Any], bytes]: ...
     def set_page_content(self, page_number: int, data: bytes) -> None: ...
