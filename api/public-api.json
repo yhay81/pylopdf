@@ -9078,11 +9078,19 @@
               {
                 "kind": "positional_only",
                 "name": "array"
+              },
+              {
+                "default": null,
+                "kind": "keyword_only",
+                "name": "resolution"
               }
             ]
           }
         },
         "height": {
+          "kind": "property"
+        },
+        "resolution": {
           "kind": "property"
         },
         "save": {

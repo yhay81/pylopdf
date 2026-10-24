@@ -1037,5 +1037,6 @@ pub(super) fn image_pixmap(
         height,
         layout,
         data: Arc::new(data),
+        resolution: crate::pixmap::DEFAULT_RESOLUTION,
     })
 }
