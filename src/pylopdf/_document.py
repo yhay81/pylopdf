@@ -47,7 +47,18 @@ from pylopdf._limits import (
     _validate_utf8_text_input,
 )
 from pylopdf._links import Destinations
-from pylopdf._metadata import METADATA_KEYS, MarkInfo, Metadata, PageLayout, PageMode, PdfaClaim, _metadata_value
+from pylopdf._metadata import (
+    METADATA_KEYS,
+    MarkInfo,
+    Metadata,
+    PageLayout,
+    PageMode,
+    PdfaClaim,
+    ViewerPreferences,
+    _metadata_value,
+    _viewer_preference_entries,
+    _viewer_preferences,
+)
 from pylopdf._objects import Dictionary, Name, Objects, String
 from pylopdf._outline import Outline, OutlineEntry, _write_outline
 from pylopdf._page import Page
@@ -775,6 +786,32 @@ class Document:
         catalog = self.catalog
         if "MarkInfo" in catalog:
             del catalog["MarkInfo"]
+
+    @property
+    def viewer_preferences(self) -> ViewerPreferences | None:
+        """Return the catalog's ``/ViewerPreferences``, or ``None`` without the dictionary.
+
+        Entries of the wrong type or of unknown values read as ``None``.
+        Assigning a :class:`ViewerPreferences` replaces the dictionary with
+        the fields that are not ``None``, and ``del doc.viewer_preferences``
+        removes it.
+        """
+        self._ensure_open()
+        preferences = self.catalog.get("ViewerPreferences")
+        return _viewer_preferences(preferences) if isinstance(preferences, Dictionary) else None
+
+    @viewer_preferences.setter
+    def viewer_preferences(self, preferences: ViewerPreferences) -> None:
+        self._ensure_open()
+        if not isinstance(preferences, ViewerPreferences):
+            msg = f"viewer_preferences must be a ViewerPreferences: {type(preferences).__name__}"
+            raise TypeError(msg)
+        self._doc.set_viewer_preferences(_viewer_preference_entries(preferences))
+
+    @viewer_preferences.deleter
+    def viewer_preferences(self) -> None:
+        self._ensure_open()
+        self._doc.set_viewer_preferences(None)
 
     def markdown(
         self,

@@ -38,6 +38,7 @@
     "DocumentClosedError",
     "DocumentComplexity",
     "DocumentLimits",
+    "Duplex",
     "EncodedImage",
     "EncryptedDocumentError",
     "Encryption",
@@ -109,6 +110,7 @@
     "OutlineEntry",
     "OutlineItem",
     "Page",
+    "PageBoundary",
     "PageBoxes",
     "PageLabelRange",
     "PageLabelStyle",
@@ -127,11 +129,13 @@
     "Point",
     "PolyLine",
     "Polygon",
+    "PrintScaling",
     "Probe",
     "PushButton",
     "PylopdfWarning",
     "Quad",
     "RadioButton",
+    "ReadingDirection",
     "Rect",
     "Redaction",
     "RedactionReport",
@@ -172,6 +176,7 @@
     "TransparencyGroup",
     "Underline",
     "Unmapped",
+    "ViewerPreferences",
     "VisibilityPolicy",
     "Widget",
     "Widgets",
@@ -3381,6 +3386,10 @@
           "kind": "property",
           "returns": "str"
         },
+        "viewer_preferences": {
+          "kind": "property",
+          "returns": "ViewerPreferences | None"
+        },
         "xmp": {
           "kind": "property",
           "returns": "str | None"
@@ -3598,6 +3607,14 @@
           }
         ],
         "returns": "None"
+      }
+    },
+    "Duplex": {
+      "kind": "enum",
+      "members": {
+        "FLIP_LONG_EDGE": "DuplexFlipLongEdge",
+        "FLIP_SHORT_EDGE": "DuplexFlipShortEdge",
+        "SIMPLEX": "Simplex"
       }
     },
     "EncodedImage": {
@@ -8991,6 +9008,16 @@
         "returns": "None"
       }
     },
+    "PageBoundary": {
+      "kind": "enum",
+      "members": {
+        "ART": "ArtBox",
+        "BLEED": "BleedBox",
+        "CROP": "CropBox",
+        "MEDIA": "MediaBox",
+        "TRIM": "TrimBox"
+      }
+    },
     "PageBoxes": {
       "kind": "class",
       "members": {
@@ -10530,6 +10557,13 @@
         "returns": "None"
       }
     },
+    "PrintScaling": {
+      "kind": "enum",
+      "members": {
+        "APP_DEFAULT": "AppDefault",
+        "NONE": "None"
+      }
+    },
     "Probe": {
       "annotations": {
         "is_repaired": "bool",
@@ -11164,6 +11198,13 @@
           }
         ],
         "returns": "None"
+      }
+    },
+    "ReadingDirection": {
+      "kind": "enum",
+      "members": {
+        "L2R": "L2R",
+        "R2L": "R2L"
       }
     },
     "Rect": {
@@ -13591,6 +13632,218 @@
       "kind": "constant",
       "value": {
         "repr": "typing.Literal['skip', 'replacement', 'glyph_id']"
+      }
+    },
+    "ViewerPreferences": {
+      "annotations": {
+        "center_window": "bool | None",
+        "copies": "int | None",
+        "direction": "ReadingDirection | None",
+        "display_title": "bool | None",
+        "duplex": "Duplex | None",
+        "enforce": "tuple[str, ...] | None",
+        "fit_window": "bool | None",
+        "hide_menubar": "bool | None",
+        "hide_toolbar": "bool | None",
+        "hide_window_ui": "bool | None",
+        "non_full_screen_page_mode": "PageMode | None",
+        "pick_tray_by_pdf_size": "bool | None",
+        "print_area": "PageBoundary | None",
+        "print_clip": "PageBoundary | None",
+        "print_page_ranges": "tuple[tuple[int, int], ...] | None",
+        "print_scaling": "PrintScaling | None",
+        "view_area": "PageBoundary | None",
+        "view_clip": "PageBoundary | None"
+      },
+      "dataclass_fields": [
+        "hide_toolbar",
+        "hide_menubar",
+        "hide_window_ui",
+        "fit_window",
+        "center_window",
+        "display_title",
+        "non_full_screen_page_mode",
+        "direction",
+        "view_area",
+        "view_clip",
+        "print_area",
+        "print_clip",
+        "print_scaling",
+        "duplex",
+        "pick_tray_by_pdf_size",
+        "print_page_ranges",
+        "copies",
+        "enforce"
+      ],
+      "kind": "class",
+      "members": {
+        "center_window": {
+          "kind": "property"
+        },
+        "copies": {
+          "kind": "property"
+        },
+        "direction": {
+          "kind": "property"
+        },
+        "display_title": {
+          "kind": "property"
+        },
+        "duplex": {
+          "kind": "property"
+        },
+        "enforce": {
+          "kind": "property"
+        },
+        "fit_window": {
+          "kind": "property"
+        },
+        "hide_menubar": {
+          "kind": "property"
+        },
+        "hide_toolbar": {
+          "kind": "property"
+        },
+        "hide_window_ui": {
+          "kind": "property"
+        },
+        "non_full_screen_page_mode": {
+          "kind": "property"
+        },
+        "pick_tray_by_pdf_size": {
+          "kind": "property"
+        },
+        "print_area": {
+          "kind": "property"
+        },
+        "print_clip": {
+          "kind": "property"
+        },
+        "print_page_ranges": {
+          "kind": "property"
+        },
+        "print_scaling": {
+          "kind": "property"
+        },
+        "view_area": {
+          "kind": "property"
+        },
+        "view_clip": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "bool | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "hide_toolbar"
+          },
+          {
+            "annotation": "bool | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "hide_menubar"
+          },
+          {
+            "annotation": "bool | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "hide_window_ui"
+          },
+          {
+            "annotation": "bool | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "fit_window"
+          },
+          {
+            "annotation": "bool | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "center_window"
+          },
+          {
+            "annotation": "bool | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "display_title"
+          },
+          {
+            "annotation": "PageMode | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "non_full_screen_page_mode"
+          },
+          {
+            "annotation": "ReadingDirection | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "direction"
+          },
+          {
+            "annotation": "PageBoundary | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "view_area"
+          },
+          {
+            "annotation": "PageBoundary | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "view_clip"
+          },
+          {
+            "annotation": "PageBoundary | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "print_area"
+          },
+          {
+            "annotation": "PageBoundary | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "print_clip"
+          },
+          {
+            "annotation": "PrintScaling | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "print_scaling"
+          },
+          {
+            "annotation": "Duplex | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "duplex"
+          },
+          {
+            "annotation": "bool | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "pick_tray_by_pdf_size"
+          },
+          {
+            "annotation": "tuple[tuple[int, int], ...] | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "print_page_ranges"
+          },
+          {
+            "annotation": "int | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "copies"
+          },
+          {
+            "annotation": "tuple[str, ...] | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "enforce"
+          }
+        ],
+        "returns": "None"
       }
     },
     "VisibilityPolicy": {

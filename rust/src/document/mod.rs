@@ -98,6 +98,7 @@ mod rendering;
 mod replacement;
 mod saving;
 mod streams;
+mod structure_tree;
 mod text_insertion;
 
 pub(crate) use self::annotations::*;
@@ -127,6 +128,7 @@ pub(crate) use self::replacement::_parse_operations;
 use self::saving::EncryptionRequest;
 use self::saving::*;
 use self::streams::*;
+use self::structure_tree::*;
 
 // Python-visible exceptions. PdfError subclasses ValueError for compatibility.
 pyo3::create_exception!(
@@ -1744,6 +1746,15 @@ impl _Document {
     #[pyo3(signature = (tag))]
     fn set_language_tag(&mut self, tag: Option<&str>) -> PyResult<()> {
         metadata::set_language_tag(self, tag)
+    }
+
+    /// Replace the catalog's `/ViewerPreferences`, or remove it for `None`.
+    #[pyo3(signature = (entries))]
+    fn set_viewer_preferences(
+        &mut self,
+        entries: Option<Vec<(String, ViewerValue)>>,
+    ) -> PyResult<()> {
+        metadata::set_viewer_preferences(self, entries)
     }
 
     /// Replace the catalog's `/MarkInfo` dictionary.

@@ -317,10 +317,6 @@ def test_tag_scopes_need_a_tagged_new_document(font: pylopdf.Font) -> None:
     builder = pylopdf.create()
     with builder.page() as canvas, pytest.raises(ValueError, match="tagged document"):
         canvas.tag(TagRole.PARAGRAPH)
-    doc = pylopdf.Document()
-    page = doc.pages.new()
-    with page.draw() as canvas, pytest.raises(ValueError, match="new document"):
-        canvas.tag(TagRole.PARAGRAPH)
     tagged = pylopdf.create(tagged=True)
     with tagged.page() as canvas:
         with pytest.raises(ValueError, match="TagRole"):

@@ -1341,7 +1341,13 @@ the concept and API overview.
   64,000,000-pixel `image_pixel_count` limits, sharing `read_image_input` and
   `validate_image_input`; the pixel and 65,535-pixel side checks read the
   headers before any sample is allocated, and a buffer that is not `bytes` is
-  measured before PyO3 copies it. `Pixmap.to_bytes` defaults to a
+  measured before PyO3 copies it. Image processing (tinting, gamma,
+  inversion, alpha, colour statistics, turning, shrinking, and warping) is
+  the NumPy and Pillow recipes of `docs/en/ecosystem.md#image-processing`,
+  not Pixmap methods: `tests/test_image_recipes.py` executes that section's
+  Python blocks and checks each function against pymupdf 2.0's results, so a
+  recipe edit is a test edit, and the localized guides copy the blocks
+  unchanged. `Pixmap.to_bytes` defaults to a
   64 MiB encoded-output boundary; the bounded writer refuses the write
   crossing the limit before Python bytes conversion and grows its retained
   output fallibly. `max_size=None` is the explicit trusted-output opt-out.
@@ -2313,6 +2319,22 @@ the concept and API overview.
   (`path_point_count`) and 16 open scopes (`canvas_scope_depth`); text keeps
   the 1 MiB and 4,096-line text budget, and each image its 64 MiB and
   64,000,000-pixel input limits.
+  On an open document's page, tag scopes (`Marking` in `canvas.rs`) write
+  marked content into the canvas Form: drawing inside an element's scope is
+  a `/Role <</MCID n>> BDC` sequence with MCIDs from 0 in that Form, opened
+  lazily before drawing and closed before any scope opens or closes, so it
+  nests with `q` and `Q`; an opacity group is drawn inside the sequence that
+  encloses it, and a tag scope inside an opacity scope is refused. On a
+  tagged document (one with `/StructTreeRoot`), drawing outside every tag
+  scope, and inside an `ARTIFACT` scope, is `/Artifact BMC`. `place_canvas`
+  plans the elements with `StructureAppend::prepare`
+  (`document/structure_tree.rs`) before the commit: the root (created when
+  absent), the parent tree's next key (the larger of `/ParentTreeNextKey`
+  and one past the largest key, from a bounded walk), and the root's single
+  `Document` element, directly or through `/RoleMap`, which takes the new
+  top-level elements. The commit adds the elements with `/Pg` and kids that
+  are MCRs with `/Stm` naming the Form, appends the key's array to `/Nums`
+  (or a new leaf under `/Kids`), and gives the Form `/StructParents`.
   `tests/test_canvas.py` reads every behavior back through `Page.content()`.
 - `pylopdf.create()` (`src/pylopdf/_create.py`, `_Builder` in
   `rust/src/builder.rs`) collects the recordings of canvases made with
@@ -2965,10 +2987,14 @@ the concept and API overview.
   written XMP stays readable under the read default. Rewriting an existing
   stream forgets placements, because `/Metadata` may name any stream; adding
   one keeps them. Info metadata writes never synchronize XMP. The catalog's
-  `/PageMode`, `/PageLayout`, and `/MarkInfo` read through the object model
-  as `PageMode`, `PageLayout`, and `MarkInfo` (a name outside ISO 32000-2
+  `/PageMode`, `/PageLayout`, `/MarkInfo`, and `/ViewerPreferences` read
+  through the object model as `PageMode`, `PageLayout`, `MarkInfo`, and
+  `ViewerPreferences` (a name outside ISO 32000-2
   Table 29 reads as the default) and write through `set_catalog_name` and
-  `set_mark_info`, which keep placements; assignments take an enum member or
+  `set_mark_info`, which keep placements, as `set_viewer_preferences` writes
+  the `ViewerPreferences` record (Table 147; page ranges cross as one-based
+  pairs, malformed entries read as `None`, and the core checks every key,
+  type, and name again); assignments take an enum member or
   its exact value, where pymupdf matched names case-insensitively.
   `Document.language` reads and writes the complete BCP 47 `/Lang` tag,
   where MuPDF packs it into at most three letters, so pymupdf reads `en-US`

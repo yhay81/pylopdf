@@ -427,11 +427,13 @@ replacement, and the migration hint):
 - Page.update_link -> Link.target: Assign link.rect and link.target on a handle from page.links.
 - Page.widgets -> Page.widgets: page.widgets is a sequence of Widget handles; filter by widget.field.type for pymupdf's types=.
 - Page.wrap_contents -> Page.operations: page.draw() isolates unbalanced content in q and Q by itself; to wrap explicitly, assign page.operations = [Operation("q"), *page.operations, Operation("Q")].
+- Pixmap.h -> Pixmap.height: Read pix.height.
 - Pixmap.n -> Pixmap.channels: Read pix.channels.
 - Pixmap.samples -> Pixmap: bytes(pix) copies the pixels; memoryview(pix) and numpy.asarray(pix) read them without a copy, shaped (height, width, channels).
 - Pixmap.samples_mv -> Pixmap: Use memoryview(pix), shaped (height, width, channels).
 - Pixmap.set_dpi -> Pixmap.from_array: A Pixmap is immutable: pix = Pixmap.from_array(pix, resolution=(xres, yres)) shares the pixels at the new resolution.
 - Pixmap.tobytes -> Pixmap.to_bytes: Use pix.to_bytes('png') or pix.to_bytes('jpeg', quality=...); other formats belong to Pillow.
+- Pixmap.w -> Pixmap.width: Read pix.width.
 - Pixmap.xres -> Pixmap.resolution: Read pix.resolution[0].
 - Pixmap.yres -> Pixmap.resolution: Read pix.resolution[1].
 - Point.__setitem__ -> Point: Point values are immutable; build a new Point instead.
@@ -536,6 +538,7 @@ replacement, and the migration hint):
 - paper_* -> PaperSize: Use PaperSize members, such as PaperSize.A4 for paper_size("a4") and PaperSize.A4.landscape for "a4-l"; a member is a (width, height) pair that doc.pages.new takes, and Rect(0, 0, *PaperSize.A4) replaces paper_rect.
 - planish_line -> Matrix.planish: Matrix.planish(p1, p2) returns the same matrix.
 - recover_* -> Span: Read span.quad and line.quad of page.layout(): each follows the baseline of rotated text, so no quad needs recovering from a box; page.search(text, quads=True) gives the quad of any run of characters.
+- sRGB_to_* -> Color: Span colors are Color values with red, green, and blue from 0 to 1, which sRGB_to_pdf returned; layout().to_dict() keeps pymupdf's sRGB integer c, which (c >> 16 & 255, c >> 8 & 255, c & 255) splits as sRGB_to_rgb did.
 - set_log -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
 - set_messages -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
 

@@ -733,6 +733,211 @@ pub(crate) struct Composed {
     pub(crate) groups: Vec<GroupForm>,
     /// The ExtGStates that the content selects, by resource slot.
     pub(crate) states: Vec<GraphicsState>,
+    /// The structure elements that tag scopes of an open document's canvas
+    /// draw, whose marked content the root content holds.
+    pub(crate) structure: CanvasStructure,
+}
+
+/// One content item or child element of a canvas's structure element.
+pub(crate) enum CanvasKid {
+    /// The marked-content sequence with this MCID in the canvas's Form.
+    Content(u32),
+    /// The element at this index of `CanvasStructure::elements`.
+    Element(usize),
+}
+
+/// One structure element of an open document's canvas.
+pub(crate) struct CanvasElement {
+    pub(crate) role: &'static str,
+    pub(crate) parent: Option<usize>,
+    pub(crate) kids: Vec<CanvasKid>,
+    pub(crate) alt: Option<String>,
+    pub(crate) lang: Option<String>,
+    pub(crate) title: Option<String>,
+    pub(crate) actual_text: Option<String>,
+    /// A table header's `/Scope` or a list's `/ListNumbering` attribute:
+    /// the owner and the value.
+    pub(crate) attribute: Option<(&'static str, &'static str, &'static str)>,
+}
+
+/// The structure elements of an open document's canvas, in the order their
+/// scopes opened, and the element that owns each MCID.
+#[derive(Default)]
+pub(crate) struct CanvasStructure {
+    pub(crate) elements: Vec<CanvasElement>,
+    pub(crate) mcids: Vec<usize>,
+}
+
+/// What an open marked-content sequence of the composed content marks.
+#[derive(Clone, Copy, PartialEq)]
+enum Mark {
+    Element(usize),
+    Artifact,
+}
+
+/// What a scope of the composed content is for the structure.
+enum Frame {
+    Element(usize),
+    Artifact,
+    /// An opacity group, whose Form the enclosing marked content covers.
+    Group,
+    Other,
+}
+
+/// The marked content of an open document's canvas: drawing inside a tag
+/// scope is a marked-content sequence of its element, with an MCID of the
+/// canvas's Form, and drawing outside every tag scope of a tagged document
+/// is an artifact. A sequence opens lazily before drawing and closes before
+/// any scope opens or closes, so it nests with `q` and `Q`; an opacity group
+/// is drawn inside the sequence that encloses it.
+struct Marking {
+    tagged: bool,
+    frames: Vec<Frame>,
+    /// The open sequence of the root content and of each open group.
+    open: Vec<Option<Mark>>,
+    structure: CanvasStructure,
+}
+
+impl Marking {
+    fn new(tagged: bool) -> Self {
+        Self {
+            tagged,
+            frames: Vec::new(),
+            open: vec![None],
+            structure: CanvasStructure::default(),
+        }
+    }
+
+    /// The sequence that drawing in the current stream belongs to.
+    fn wanted(&self) -> Option<Mark> {
+        for frame in self.frames.iter().rev() {
+            match frame {
+                Frame::Group => return None,
+                Frame::Element(element) => return Some(Mark::Element(*element)),
+                Frame::Artifact => return Some(Mark::Artifact),
+                Frame::Other => {}
+            }
+        }
+        self.tagged.then_some(Mark::Artifact)
+    }
+
+    fn close(&mut self, out: &mut String) {
+        if let Some(open) = self.open.last_mut()
+            && open.take().is_some()
+        {
+            out.push_str("EMC\n");
+        }
+    }
+
+    /// Open the sequence that drawing now belongs to, closing another.
+    fn ensure(&mut self, out: &mut String) -> PyResult<()> {
+        let wanted = self.wanted();
+        if self.open.last().copied().flatten() == wanted {
+            return Ok(());
+        }
+        self.close(out);
+        match wanted {
+            Some(Mark::Element(element)) => {
+                let mcid = u32::try_from(self.structure.mcids.len())
+                    .map_err(|_| PdfError::new_err("too many marked-content sequences"))?;
+                grow(&mut self.structure.mcids, "marked content")?;
+                self.structure.mcids.push(element);
+                let node = &mut self.structure.elements[element];
+                grow(&mut node.kids, "structure element kids")?;
+                node.kids.push(CanvasKid::Content(mcid));
+                out.push_str(&format!("/{} <</MCID {mcid}>> BDC\n", node.role));
+            }
+            Some(Mark::Artifact) => out.push_str("/Artifact BMC\n"),
+            None => {}
+        }
+        if let Some(open) = self.open.last_mut() {
+            *open = wanted;
+        }
+        Ok(())
+    }
+
+    fn push(&mut self, scope: &Scope, out: &mut String) -> PyResult<()> {
+        grow(&mut self.frames, "scopes")?;
+        match scope {
+            Scope::Opacity(_) => {
+                self.ensure(out)?;
+                grow(&mut self.open, "groups")?;
+                self.open.push(None);
+                self.frames.push(Frame::Group);
+            }
+            Scope::Tag(spec) => {
+                if self
+                    .frames
+                    .iter()
+                    .any(|frame| matches!(frame, Frame::Group))
+                {
+                    return Err(PdfError::new_err(
+                        "an open document's canvas cannot open a tag scope inside an opacity scope",
+                    ));
+                }
+                self.close(out);
+                let in_artifact = self
+                    .frames
+                    .iter()
+                    .any(|frame| matches!(frame, Frame::Artifact));
+                if spec.is_artifact() || in_artifact {
+                    self.frames.push(Frame::Artifact);
+                    return Ok(());
+                }
+                let parent = self.frames.iter().rev().find_map(|frame| match frame {
+                    Frame::Element(element) => Some(*element),
+                    _ => None,
+                });
+                let index = self.structure.elements.len();
+                grow(&mut self.structure.elements, "structure elements")?;
+                let role = TAG_ROLES[spec.role];
+                let attribute = match role {
+                    "TH" => Some((
+                        "Table",
+                        "Scope",
+                        match spec.scope {
+                            TableHeaderScope::Row => "Row",
+                            TableHeaderScope::Both => "Both",
+                            _ => "Column",
+                        },
+                    )),
+                    "L" => LIST_NUMBERINGS
+                        .iter()
+                        .find(|(_, numbering)| *numbering == spec.numbering)
+                        .map(|(name, _)| ("List", "ListNumbering", *name)),
+                    _ => None,
+                };
+                self.structure.elements.push(CanvasElement {
+                    role,
+                    parent,
+                    kids: Vec::new(),
+                    alt: spec.alt.clone(),
+                    lang: spec.lang.clone(),
+                    title: spec.title.clone(),
+                    actual_text: spec.actual_text.clone(),
+                    attribute,
+                });
+                if let Some(parent) = parent {
+                    let kids = &mut self.structure.elements[parent].kids;
+                    grow(kids, "structure element kids")?;
+                    kids.push(CanvasKid::Element(index));
+                }
+                self.frames.push(Frame::Element(index));
+            }
+            _ => {
+                self.close(out);
+                self.frames.push(Frame::Other);
+            }
+        }
+        Ok(())
+    }
+
+    fn pop(&mut self, out: &mut String) {
+        self.close(out);
+        if let Some(Frame::Group) = self.frames.pop() {
+            self.open.pop();
+        }
+    }
 }
 
 fn grow<T>(items: &mut Vec<T>, label: &str) -> PyResult<()> {
@@ -1195,7 +1400,9 @@ impl CanvasRecording {
         &self,
         plan: &EmbeddedPlan,
         placements: &Placements,
+        tagged: bool,
     ) -> PyResult<Composed> {
+        let mut marking = Marking::new(tagged);
         let (width, height) = self.size;
         let crop = [0.0, 0.0, width, height];
         let flip = format!("q\n1 0 0 -1 0 {} cm\n", draw::fmt(height));
@@ -1214,6 +1421,25 @@ impl CanvasRecording {
             let target = target as usize;
             if target >= sinks.len() {
                 return Err(PdfError::new_err("a canvas mask draws outside its scope"));
+            }
+            // Marked content goes to the stream that the page draws in
+            // now, before the operation and the scope it may close.
+            if target == 0 {
+                let mut marks = String::new();
+                match op {
+                    Op::Push(scope) => marking.push(scope, &mut marks)?,
+                    Op::Pop => marking.pop(&mut marks),
+                    Op::Link(_) => {}
+                    Op::Text(text)
+                        if matches!(
+                            (&self.texts[*text], plan.slots[index]),
+                            (TextItem::Embedded { .. }, Some(TextSlot::Continue) | None)
+                        ) => {}
+                    _ => marking.ensure(&mut marks)?,
+                }
+                if !marks.is_empty() {
+                    sinks[0].extend(marks.as_bytes())?;
+                }
             }
             let mut ops = String::new();
             let mut bytes: Option<Vec<u8>> = None;
@@ -1488,11 +1714,15 @@ impl CanvasRecording {
         if !scopes.is_empty() {
             return Err(PdfError::new_err("a canvas scope is still open"));
         }
+        let mut marks = String::new();
+        marking.close(&mut marks);
+        sinks[0].extend(marks.as_bytes())?;
         let root = std::mem::take(&mut sinks[0].content);
         Ok(Composed {
             root,
             groups,
             states,
+            structure: marking.structure,
         })
     }
 
@@ -2220,11 +2450,6 @@ impl _Canvas {
         scope: Option<&str>,
         numbering: Option<&str>,
     ) -> PyResult<usize> {
-        if !self.new_document {
-            return Err(PdfError::new_err(
-                "tag scopes build the structure tree of a new document",
-            ));
-        }
         if self.target != 0 {
             return Err(PdfError::new_err("a mask canvas cannot open tag scopes"));
         }

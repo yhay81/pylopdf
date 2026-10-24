@@ -1746,6 +1746,28 @@ def _paper_and_date_results() -> dict[str, Any]:
     }
 
 
+def _open_document_tag_results() -> dict[str, Any]:
+    """Tag drawing on an open document's page and read the structure tree back."""
+    import pylopdf  # noqa: PLC0415
+
+    document = pylopdf.Document()
+    page = document.pages.new((300, 300))
+    with page.draw() as canvas:
+        with canvas.tag(pylopdf.TagRole.HEADING_1):
+            canvas.text("Title", (20, 40), size=18)
+        with canvas.tag(pylopdf.TagRole.FIGURE, alt="Square"):
+            canvas.rect((20, 60, 60, 100), fill=pylopdf.Color(1, 0, 0))
+    saved = pylopdf.open(document.to_bytes())
+    root = saved.catalog["StructTreeRoot"]
+    return {
+        "roles": [str(element["S"]) for element in root["K"]],
+        "alt": root["K"][1]["Alt"].text,
+        "next_key": root["ParentTreeNextKey"],
+        "mcids": [kid["MCID"] for element in root["K"] for kid in element["K"]],
+        "text": saved.pages[0].text().split(),
+    }
+
+
 def _document_property_results(root: Path) -> dict[str, Any]:
     """Read and write XMP metadata and the catalog's viewer and marking properties."""
     import pylopdf  # noqa: PLC0415
@@ -1767,6 +1789,13 @@ def _document_property_results(root: Path) -> dict[str, Any]:
     document.page_mode = pylopdf.PageMode.USE_OUTLINES
     document.page_layout = "TwoColumnRight"
     document.mark_info = pylopdf.MarkInfo(marked=True)
+    document.viewer_preferences = pylopdf.ViewerPreferences(
+        display_title=True,
+        direction=pylopdf.ReadingDirection.R2L,
+        duplex=pylopdf.Duplex.SIMPLEX,
+        print_page_ranges=((0, 0),),
+        copies=2,
+    )
     document.language = "zh-TW"
     document.metadata.update(title="Grüße", created="D:20260102030405Z", trapped="True")
     document.pages.new((200, 200))
@@ -1805,6 +1834,7 @@ def _document_property_results(root: Path) -> dict[str, Any]:
         "page_mode": str(saved.page_mode),
         "page_layout": str(saved.page_layout),
         "mark_info": repr(saved.mark_info),
+        "viewer_preferences": repr(saved.viewer_preferences),
         "language": saved.language,
         "outline": [
             [
@@ -2004,6 +2034,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "optional_content": _optional_content_results(),
         "document_properties": _document_property_results(root),
         "remove_rotation": _remove_rotation_results(),
+        "open_document_tags": _open_document_tag_results(),
         "attachments": _attachment_results(),
         "paper_and_dates": _paper_and_date_results(),
         "content_model": _content_model_results(root),

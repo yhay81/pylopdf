@@ -401,6 +401,7 @@ del doc.fallback_fonts            # back to the installed font extras
 | `language` | The document's language as a complete BCP 47 tag, such as `zh-TW` or `sr-Latn-RS`, or `None`. Assign a tag to write it and `del doc.language` to remove it; a malformed tag raises |
 | `page_mode`, `page_layout` | How a viewer opens the document, as `PageMode` and `PageLayout` members such as `PageMode.USE_OUTLINES` or `PageLayout.TWO_COLUMN_LEFT`; `USE_NONE` and `SINGLE_PAGE` when unset. Assign a member or its exact name |
 | `mark_info` | The tagged-PDF flags as a `MarkInfo(marked=, user_properties=, suspects=)` record, or `None` when absent. Assigning writes all three flags; `del` removes them |
+| `viewer_preferences` | The `/ViewerPreferences` as a `ViewerPreferences` record, or `None` when absent: `hide_toolbar`, `hide_menubar`, `hide_window_ui`, `fit_window`, `center_window`, `display_title`, `non_full_screen_page_mode` (a `PageMode`), `direction` (`ReadingDirection.L2R` or `R2L`), `view_area`, `view_clip`, `print_area`, `print_clip` (`PageBoundary` members), `print_scaling` (`PrintScaling`), `duplex` (`Duplex`), `pick_tray_by_pdf_size`, `print_page_ranges` (zero-based `(first, last)` pairs), `copies`, and `enforce` (preference names), each `None` when absent. Assigning a record writes the fields that are set; `del` removes the dictionary |
 | `objects`, `trailer`, `catalog` | Direct access to PDF objects; see [Low-level objects](#low-level-objects) |
 
 `language` keeps the complete tag, where pymupdf's keeps at most three
@@ -1030,6 +1031,26 @@ with page.draw() as canvas, canvas.mask() as mask:
     mask.rect(page.rect, fill=Color(1, 1, 1))           # white shows the drawing
     mask.circle((300, 400), 120, fill=Color(0, 0, 0))   # black hides it
     canvas.image(page.rect, "photo.jpg")
+```
+
+`canvas.tag(role, ...)` on a page of an open document adds structure
+elements to the document's structure tree, creating it when the document has
+none: the new elements join the tree's single `Document` element when it has
+one, and the root otherwise. The canvas's Form XObject gets a `/StructParents`
+key of its own in the parent tree, and each element names its marked content
+in that Form, so the tags of other content stay as they are. Once a document
+is tagged, drawing outside every tag scope is marked as an artifact, so the
+document stays tagged. A tag scope cannot start inside an `opacity()` scope
+on such a page.
+
+```python
+from pylopdf import TagRole
+
+with page.draw() as canvas:
+    with canvas.tag(TagRole.HEADING_1):
+        canvas.text("Added section", (72, 72), size=18)
+    with canvas.tag(TagRole.FIGURE, alt="Company logo"):
+        canvas.image((72, 100, 172, 150), "logo.png")
 ```
 
 The mask canvas draws in the user space where the `mask()` block starts, has

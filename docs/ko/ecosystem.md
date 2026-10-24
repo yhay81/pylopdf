@@ -1,11 +1,11 @@
 ---
 title: 생태계 연동
-description: pylopdf를 Typst, pyHanko, veraPDF, OCR 엔진과 연결하는 테스트된 레시피입니다.
+description: pylopdf를 Typst, pyHanko, veraPDF, OCR 엔진, NumPy, Pillow와 연결하는 테스트된 레시피입니다.
 ---
 
 # 생태계 연동
 
-pylopdf는 조판, PDF/A 출력, 디지털 서명을 구현하지 않습니다. 이미 잘 만들어진 라이브러리가 이런 작업을 잘 처리하며, 아래 레시피는 그 라이브러리를 pylopdf와 함께 쓰는 방법을 보여 줍니다. 각 레시피는 [`tests/test_interop.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_interop.py)의 통합 테스트로 검증합니다.
+pylopdf는 조판, PDF/A 출력, 디지털 서명, 이미지 처리를 구현하지 않습니다. 이미 잘 만들어진 라이브러리가 이런 작업을 잘 처리하며, 아래 레시피는 그 라이브러리를 pylopdf와 함께 쓰는 방법을 보여 줍니다. 각 레시피는 [`tests/test_interop.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_interop.py)와 [`tests/test_image_recipes.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_image_recipes.py)의 통합 테스트로 검증합니다.
 
 ## typst로 새 문서 조판하기 { #typesetting }
 
@@ -86,3 +86,184 @@ with pylopdf.open("scan.pdf") as doc:
     doc.pages[0].apply_ocr(words=words)
     doc.save("searchable.pdf")
 ```
+
+## NumPy와 Pillow로 이미지 처리하기 { #image-processing }
+
+`Pixmap`은 바꿀 수 없고 편집 메서드도 없습니다. 픽셀 처리는 NumPy와 Pillow가 이미 잘합니다. `numpy.asarray(pix)`는 픽셀을 복사하지 않고 읽으며, 그레이는 `(height, width)`, 그 밖에는 `(height, width, channels)` 모양입니다. 결과는 `Pixmap.from_array(array, resolution=pix.resolution)`으로 새 pixmap을 만듭니다. 아래 함수가 pymupdf의 `Pixmap` 메서드를 대신하며, 모두 이 페이지의 코드를 그대로 실행하는 [`tests/test_image_recipes.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_image_recipes.py)로 테스트합니다.
+
+```python
+import numpy
+from pylopdf import Pixmap
+
+
+def samples(pix: Pixmap) -> numpy.ndarray:
+    """Return a writable copy of the pixels, shaped (height, width, channels)."""
+    return numpy.array(pix).reshape(pix.height, pix.width, pix.channels)
+
+
+def color_channels(pix: Pixmap) -> int:
+    """Return how many channels hold color: the alpha channel comes last."""
+    return pix.channels - pix.alpha
+
+
+def from_samples(array: numpy.ndarray, like: Pixmap) -> Pixmap:
+    """Return a pixmap of the array, at the resolution of ``like``."""
+    return Pixmap.from_array(numpy.ascontiguousarray(array), resolution=like.resolution)
+```
+
+### 픽셀 읽기와 설정 { #image-pixels }
+
+`pix.pixel(x, y)`, `set_pixel`, `set_rect`, `clear_with`, `copy`는 인덱싱과 슬라이스 대입이 됩니다. 사각형은 픽셀 단위의 `IRect` 또는 `(x0, y0, x1, y1)` 튜플입니다.
+
+```python
+def pixel(pix: Pixmap, x: int, y: int) -> tuple[int, ...]:
+    """Return the samples of one pixel, alpha included."""
+    return tuple(int(value) for value in numpy.asarray(pix).reshape(pix.height, pix.width, pix.channels)[y, x])
+
+
+def fill(pix: Pixmap, rect, color: tuple[int, ...]) -> Pixmap:
+    """Paint a rectangle with ``color``, as set_rect and clear_with do."""
+    x0, y0, x1, y1 = rect
+    array = samples(pix)
+    array[y0:y1, x0:x1, : len(color)] = color
+    return from_samples(array, pix)
+
+
+def paste(target: Pixmap, source: Pixmap, rect) -> Pixmap:
+    """Copy the pixels of ``source`` inside ``rect`` onto ``target``, as copy does."""
+    x0, y0, x1, y1 = rect
+    array = samples(target)
+    array[y0:y1, x0:x1] = samples(source)[y0:y1, x0:x1]
+    return from_samples(array, target)
+```
+
+### 색조, 감마, 반전 { #image-color }
+
+```python
+def tint(pix: Pixmap, black: int, white: int) -> Pixmap:
+    """Map 0 to the RGB integer ``black`` and 255 to ``white``, as tint_with does."""
+    array = samples(pix)
+    low = numpy.array([(black >> shift) & 255 for shift in (16, 8, 0)], dtype=float)
+    high = numpy.array([(white >> shift) & 255 for shift in (16, 8, 0)], dtype=float)
+    if color_channels(pix) == 1:  # gray tints with the green component
+        low, high = low[1:2], high[1:2]
+    color = array[..., : color_channels(pix)]
+    array[..., : color_channels(pix)] = numpy.rint(low + (high - low) * color / 255)
+    return from_samples(array, pix)
+
+
+def gamma(pix: Pixmap, value: float) -> Pixmap:
+    """Raise every color component to ``value``, as gamma_with does."""
+    table = (255 * (numpy.arange(256) / 255) ** value).astype(numpy.uint8)
+    array = samples(pix)
+    array[..., : color_channels(pix)] = table[array[..., : color_channels(pix)]]
+    return from_samples(array, pix)
+
+
+def invert(pix: Pixmap, rect=None) -> Pixmap:
+    """Invert the colors inside ``rect``, or everywhere, as invert_irect does."""
+    x0, y0, x1, y1 = rect or (0, 0, pix.width, pix.height)
+    array = samples(pix)
+    region = array[y0:y1, x0:x1, : color_channels(pix)]
+    array[y0:y1, x0:x1, : color_channels(pix)] = 255 - region
+    return from_samples(array, pix)
+```
+
+### 알파 { #image-alpha }
+
+```python
+def with_alpha(pix: Pixmap, alpha) -> Pixmap:
+    """Add or replace the alpha channel, as set_alpha does: a value or an array."""
+    color = samples(pix)[..., : color_channels(pix)]
+    plane = numpy.broadcast_to(numpy.asarray(alpha, dtype=numpy.uint8), color.shape[:2])
+    return from_samples(numpy.dstack((color, plane)), pix)
+
+
+def without_alpha(pix: Pixmap) -> Pixmap:
+    """Drop the alpha channel, keeping the straight color samples."""
+    return from_samples(samples(pix)[..., : color_channels(pix)], pix)
+```
+
+### 색 통계 { #image-statistics }
+
+```python
+def color_counts(pix: Pixmap) -> dict[bytes, int]:
+    """Count the pixels of each color, as color_count(colors=True) does."""
+    colors = samples(pix)[..., : color_channels(pix)].reshape(-1, color_channels(pix))
+    unique, counts = numpy.unique(colors, axis=0, return_counts=True)
+    return {color.tobytes(): int(count) for color, count in zip(unique, counts)}
+
+
+def top_color(pix: Pixmap) -> tuple[float, bytes]:
+    """Return the share and the samples of the most used color, as color_topusage does."""
+    counts = color_counts(pix)
+    color = max(counts, key=counts.__getitem__)
+    return counts[color] / (pix.width * pix.height), color
+
+
+def is_unicolor(pix: Pixmap) -> bool:
+    """Return whether every pixel has the same color."""
+    return len(color_counts(pix)) == 1
+
+
+def is_monochrome(pix: Pixmap) -> bool:
+    """Return whether a gray pixmap holds only black and white."""
+    return color_channels(pix) == 1 and set(color_counts(pix)) <= {b"\x00", b"\xff"}
+```
+
+`hashlib.md5(pix).digest()`가 `pix.digest`를, `memoryview(pix).nbytes`가 `len(pix)`와 `pix.size`를, `IRect(0, 0, pix.width, pix.height)`가 `pix.irect`를 대신합니다. pylopdf의 pixmap에는 원점이 없습니다.
+
+### 회전, 축소, 변형 { #image-geometry }
+
+```python
+from PIL import Image
+
+ROTATE_90, ROTATE_180, ROTATE_270 = -1, 2, 1  # quarter turns for numpy.rot90
+
+
+def turned(pix: Pixmap, quarter_turns: int) -> Pixmap:
+    """Turn the pixmap clockwise, as flip_rotate(Pixmap.ROTATE_90) does for -1."""
+    return from_samples(numpy.rot90(samples(pix), quarter_turns), pix)
+
+
+def flipped(pix: Pixmap, left_right: bool = True) -> Pixmap:
+    """Mirror the pixmap, as FLIP_LEFT_RIGHT and FLIP_TOP_BOTTOM do."""
+    return from_samples(numpy.flip(samples(pix), axis=1 if left_right else 0), pix)
+
+
+def to_image(pix: Pixmap) -> Image.Image:
+    """Return a Pillow image of the pixels."""
+    mode = {1: "L", 2: "LA", 3: "RGB", 4: "RGBA"}[pix.channels]
+    return Image.frombytes(mode, (pix.width, pix.height), bytes(pix))
+
+
+def from_image(image: Image.Image, like: Pixmap) -> Pixmap:
+    if image.mode not in {"L", "LA", "RGB", "RGBA"}:
+        alpha = "transparency" in image.info or "A" in image.getbands()
+        image = image.convert("RGBA" if alpha else "RGB")
+    return from_samples(numpy.asarray(image).reshape(image.height, image.width, -1), like)
+
+
+def shrunk(pix: Pixmap, factor: int) -> Pixmap:
+    """Shrink each side by 2 ** factor, averaging blocks, as shrink does."""
+    reduced = from_image(to_image(pix).reduce(2**factor), pix)
+    x, y = pix.resolution
+    return Pixmap.from_array(reduced, resolution=(max(1, x >> factor), max(1, y >> factor)))
+
+
+def warped(pix: Pixmap, quad, width: int, height: int) -> Pixmap:
+    """Map the quadrilateral ``quad`` (ul, ur, ll, lr) onto a width-by-height pixmap, as warp does."""
+    (ul, ur, ll, lr) = quad
+    corners = [(0, 0, *ul), (width, 0, *ur), (0, height, *ll), (width, height, *lr)]
+    rows, targets = [], []
+    for u, v, x, y in corners:  # solve for the output-to-input perspective coefficients
+        rows += [[u, v, 1, 0, 0, 0, -u * x, -v * x], [0, 0, 0, u, v, 1, -u * y, -v * y]]
+        targets += [x, y]
+    coefficients = numpy.linalg.solve(numpy.array(rows, dtype=float), numpy.array(targets, dtype=float))
+    image = to_image(pix).transform(
+        (width, height), Image.Transform.PERSPECTIVE, tuple(coefficients), Image.Resampling.BILINEAR
+    )
+    return from_image(image, pix)
+```
+
+`to_image(pix).convert("CMYK")`로 CMYK 샘플을 얻고, Pillow는 TIFF와 WebP처럼 자신이 아는 모든 형식으로 저장합니다. 그런 형식의 이미지는 `from_image`로 되돌립니다.
