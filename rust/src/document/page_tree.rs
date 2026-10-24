@@ -783,12 +783,26 @@ pub(super) fn copy_pages(
     })?;
     let pages_id = this.ensure_page_tree().map_err(to_py_err)?;
     this.invalidate_hayro_pdf_keeping_placements();
-    for mut dict in copies {
-        dict.set("Parent", pages_id);
-        new_ids.push(this.doc.add_object(Object::Dictionary(dict)));
+    // Annotations, widgets, and structure edit the document as each copy is
+    // made, so a failure restores it.
+    let original = this.doc.clone();
+    let outcome = (|| -> PyResult<()> {
+        let mut structure = StructureCopy::read(&this.doc)?;
+        for (index, mut dict) in copies.into_iter().enumerate() {
+            dict.set("Parent", pages_id);
+            let source = page_id_from_index(&existing_pages, page_numbers[index])?;
+            new_ids.push(this.add_page_copy(source, dict, &mut structure)?);
+        }
+        if let Some(structure) = structure {
+            structure.commit(&mut this.doc);
+        }
+        let order = _Document::spliced_page_order(existing_pages, new_ids, position)?;
+        this.rebuild_page_tree(pages_id, order)
+    })();
+    if let Err(error) = outcome {
+        *this.doc = original;
+        return Err(error);
     }
-    let order = _Document::spliced_page_order(existing_pages, new_ids, position)?;
-    this.rebuild_page_tree(pages_id, order)?;
     prune_unreachable_objects(&mut this.doc)?;
     Ok(())
 }

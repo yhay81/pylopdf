@@ -2813,6 +2813,22 @@ the concept and API overview.
   element along. A root is created when the receiving document has none.
   Kids are read as written: a lone `/K` reference is one kid. The commit only
   stores the planned objects after the page-tree rebuild, before pruning.
+- Same-document copies (`copy_pages`, `document/page_copy.rs`) keep sharing
+  content streams and resources, but each copy's annotations become objects
+  of its own: `/P` names the copy, and `/Popup`, a popup's `/Parent`, and
+  `/IRT` are remapped among the copied annotations; a widget loses its field
+  entries and field triggers and joins its field through
+  `add_field_widget` (`forms.rs`), which splits a merged field and widget
+  into a parent field first, as adding a widget does. In a tagged document
+  (`StructureCopy`), the elements that own the page's MCIDs and its
+  annotations' `/StructParent`, with their ancestors up to the root or a
+  `Document` element, are copied: `/Pg` and kids that name the source page
+  move to the copy, `/ID` is dropped, MCRs with `/Stm` (content of shared
+  Form XObjects, whose one key cannot serve two pages) and kids on other
+  pages are left out, and OBJRs follow the copied annotations; the top
+  copies are appended to their parent, and the copy and its annotations get
+  new parent-tree keys. `copy_pages` runs these edits on the document and
+  restores a clone when one fails.
 - Page deletion and `select` remove the form widgets and fields of dropped
   pages with `FormPagePrune` in the same module, which reuses the partial
   import's walk on the document itself, with the remaining pages as the
