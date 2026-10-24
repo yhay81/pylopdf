@@ -80,6 +80,7 @@ if TYPE_CHECKING:
 
     from pylopdf._fonts import Font
     from pylopdf._geometry import Matrix
+    from pylopdf._text import Unmapped
     from pylopdf._types import CjkFontLanguage
 
 
@@ -877,7 +878,17 @@ class Document:
         self._ensure_open()
         return Layers(self)
 
-    def text(self, pages: Iterable[int] | None = None) -> str:
+    def text(  # noqa: PLR0913 - the shared text options are keyword-only.
+        self,
+        pages: Iterable[int] | None = None,
+        *,
+        clip: Sequence[float] | None = None,
+        clipped: bool = False,
+        ligatures: bool = True,
+        whitespace: bool = True,
+        dehyphenate: bool = False,
+        unmapped: Unmapped = "skip",
+    ) -> str:
         """Return the plain text of the given pages in one batched call.
 
         ``pages`` is a sequence of zero-based page numbers extracted in the
@@ -888,30 +899,43 @@ class Document:
         in chunks of 4,096 entries, each sharing one interpreter font cache, so
         a font reused across pages is parsed once per chunk rather than once
         per page; the returned text equals joining :meth:`Page.text` of each
-        page in the same order.
+        page in the same order, and the options are those of
+        :meth:`Page.text`, applied to every page.
         """
+        options = _text.text_options(
+            clip=clip,
+            clipped=clipped,
+            ligatures=ligatures,
+            whitespace=whitespace,
+            dehyphenate=dehyphenate,
+            unmapped=unmapped,
+        )
         count = self._page_count()
         page_numbers = list(range(1, count + 1)) if pages is None else self._page_entries(pages, "pages", count)
-        text = self._doc.extract_text(page_numbers)
+        text = self._doc.extract_text(page_numbers, options)
         self._emit_warnings()
         return text
 
-    def _page_text(self, pno: int) -> str:
+    def _page_text(self, pno: int, options: _text._TextOptions | None = None) -> str:
         """Return the text of zero-based page ``pno`` for :meth:`Page.text`."""
-        text = self._doc.extract_text([self._lopdf_page_number(pno)])
+        text = self._doc.extract_text([self._lopdf_page_number(pno)], options)
         self._emit_warnings(stacklevel=4)
         return text
 
-    def _page_layout(self, page_number: int) -> tuple[float, float, list[Any]]:
+    def _page_layout(
+        self, page_number: int, options: _text._TextOptions | None = None
+    ) -> tuple[float, float, list[Any]]:
         """Return the core's layout of a validated one-based page."""
-        layout = self._doc.extract_layout(page_number)
+        layout = self._doc.extract_layout(page_number, options)
         # Attribute warnings to the public caller rather than this helper.
         self._emit_warnings(stacklevel=4)
         return layout
 
-    def _page_raw_layout(self, page_number: int) -> tuple[float, float, list[Any]]:
+    def _page_raw_layout(
+        self, page_number: int, options: _text._TextOptions | None = None
+    ) -> tuple[float, float, list[Any]]:
         """Return the core's layout with glyphs of a validated one-based page."""
-        layout = self._doc.extract_raw_layout(page_number)
+        layout = self._doc.extract_raw_layout(page_number, options)
         self._emit_warnings(stacklevel=4)
         return layout
 

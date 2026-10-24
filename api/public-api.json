@@ -166,6 +166,7 @@
     "TilingPattern",
     "TransparencyGroup",
     "Underline",
+    "Unmapped",
     "Widget",
     "Widgets",
     "Word",
@@ -1874,17 +1875,22 @@
     "Char": {
       "annotations": {
         "bbox": "Rect",
+        "is_synthetic": "bool",
         "origin": "Point",
         "text": "str"
       },
       "dataclass_fields": [
         "text",
         "bbox",
-        "origin"
+        "origin",
+        "is_synthetic"
       ],
       "kind": "class",
       "members": {
         "bbox": {
+          "kind": "property"
+        },
+        "is_synthetic": {
           "kind": "property"
         },
         "origin": {
@@ -1910,6 +1916,12 @@
             "annotation": "Point",
             "kind": "keyword_only",
             "name": "origin"
+          },
+          {
+            "annotation": "bool",
+            "default": false,
+            "kind": "keyword_only",
+            "name": "is_synthetic"
           }
         ],
         "returns": "None"
@@ -3209,6 +3221,42 @@
                 "default": null,
                 "kind": "positional_or_keyword",
                 "name": "pages"
+              },
+              {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "clipped"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "ligatures"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "whitespace"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "dehyphenate"
+              },
+              {
+                "annotation": "Unmapped",
+                "default": "skip",
+                "kind": "keyword_only",
+                "name": "unmapped"
               }
             ],
             "returns": "str"
@@ -8156,10 +8204,52 @@
                 "name": "self"
               },
               {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              },
+              {
                 "annotation": "bool",
                 "default": false,
                 "kind": "keyword_only",
                 "name": "chars"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "clipped"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "ligatures"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "whitespace"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "dehyphenate"
+              },
+              {
+                "annotation": "Unmapped",
+                "default": "skip",
+                "kind": "keyword_only",
+                "name": "unmapped"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "exact_bboxes"
               }
             ],
             "returns": "Layout"
@@ -8369,10 +8459,52 @@
                 "name": "text"
               },
               {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              },
+              {
                 "annotation": "int | None",
                 "default": 4096,
                 "kind": "keyword_only",
                 "name": "max_hits"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "clipped"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "ligatures"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "whitespace"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "dehyphenate"
+              },
+              {
+                "annotation": "Unmapped",
+                "default": "skip",
+                "kind": "keyword_only",
+                "name": "unmapped"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "exact_bboxes"
               }
             ],
             "returns": "list[Rect]"
@@ -8433,6 +8565,42 @@
               {
                 "kind": "positional_or_keyword",
                 "name": "self"
+              },
+              {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "clipped"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "ligatures"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "whitespace"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "dehyphenate"
+              },
+              {
+                "annotation": "Unmapped",
+                "default": "skip",
+                "kind": "keyword_only",
+                "name": "unmapped"
               }
             ],
             "returns": "str"
@@ -8453,6 +8621,48 @@
               {
                 "kind": "positional_or_keyword",
                 "name": "self"
+              },
+              {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "clipped"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "ligatures"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "whitespace"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "dehyphenate"
+              },
+              {
+                "annotation": "Unmapped",
+                "default": "skip",
+                "kind": "keyword_only",
+                "name": "unmapped"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "exact_bboxes"
               }
             ],
             "returns": "list[Word]"
@@ -12766,6 +12976,12 @@
           }
         ],
         "returns": "None"
+      }
+    },
+    "Unmapped": {
+      "kind": "constant",
+      "value": {
+        "repr": "typing.Literal['skip', 'replacement', 'glyph_id']"
       }
     },
     "Widget": {
