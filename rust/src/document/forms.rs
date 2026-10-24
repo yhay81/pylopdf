@@ -2571,7 +2571,7 @@ fn existing_kind(field_type: &str, flags: i64) -> &'static str {
 
 /// The field entries that a merged field and widget dictionary moves to a
 /// new parent when the field gains a second widget.
-const FIELD_KEYS: [&[u8]; 11] = [
+pub(super) const FIELD_KEYS: [&[u8]; 11] = [
     b"FT", b"T", b"TU", b"TM", b"Ff", b"V", b"DV", b"Opt", b"MaxLen", b"TI", b"I",
 ];
 
@@ -3035,96 +3035,7 @@ pub(super) fn add_widget(
         let outcome = (|| -> PyResult<ObjectId> {
             let form_id = this.acroform_object()?;
             let widget_id = match existing {
-                Some((field_id, _)) => {
-                    // A merged field and widget becomes a widget of a new
-                    // parent field, which takes its place in the form tree.
-                    let merged = this.doc.get_dictionary(field_id).is_ok_and(|dict| {
-                        matches!(
-                            dict.get(b"Subtype").and_then(Object::as_name),
-                            Ok(b"Widget")
-                        )
-                    });
-                    let parent_id = if merged {
-                        let old = this
-                            .doc
-                            .get_dictionary(field_id)
-                            .map_err(to_py_err)?
-                            .clone();
-                        let mut parent = dictionary! {
-                            "Kids" => Object::Array(vec![Object::Reference(field_id)]),
-                        };
-                        for key in FIELD_KEYS {
-                            if let Ok(value) = old.get(key) {
-                                parent.set(key, value.clone());
-                            }
-                        }
-                        // A merged dictionary owns both field and widget
-                        // actions. Only field triggers move to the parent.
-                        let mut widget_actions = old
-                            .get(b"AA")
-                            .ok()
-                            .and_then(|aa| deref_dict_ref(&this.doc, aa))
-                            .cloned();
-                        if let Some(actions) = &mut widget_actions {
-                            let mut field_actions = Dictionary::new();
-                            for trigger in FIELD_TRIGGERS {
-                                if let Some(action) = actions.remove(trigger.as_bytes()) {
-                                    field_actions.set(trigger, action);
-                                }
-                            }
-                            if !field_actions.is_empty() {
-                                parent.set("AA", field_actions);
-                            }
-                        }
-                        let grand = old.get(b"Parent").and_then(Object::as_reference).ok();
-                        if let Some(grand) = grand {
-                            parent.set("Parent", grand);
-                        }
-                        let parent_id = this.doc.add_object(parent);
-                        let kid = this
-                            .doc
-                            .get_object_mut(field_id)
-                            .and_then(Object::as_dict_mut)
-                            .map_err(to_py_err)?;
-                        for key in FIELD_KEYS {
-                            kid.remove(key);
-                        }
-                        if let Some(actions) = widget_actions {
-                            if actions.is_empty() {
-                                kid.remove(b"AA");
-                            } else {
-                                kid.set("AA", actions);
-                            }
-                        }
-                        kid.set("Parent", parent_id);
-                        this.replace_form_node(grand, field_id, parent_id)?;
-                        parent_id
-                    } else {
-                        field_id
-                    };
-                    widget.set("Parent", parent_id);
-                    let widget_id = this.doc.add_object(widget);
-                    let parent = this
-                        .doc
-                        .get_object_mut(parent_id)
-                        .and_then(Object::as_dict_mut)
-                        .map_err(to_py_err)?;
-                    match parent.get_mut(b"Kids") {
-                        Ok(Object::Array(kids)) => kids.push(Object::Reference(widget_id)),
-                        Ok(Object::Reference(kids)) => {
-                            let kids = *kids;
-                            this.doc
-                                .get_object_mut(kids)
-                                .and_then(Object::as_array_mut)
-                                .map_err(to_py_err)?
-                                .push(Object::Reference(widget_id));
-                        }
-                        _ => {
-                            parent.set("Kids", Object::Array(vec![Object::Reference(widget_id)]));
-                        }
-                    }
-                    widget_id
-                }
+                Some((field_id, _)) => this.add_field_widget(field_id, widget)?,
                 None if spec.kind == "radio" => {
                     field.set("Kids", Object::Array(Vec::new()));
                     let field_id = this.doc.add_object(field);
@@ -3261,6 +3172,105 @@ pub(super) fn add_widget(
 }
 
 impl _Document {
+    /// Add `widget` as another widget of the field `field_id` and return its
+    /// object ID. A merged field and widget becomes a widget of a new parent
+    /// field, which takes its place in the form tree, so that both widgets
+    /// are kids of one field.
+    pub(super) fn add_field_widget(
+        &mut self,
+        field_id: ObjectId,
+        mut widget: Dictionary,
+    ) -> PyResult<ObjectId> {
+        // A merged field and widget becomes a widget of a new
+        // parent field, which takes its place in the form tree.
+        let merged = self.doc.get_dictionary(field_id).is_ok_and(|dict| {
+            matches!(
+                dict.get(b"Subtype").and_then(Object::as_name),
+                Ok(b"Widget")
+            )
+        });
+        let parent_id = if merged {
+            let old = self
+                .doc
+                .get_dictionary(field_id)
+                .map_err(to_py_err)?
+                .clone();
+            let mut parent = dictionary! {
+                "Kids" => Object::Array(vec![Object::Reference(field_id)]),
+            };
+            for key in FIELD_KEYS {
+                if let Ok(value) = old.get(key) {
+                    parent.set(key, value.clone());
+                }
+            }
+            // A merged dictionary owns both field and widget
+            // actions. Only field triggers move to the parent.
+            let mut widget_actions = old
+                .get(b"AA")
+                .ok()
+                .and_then(|aa| deref_dict_ref(&self.doc, aa))
+                .cloned();
+            if let Some(actions) = &mut widget_actions {
+                let mut field_actions = Dictionary::new();
+                for trigger in FIELD_TRIGGERS {
+                    if let Some(action) = actions.remove(trigger.as_bytes()) {
+                        field_actions.set(trigger, action);
+                    }
+                }
+                if !field_actions.is_empty() {
+                    parent.set("AA", field_actions);
+                }
+            }
+            let grand = old.get(b"Parent").and_then(Object::as_reference).ok();
+            if let Some(grand) = grand {
+                parent.set("Parent", grand);
+            }
+            let parent_id = self.doc.add_object(parent);
+            let kid = self
+                .doc
+                .get_object_mut(field_id)
+                .and_then(Object::as_dict_mut)
+                .map_err(to_py_err)?;
+            for key in FIELD_KEYS {
+                kid.remove(key);
+            }
+            if let Some(actions) = widget_actions {
+                if actions.is_empty() {
+                    kid.remove(b"AA");
+                } else {
+                    kid.set("AA", actions);
+                }
+            }
+            kid.set("Parent", parent_id);
+            self.replace_form_node(grand, field_id, parent_id)?;
+            parent_id
+        } else {
+            field_id
+        };
+        widget.set("Parent", parent_id);
+        let widget_id = self.doc.add_object(widget);
+        let parent = self
+            .doc
+            .get_object_mut(parent_id)
+            .and_then(Object::as_dict_mut)
+            .map_err(to_py_err)?;
+        match parent.get_mut(b"Kids") {
+            Ok(Object::Array(kids)) => kids.push(Object::Reference(widget_id)),
+            Ok(Object::Reference(kids)) => {
+                let kids = *kids;
+                self.doc
+                    .get_object_mut(kids)
+                    .and_then(Object::as_array_mut)
+                    .map_err(to_py_err)?
+                    .push(Object::Reference(widget_id));
+            }
+            _ => {
+                parent.set("Kids", Object::Array(vec![Object::Reference(widget_id)]));
+            }
+        }
+        Ok(widget_id)
+    }
+
     /// Make the `/Kids` entry of `parent`, or the `/Fields` and `/CO` entries
     /// without one, that names `old` name `new`.
     fn replace_form_node(
@@ -3400,7 +3410,7 @@ pub(super) fn remove_field(this: &mut _Document, py: Python<'_>, xref: u32) -> P
 }
 
 /// The `/AA` keys of a field's triggers (ISO 32000-2 Table 199).
-const FIELD_TRIGGERS: [&str; 4] = ["K", "F", "V", "C"];
+pub(super) const FIELD_TRIGGERS: [&str; 4] = ["K", "F", "V", "C"];
 
 /// The `/AA` keys of a widget's triggers (Table 197), and `A`, its
 /// activation action.

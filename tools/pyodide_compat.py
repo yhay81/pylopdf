@@ -1888,6 +1888,26 @@ def _structure_import_results() -> dict[str, Any]:
     }
 
 
+def _page_copy_results() -> dict[str, Any]:
+    """Copy a page with annotations and widgets within its document and read the copy."""
+    import pylopdf  # noqa: PLC0415
+
+    document = pylopdf.Document()
+    page = document.pages.new((300, 300))
+    page.annotations.add(pylopdf.Square((20, 20, 80, 80), contents="Original"))
+    page.widgets.add(pylopdf.TextField("name", (20, 100, 200, 124), value="Ada"))
+    document.pages.extend(document.pages[0])
+    document.pages[1].annotations[0].contents = "Copy"
+    document.form["name"].value = "Grace"
+    saved = pylopdf.open(document.to_bytes())
+    return {
+        "contents": [saved.pages[index].annotations[0].contents for index in range(2)],
+        "fields": sorted(saved.form),
+        "widgets": len(saved.form["name"].widgets),
+        "value": saved.form["name"].value,
+    }
+
+
 def _document_property_results(root: Path) -> dict[str, Any]:
     """Read and write XMP metadata and the catalog's viewer and marking properties."""
     import pylopdf  # noqa: PLC0415
@@ -2158,6 +2178,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "remove_rotation": _remove_rotation_results(),
         "open_document_tags": _open_document_tag_results(),
         "structure_import": _structure_import_results(),
+        "page_copies": _page_copy_results(),
         "attachments": _attachment_results(),
         "paper_and_dates": _paper_and_date_results(),
         "content_model": _content_model_results(root),

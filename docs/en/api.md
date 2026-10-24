@@ -180,7 +180,11 @@ a role that the document maps otherwise is replaced by the source's standard
 type, and clashing class names and element IDs gain a `_N` and `+N` suffix. A
 copy of a page of
 the same document is a new page object that shares its content streams and
-resources with the original until either is edited.
+resources with the original until either is edited. Its annotations are
+objects of its own, with their popups and replies, and each widget becomes
+another widget of its field, so both pages show one value. In a tagged
+document, the structure elements of the page are copied too, with
+parent-tree keys of their own.
 
 Adding, deleting, or reordering pages makes earlier `Page` views stale: using
 one raises `StalePageError`, and iterating over `doc.pages` while changing
