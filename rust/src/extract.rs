@@ -1419,13 +1419,10 @@ fn cluster_lines(glyphs: Vec<GlyphRecord>) -> Result<Vec<Vec<GlyphRecord>>, Text
             .then(left.cmp(&right))
     });
     let mut lines: Vec<Vec<usize>> = Vec::new();
-    // A line's baseline is that of its largest glyph so far, so that a
-    // superscript met first in baseline order does not split the line.
     let mut current_baseline = f64::NEG_INFINITY;
-    let mut current_size = 0.0_f64;
     for index in horizontal {
         let glyph = &arena[index];
-        let tolerance = glyph.size.max(current_size).max(1.0) * LINE_TOLERANCE;
+        let tolerance = glyph.size.max(1.0) * LINE_TOLERANCE;
         if (glyph.y - current_baseline).abs() <= tolerance {
             try_push_text(
                 lines
@@ -1434,13 +1431,8 @@ fn cluster_lines(glyphs: Vec<GlyphRecord>) -> Result<Vec<Vec<GlyphRecord>>, Text
                 index,
                 "physical text-line glyphs",
             )?;
-            if glyph.size > current_size {
-                current_baseline = glyph.y;
-                current_size = glyph.size;
-            }
         } else {
             current_baseline = glyph.y;
-            current_size = glyph.size;
             let mut line = Vec::new();
             try_push_text(&mut line, index, "physical text-line glyphs")?;
             try_push_text(&mut lines, line, "physical text lines")?;

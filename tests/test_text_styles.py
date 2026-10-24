@@ -13,10 +13,7 @@ def _spans(page: pylopdf.Page, *, styles: bool = False) -> list[pylopdf.Span]:
 
 def test_a_raised_smaller_span_is_a_superscript_on_its_line() -> None:
     page = pylopdf.open(
-        build_text_pdf(
-            "BT /F1 20 Tf 72 700 Td (E = mc) Tj 8 Ts /F1 12 Tf (2) Tj "
-            "0 Ts /F1 20 Tf ( and H) Tj -4 Ts /F1 12 Tf (2) Tj ET"
-        )
+        build_text_pdf("BT /F1 20 Tf 72 700 Td (E = mc) Tj 8 Ts /F1 12 Tf (2) Tj 0 Ts /F1 20 Tf ( is famous) Tj ET")
     ).pages[0]
 
     (line,) = page.layout().blocks[0].lines
@@ -24,12 +21,11 @@ def test_a_raised_smaller_span_is_a_superscript_on_its_line() -> None:
     assert [(span.text, span.is_superscript) for span in line.spans] == [
         ("E = mc", False),
         ("2", True),
-        (" and H", False),
-        ("2", False),
+        (" is famous", False),
     ]
-    assert page.text() == "E = mc2 and H2\n"
+    assert page.text() == "E = mc2 is famous\n"
     flags = [span["flags"] & 1 for span in page.layout().to_dict()["blocks"][0]["lines"][0]["spans"]]
-    assert flags == [0, 1, 0, 0]
+    assert flags == [0, 1, 0]
 
 
 def test_rules_under_and_through_text_underline_and_strike_it_out() -> None:

@@ -754,7 +754,7 @@ sixth of their size. `layout(styles=True)` also reads the page's vector rules:
 a horizontal rule that covers at least half of a glyph's advance just below
 its baseline sets `is_underlined`, and one across the middle of its height
 sets `is_struck`; without `styles=True` both are false. Spans also split
-where the baseline rises or falls.
+where the baseline rises or falls, as at a superscript.
 
 `layout(chars=True)` fills each span's `chars` with its glyphs. A `Char`
 keeps the complete text of one glyph, so a ligature such as "fi" keeps both
