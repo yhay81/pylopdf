@@ -1037,6 +1037,17 @@ def _get_text(migrator: _Migrator, receiver: str, args: _Arguments) -> str | Non
     return f"{receiver}.{method}({', '.join(arguments)}){suffix}"
 
 
+def _get_text_selection(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``get_text_selection(p1, p2, clip)`` to ``selection(p1, p2, clip=...)``."""
+    bound = args.bind(("p1", "p2", "clip", "textpage"))
+    if bound is None or not {"p1", "p2"} <= set(bound) or "textpage" in bound:
+        return None
+    arguments = [bound["p1"], bound["p2"]]
+    if bound.get("clip", "None") != "None":
+        arguments.append(f"clip={bound['clip']}")
+    return f"{receiver}.selection({', '.join(arguments)})"
+
+
 def _get_textbox(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     """Rewrite ``get_textbox(rect)`` to ``text(clip=rect)``."""
     bound = args.bind(("rect", "textpage"))
@@ -1046,18 +1057,20 @@ def _get_textbox(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
 
 
 def _search_for(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
-    """Rewrite ``search_for(needle, ...)`` to ``search(text, ...)``; quads come with Reading."""
+    """Rewrite ``search_for(needle, ...)`` to ``search(text, ...)``."""
     keywords = {"needle" if key == "text" else key: value for key, value in args.keywords.items()}
     bound = _Arguments(args.positional, keywords).bind(
         ("needle", "clip", "quads", "flags", "textpage", "hit_max", "max_hits")
     )
     if bound is None or "needle" not in bound or {"flags", "textpage"} & set(bound):
         return None
-    if bound.get("quads", "False") not in _FALSE or ("hit_max" in bound and "max_hits" in bound):
+    if "hit_max" in bound and "max_hits" in bound:
         return None
     arguments = [bound["needle"]]
     if bound.get("clip", "None") != "None":
         arguments.append(f"clip={bound['clip']}")
+    if bound.get("quads", "False") not in _FALSE:
+        arguments.append(f"quads={bound['quads']}")
     if "hit_max" in bound or "max_hits" in bound:
         arguments.append(f"max_hits={bound.get('max_hits', bound.get('hit_max'))}")
     return f"{receiver}.search({', '.join(arguments)})"
@@ -1877,6 +1890,7 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "get_text": _get_text,
     "search_for": _search_for,
     "get_textbox": _get_textbox,
+    "get_text_selection": _get_text_selection,
     "to_markdown": _renamed("markdown"),
     "find_tables": _find_tables,
     "get_text_ocr": _get_text_ocr,

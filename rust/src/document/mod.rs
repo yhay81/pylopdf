@@ -946,6 +946,56 @@ impl _Document {
             needle,
             max_hits,
             options.unwrap_or_default(),
+            crate::extract::TextPage::search,
+        )
+    }
+
+    /// Return the text of a one-based page from the glyph nearest `start` to
+    /// the one nearest `end`, in reading order.
+    #[pyo3(signature = (page_number, start, end, options=None))]
+    fn select_text(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        start: (f64, f64),
+        end: (f64, f64),
+        options: Option<TextOptions>,
+    ) -> PyResult<String> {
+        extraction::select_text(
+            self,
+            py,
+            page_number,
+            start,
+            end,
+            options.unwrap_or_default(),
+        )
+    }
+
+    /// Search a one-based page case-insensitively and return the quad of
+    /// every line of every match.
+    #[pyo3(signature = (
+        page_number,
+        needle,
+        max_hits=Some(DEFAULT_MAX_SEARCH_HITS),
+        options=None
+    ))]
+    #[allow(clippy::type_complexity)]
+    fn search_page_quads(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        needle: &str,
+        max_hits: Option<usize>,
+        options: Option<TextOptions>,
+    ) -> PyResult<Vec<crate::extract::QuadTuple>> {
+        extraction::search_page(
+            self,
+            py,
+            page_number,
+            needle,
+            max_hits,
+            options.unwrap_or_default(),
+            crate::extract::TextPage::search_quads,
         )
     }
 
@@ -1826,6 +1876,42 @@ impl _Document {
         off: Vec<(u32, u16)>,
     ) -> PyResult<usize> {
         layers::add_layer_configuration(self, name, creator, base_state, on, off)
+    }
+
+    /// Return an annotation's current index and its `/OC` value.
+    fn annotation_layer(
+        &self,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+    ) -> PyResult<(u32, LayerValue)> {
+        layers::annotation_layer(self, page_number, index, xref)
+    }
+
+    /// Replace or remove an annotation's `/OC`; returns its object number.
+    fn set_annotation_layer(
+        &mut self,
+        page_number: u32,
+        index: u32,
+        xref: u32,
+        value: LayerValue,
+    ) -> PyResult<u32> {
+        layers::set_annotation_layer(self, page_number, index, xref, value)
+    }
+
+    /// Return an image or form XObject's `/OC` value.
+    fn xobject_layer(&self, xref: u32) -> PyResult<LayerValue> {
+        layers::xobject_layer(self, xref)
+    }
+
+    /// Replace or remove an image or form XObject's `/OC`.
+    fn set_xobject_layer(&mut self, xref: u32, value: LayerValue) -> PyResult<()> {
+        layers::set_xobject_layer(self, xref, value)
+    }
+
+    /// Return the groups and memberships that a page's `/Properties` names.
+    fn page_layers(&self, page_number: u32) -> PyResult<Vec<(String, LayerValue)>> {
+        layers::page_layers(self, page_number)
     }
 
     /// Return AcroForm fields as `(full name, xref, kind, value, flags)`.

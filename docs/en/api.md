@@ -308,8 +308,34 @@ printing = doc.layers.configurations.add("Print", off=[notes, draft])
 printing.apply()  # rendering and extraction now hide both
 ```
 
+Content, annotations, and XObjects join a group through their `/OC` entry,
+which names a group or a membership. `LayerMembership(layers, *,
+policy=VisibilityPolicy.ANY_ON, expression=None)` is a membership as a value:
+`policy` (`ALL_ON`, `ANY_ON`, `ANY_OFF`, or `ALL_OFF`) decides from the
+visibility of `layers`, and `expression`, a `LayerExpression(operator,
+operands)` with `"and"`, `"or"`, or `"not"` over layers and expressions,
+takes precedence where viewers read it. The `layer` property of
+`Annotation`, `Link`, `Widget`, and `ImageObject` reads the entry as a
+`Layer`, a `LayerMembership`, or `None`; assigning one sets it, writing a new
+membership dictionary for a `LayerMembership`, and `del` removes it.
+`page.resources.layers` maps the names that the page's marked content uses
+(`/OC /Name BDC`) to their groups and memberships.
+
+```python
+from pylopdf import LayerExpression, LayerMembership, VisibilityPolicy
+
+notes, draft = doc.layers
+doc.images[12].layer = draft  # the image renders only while draft shows
+page.annotations[0].layer = LayerMembership((notes, draft), policy=VisibilityPolicy.ALL_ON)
+print(page.resources.layers)  # {'OC1': Layer(xref=5, name='Notes'), ...}
+```
+
+hayro, which renders and extracts, ignores an annotation's own `/OC`, a
+visibility expression, and a membership stored directly in `/Properties`, so
+those change only what other viewers show.
+
 Reads stop at 65,536 groups in one array (`LimitError` code `layer_count`)
-or `order` entries and 32 levels of `order`, and 1 MiB of name and intent
+or `order` and expression entries and 32 levels of either, and 1 MiB of name and intent
 text per group or of name, creator, and label text per configuration
 (`layer_text_size`); names and labels above 1 MiB are refused before they are
 written (`layer_input_size`).
@@ -396,7 +422,8 @@ no page was added, deleted, or reordered in between.
 | `text(*, clip=None, ...)` | The page's text in reading order, or the text in a rectangle |
 | `words(*, clip=None, ...)` | The words in reading order, as `Word` records |
 | `layout(*, clip=None, chars=False, ...)` | Blocks, lines, and spans as a `Layout`; see [Positioned text](#positioned-text) |
-| `search(text, *, clip=None, max_hits=4096, ...)` | Case-insensitive search; returns a list of `Rect` |
+| `selection(start, end, *, clip=None)` | The text a viewer selects by dragging from one display-space point to another, in reading order |
+| `search(text, *, clip=None, quads=False, max_hits=4096, ...)` | Case-insensitive search; returns a list of `Rect`, or with `quads=True` one `Quad` per line of each match |
 | `tables(*, strategy="lines", clip=None)` | Tables as a list of `Table` records; see [Tables](#tables) |
 | `markdown(*, table_strategy="lines")` | Markdown for this page |
 | `ocr(...)`, `apply_ocr(*, words=None, ...)` | OCR, and an invisible text layer from it or from another engine's words; see [Offline OCR](ocr.md) |
@@ -656,8 +683,8 @@ space:
 | Record | Fields |
 |---|---|
 | `Block` | `text`, `bbox`, `lines` |
-| `Line` | `text`, `bbox`, `direction` (the baseline's unit vector), `is_vertical`, `spans` |
-| `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `color`, `render_mode`, `is_clipped`, `ascender`, `descender`, `chars` |
+| `Line` | `text`, `bbox`, `direction` (the baseline's unit vector), `is_vertical`, `spans`, `quad` |
+| `Span` | `text`, `bbox`, `origin`, `size`, `font`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `color`, `render_mode`, `is_clipped`, `ascender`, `descender`, `chars`, `quad` |
 | `Char` | `text`, `bbox`, `origin`, `is_synthetic` |
 
 A span is a run of glyphs in one font and size that are painted alike:
@@ -670,6 +697,13 @@ true when the clip paths leave no part of the glyphs visible. `ascender` and
 TrueType program; hayro hands out no program for Type 1 fonts, the standard
 14 fonts among them, which therefore report MuPDF's defaults of 0.8 and
 -0.2.
+
+A `bbox` is axis-aligned; a `quad` is the same box along the baseline, the
+smallest rectangle in the direction of the first glyph's baseline that holds
+every glyph's box, so it follows text that a page sets at an angle; a
+character's quad is its span's, cut to the character's advance, which
+`page.search(char, quads=True)` gives as well. Text at any angle is
+assembled into lines along its baseline.
 
 `layout(chars=True)` fills each span's `chars` with its glyphs. A `Char`
 keeps the complete text of one glyph, so a ligature such as "fi" keeps both

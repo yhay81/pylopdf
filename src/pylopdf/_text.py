@@ -7,28 +7,30 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypeAlias, TypedDict
 
 from pylopdf._content import Color, TextRenderMode
-from pylopdf._geometry import Point, Rect
+from pylopdf._geometry import Point, Quad, Rect
 from pylopdf._limits import _validate_rect
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     #: The core's layout tuples: a block is ``(bbox, lines)``; a line is
-    #: ``(bbox, spans, words, direction, writing mode)``; a span is
-    #: ``(bbox, text, size, origin, font, flags, style)``, whose style is
-    #: ``(color, render mode, clipped, ascender, descender)``; and a word is
-    #: ``(bbox, text)``.
+    #: ``(bbox, spans, words, direction, writing mode, quad)``; a span is
+    #: ``(bbox, text, size, origin, font, flags, style, quad)``, whose style
+    #: is ``(color, render mode, clipped, ascender, descender)``; a word is
+    #: ``(bbox, text)``; and a quad is four points.
     _Box = tuple[float, float, float, float]
+    _Pt = tuple[float, float]
+    _CoreQuad = tuple[_Pt, _Pt, _Pt, _Pt]
     _CoreStyle = tuple[tuple[float, float, float, float] | None, int, bool, float, float]
-    _CoreSpan = tuple[_Box, str, float, tuple[float, float], str, int, _CoreStyle]
-    _CoreLine = tuple[_Box, list[_CoreSpan], list[tuple[_Box, str]], tuple[float, float], int]
+    _CoreSpan = tuple[_Box, str, float, _Pt, str, int, _CoreStyle, _CoreQuad]
+    _CoreLine = tuple[_Box, list[_CoreSpan], list[tuple[_Box, str]], _Pt, int, _CoreQuad]
     _CoreBlock = tuple[_Box, list[_CoreLine]]
     #: The core's layout with glyphs: as above, except that a span holds
     #: ``(text, chars)`` in place of its text, and a char is
-    #: ``(text, bbox, origin)``.
-    _CoreChar = tuple[str, _Box, tuple[float, float], bool]
-    _CoreRawSpan = tuple[_Box, tuple[str, list[_CoreChar]], float, tuple[float, float], str, int, _CoreStyle]
-    _CoreRawLine = tuple[_Box, list[_CoreRawSpan], list[tuple[_Box, str]], tuple[float, float], int]
+    #: ``(text, bbox, origin, synthetic)``.
+    _CoreChar = tuple[str, _Box, _Pt, bool]
+    _CoreRawSpan = tuple[_Box, tuple[str, list[_CoreChar]], float, _Pt, str, int, _CoreStyle, _CoreQuad]
+    _CoreRawLine = tuple[_Box, list[_CoreRawSpan], list[tuple[_Box, str]], _Pt, int, _CoreQuad]
     _CoreRawBlock = tuple[_Box, list[_CoreRawLine]]
 
 Unmapped: TypeAlias = Literal["skip", "replacement", "glyph_id"]
@@ -156,6 +158,10 @@ class Span:
     """The font's descender in em, negative below the baseline, or -0.2
     without a font program."""
     chars: tuple[Char, ...]
+    quad: Quad
+    """The span's box along its baseline: the smallest rectangle in the
+    direction of the first glyph's baseline that holds every glyph's box, so
+    that it follows rotated text, where ``bbox`` is axis-aligned."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -173,6 +179,8 @@ class Line:
     direction: Point
     is_vertical: bool
     spans: tuple[Span, ...]
+    quad: Quad
+    """The line's box along its baseline, as :attr:`Span.quad` is."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -316,12 +324,22 @@ _set_char_origin = Char.origin.__set__
 _set_char_synthetic = Char.is_synthetic.__set__
 
 
+def _quad(quad: Sequence[Sequence[float]]) -> Quad:
+    """Return a core quad of four points as a :class:`Quad`, as :func:`_rect` does."""
+    ul, ur, ll, lr = quad
+    if _isfinite(ul[0] + ul[1] + ur[0] + ur[1] + ll[0] + ll[1] + lr[0] + lr[1]):
+        return _new_tuple(
+            Quad, (_new_tuple(Point, ul), _new_tuple(Point, ur), _new_tuple(Point, ll), _new_tuple(Point, lr))
+        )
+    return Quad(ul, ur, ll, lr)
+
+
 def build_words(blocks: Sequence[_CoreBlock]) -> list[Word]:
     """Build :meth:`Page.words` from the core's layout."""
     return [
         Word(text=text, bbox=_rect(bbox), block=block_index, line=line_index, index=index)
         for block_index, (_, lines) in enumerate(blocks)
-        for line_index, (_, _, words, _, _) in enumerate(lines)
+        for line_index, (_, _, words, _, _, _) in enumerate(lines)
         for index, (bbox, text) in enumerate(words)
     ]
 
@@ -346,13 +364,14 @@ def _build_block(bbox: Sequence[float], lines: list[Line]) -> Block:
 
 def _build_line(line: _CoreLine | _CoreRawLine, colors: dict[tuple[float, float, float, float], Color]) -> Line:
     """Build one :class:`Line`, with each span's glyphs when the core gave them."""
-    bbox, spans, words, direction, writing_mode = line
+    bbox, spans, words, direction, writing_mode, quad = line
     return Line(
         text=" ".join(text for _, text in words),
         bbox=_rect(bbox),
         direction=_point(direction),
         is_vertical=writing_mode == 1,
         spans=tuple(_build_span(*span, colors) for span in spans),
+        quad=_quad(quad),
     )
 
 
@@ -364,6 +383,7 @@ def _build_span(  # noqa: PLR0913, PLR0917 - unpacks one core span tuple.
     font: str,
     flags: int,
     style: _CoreStyle,
+    quad: _CoreQuad,
     colors: dict[tuple[float, float, float, float], Color],
 ) -> Span:
     """Build one :class:`Span`; ``content`` is its text, or its text and glyphs."""
@@ -396,6 +416,7 @@ def _build_span(  # noqa: PLR0913, PLR0917 - unpacks one core span tuple.
         ascender=ascender,
         descender=descender,
         chars=chars,
+        quad=_quad(quad),
     )
 
 
@@ -454,7 +475,7 @@ def text_words(blocks: Sequence[_CoreBlock]) -> list[TextWord]:
     return [
         TextWord(x0, y0, x1, y1, text, block_index, line_index, index)
         for block_index, (_, lines) in enumerate(blocks)
-        for line_index, (_, _, words, _, _) in enumerate(lines)
+        for line_index, (_, _, words, _, _, _) in enumerate(lines)
         for index, ((x0, y0, x1, y1), text) in enumerate(words)
     ]
 
@@ -483,10 +504,10 @@ def text_page_dict(width: float, height: float, blocks: Sequence[_CoreBlock]) ->
                                 "flags": flags,
                                 "text": text,
                             }
-                            for span_bbox, text, size, origin, font, flags, _ in spans
+                            for span_bbox, text, size, origin, font, flags, _, _ in spans
                         ],
                     }
-                    for line_bbox, spans, _, direction, writing_mode in lines
+                    for line_bbox, spans, _, direction, writing_mode, _ in lines
                 ],
             }
             for number, (bbox, lines) in enumerate(blocks)

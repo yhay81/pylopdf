@@ -6,6 +6,7 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
+from pylopdf._layers import Layer, LayerMembership, _layer_from_core, _layer_to_core
 from pylopdf._objects import _object_number
 from pylopdf.pylopdf_core import Pixmap, StaleObjectError
 
@@ -75,6 +76,27 @@ class ImageObject:
         """Return the image's stream in the low-level object model."""
         self._facts()
         return cast("Stream", self._document.objects[self._xref])
+
+    @property
+    def layer(self) -> Layer | LayerMembership | None:
+        """Return the optional-content group or membership that shows or hides the image (``/OC``), or ``None``.
+
+        Assigning a :class:`Layer` or a :class:`LayerMembership` sets it, and
+        ``del`` removes it; rendering and extraction then show the image only
+        while its group is visible, wherever it is placed.
+        """
+        self._facts()
+        return _layer_from_core(self._document, self._document._doc.xobject_layer(self._xref))
+
+    @layer.setter
+    def layer(self, layer: Layer | LayerMembership | None) -> None:
+        self._facts()
+        value = _layer_to_core(self._document, layer)
+        self._document._doc.set_xobject_layer(self._xref, value)
+
+    @layer.deleter
+    def layer(self) -> None:
+        self.layer = None
 
     @property
     def width(self) -> int:
@@ -233,6 +255,21 @@ class Resources:
         document = page.document
         xrefs = document._doc.page_image_inventory(page._page_number())
         return tuple(ImageObject(document, xref) for xref in xrefs)
+
+    @property
+    def layers(self) -> dict[str, Layer | LayerMembership]:
+        """Return the groups and memberships that the page's ``/Properties`` names, by resource name.
+
+        Marked content names them as ``/OC /Name BDC``; the mapping is a
+        snapshot. Property lists that are no optional content are left out.
+        """
+        page = self._page
+        document = page.document
+        return {
+            name: value
+            for name, entry in document._doc.page_layers(page._page_number())
+            if (value := _layer_from_core(document, entry)) is not None
+        }
 
 
 # The package re-exports these names; reprs, pickles, and documentation name it.

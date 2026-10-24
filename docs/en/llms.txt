@@ -90,6 +90,7 @@ replacement, and the migration hint):
 - Annot.file_info -> Annotation.file: annotation.file.filename, .description, .size, .created, and .modified describe the embedded file; annotation.file is None for other annotations.
 - Annot.flags -> Annotation.flags: annotation.flags is an AnnotationFlags value.
 - Annot.get_file -> AnnotationFile.read: annotation.file.read(max_size=...) returns the embedded file's data.
+- Annot.get_oc -> Annotation.layer: Read annotation.layer: a Layer handle, a LayerMembership, or None, instead of an xref.
 - Annot.get_parent -> Annotation.page: annotation.page is the Page that holds the annotation.
 - Annot.get_pixmap -> Page.pixmap: annotation.page.pixmap(clip=annotation.rect, ...) renders the annotation's area.
 - Annot.get_sound -> Annotation.obj: annotation.obj['Sound'] is the sound stream in the object model; read() returns its samples.
@@ -121,6 +122,7 @@ replacement, and the migration hint):
 - Annot.set_language -> Annotation.language: Assign annotation.language = 'ja-JP'; del annotation.language removes it.
 - Annot.set_line_ends -> Annotation.line_endings: Assign annotation.line_endings = (LineEnding.START, LineEnding.END).
 - Annot.set_name -> Annotation.icon: Assign annotation.icon = NoteIcon..., StampIcon..., or AttachmentIcon...
+- Annot.set_oc -> Annotation.layer: Assign a Layer or LayerMembership to annotation.layer, or del annotation.layer; links and widgets have the same property.
 - Annot.set_opacity -> Annotation.opacity: Assign annotation.opacity = 0.5.
 - Annot.set_open -> Annotation.is_open: Assign annotation.is_open = True or False.
 - Annot.set_popup -> Annotation.popup_rect: Assign annotation.popup_rect = rect to add or move the popup; del annotation.popup_rect removes it.
@@ -163,7 +165,9 @@ replacement, and the migration hint):
 - Document.fullcopy_page -> Pages.insert: Use doc.pages.insert(to, doc.pages[i]), or doc.pages.extend(doc.pages[i]) to append.
 - Document.get_layer -> LayerConfiguration: Read doc.layers.configurations[i]: base_state, on, off, locked, and radio_groups hold Layer handles; index 0 is the default configuration, where pymupdf used -1.
 - Document.get_new_xref -> Objects.add: Call doc.objects.add(value), which creates the object and returns its object number.
+- Document.get_oc -> ImageObject.layer: Read doc.images[xref].layer for an image; for a Form XObject read doc.objects[xref].get("OC").
 - Document.get_ocgs -> Document.layers: Use doc.layers: Layer handles with name, intent, is_visible, and xref, in /OCGs order, instead of a dictionary keyed by xref.
+- Document.get_ocmd -> LayerMembership: Read the layer property of the annotation, link, widget, or image, or page.resources.layers: a membership reads as a LayerMembership(layers, policy=..., expression=...) value.
 - Document.get_outline_xrefs -> OutlineItem.xref: Use [item.xref for item in doc.outline.walk()].
 - Document.get_page_images -> Page.resources: Use doc.pages[i].resources.images.
 - Document.get_page_labels -> Document.page_labels: Read doc.page_labels, a list of PageLabelRange(start, style, prefix, first) records.
@@ -217,6 +221,8 @@ replacement, and the migration hint):
 - Document.set_layer_ui_config -> Layer.is_visible: Assign layer.is_visible on the handle from doc.layers; showing a layer hides the others of its radio-button groups.
 - Document.set_markinfo -> Document.mark_info: Assign doc.mark_info = MarkInfo(marked=..., user_properties=..., suspects=...); flags left out are written false, as in pymupdf.
 - Document.set_metadata -> Document.metadata: doc.metadata is a live mapping of the entries present: assign or update() keys to store values, del a key to remove it; created and modified replace creationDate and modDate.
+- Document.set_oc -> ImageObject.layer: Assign a Layer or LayerMembership to doc.images[xref].layer, or del it; for a Form XObject assign doc.objects[xref]["OC"] = layer.obj.
+- Document.set_ocmd -> LayerMembership: Assign LayerMembership(layers, policy=VisibilityPolicy.ALL_ON, expression=LayerExpression(...)) to a layer property; each assignment writes a new membership dictionary.
 - Document.set_page_labels -> Document.page_labels: Assign a list of PageLabelRange(start, style, prefix, first) records to doc.page_labels.
 - Document.set_pagelayout -> Document.page_layout: Assign doc.page_layout = PageLayout.TWO_COLUMN_LEFT or its exact name, such as "TwoColumnLeft".
 - Document.set_pagemode -> Document.page_mode: Assign doc.page_mode = PageMode.USE_OUTLINES or its exact name, such as "UseOutlines".
@@ -377,10 +383,12 @@ replacement, and the migration hint):
 - Page.get_images -> Page.resources: Read page.resources.images: ImageObject handles with xref, width, height, bits, colorspace, alternate_colorspace, filters, soft_mask, mask, and is_stencil, in place of tuples.
 - Page.get_label -> Page.label: Read page.label.
 - Page.get_links -> Page.links: page.links lists Link handles: read link.rect and link.target instead of the 'from', 'uri', 'page', 'to', 'zoom', 'file', and 'name' keys.
+- Page.get_oc_items -> Resources.layers: Use page.resources.layers, a dictionary from resource names to Layer handles and LayerMembership values.
 - Page.get_pixmap -> Page.pixmap: Use page.pixmap(dpi=...) or page.pixmap(matrix=...), not both; annots= is annotations=.
 - Page.get_svg_image -> Page.svg: Use page.svg(), which draws text as paths at 72 dpi.
 - Page.get_text -> Page.text: Use page.text() for "text", page.words() for "words", page.layout().blocks for "blocks", and page.layout().to_dict() or page.layout(chars=True).to_dict() for "dict" and "rawdict".
 - Page.get_text_blocks -> Page.layout: Read page.layout().blocks, Block records with text, bbox, and lines.
+- Page.get_text_selection -> Page.selection: Call page.selection(start, end, clip=...), which returns the text in reading order from the character nearest start to the one nearest end.
 - Page.get_text_words -> Page.words: Call page.words(), which returns Word records with text, bbox, block, line, and index.
 - Page.get_textbox -> Page.text: Call page.text(clip=rect), which keeps the glyphs whose box's center lies inside the rectangle, in reading order.
 - Page.get_texttrace -> Page.content: Call page.content() and read the glyphs of its text_runs, each run with its font, size, paints, and graphics context.
@@ -403,7 +411,7 @@ replacement, and the migration hint):
 - Page.repair_flat_rbgs -> Form.repair_radio_groups: doc.form.repair_radio_groups() gathers top-level radio buttons that share a name under one radio field and returns how many groups it made.
 - Page.rotation_matrix -> Page.user_to_display: pylopdf reads and writes in display space with the rotation resolved; drop the step, and map PDF user space with page.user_to_display.
 - Page.run -> Page.content: Call page.content() for the items that the page paints; pylopdf has no device protocol.
-- Page.search_for -> Page.search: Use page.search(text), which returns one Rect per match.
+- Page.search_for -> Page.search: Use page.search(text), which returns one Rect per match, or one Quad per line of a match with quads=True.
 - Page.set_artbox -> Page.boxes: Assign page.boxes.art = rect, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Page.set_bleedbox -> Page.boxes: Assign page.boxes.bleed = rect, in PDF user space as stored, where pymupdf flips y against the top of the MediaBox.
 - Page.set_contents -> Page.operations: Assign page.operations = Operations.parse(data) to replace the page content with one new stream; to point /Contents at an existing stream, assign page.obj["Contents"] = doc.objects[xref].
@@ -477,13 +485,14 @@ replacement, and the migration hint):
 - TextPage.extractJSON -> Layout.to_dict: Write json.dumps(page.layout().to_dict()); the dictionary has the shape of pymupdf's "json" output.
 - TextPage.extractRAWDICT -> Layout.to_dict: Call page.layout(chars=True).to_dict(), which returns the dictionary shape of pymupdf's "rawdict" output.
 - TextPage.extractRAWJSON -> Layout.to_dict: Write json.dumps(page.layout(chars=True).to_dict()); the dictionary has the shape of pymupdf's "rawjson" output.
+- TextPage.extractSelection -> Page.selection: Call page.selection(start, end), which returns the text in reading order from the character nearest start to the one nearest end.
 - TextPage.extractTEXT -> Page.text: Call page.text().
 - TextPage.extractText -> Page.text: Call page.text().
 - TextPage.extractTextbox -> Page.text: Call page.text(clip=rect), which keeps the glyphs whose box's center lies inside the rectangle, in reading order.
 - TextPage.extractWORDS -> Page.words: Call page.words(), which returns Word records with text, bbox, block, line, and index.
 - TextPage.extractXHTML -> Page.markdown: Call page.markdown(), which gives the page's headings, paragraphs, lists, and tables in semantic form.
 - TextPage.rect -> Page.rect: Read page.rect.
-- TextPage.search -> Page.search: Call page.search(text), which returns one Rect per match.
+- TextPage.search -> Page.search: Call page.search(text), which returns one Rect per match, or one Quad per line of a match with quads=True.
 - Widget.border_color -> Widget.border_color: widget.border_color is a Color or None, assignable and deletable.
 - Widget.border_dashes -> Widget.border: widget.border.dashes; assign widget.border = Border(width, dashes=...).
 - Widget.border_style -> Widget.border: widget.border.style is a BorderStyle member.
@@ -524,6 +533,7 @@ replacement, and the migration hint):
 - linkDest -> Destination: link.target holds a URI string, Destination(page, point, zoom), RemoteDestination(file, page), Launch(file), or NamedAction(name).
 - paper_* -> PaperSize: Use PaperSize members, such as PaperSize.A4 for paper_size("a4") and PaperSize.A4.landscape for "a4-l"; a member is a (width, height) pair that doc.pages.new takes, and Rect(0, 0, *PaperSize.A4) replaces paper_rect.
 - planish_line -> Matrix.planish: Matrix.planish(p1, p2) returns the same matrix.
+- recover_* -> Span: Read span.quad and line.quad of page.layout(): each follows the baseline of rotated text, so no quad needs recovering from a box; page.search(text, quads=True) gives the quad of any run of characters.
 - set_log -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
 - set_messages -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
 

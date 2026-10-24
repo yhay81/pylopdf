@@ -108,6 +108,9 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `PDF_OC_ON`, `PDF_OC_OFF`, `PDF_OC_TOGGLE` | `layer.is_visible = True`, `False`, `not layer.is_visible` | |
 | `doc.get_layer(config)`, `set_layer(config, ...)` | `doc.layers.configurations[i]` and its assignable `base_state`, `on`, `off`, `locked`, `radio_groups` | Index 0 is the default configuration, where pymupdf used -1; arrays hold `Layer` handles |
 | `doc.add_layer(name, creator, on)`, `switch_layer(config)` | `doc.layers.configurations.add(name, creator=, on=)`, `configuration.apply()` | |
+| `doc.get_ocmd(xref)`, `set_ocmd(...)` | `LayerMembership(layers, policy=, expression=)` read from and assigned to `layer` properties | A value instead of an xref; `ve=` is `expression=LayerExpression(...)` |
+| `doc.get_oc(xref)`, `set_oc(xref, oc)`, `annot.get_oc()`, `annot.set_oc(oc)` | `doc.images[xref].layer`, `annotation.layer`, `link.layer`, `widget.layer` | Assign a `Layer` or a `LayerMembership`, or `del`; a Form XObject's `/OC` goes through `doc.objects[xref]` |
+| `page.get_oc_items()` | `page.resources.layers` | A dictionary from resource names to layers and memberships |
 | `doc.layer_ui_configs()`, `set_layer_ui_config(n, action)`, `PDF_LAYER_UI_*` | `configuration.order` and `radio_groups`, `layer.is_visible` | `order` is the tree of `Layer` handles and `LayerOrder(label, items)` values that the flat list was made from |
 | `doc.xref_*`, `pdf_catalog()`, `pdf_trailer()` | `doc.objects`, `doc.catalog`, `doc.trailer` | Typed Python values instead of PDF syntax; see [Low-level objects](api.md#low-level-objects) |
 
@@ -123,7 +126,10 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `page.get_text("xhtml")` | `page.markdown()` | The semantic form of headings, paragraphs, lists, and tables |
 | `page.get_textpage()`, `TextPage`, `page.extend_textpage()` | The page's own `text()`, `words()`, `layout()`, and `search()` | There is no text-page object: each page caches its interpretation, which every view reads |
 | `doc.search_page_for(i, text)` | `doc.pages[i].search(text)` | |
-| `page.search_for(text)` | `page.search(text)` | Returns rectangles; no `quads=`; at most 4,096 results unless `max_hits=` is raised |
+| `page.get_textbox(rect)` | `page.text(clip=rect)` | Keeps the characters whose box's center lies inside |
+| `page.get_text_selection(p1, p2, clip)` | `page.selection(p1, p2, clip=clip)` | From the character nearest each point, in reading order |
+| `page.search_for(text, clip=…, quads=…)` | `page.search(text, clip=…, quads=…)` | At most 4,096 matches unless `max_hits=` is raised |
+| `recover_quad()`, `recover_span_quad()`, `recover_line_quad()`, `recover_char_quad()` | `span.quad`, `line.quad` of `page.layout()` | Characters have no quad of their own; `page.search(text, quads=True)` gives the quad of any run of characters |
 | `page.find_tables()` | `page.tables()` | A list of `Table` records: `table.rows` replaces `extract()`, `len(table.rows)` replaces `row_count`, and `table.cells` holds the boxes row by row. No tuning keywords, `header`, or `to_pandas()` yet |
 | `page.get_textpage_ocr()` | `page.ocr()`, `page.apply_ocr()` | Built-in offline OCR; see [Offline OCR](ocr.md) |
 | `pymupdf4llm.to_markdown(doc)` | `doc.markdown()` | Built in |

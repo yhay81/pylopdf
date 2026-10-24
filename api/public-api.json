@@ -73,6 +73,8 @@
     "LayerBaseState",
     "LayerConfiguration",
     "LayerConfigurations",
+    "LayerExpression",
+    "LayerMembership",
     "LayerOrder",
     "Layers",
     "Layout",
@@ -174,6 +176,7 @@
     "Underline",
     "Unmapped",
     "ViewerPreferences",
+    "VisibilityPolicy",
     "Widget",
     "Widgets",
     "Word",
@@ -254,6 +257,10 @@
         "language": {
           "kind": "property",
           "returns": "str | None"
+        },
+        "layer": {
+          "kind": "property",
+          "returns": "Layer | LayerMembership | None"
         },
         "line_endings": {
           "kind": "property",
@@ -5636,6 +5643,10 @@
           "kind": "property",
           "returns": "bool"
         },
+        "layer": {
+          "kind": "property",
+          "returns": "Layer | LayerMembership | None"
+        },
         "mask": {
           "kind": "property",
           "returns": "ImageObject | None"
@@ -6133,6 +6144,88 @@
         "returns": "None"
       }
     },
+    "LayerExpression": {
+      "annotations": {
+        "operands": "tuple[Layer | LayerExpression, ...]",
+        "operator": "Literal['and', 'or', 'not']"
+      },
+      "dataclass_fields": [
+        "operator",
+        "operands"
+      ],
+      "kind": "class",
+      "members": {
+        "operands": {
+          "kind": "property"
+        },
+        "operator": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Literal['and', 'or', 'not']",
+            "kind": "positional_or_keyword",
+            "name": "operator"
+          },
+          {
+            "annotation": "tuple[Layer | LayerExpression, ...]",
+            "kind": "positional_or_keyword",
+            "name": "operands"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "LayerMembership": {
+      "annotations": {
+        "_": "KW_ONLY",
+        "expression": "LayerExpression | None",
+        "layers": "tuple[Layer, ...]",
+        "policy": "VisibilityPolicy"
+      },
+      "dataclass_fields": [
+        "layers",
+        "policy",
+        "expression"
+      ],
+      "kind": "class",
+      "members": {
+        "expression": {
+          "kind": "property"
+        },
+        "layers": {
+          "kind": "property"
+        },
+        "policy": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "tuple[Layer, ...]",
+            "default": [],
+            "kind": "positional_or_keyword",
+            "name": "layers"
+          },
+          {
+            "annotation": "VisibilityPolicy",
+            "default": "AnyOn",
+            "kind": "keyword_only",
+            "name": "policy"
+          },
+          {
+            "annotation": "LayerExpression | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "expression"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "LayerOrder": {
       "annotations": {
         "items": "tuple[Layer | LayerOrder, ...]",
@@ -6332,6 +6425,7 @@
         "bbox": "Rect",
         "direction": "Point",
         "is_vertical": "bool",
+        "quad": "Quad",
         "spans": "tuple[Span, ...]",
         "text": "str"
       },
@@ -6340,7 +6434,8 @@
         "bbox",
         "direction",
         "is_vertical",
-        "spans"
+        "spans",
+        "quad"
       ],
       "kind": "class",
       "members": {
@@ -6351,6 +6446,9 @@
           "kind": "property"
         },
         "is_vertical": {
+          "kind": "property"
+        },
+        "quad": {
           "kind": "property"
         },
         "spans": {
@@ -6386,6 +6484,11 @@
             "annotation": "tuple[Span, ...]",
             "kind": "keyword_only",
             "name": "spans"
+          },
+          {
+            "annotation": "Quad",
+            "kind": "keyword_only",
+            "name": "quad"
           }
         ],
         "returns": "None"
@@ -6567,6 +6670,10 @@
     "Link": {
       "kind": "class",
       "members": {
+        "layer": {
+          "kind": "property",
+          "returns": "Layer | LayerMembership | None"
+        },
         "obj": {
           "kind": "property",
           "returns": "Dictionary"
@@ -8586,6 +8693,12 @@
                 "name": "clip"
               },
               {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "quads"
+              },
+              {
                 "annotation": "int | None",
                 "default": 4096,
                 "kind": "keyword_only",
@@ -8628,7 +8741,35 @@
                 "name": "exact_bboxes"
               }
             ],
-            "returns": "list[Rect]"
+            "returns": "list[Rect] | list[Quad]"
+          }
+        },
+        "selection": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "start"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "end"
+              },
+              {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              }
+            ],
+            "returns": "str"
           }
         },
         "svg": {
@@ -11629,6 +11770,10 @@
         "images": {
           "kind": "property",
           "returns": "tuple[ImageObject, ...]"
+        },
+        "layers": {
+          "kind": "property",
+          "returns": "dict[str, Layer | LayerMembership]"
         }
       },
       "signature": {
@@ -11956,6 +12101,7 @@
         "is_monospaced": "bool",
         "is_serif": "bool",
         "origin": "Point",
+        "quad": "Quad",
         "render_mode": "TextRenderMode",
         "size": "float",
         "text": "str"
@@ -11975,7 +12121,8 @@
         "is_clipped",
         "ascender",
         "descender",
-        "chars"
+        "chars",
+        "quad"
       ],
       "kind": "class",
       "members": {
@@ -12013,6 +12160,9 @@
           "kind": "property"
         },
         "origin": {
+          "kind": "property"
+        },
+        "quad": {
           "kind": "property"
         },
         "render_mode": {
@@ -12101,6 +12251,11 @@
             "annotation": "tuple[Char, ...]",
             "kind": "keyword_only",
             "name": "chars"
+          },
+          {
+            "annotation": "Quad",
+            "kind": "keyword_only",
+            "name": "quad"
           }
         ],
         "returns": "None"
@@ -13540,6 +13695,15 @@
         "returns": "None"
       }
     },
+    "VisibilityPolicy": {
+      "kind": "enum",
+      "members": {
+        "ALL_OFF": "AllOff",
+        "ALL_ON": "AllOn",
+        "ANY_OFF": "AnyOff",
+        "ANY_ON": "AnyOn"
+      }
+    },
     "Widget": {
       "kind": "class",
       "members": {
@@ -13578,6 +13742,10 @@
         "font_size": {
           "kind": "property",
           "returns": "float"
+        },
+        "layer": {
+          "kind": "property",
+          "returns": "Layer | LayerMembership | None"
         },
         "obj": {
           "kind": "property",

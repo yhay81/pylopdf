@@ -410,8 +410,9 @@ def test_layout_records_describe_glyph_values() -> None:
             "ascender",
             "descender",
             "chars",
+            "quad",
         ),
-        pylopdf.Line: ("text", "bbox", "direction", "is_vertical", "spans"),
+        pylopdf.Line: ("text", "bbox", "direction", "is_vertical", "spans", "quad"),
         pylopdf.Block: ("text", "bbox", "lines"),
         pylopdf.Layout: ("width", "height", "blocks"),
     }
@@ -420,4 +421,9 @@ def test_layout_records_describe_glyph_values() -> None:
         assert dataclasses.is_dataclass(record)
         assert tuple(field.name for field in dataclasses.fields(record)) == fields
     hints = get_type_hints(pylopdf.Char)
-    assert hints == {"text": str, "bbox": pylopdf.Rect, "origin": pylopdf.Point, "is_synthetic": bool}
+    assert hints == {
+        "text": str,
+        "bbox": pylopdf.Rect,
+        "origin": pylopdf.Point,
+        "is_synthetic": bool,
+    }
