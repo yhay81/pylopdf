@@ -21,7 +21,11 @@ _LineTuple: TypeAlias = tuple[
     tuple[float, float, float, float], list[_SpanTuple], list[_WordTuple], tuple[float, float], int
 ]
 _BlockTuple: TypeAlias = tuple[tuple[float, float, float, float], list[_LineTuple]]
-_RawCharTuple: TypeAlias = tuple[str, tuple[float, float, float, float], tuple[float, float]]
+_RawCharTuple: TypeAlias = tuple[str, tuple[float, float, float, float], tuple[float, float], bool]
+# The text options: (clip, keep clipped glyphs, unmapped glyphs (0 skip,
+# 1 U+FFFD, 2 glyph ID), exact boxes, expand ligatures, normalize whitespace,
+# dehyphenate).
+_TextOptions: TypeAlias = tuple[tuple[float, float, float, float] | None, bool, int, bool, bool, bool, bool]
 _RawSpanTuple: TypeAlias = tuple[
     tuple[float, float, float, float],
     tuple[str, list[_RawCharTuple]],
@@ -300,6 +304,14 @@ class Pixmap:
     def resolution(self) -> tuple[int, int]: ...
     @staticmethod
     def from_array(array: Buffer, /, *, resolution: tuple[int, int] | None = None) -> Pixmap: ...
+    @staticmethod
+    def from_file(
+        path: str | os.PathLike[str], /, *, max_size: int | None = 67108864, max_pixels: int | None = 64000000
+    ) -> Pixmap: ...
+    @staticmethod
+    def from_bytes(
+        data: Buffer, /, *, max_size: int | None = 67108864, max_pixels: int | None = 64000000
+    ) -> Pixmap: ...
     def to_bytes(
         self,
         format: Literal["png", "jpeg"] = "png",  # noqa: A002 - the public name.
@@ -419,14 +431,23 @@ class _Document:
     def save_incremental(self, path: str, compress: bool) -> None: ...
     def save_bytes_incremental(self, compress: bool, max_size: int | None = None) -> bytes: ...
     def save_encrypted(
-        self, path: str, user_password: str, owner_password: str, permissions: int, file_encryption_key: bytes
-    ) -> None: ...
-    def save_bytes_encrypted(
         self,
+        path: str,
+        method: str,
         user_password: str,
         owner_password: str,
         permissions: int,
         file_encryption_key: bytes,
+        document_id: bytes,
+    ) -> None: ...
+    def save_bytes_encrypted(
+        self,
+        method: str,
+        user_password: str,
+        owner_password: str,
+        permissions: int,
+        file_encryption_key: bytes,
+        document_id: bytes,
         max_size: int | None = None,
     ) -> bytes: ...
     def outline_entries(
@@ -563,9 +584,13 @@ class _Document:
     def set_page_box(self, page_number: int, key: str, x0: float, y0: float, x1: float, y1: float) -> None: ...
     def set_mediabox(self, page_number: int, x0: float, y0: float, x1: float, y1: float) -> None: ...
     def select(self, page_numbers: list[int]) -> None: ...
-    def extract_text(self, page_numbers: list[int]) -> str: ...
-    def extract_layout(self, page_number: int) -> tuple[float, float, list[_BlockTuple]]: ...
-    def extract_raw_layout(self, page_number: int) -> tuple[float, float, list[_RawBlockTuple]]: ...
+    def extract_text(self, page_numbers: list[int], options: _TextOptions | None = None) -> str: ...
+    def extract_layout(
+        self, page_number: int, options: _TextOptions | None = None
+    ) -> tuple[float, float, list[_BlockTuple]]: ...
+    def extract_raw_layout(
+        self, page_number: int, options: _TextOptions | None = None
+    ) -> tuple[float, float, list[_RawBlockTuple]]: ...
     def find_tables(
         self,
         page_number: int,
@@ -586,6 +611,7 @@ class _Document:
         page_number: int,
         needle: str,
         max_hits: int | None = 4096,
+        options: _TextOptions | None = None,
     ) -> list[tuple[float, float, float, float]]: ...
     def extract_images(
         self, page_number: int
@@ -702,7 +728,27 @@ class _Document:
             tuple[int, int, int, int, int],
             tuple[bool, bool],
             int,
+            tuple[float, float, float, float],
+            float | None,
         ]
+    ]: ...
+    def content_items(
+        self, page_number: int
+    ) -> tuple[
+        list[
+            tuple[
+                int,
+                int,
+                int,
+                tuple[float, float, float, float],
+                tuple[float, float, float, float],
+                tuple[bool, bool, bool],
+            ]
+        ],
+        list[tuple[int, int, int, tuple[float, float, float, float], tuple[float, float, float, float] | None]],
+        list[tuple[int, int, tuple[float, float, float, float] | None]],
+        list[tuple[int, int, int | None]],
+        list[tuple[int, tuple[int, int] | None, int]],
     ]: ...
     def page_operations(self, page_number: int, max_operations: int | None = ...) -> tuple[list[Any], bytes]: ...
     def set_page_content(self, page_number: int, data: bytes) -> None: ...

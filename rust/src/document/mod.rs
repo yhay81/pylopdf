@@ -24,7 +24,7 @@ use hayro::vello_cpu::color::AlphaColor;
 use hayro::vello_cpu::peniko::ImageAlphaType;
 use hayro::vello_cpu::{RasterizerSettings, RenderContext, Resources, TargetInit};
 use hayro::{PixmapSettings, RenderCache, RenderSettings, render_into};
-use lopdf::encryption::crypt_filters::{Aes256CryptFilter, CryptFilter};
+use lopdf::encryption::crypt_filters::{Aes128CryptFilter, Aes256CryptFilter, CryptFilter};
 use lopdf::encryption::{EncryptionState, EncryptionVersion, Permissions};
 use lopdf::{
     DecompressError, Dictionary, Document, LoadOptions, Object, ObjectId, PdfMetadata, SaveOptions,
@@ -118,6 +118,7 @@ use self::outline::*;
 use self::page_tree::*;
 use self::rendering::*;
 pub(crate) use self::replacement::_parse_operations;
+use self::saving::EncryptionRequest;
 use self::saving::*;
 use self::streams::*;
 
@@ -184,10 +185,11 @@ pub struct _Document {
     /// reads, so that the current snapshot holds a cut copy of it. Every
     /// operation that interprets one of them is refused.
     pages_too_deep: Vec<u32>,
-    /// Recently interpreted pages, keyed by one-based page number.
-    text_pages: HashMap<u32, crate::extract::TextPage>,
+    /// Recently interpreted pages, keyed by one-based page number and the
+    /// options that decided which glyphs they collected.
+    text_pages: HashMap<TextPageKey, crate::extract::TextPage>,
     /// Least-recently-used to most-recently-used text-page keys.
-    text_page_order: VecDeque<u32>,
+    text_page_order: VecDeque<TextPageKey>,
     /// Recently interpreted table pages, keyed by one-based page number.
     table_pages: HashMap<u32, crate::extract::TablePage>,
     /// Least-recently-used to most-recently-used table-page keys.
@@ -761,36 +763,47 @@ impl _Document {
     ///
     /// Collect glyph Unicode/positions through the hayro interpreter and
     /// assemble reading-order text. CJK fallbacks also apply to extraction.
-    fn extract_text(&mut self, py: Python<'_>, page_numbers: Vec<u32>) -> PyResult<String> {
-        extraction::extract_text(self, py, page_numbers)
+    #[pyo3(signature = (page_numbers, options=None))]
+    fn extract_text(
+        &mut self,
+        py: Python<'_>,
+        page_numbers: Vec<u32>,
+        options: Option<TextOptions>,
+    ) -> PyResult<String> {
+        extraction::extract_text(self, py, page_numbers, options.unwrap_or_default())
     }
 
     /// Return layout for a one-based page.
     ///
     /// Return `(width, height, blocks)`, where block=`(bbox, lines)`,
     /// line=`(bbox, spans, words, direction, writing mode)`,
-    /// span=`(bbox, text, size, origin, font, flags)`, and word=`(bbox, text)`.
+    /// span=`(bbox, text, size, origin, font, flags, style)`, and
+    /// word=`(bbox, text)`.
     #[allow(clippy::type_complexity)]
+    #[pyo3(signature = (page_number, options=None))]
     fn extract_layout(
         &mut self,
         py: Python<'_>,
         page_number: u32,
+        options: Option<TextOptions>,
     ) -> PyResult<(f64, f64, Vec<crate::extract::BlockTuple>)> {
-        extraction::extract_layout(self, py, page_number)
+        extraction::extract_layout(self, py, page_number, options.unwrap_or_default())
     }
 
     /// Return the layout of a one-based page with every span's glyphs.
     ///
     /// Return the blocks of [`Self::extract_layout`], except that a span is
-    /// `(bbox, (text, chars), size, origin, font, flags)` with
-    /// char=`(whole Unicode mapping, bbox, baseline origin)`.
+    /// `(bbox, (text, chars), size, origin, font, flags, style)` with
+    /// char=`(whole Unicode mapping, bbox, baseline origin, synthetic)`.
     #[allow(clippy::type_complexity)]
+    #[pyo3(signature = (page_number, options=None))]
     fn extract_raw_layout(
         &mut self,
         py: Python<'_>,
         page_number: u32,
+        options: Option<TextOptions>,
     ) -> PyResult<(f64, f64, Vec<crate::extract::RawBlockTuple>)> {
-        extraction::extract_raw_layout(self, py, page_number)
+        extraction::extract_raw_layout(self, py, page_number, options.unwrap_or_default())
     }
 
     /// Detect high-confidence tables on a one-based page.
@@ -902,7 +915,8 @@ impl _Document {
     #[pyo3(signature = (
         page_number,
         needle,
-        max_hits=Some(DEFAULT_MAX_SEARCH_HITS)
+        max_hits=Some(DEFAULT_MAX_SEARCH_HITS),
+        options=None
     ))]
     fn search_page(
         &mut self,
@@ -910,8 +924,16 @@ impl _Document {
         page_number: u32,
         needle: &str,
         max_hits: Option<usize>,
+        options: Option<TextOptions>,
     ) -> PyResult<Vec<(f64, f64, f64, f64)>> {
-        extraction::search_page(self, py, page_number, needle, max_hits)
+        extraction::search_page(
+            self,
+            py,
+            page_number,
+            needle,
+            max_hits,
+            options.unwrap_or_default(),
+        )
     }
 
     /// Append every page from another document, whatever its page count.
@@ -1127,53 +1149,64 @@ impl _Document {
         outline::set_outline_open(self, item, is_open)
     }
 
-    /// Save an AES-256 encrypted clone to a file while this document stays plaintext.
+    /// Save an encrypted clone to a file while this document stays plaintext.
+    ///
+    /// `method` is `aes-256`, `aes-128`, or `keep`, which keeps the
+    /// encryption the document was opened with.
+    #[allow(clippy::too_many_arguments)] // One argument per Encryption field.
     fn save_encrypted(
         &self,
         py: Python<'_>,
         path: &str,
+        method: &str,
         user_password: &str,
         owner_password: &str,
         permissions: u64,
         file_encryption_key: &[u8],
+        document_id: &[u8],
     ) -> PyResult<()> {
-        saving::save_encrypted(
-            self,
-            py,
-            path,
+        let request = EncryptionRequest {
+            method,
             user_password,
             owner_password,
             permissions,
             file_encryption_key,
-        )
+            document_id,
+        };
+        saving::save_encrypted(self, py, path, &request)
     }
 
-    /// Serialize an AES-256 encrypted clone while this document stays plaintext.
+    /// Serialize an encrypted clone while this document stays plaintext.
     #[pyo3(signature = (
+        method,
         user_password,
         owner_password,
         permissions,
         file_encryption_key,
+        document_id,
         max_size=None
     ))]
+    #[allow(clippy::too_many_arguments)] // One argument per Encryption field.
     fn save_bytes_encrypted(
         &self,
         py: Python<'_>,
+        method: &str,
         user_password: &str,
         owner_password: &str,
         permissions: u64,
         file_encryption_key: &[u8],
+        document_id: &[u8],
         max_size: Option<usize>,
     ) -> PyResult<Vec<u8>> {
-        saving::save_bytes_encrypted(
-            self,
-            py,
+        let request = EncryptionRequest {
+            method,
             user_password,
             owner_password,
             permissions,
             file_encryption_key,
-            max_size,
-        )
+            document_id,
+        };
+        saving::save_bytes_encrypted(self, py, &request, max_size)
     }
 
     /// Return inherited, normalized 0..360 rotation for a one-based page.
@@ -1999,6 +2032,18 @@ impl _Document {
         page_number: u32,
     ) -> PyResult<Vec<replacement::ContentGlyphTuple>> {
         replacement::content_glyphs(self, py, page_number)
+    }
+
+    /// Interpret a one-based page's content with the redaction engine and
+    /// return its paths, image placements, shadings, and marked-content
+    /// sequences with the operations that painted them. A private hook for
+    /// the agreement tests.
+    fn content_items(
+        &self,
+        py: Python<'_>,
+        page_number: u32,
+    ) -> PyResult<replacement::ContentItems> {
+        replacement::content_items(self, py, page_number)
     }
 
     /// Tokenize a one-based page's joined content as hayro reads it and

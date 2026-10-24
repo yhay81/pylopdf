@@ -110,7 +110,7 @@ def test_rawdict_schema_and_horizontal_japanese_geometry() -> None:
     assert [char["c"] for char in span["chars"]] == list("日本語")
     # The fixture's PDF origin is (72, 720), with /DW 1000 at 24 pt.
     for index, char in enumerate(span["chars"]):
-        assert set(char) == {"c", "bbox", "origin"}
+        assert set(char) == {"c", "bbox", "origin", "synthetic"}
         x = 72 + 24 * index
         assert char["origin"] == pytest.approx((x, 72))
         assert char["bbox"] == pytest.approx((x, 52.8, x + 24, 76.8))
@@ -142,8 +142,9 @@ def test_rawdict_tj_adjustments_use_actual_glyph_positions() -> None:
     layout = page.layout(chars=True).to_dict()
     span = layout["blocks"][0]["lines"][0]["spans"][0]
     assert span["bbox"] == (40, 44, 78, 64)
-    chars = span["chars"]
-    assert [char["c"] for char in chars] == ["W", "i", "8"]
+    # The 4-point gap after i holds an inferred space.
+    chars = [char for char in span["chars"] if not char["synthetic"]]
+    assert [char["c"] for char in span["chars"]] == ["W", "i", " ", "8"]
     for char, x in zip(chars, (40, 50, 66), strict=True):
         assert char["origin"] == (x, 60)
         assert char["bbox"] == (x, 44, x + 12, 64)
@@ -269,13 +270,16 @@ def test_rawdict_applies_glyph_and_unicode_payload_limits(limits: pylopdf.Docume
 
 
 @pytest.mark.parametrize("painted_space", [False, True])
-def test_rawdict_contains_only_painted_spaces(*, painted_space: bool) -> None:
+def test_rawdict_marks_inferred_spaces_as_synthetic(*, painted_space: bool) -> None:
     stream = (
         "BT /F1 20 Tf 40 140 Td (A B) Tj ET" if painted_space else "BT /F1 20 Tf 40 140 Td (A) Tj 24 0 Td (B) Tj ET"
     )
     page = pylopdf.open(_courier_pdf(stream)).pages[0]
     chars = _chars(page.layout(chars=True).to_dict())
-    assert [char["c"] for char in chars] == list("A B" if painted_space else "AB")
+    assert [char["c"] for char in chars] == list("A B")
+    assert [char["synthetic"] for char in chars] == [False, not painted_space, False]
+    # An inferred space spans the gap between the advance of A and B.
+    assert chars[1]["bbox"] == (52, 44, 64, 64)
     assert chars[0]["origin"] == (40, 60)
     assert chars[-1]["origin"] == (64, 60)
     assert page.text() == "A B\n"
@@ -389,7 +393,7 @@ def test_rawdict_preserves_existing_layout_metadata_and_span_boundaries() -> Non
 
 def test_layout_records_describe_glyph_values() -> None:
     contracts = {
-        pylopdf.Char: ("text", "bbox", "origin"),
+        pylopdf.Char: ("text", "bbox", "origin", "is_synthetic"),
         pylopdf.Span: (
             "text",
             "bbox",
@@ -416,4 +420,4 @@ def test_layout_records_describe_glyph_values() -> None:
         assert dataclasses.is_dataclass(record)
         assert tuple(field.name for field in dataclasses.fields(record)) == fields
     hints = get_type_hints(pylopdf.Char)
-    assert hints == {"text": str, "bbox": pylopdf.Rect, "origin": pylopdf.Point}
+    assert hints == {"text": str, "bbox": pylopdf.Rect, "origin": pylopdf.Point, "is_synthetic": bool}

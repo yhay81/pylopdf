@@ -90,6 +90,7 @@ python -m pylopdf.migrate src/
 | `page.get_images()` | `page.resources.images` | 튜플 대신 `xref`, `width`, `height`, `bits`, `colorspace`, `filters`, 마스크가 있는 `ImageObject` 핸들 |
 | `doc.extract_image(xref)` | `doc.images[xref].extract()` | `format`, `data`, `resolution`이 있는 `EncodedImage`. 크기, 색 공간, 마스크는 `doc.images[xref]`의 속성 |
 | `pymupdf.Pixmap(doc, xref)` | `doc.images[xref].to_pixmap()` | `alpha=True`는 이미지의 마스크를 적용 |
+| `pymupdf.Pixmap(filename)`, `pymupdf.Pixmap(stream)` | `Pixmap.from_file(path)`, `Pixmap.from_bytes(data)` | PNG와 JPEG. 다른 형식은 Pillow로 읽어 `Pixmap.from_array(numpy.asarray(image))`에 전달 |
 | `page.get_image_info()` | `page.content(text_runs=False, paths=False).images` | `xref`, `bbox`, `matrix`(pymupdf의 `transform`), 크기, 색 공간, 마스크, 해상도가 있는 `Image` 레코드. `hashes=`는 아직 지원하지 않음 |
 | `page.get_drawings()`, `get_cdrawings()` | `page.content(text_runs=False, images=False).paths` | `segments`, `fill`, `fill_rule`, `stroke`, `bbox`가 있는 `Path` 레코드. `extended=True`가 별도 항목으로 반환하던 클립, 그룹, 마크된 콘텐츠는 각 경로의 `context`에 있음 |
 | `page.get_texttrace()`, `get_bboxlog()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | 글리프가 있는 텍스트 런, 경로, 이미지를 불변 값으로 반환. [페이지 내용](api.md#content) 참고 |

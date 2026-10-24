@@ -579,8 +579,12 @@ pub(crate) trait ContentSink {
     /// Receive the style of the glyphs that follow, once per text run.
     fn glyph_run(&mut self, style: &GlyphStyle);
     /// Receive one glyph with the transform from hayro's 1000-unit glyph space
-    /// to display space.
-    fn glyph(&mut self, glyph: &Glyph<'_>, transform: Affine);
+    /// to display space, and its exact ink box when the sink wants it.
+    fn glyph(&mut self, glyph: &Glyph<'_>, transform: Affine, ink: Option<Rect>);
+    /// Whether [`ContentSink::glyph`] should receive exact ink boxes.
+    fn wants_ink(&self) -> bool {
+        false
+    }
     /// The stroke of the glyphs of the latest fill run, which completes that
     /// run as fill-and-stroke text; the glyphs are not sent again.
     fn stroke_completes_fill(&mut self);
@@ -596,7 +600,7 @@ pub(crate) struct NoSink;
 
 impl ContentSink for NoSink {
     fn glyph_run(&mut self, _: &GlyphStyle) {}
-    fn glyph(&mut self, _: &Glyph<'_>, _: Affine) {}
+    fn glyph(&mut self, _: &Glyph<'_>, _: Affine, _: Option<Rect>) {}
     fn stroke_completes_fill(&mut self) {}
     fn path(&mut self, _: &BezPath, _: Affine, _: &DrawMode) {}
     fn stopped(&self) -> bool {
@@ -1014,7 +1018,17 @@ impl<S: ContentSink> ContentCollector<S> {
                         .extend_from_slice(&transform.as_coeffs());
                 }
                 if !self.sink.stopped() {
-                    self.sink.glyph(glyph, transform);
+                    let ink = if self.sink.wants_ink() {
+                        match &**glyph {
+                            Glyph::Outline(outline) => self.outline_box(outline, transform)?,
+                            Glyph::Type3(type3) => {
+                                self.type3_box(type3, &props.paint, transform)?
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    self.sink.glyph(glyph, transform, ink);
                 }
             }
         }
