@@ -207,6 +207,11 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "from pylopdf import PageLabelStyle\nstyle = PageLabelStyle.LOWER_ROMAN",
         ),
         ("import fitz\ndoc = fitz.open()\ndel doc[3]\n", "del doc.pages[3]"),
+        ("import fitz\nstamp = fitz.get_pdf_now()\n", "stamp = pylopdf.pdf_date()"),
+        ("from fitz import get_pdf_now\nstamp = get_pdf_now()\n", "from pylopdf import pdf_date\nstamp = pdf_date()"),
+        ("import fitz\nsize = fitz.paper_size('a4')\n", "size = pylopdf.PaperSize.A4"),
+        ("import fitz\nsize = fitz.paper_size('Letter-l')\n", "size = pylopdf.PaperSize.LETTER.landscape"),
+        ("import fitz\nrect = fitz.paper_rect('a5')\n", "rect = pylopdf.Rect(0, 0, *pylopdf.PaperSize.A5)"),
         ("import fitz\nlocked = doc.needs_pass\n", "locked = doc.needs_password"),
         ("import fitz\npage = doc.load_page(3)\n", "page = doc.pages[3]"),
         ("import fitz\npage = doc.new_page(0, width=200, height=300)\n", "page = doc.pages.new((200, 300), index=0)"),
@@ -254,6 +259,16 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
         ("import fitz\ndoc.save('out.pdf', incremental=False, deflate_images=True)\n", "doc.save('out.pdf')"),
         ("import fitz\ndoc.save(path, incremental=True, garbage=0)\n", "doc.save(path, prune=False, incremental=True)"),
         ("import fitz\ndoc.saveIncr()\n", "doc.save(doc.path, incremental=True)"),
+        ("import fitz\ndoc.journal_undo()\ndoc.journal_redo()\n", "doc.history.undo()\ndoc.history.redo()"),
+        (
+            "import fitz\nstate = doc.journal_can_do()\n",
+            'state = {"undo": doc.history.can_undo, "redo": doc.history.can_redo}',
+        ),
+        (
+            "import fitz\nstep, total = doc.journal_position()\n",
+            "step, total = (doc.history.position, len(doc.history.steps))",
+        ),
+        ("import fitz\nname = doc.journal_op_name(0)\n", "name = doc.history.steps[0]"),
         ("import fitz\nif doc.can_save_incrementally():\n    pass\n", "if doc.can_save_incrementally:"),
         (
             "import fitz\ndoc.ez_save('out.pdf')\n",

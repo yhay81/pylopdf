@@ -106,8 +106,8 @@ the concept and API overview.
   append-only registrations):
   - Objects: `garbage.rs`, `prune.rs`, `renumber.rs`, `recovery.rs`,
     `object_recovery.rs`, `object_stream_work.rs`, `unallocated.rs`;
-    `document/{loading,saving,incremental,limits,streams,lowlevel}.rs`;
-    `src/pylopdf/_objects.py`.
+    `document/{loading,saving,incremental,history,limits,streams,lowlevel}.rs`;
+    `src/pylopdf/_objects.py` and `_history.py`.
   - Structure: `page_cleanup.rs`, `structure_prune.rs`;
     `document/{page_tree,navigation,outline,labels,layers,metadata,attachments}.rs`;
     `src/pylopdf/_attachments.py`, `_boxes.py`, `_layers.py`, `_metadata.py`,
@@ -1611,6 +1611,19 @@ the concept and API overview.
   save; `dedupe`, `renumber`, `object_streams`, and `encryption` refuse
   before any change. `tests/test_interop.py` validates pyHanko signatures
   after incremental form fills and metadata edits.
+- Transactions and undo: `Document.transaction` takes a
+  `_DocumentSnapshot` (`rust/src/document/history.rs`, a clone of the lopdf
+  graph and of `isolated_content_pages`, with an estimated size) before the
+  block and restores it with `restore_snapshot` when the block raises;
+  restoring forgets placements and every cache, and Python bumps the page
+  generation and the object epoch. `src/pylopdf/_history.py` keeps the
+  outermost transaction's snapshot as an undo step; undo and redo swap the
+  current state for a step's snapshot. Steps are valid while the document
+  revision equals the one the history recorded: any edit outside a
+  transaction ends the history lazily, while saves, failed transactions, and
+  undo or redo carry the recorded revision forward. The steps' estimated
+  sizes stay within `History.max_size` (256 MiB), dropping the oldest undo
+  steps, then the farthest redo steps.
 - Encryption during `save` operates on a clone, so the in-memory document always
   remains plaintext. Python generates the AES-256 file key with
   `os.urandom(32)` and, for a document without `/ID`, the ID that the clone
@@ -2798,6 +2811,12 @@ the concept and API overview.
   input copies, and encoded PDF strings grow fallibly; duplicate tracking
   uses a fixed bitset for the nine keys.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
+- PDF dates stay strings everywhere (ROADMAP.md D7); `pdf_date()` and
+  `parse_pdf_date()` in `_metadata.py` convert, following ISO 32000-2
+  §7.9.4 leniently on input (optional `D:`, parts after the year, and
+  apostrophes) and writing `Z` or `+HH'mm'`. `PaperSize` (`_paper.py`) is a
+  `tuple` enum of ISO 216/269 sizes rounded to whole points and the North
+  American sizes, so a member is the `(width, height)` pair itself.
 - Page-label number-tree reads borrow node shapes, visit indirect cycles once,
   release the GIL, and reject the complete result above 4,096 entries/nodes, 32
   levels, or 1 MiB of encoded/decoded style and prefix text. Do not return a

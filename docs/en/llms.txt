@@ -180,6 +180,15 @@ replacement, and the migration hint):
 - Document.is_encrypted -> Document.needs_password: Read doc.needs_password, which is true until unlock() succeeds.
 - Document.is_form_pdf -> Document.form: len(doc.form) counts the form's fields; an empty doc.form means no form.
 - Document.is_stream -> Stream: Check isinstance(doc.objects[xref], pylopdf.Stream).
+- Document.journal_can_do -> History.can_undo: Read doc.history.can_undo and doc.history.can_redo.
+- Document.journal_enable -> Document.history: Nothing to enable: every with doc.transaction(name): block records one step in doc.history, within doc.history.max_size bytes.
+- Document.journal_is_enabled -> Document.history: doc.history is always available; transactions record its steps.
+- Document.journal_op_name -> History.steps: Use doc.history.steps[step], the names of the recorded transactions, oldest first.
+- Document.journal_position -> History.position: Use doc.history.position, the number of applied steps, and len(doc.history.steps).
+- Document.journal_redo -> History.redo: Use doc.history.redo().
+- Document.journal_start_op -> Document.transaction: Wrap the edits in with doc.transaction(name):, which records one step and undoes the block when it raises.
+- Document.journal_stop_op -> Document.transaction: Wrap the edits in with doc.transaction(name):, which records one step when the block ends.
+- Document.journal_undo -> History.undo: Use doc.history.undo(), which undoes the latest doc.transaction() block.
 - Document.layer_ui_configs -> LayerConfiguration.order: Walk doc.layers.configurations[0].order: Layer handles and LayerOrder(label, items) values; a layer in one of radio_groups shows as a radio button.
 - Document.load_page -> Pages.__getitem__: Use doc.pages[i].
 - Document.markinfo -> Document.mark_info: doc.mark_info returns a MarkInfo record with marked, user_properties, and suspects, or None; assign a MarkInfo to replace it.
@@ -509,9 +518,11 @@ replacement, and the migration hint):
 - Widget.update -> Widget: Assign widget properties; each assignment draws the widget again, so there is no update().
 - csGRAY -> Colorspace: Use pylopdf.Colorspace.GRAY.
 - csRGB -> Colorspace: Use pylopdf.Colorspace.RGB.
+- get_pdf_now -> pdf_date: Use pylopdf.pdf_date(), or pdf_date(value) for a given datetime; parse_pdf_date(text) reads one back.
 - get_pdf_str -> String: Write a Python str into the object model, which encodes it as a PDF text string, or read String.text.
 - get_text_length -> Font.text_width: Font.standard("Helvetica").text_width(text, size) measures Standard 14 text; an OpenType face measures with its own Font.text_width.
 - linkDest -> Destination: link.target holds a URI string, Destination(page, point, zoom), RemoteDestination(file, page), Launch(file), or NamedAction(name).
+- paper_* -> PaperSize: Use PaperSize members, such as PaperSize.A4 for paper_size("a4") and PaperSize.A4.landscape for "a4-l"; a member is a (width, height) pair that doc.pages.new takes, and Rect(0, 0, *PaperSize.A4) replaces paper_rect.
 - planish_line -> Matrix.planish: Matrix.planish(p1, p2) returns the same matrix.
 - set_log -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
 - set_messages -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.

@@ -100,6 +100,34 @@ with pylopdf.open("signed.pdf") as doc:
     doc.save("signed.pdf", incremental=True)
 ```
 
+### Transactions and undo { #transactions }
+
+`with doc.transaction(name):` groups edits: when the block raises, the
+document returns to its state before the block, and otherwise the block's
+edits become one step of `doc.history`, which undoes and redoes them. A
+transaction inside another one restores its own edits when it raises and
+leaves the step to the outer one. Only transactions record steps, and an
+edit outside one ends the history; saving keeps it.
+
+| `doc.history` member | Purpose |
+|---|---|
+| `undo()`, `redo()` | Return to the state before the latest applied step, or apply the latest undone step again |
+| `can_undo`, `can_redo` | Whether there is a step to undo or redo |
+| `steps`, `position` | The step names, oldest first, and how many of them are applied |
+| `max_size` | The bytes that the steps' copies of the document may hold, 256 MiB by default; the oldest steps go first, and `None` keeps every step |
+| `clear()` | Forget every step |
+
+```python
+with doc.transaction("stamp"):
+    for page in doc.pages:
+        with page.draw() as canvas:
+            canvas.text("Draft", (36, 36))
+doc.history.undo()
+```
+
+Each transaction copies the document when it starts, and undo and redo
+replace its objects, so pages and other handles taken before go stale.
+
 ### Pages { #document-pages }
 
 `doc.pages` is a sequence of [`Page`](#page) views: `len(doc.pages)`,
@@ -1398,6 +1426,8 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | `Outline`, `OutlineItem`, `OutlineEntry`, `Destination`, `RemoteDestination`, `Launch`, `NamedAction`, `PageLabelRange`, `PageLabelStyle` | [Outline and page labels](#outline) |
 | `Annotation`, `Annotations`, `AnnotationType`, `AnnotationFlags`, `AnnotationSpecification`, `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Note`, `NoteIcon`, `FreeText`, `Stamp`, `StampIcon`, `Caret`, `FileAttachment`, `AttachmentIcon`, `AnnotationFile`, `Redaction`, `Square`, `Circle`, `LineAnnotation`, `Polygon`, `PolyLine`, `Ink`, `Border`, `BorderStyle`, `LineEnding`, `Link`, `Links` | [Annotations and links](#page-annotations) |
 | `PageBoxes` | [Page geometry](#page-geometry) |
+| `PaperSize` | Standard paper sizes as `(width, height)` pairs of points that `doc.pages.new()` takes: the ISO A, B, and C series and the North American sizes (`LETTER`, `LEGAL`, `TABLOID`, `EXECUTIVE`, `HALF_LETTER`), each with `width`, `height`, and `landscape` |
+| `pdf_date(value=None)`, `parse_pdf_date(text)` | Format a `datetime`, or the current local time, as a PDF date string such as `D:20260101120000+09'00'`, and parse one, every part after the year optional, into a `datetime` that is aware when the string gives an offset |
 | `Form`, `Field`, `FieldType`, `FieldFlags`, `FieldChoice` | [Forms](#forms) |
 | `FallbackFont`, `FallbackFonts` | [Rendering and images](#document-rendering) |
 

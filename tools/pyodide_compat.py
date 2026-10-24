@@ -1263,6 +1263,44 @@ def _save_option_results() -> dict[str, Any]:
     return results
 
 
+def _history_results() -> dict[str, Any]:
+    """Undo, redo, and roll back transactions."""
+    import pylopdf  # noqa: PLC0415
+
+    document = pylopdf.open(
+        _build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 200 200] >>",
+                3: "<< /Type /Page /Parent 2 0 R >>",
+                4: "<< /Type /Page /Parent 2 0 R >>",
+            }
+        )
+    )
+    with document.transaction("title"):
+        document.metadata["title"] = "Step"
+    with document.transaction("delete"):
+        del document.pages[1]
+    rollback = "none"
+    try:
+        with document.transaction("broken"):
+            document.metadata["title"] = "Lost"
+            raise RuntimeError  # noqa: TRY301 - the rollback under test.
+    except RuntimeError:
+        rollback = document.metadata["title"]
+    document.history.undo()
+    pages_after_undo = len(document.pages)
+    document.history.redo()
+    _require(rollback == "Step", "a failing transaction kept its edits")
+    _require(pages_after_undo == _EXPECTED_TWO_PAGES, "undo did not restore the page")
+    return {
+        "steps": list(document.history.steps),
+        "position": document.history.position,
+        "pages": len(document.pages),
+        "rollback": rollback,
+    }
+
+
 def _geometry_results() -> dict[str, Any]:
     """Check immutable affine values and their use by the PDF drawing API."""
     from pylopdf import Color, Document, LineTo, Matrix, MoveTo, Point, Stroke, open  # noqa: A004, PLC0415
@@ -1635,6 +1673,20 @@ def _attachment_results() -> dict[str, Any]:
     }
 
 
+def _paper_and_date_results() -> dict[str, Any]:
+    """Add pages of standard paper sizes and convert PDF dates both ways."""
+    import pylopdf  # noqa: PLC0415
+
+    document = pylopdf.Document()
+    document.pages.new(pylopdf.PaperSize.A4)
+    document.pages.new(pylopdf.PaperSize.LETTER.landscape)
+    value = pylopdf.parse_pdf_date("D:20260102030405+09'30'")
+    return {
+        "pages": [list(page.rect) for page in pylopdf.open(document.to_bytes()).pages],
+        "date": [value.isoformat(), pylopdf.pdf_date(value)],
+    }
+
+
 def _document_property_results(root: Path) -> dict[str, Any]:
     """Read and write XMP metadata and the catalog's viewer and marking properties."""
     import pylopdf  # noqa: PLC0415
@@ -1889,6 +1941,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "form_page_deletion": _form_page_deletion_results(),
         "structure_page_deletion": _structure_page_deletion_results(),
         "save_options": _save_option_results(),
+        "history": _history_results(),
         "content_isolation": _content_isolation_results(),
         "annotations": _annotation_results(),
         "widgets": _widget_results(),
@@ -1899,6 +1952,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "optional_content": _optional_content_results(),
         "document_properties": _document_property_results(root),
         "attachments": _attachment_results(),
+        "paper_and_dates": _paper_and_date_results(),
         "content_model": _content_model_results(root),
         "canvas": _canvas_results(root),
         "create": _create_results(root),
