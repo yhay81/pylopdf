@@ -57,7 +57,6 @@ use crate::read_depth::{self, MAX_READ_DEPTH};
 use crate::recovery::{self, XrefRecovery};
 use crate::renumber::renumber_objects;
 use crate::structure_prune::StructurePagePrune;
-use crate::text_replace::{self, TextReplacementError};
 use crate::unallocated::normalize_object_numbers;
 use indexed::IndexedDocument;
 
@@ -101,6 +100,7 @@ mod sanitize;
 mod saving;
 mod streams;
 mod structure_tree;
+mod text_editing;
 mod text_insertion;
 
 pub(crate) use self::annotations::*;
@@ -2246,6 +2246,19 @@ impl _Document {
         recoloring::recolor(self, py, page_number, colorspace)
     }
 
+    /// Replace text on a one-based page in the fonts that draw it; see
+    /// `Page.replace_text`.
+    fn replace_text_in_fonts(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        search: &str,
+        replacement: &str,
+        fallback: bool,
+    ) -> PyResult<(usize, Vec<text_editing::FallbackText>)> {
+        text_editing::replace_text(self, py, page_number, search, replacement, fallback)
+    }
+
     /// Tokenize a one-based page's joined content as hayro reads it and
     /// return its operations with their bytes, and the bytes after the last
     /// one, for `Page.operations`.
@@ -2262,32 +2275,6 @@ impl _Document {
     /// Replace a one-based page's `/Contents` with one new stream of `data`.
     fn set_page_content(&mut self, py: Python<'_>, page_number: u32, data: &[u8]) -> PyResult<()> {
         replacement::set_page_content(self, py, page_number, data)
-    }
-
-    /// Replace text on a one-based page and return the replacement count.
-    ///
-    /// Prepare bounded, copy-on-write replacement for simply encoded fonts.
-    ///
-    /// The replacement model follows lopdf `replace_partial_text`, while
-    /// Python's docstring documents its limitations and public budgets.
-    fn replace_text_on_page(
-        &mut self,
-        py: Python<'_>,
-        page_number: u32,
-        search: &str,
-        replacement: &str,
-        default_char: Option<String>,
-        max_size: Option<usize>,
-    ) -> PyResult<usize> {
-        replacement::replace_text_on_page(
-            self,
-            py,
-            page_number,
-            search,
-            replacement,
-            default_char,
-            max_size,
-        )
     }
 
     /// Return the distinct object numbers in ascending order.

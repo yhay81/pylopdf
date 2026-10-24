@@ -39,7 +39,6 @@ mod redact;
 mod render_cache;
 mod renumber;
 mod structure_prune;
-mod text_replace;
 mod unallocated;
 #[cfg(windows)]
 mod windows_permissions;

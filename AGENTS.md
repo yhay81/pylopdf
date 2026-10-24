@@ -1994,17 +1994,29 @@ the concept and API overview.
   `draw::pdf_to_display`, so it maps exactly as drawing, extraction, and
   rendering do. `Page.rotation` is assigned in multiples of 90 and stored
   normalized to 0 through 270.
-- Simple-font text replacement is prepared in `rust/src/text_replace.rs`.
-  Search/replacement/fallback input is capped at 4,096 UTF-8 bytes. Decoded
-  page content, aggregate font encoding data, intermediate growth, and the
-  final content stream share the public `max_size` boundary. Python counts
-  caller UTF-8 incrementally before PyO3 copying; direct Rust calls repeat the
-  check. Re-encoding uses a calculated upper bound before allocation and
-  linear per-character fallback. Commit one new page-owned stream only after
-  all fallible work succeeds so copied pages do not mutate shared `/Contents`;
-  no-match and failure paths must preserve document bytes and caches. A
-  successful replacement materializes inherited page attributes and clears
-  the drawing isolation marker for that page.
+- Text editing (`Page.replace_text`, `rust/src/document/text_editing.rs`)
+  runs on the content engine without hayro. Each glyph's text comes from its
+  font as extraction reads it (`content::encode::TextDecoder`: `/ToUnicode`,
+  a predefined UCS-2 or UTF-16 CMap, a simple font's encoding, or ASCII for
+  hayro's Helvetica fallback), and an occurrence is a run of glyphs in one
+  container, outside annotation appearances, that spells the search text.
+  `TextEncoder` encodes the replacement through the codes the page already
+  draws with the font, its `/ToUnicode` CMap, a Unicode CMap, or a
+  non-embedded simple font's encoding, and checks every code against the
+  font's code reading. The first glyph takes the new codes and a `TJ`
+  adjustment that undoes their advance (`advance_adjustment`), so the
+  redaction engine's compensation keeps the following text in place; the
+  edit goes through `apply_pass` with `Selector::Replace`, which copies
+  shared Forms and strips `/ActualText`. `apply_pass` prepares every object
+  before it changes the document and adds objects through the page index's
+  `insert_new_objects` and `add_object`, so editing every page stays linear
+  (`test_page_index.py`). Without a fallback font, text that the font cannot
+  draw is refused before any change; with one, the core returns each
+  occurrence's display origin, size, and angle, and Python draws the
+  replacement through the canvas in the fill colour that `Page.content()`
+  reports at that origin. Glyphs are not added to embedded subsets, and
+  fallback text is not tagged. Search and replacement share a 4,096-byte
+  UTF-8 bound (`replacement_input_size`).
 - The content engine (`rust/src/content/`) interprets content tokenized by
   hayro-syntax's `UntypedIter` (`content/syntax.rs`), so its operations are
   the ones that hayro reads, and places glyphs as hayro-interpret 0.8 does,

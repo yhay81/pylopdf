@@ -90,7 +90,6 @@ limits = pylopdf.DocumentLimits(
 | `Canvas.text()`, `textbox()`, `Font.text_width()`, `text_height()` | テキスト1 MiBと4,096行 | `max_text_size` |
 | `Font.from_file()`, `from_bytes()`、フォームへのフォント入力 | フォント1つあたり64 MiB | `max_size`, `max_font_size` |
 | `Canvas.image()` | 入力64 MiBと6,400万画素 | `max_size`, `max_pixels` |
-| `Page.replace_text()` | ページのコンテンツ64 MiB | `max_size` |
 | 添付ファイル: `add()`, `read()`, `write()` | ファイル1つあたり64 MiB | `max_size` |
 | `Stream.read()` | 64 MiB | `max_size` |
 | `Document.xmp`, `pdfa_claim` | XMPメタデータ1 MiB | `doc.catalog["Metadata"]`の`Stream.read(max_size=)` |

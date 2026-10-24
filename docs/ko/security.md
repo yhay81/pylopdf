@@ -90,7 +90,6 @@ limits = pylopdf.DocumentLimits(
 | `Canvas.text()`, `textbox()`, `Font.text_width()`, `text_height()` | 텍스트 1 MiB와 4,096줄 | `max_text_size` |
 | `Font.from_file()`, `from_bytes()`, 폼에 전달하는 글꼴 입력 | 글꼴당 64 MiB | `max_size`, `max_font_size` |
 | `Canvas.image()` | 입력 64 MiB와 6,400만 픽셀 | `max_size`, `max_pixels` |
-| `Page.replace_text()` | 페이지 콘텐츠 64 MiB | `max_size` |
 | 첨부 파일: `add()`, `read()`, `write()` | 파일당 64 MiB | `max_size` |
 | `Stream.read()` | 64 MiB | `max_size` |
 | `Document.xmp`, `pdfa_claim` | XMP 메타데이터 1 MiB | `doc.catalog["Metadata"]`의 `Stream.read(max_size=)` |

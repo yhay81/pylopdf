@@ -237,7 +237,7 @@ page.rotation = 90
 | 成员 | 用途 |
 |---|---|
 | `draw(*, underlay=False)` | 按顺序绘制文本、直线和矩形等路径、图像以及任意文档页面的[画布](#canvas)；参见[写入文本](#writing-text) |
-| `replace_text(search, replacement, *, default_char=None)` | 替换以简单（单字节）字体绘制的文本 |
+| `replace_text(search, replacement, *, fallback_font=None)` | 以绘制该文本的字体替换文本，并保持其后文本的位置 |
 
 同一图像或页面再次绘制时，在文件中只存储一份。
 

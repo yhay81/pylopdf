@@ -106,7 +106,6 @@ a default that is safe for most uses. Raise it with the keyword shown, or pass
 | `Canvas.text()`, `textbox()`, `Font.text_width()`, `text_height()` | 1 MiB of text and 4,096 lines | `max_text_size` |
 | `Font.from_file()`, `from_bytes()`, and font input to forms | 64 MiB per font | `max_size`, `max_font_size` |
 | `Canvas.image()` | 64 MiB of input and 64 million pixels | `max_size`, `max_pixels` |
-| `Page.replace_text()` | 64 MiB of page content | `max_size` |
 | `Operations.parse()` | 64 MiB of content and 1,048,576 operations | `max_size`, `max_operations` |
 | Attachments: `add()`, `read()`, `write()` | 64 MiB per file | `max_size` |
 | `Stream.read()` | 64 MiB | `max_size` |

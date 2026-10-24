@@ -17,7 +17,7 @@ use pdf_base14_metrics::Base14Font;
 
 use crate::layout::{LineMetrics, LinePlacement, TextBoxLayout, layout_textbox};
 
-const MAX_PAGE_CONTENT_STREAMS: usize = 4096;
+pub(crate) const MAX_PAGE_CONTENT_STREAMS: usize = 4096;
 const MAX_CONTENT_REFERENCE_DEPTH: usize = 32;
 
 /// Destination for new PDF objects.

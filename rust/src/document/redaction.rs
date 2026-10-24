@@ -486,6 +486,12 @@ pub(super) enum Selector<'a> {
         forced_boxes: &'a [Rect],
     },
     Glyphs(fn(&crate::content::interpret::Glyph) -> bool),
+    /// Glyphs by index, the first of each replaced text with the codes and
+    /// their adjustment that go in its place.
+    Replace {
+        glyphs: &'a HashSet<usize>,
+        insertions: &'a HashMap<usize, (Vec<u8>, f32)>,
+    },
 }
 
 /// Remove what one selection reaches, write every container that changed,
@@ -526,6 +532,23 @@ pub(super) fn apply_pass(
             };
             (selection, &[][..])
         }
+        Selector::Replace { glyphs, .. } => {
+            let selection = Selection {
+                glyphs: (0..interpretation.glyphs.len())
+                    .map(|index| glyphs.contains(&index))
+                    .collect(),
+                paths: vec![false; interpretation.paths.len()],
+                shadings: vec![false; interpretation.shadings.len()],
+                images: vec![ImageAction::Keep; interpretation.images.len()],
+                annotations: HashSet::new(),
+            };
+            (selection, &[][..])
+        }
+    };
+    let no_insertions = HashMap::new();
+    let insertions = match selector {
+        Selector::Replace { insertions, .. } => *insertions,
+        _ => &no_insertions,
     };
     let mut counts = Counts {
         glyphs: selection.glyph_count(),
@@ -565,8 +588,8 @@ pub(super) fn apply_pass(
     // Operations to change, by container.
     let mut edits: HashMap<usize, ContainerEdits> = HashMap::new();
     let editable = |container: usize| !redact::in_annotation(&interpretation, container);
-    let removals =
-        redact::text_removals(&interpretation, &selection).map_err(replacement::content_error)?;
+    let removals = redact::text_removals(&interpretation, &selection, insertions)
+        .map_err(replacement::content_error)?;
     // The marked-content sequences of each container, by their start.
     let mut marked_by_container: HashMap<usize, Vec<(usize, Option<usize>)>> = HashMap::new();
     for marked in &interpretation.marked {
@@ -905,17 +928,15 @@ pub(super) fn apply_pass(
     }
 
     // Commit: new objects, the page's content and resources, annotations.
-    let max_id = next_id;
-    for (id, object) in new_objects {
-        this.doc.objects.insert(id, object);
-    }
-    this.doc.max_id = this.doc.max_id.max(max_id);
+    // New objects take unused IDs, so the page index survives them.
+    let max_id = this.doc.max_id.max(next_id);
+    FormImportTarget::insert_new_objects(&mut this.doc, new_objects, max_id);
     if let Some(content) = page_content {
         let mut stream = Stream::new(Dictionary::new(), content);
         stream
             .compress()
             .map_err(|error| lopdf_err(Some("redacted content compression failed"), &error))?;
-        let id = this.doc.add_object(stream);
+        let id = ObjectSink::add_object(&mut this.doc, stream);
         this.doc
             .set_page_object_entry(page_id, "Contents", Object::Reference(id))?;
         if let Some(added) = additions.remove(&0) {
