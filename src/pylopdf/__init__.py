@@ -155,6 +155,7 @@ from pylopdf._text import Block, Char, Layout, Line, Span, Unmapped, Word
 from pylopdf._types import (
     Access,
     DocumentComplexity,
+    FontSubsetResult,
     ImageCompressionResult,
     Permissions,
 )
@@ -216,6 +217,7 @@ __all__ = [
     "Font",
     "FontLanguage",
     "FontRef",
+    "FontSubsetResult",
     "Form",
     "FreeText",
     "Glyph",

@@ -118,7 +118,7 @@ the concept and API overview.
   append-only registrations):
   - Objects: `garbage.rs`, `prune.rs`, `renumber.rs`, `recovery.rs`,
     `object_recovery.rs`, `object_stream_work.rs`, `unallocated.rs`;
-    `document/{loading,saving,incremental,history,limits,streams,lowlevel}.rs`;
+    `document/{loading,saving,incremental,history,subsetting,limits,streams,lowlevel}.rs`;
     `src/pylopdf/_objects.py` and `_history.py`.
   - Structure: `page_cleanup.rs`, `structure_prune.rs`;
     `document/{page_tree,navigation,outline,labels,layers,metadata,attachments}.rs`;
@@ -507,6 +507,24 @@ the concept and API overview.
   abi3, the wheel measured 6.86 MiB versus 6.78 MiB at the preceding v0.11
   commit (+0.07 MiB); extending the same path to bounded Flate decoding
   measured 6.90 MiB (+0.04 MiB).
+- `Document.subset_fonts` (`rust/src/document/subsetting.rs`) learns the
+  glyphs of every embedded program from a walk of the text state, not from
+  hayro, which reports no font identity: page content as hayro joins it,
+  every annotation appearance state, Form XObjects with the font and
+  resources they inherit (each stream queued once per font and inherited
+  resources, at most 65,536 visits and 2^24 operations, refused with
+  `content_operation_count`), tiling patterns from the initial state,
+  Type 3 glyph procedures, and soft-mask groups. It tokenizes with
+  `content::syntax::Instructions`, the hayro tokenization that redaction
+  uses, and tracks `q`/`Q`, `Tf`, and graphics-state fonts. A stream that
+  does not decode or parse marks every candidate it could draw with as
+  unknown. It handles a `FontFile2` program only when every font over it is
+  a `CIDFontType2` object under an `Identity-H` or `Identity-V` `Type0`
+  object, so codes are CIDs: `subsetter` (the crate krilla embeds) cuts the
+  program, and the `CIDToGIDMap` (a new stream for `Identity`) points the
+  same CIDs at the new glyph IDs, so content, `/W`, and `ToUnicode` stay.
+  Programs that another font kind, a directly held font or descriptor, a
+  map shared across programs, or the AcroForm `/DR` involve stay whole.
 - Native OCR uses RTen 0.27 with only its `rten_format` feature. RTen 0.27
   deprecates the `.rten` format (robertknight/rten#1470) and no longer
   enables it by default; a release that removes it would require ONNX model

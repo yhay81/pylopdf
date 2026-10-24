@@ -99,6 +99,8 @@ mod sanitize;
 mod saving;
 mod streams;
 mod structure_tree;
+/// Subsetting the embedded fonts of existing documents.
+mod subsetting;
 mod text_insertion;
 
 pub(crate) use self::annotations::*;
@@ -753,6 +755,14 @@ impl _Document {
     ) -> PyResult<Vec<u8>> {
         let level = compress.then_some(compression_level_checked(compression_level)?);
         incremental::save_bytes_incremental(self, py, level, renew_id, max_size)
+    }
+
+    /// Subset the embedded TrueType programs of Identity-encoded CID fonts
+    /// to the glyphs that the document can draw; return the programs
+    /// considered, subset, and skipped, and their decoded bytes before and
+    /// after.
+    fn subset_fonts(&mut self, py: Python<'_>) -> PyResult<(usize, usize, usize, usize, usize)> {
+        subsetting::subset_fonts(self, py)
     }
 
     /// Return the page count, walking the page tree once per edit.

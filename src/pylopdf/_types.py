@@ -88,6 +88,28 @@ class ImageCompressionResult:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class FontSubsetResult:
+    """What :meth:`Document.subset_fonts` did.
+
+    The byte totals compare the decoded font programs that were subset,
+    before and after, not the size of the saved document.
+    """
+
+    considered: int
+    """The embedded TrueType programs of CID fonts in the document."""
+    subset: int
+    """The programs reduced to the glyphs that the document can draw."""
+    skipped: int
+    """The programs left as they were: ``considered - subset``."""
+    bytes_before: int
+    """The decoded bytes of the subset programs before the call."""
+    bytes_after: int
+    """Their decoded bytes after it."""
+    bytes_saved: int
+    """``bytes_before - bytes_after``."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class DocumentComplexity:
     """Cheap structural facts that :attr:`Document.complexity` reads without decoding streams or rendering."""
 
@@ -112,6 +134,7 @@ class DocumentComplexity:
 for _public in (
     Permissions,
     Access,
+    FontSubsetResult,
     ImageCompressionResult,
     DocumentComplexity,
 ):

@@ -40,11 +40,11 @@ def test_capability_map_is_classified_and_resolves() -> None:
         ("Document.load_page", {"pylopdf": "Document.no_such_method"}, "is not in api/public-api.json"),
         ("FileNotFoundError", {"pylopdf": "NoSuchBuiltinError"}, "is not in api/public-api.json"),
         ("Document.is_dirty", {"pylopdf": "Document.is_closed"}, "instead of the pymupdf name"),
-        ("Document.subset_fonts", {"pylopdf": "Document.undo"}, "only an available entry names a pylopdf symbol"),
-        ("Document.subset_fonts", {"milestone": "M7"}, "unknown milestone"),
+        ("Document.repair", {"pylopdf": "Document.undo"}, "only an available entry names a pylopdf symbol"),
+        ("Document.repair", {"milestone": "M7"}, "unknown milestone"),
         ("Document.version_count", {"milestone": None}, "a planned entry must name its milestone"),
         ("set_log", {"hint": None}, "needs a hint for migrating callers"),
-        ("Document.subset_fonts", {"status": None}, "unclassified"),
+        ("Document.repair", {"status": None}, "unclassified"),
     ],
 )
 def test_capability_checker_rejects_broken_entries(

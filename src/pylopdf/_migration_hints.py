@@ -225,7 +225,6 @@ HINTS: dict[str, str] = {
     "Document.set_toc_item": "Document.set_toc_item is OutlineItem in pylopdf. Assign title, destination, color, bold, italic, or is_open on the OutlineItem from doc.outline.walk().",
     "Document.set_xml_metadata": "Document.set_xml_metadata is Document.xmp in pylopdf. Assign doc.xmp = packet to rewrite or add the XMP metadata stream.",
     "Document.stream": "pylopdf does not provide pymupdf's Document.stream. pylopdf does not keep the input bytes for the caller; keep the bytes passed to pylopdf.open, or serialize the current document with doc.to_bytes().",
-    "Document.subset_fonts": "pylopdf plans the capability of pymupdf's Document.subset_fonts in the Persistence milestone of ROADMAP.md.",
     "Document.switch_layer": "Document.switch_layer is LayerConfiguration.apply in pylopdf. Use doc.layers.configurations[i].apply(), which makes the configuration the default that rendering, extraction, and viewers use.",
     "Document.this": "pylopdf does not provide pymupdf's Document.this.",
     "Document.this_is_pdf": "pylopdf does not provide pymupdf's Document.this_is_pdf.",

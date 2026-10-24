@@ -373,6 +373,7 @@ attached to their base characters.
 | `images` | The image objects by object number; see [Images](#images) |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | Downsample and recompress images to make the file smaller |
 | `sanitize(*, scripts=True, actions=True, embedded_files=True, metadata=True, hidden_text=True, comments=True, links=False, form_values=False, thumbnails=True)` | Remove scripts, actions, attachments, metadata, hidden text, and comments; see [Sanitization](#sanitization) |
+| `subset_fonts()` | Cut embedded fonts down to the glyphs the document draws, to make the file smaller |
 | `fallback_fonts` | The fonts that render Chinese, Japanese, or Korean text whose font is not embedded, by language; the CJK extras fill it automatically |
 
 `rewrite_images` follows pymupdf's keywords: images with more than
@@ -380,6 +381,15 @@ attached to their base characters.
 `dpi_target`, and `quality` (1–100) re-encodes them as JPEG. It changes only
 plain 8-bit gray or RGB images without masks, keeps an image whose new
 encoding would not be smaller, and returns statistics.
+
+`subset_fonts` follows the text state through every content stream that can
+show text, collects the glyphs each embedded font program can draw, and cuts
+the TrueType programs of CID fonts with the `Identity-H` or `Identity-V`
+encoding down to them; the content, widths, and `ToUnicode` stay as they are,
+so extracted text and rendering do not change. It leaves a program alone when
+a simple font shares it, when the form's default resources name its font, or
+when a stream that could draw with it does not decode, and returns a
+`FontSubsetResult` with what it saved.
 
 `fallback_fonts` maps `"ja"`, `"ko"`, `"zh-CN"`, and `"zh-TW"`, the
 languages of the Adobe-Japan1, Korea1, GB1, and CNS1 character collections,

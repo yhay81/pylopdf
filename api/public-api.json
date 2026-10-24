@@ -54,6 +54,7 @@
     "Font",
     "FontLanguage",
     "FontRef",
+    "FontSubsetResult",
     "Form",
     "FreeText",
     "Glyph",
@@ -3320,6 +3321,18 @@
             "returns": "None"
           }
         },
+        "subset_fonts": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "FontSubsetResult"
+          }
+        },
         "text": {
           "kind": "method",
           "signature": {
@@ -4556,6 +4569,80 @@
             "annotation": "bool",
             "kind": "keyword_only",
             "name": "is_monospace"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "FontSubsetResult": {
+      "annotations": {
+        "bytes_after": "int",
+        "bytes_before": "int",
+        "bytes_saved": "int",
+        "considered": "int",
+        "skipped": "int",
+        "subset": "int"
+      },
+      "dataclass_fields": [
+        "considered",
+        "subset",
+        "skipped",
+        "bytes_before",
+        "bytes_after",
+        "bytes_saved"
+      ],
+      "kind": "class",
+      "members": {
+        "bytes_after": {
+          "kind": "property"
+        },
+        "bytes_before": {
+          "kind": "property"
+        },
+        "bytes_saved": {
+          "kind": "property"
+        },
+        "considered": {
+          "kind": "property"
+        },
+        "skipped": {
+          "kind": "property"
+        },
+        "subset": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "considered"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "subset"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "skipped"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "bytes_before"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "bytes_after"
+          },
+          {
+            "annotation": "int",
+            "kind": "keyword_only",
+            "name": "bytes_saved"
           }
         ],
         "returns": "None"
