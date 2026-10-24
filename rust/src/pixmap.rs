@@ -343,24 +343,54 @@ pub(crate) fn encode_bounded(
     Ok(output.bytes)
 }
 
-/// Replace RGB, or straight-alpha RGBA, samples with gray, or gray and
-/// alpha, samples in place, with ITU-R BT.601 luma weights.
-pub(crate) fn to_gray_in_place(data: &mut Vec<u8>, alpha: bool) {
-    let source = if alpha { 4 } else { 3 };
-    let target = if alpha { 2 } else { 1 };
-    let pixels = data.len() / source;
-    for index in 0..pixels {
-        let pixel = &data[index * source..index * source + source];
-        let luma =
-            (77 * u32::from(pixel[0]) + 150 * u32::from(pixel[1]) + 29 * u32::from(pixel[2]) + 128)
-                >> 8;
-        let alpha_byte = if alpha { pixel[3] } else { 0 };
-        data[index * target] = luma as u8;
-        if alpha {
-            data[index * target + 1] = alpha_byte;
+/// The ITU-R BT.601 luma of an RGBA pixel's color, rounded.
+fn luma(pixel: &[u8; 4]) -> u8 {
+    ((77 * u32::from(pixel[0]) + 150 * u32::from(pixel[1]) + 29 * u32::from(pixel[2]) + 128) >> 8)
+        as u8
+}
+
+/// Replace straight-alpha RGBA samples with samples in `layout` in place:
+/// RGB drops the alpha bytes, and gray replaces the color components with
+/// their BT.601 luma, keeping alpha for gray and alpha.
+///
+/// Each pixel is read whole before its narrower replacement is written,
+/// which never reaches the next pixel's bytes, so one pass converts it.
+pub(crate) fn rgba_to_layout_in_place(data: &mut Vec<u8>, layout: Layout) {
+    let pixels = data.len() / 4;
+    match (layout.gray, layout.alpha) {
+        (false, true) => return,
+        (false, false) => {
+            // Write all four bytes; the next pixel overwrites the fourth.
+            for index in 0..pixels.saturating_sub(1) {
+                let pixel = pixel(data, index);
+                data[index * 3..index * 3 + 4].copy_from_slice(&pixel);
+            }
+            if let Some(last) = pixels.checked_sub(1) {
+                let pixel = pixel(data, last);
+                data[last * 3..last * 3 + 3].copy_from_slice(&pixel[..3]);
+            }
+        }
+        (true, false) => {
+            for index in 0..pixels {
+                data[index] = luma(&pixel(data, index));
+            }
+        }
+        (true, true) => {
+            for index in 0..pixels {
+                let pixel = pixel(data, index);
+                data[index * 2] = luma(&pixel);
+                data[index * 2 + 1] = pixel[3];
+            }
         }
     }
-    data.truncate(pixels * target);
+    data.truncate(pixels * layout.channels() as usize);
+}
+
+/// The four bytes of RGBA pixel `index`.
+fn pixel(data: &[u8], index: usize) -> [u8; 4] {
+    data[index * 4..index * 4 + 4]
+        .try_into()
+        .expect("a four-byte range is a pixel")
 }
 
 /// Return straight-alpha RGBA8 samples for samples in `layout`, in one
