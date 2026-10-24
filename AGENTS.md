@@ -1612,7 +1612,15 @@ the concept and API overview.
   before any change. `tests/test_interop.py` validates pyHanko signatures
   after incremental form fills and metadata edits.
 - Encryption during `save` operates on a clone, so the in-memory document always
-  remains plaintext. Python generates the key with `os.urandom(32)`. Open,
+  remains plaintext. Python generates the AES-256 file key with
+  `os.urandom(32)` and, for a document without `/ID`, the ID that the clone
+  gains with `os.urandom(16)`: an encrypted file needs one, and AES-128
+  (revision 4, `AESV2` crypt filters) derives its key from it.
+  `Encryption.KEEP` re-encrypts the clone with lopdf's retained
+  `encryption_state`, which keeps the file key, `/O`, `/U`, and `/P`, and
+  only for `Standard V4 R4 128-bit AES` and `Standard V5 R6 256-bit AES`:
+  RC4 and revision 5 are read but never written. `tests/assets/encrypted`
+  holds a fixture for every standard handler revision. Open,
   unlock, fast metadata probe, and `Encryption` passwords stop at the PDF 2.0
   boundary of 127 UTF-8 bytes before PyO3 copying or KDF work; `Encryption`
   checks its passwords on construction. Direct Rust entry points repeat the
