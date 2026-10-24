@@ -173,6 +173,21 @@ class Page:
             raise ValueError(msg)
         self._document._doc.set_page_rotation(self._page_number(), rotation % 360)
 
+    def remove_rotation(self) -> Matrix:
+        """Set :attr:`rotation` to 0 while the page shows what it showed, and return the matrix used.
+
+        The page's content is drawn under the returned :class:`Matrix`, which
+        maps the old PDF user space to the new one, and the MediaBox,
+        CropBox, BleedBox, TrimBox, and ArtBox, the annotations (their
+        rectangles, points, and appearances, which turn with the page), the
+        article beads and viewports, and every explicit destination of the
+        page are mapped by it, so rendering, extraction, links, and the
+        outline are unchanged. Annotations flagged NoRotate keep their
+        upper-left corner and stay upright. A page without rotation is left as
+        it is, and the identity is returned.
+        """
+        return Matrix(*self._document._doc.remove_page_rotation(self._page_number()))
+
     @property
     def boxes(self) -> PageBoxes:
         """Return the page's MediaBox, CropBox, BleedBox, TrimBox, and ArtBox in PDF user space."""

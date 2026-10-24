@@ -570,7 +570,6 @@ HINTS: dict[str, str] = {
     "Page.read_contents": 'Page.read_contents is Page.operations in pylopdf. page.operations.to_bytes() returns the page content as the renderer joins its streams; page.obj["Contents"] holds the streams themselves.',
     "Page.recolor": "pylopdf plans the capability of pymupdf's Page.recolor in the Rewriting milestone of ROADMAP.md.",
     "Page.refresh": "Page.refresh is Page in pylopdf. pylopdf has no refresh(): a Page view reads the current document on every access, so remove the call.",
-    "Page.remove_rotation": "pylopdf plans the capability of pymupdf's Page.remove_rotation in the Structure milestone of ROADMAP.md.",
     "Page.render": "Page.render is Page.pixmap in pylopdf. Use page.pixmap(dpi=72 * scale, alpha=True).to_bytes() for the PNG.",
     "Page.render_svg": "Page.render_svg is Page.svg in pylopdf. Use page.svg().",
     "Page.repair_flat_rbgs": "Page.repair_flat_rbgs is Form.repair_radio_groups in pylopdf. doc.form.repair_radio_groups() gathers top-level radio buttons that share a name under one radio field and returns how many groups it made.",

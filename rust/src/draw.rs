@@ -1301,6 +1301,87 @@ pub fn prepare_push_content<'d>(
     })
 }
 
+/// A page's `/Contents` planned to draw the existing content under a
+/// transform: an opening stream that saves the state, applies the transform,
+/// and opens the isolation `q`s, the existing streams, and a closing stream
+/// with the isolation `Q`s and the final `Q`.
+pub struct TransformContentPlan {
+    contents: Vec<Object>,
+    opening: Stream,
+    closing: Stream,
+}
+
+/// Prepare `/Contents` that draws the page's existing content under
+/// `matrix`, balanced as [`prepare_push_content`] balances it, so that
+/// content appended later starts from the untransformed initial state.
+pub fn prepare_transform_content<'d>(
+    doc: &'d Document,
+    page_id: ObjectId,
+    already_isolated: bool,
+    matrix: [f64; 6],
+    decode: impl Fn(&'d Stream) -> Option<Cow<'d, [u8]>>,
+) -> Result<TransformContentPlan, String> {
+    let streams = inspect_page_contents(doc, page_id)?;
+    let final_count = streams
+        .len()
+        .checked_add(2)
+        .filter(|count| *count <= MAX_PAGE_CONTENT_STREAMS)
+        .ok_or_else(|| {
+            format!("the transform would exceed the {MAX_PAGE_CONTENT_STREAMS}-stream page Contents safety limit")
+        })?;
+    let balance = if already_isolated {
+        StateBalance::default()
+    } else {
+        content_state_balance(doc, &streams, decode)?
+    };
+    let mut prefix = b"q\n".to_vec();
+    for value in matrix {
+        if !value.is_finite() {
+            return Err("the page transform is not finite".to_owned());
+        }
+        prefix.extend_from_slice(matrix_operand(value).as_bytes());
+        prefix.push(b' ');
+    }
+    prefix.extend_from_slice(b"cm\n");
+    let opening = isolation_stream(&prefix, b"q\n", balance.unmatched_restores)?;
+    let closing = isolation_stream(b"\n", b"Q\n", balance.open_saves.saturating_add(1))?;
+    let mut contents = Vec::new();
+    contents
+        .try_reserve_exact(final_count)
+        .map_err(|error| format!("failed to allocate final page Contents array: {error}"))?;
+    contents.push(Object::Null);
+    contents.extend(streams.iter().copied().map(Object::Reference));
+    contents.push(Object::Null);
+    Ok(TransformContentPlan {
+        contents,
+        opening,
+        closing,
+    })
+}
+
+/// Format a `cm` operand with six decimals.
+fn matrix_operand(value: f64) -> String {
+    let text = format!("{value:.6}");
+    let text = text.trim_end_matches('0').trim_end_matches('.');
+    match text {
+        "" | "-" | "-0" => "0".to_owned(),
+        text => text.to_owned(),
+    }
+}
+
+/// Add the streams of a transform plan and return the final `/Contents`.
+pub fn add_transform_streams(doc: &mut impl ObjectSink, plan: TransformContentPlan) -> Vec<Object> {
+    let TransformContentPlan {
+        mut contents,
+        opening,
+        closing,
+    } = plan;
+    let last = contents.len() - 1;
+    contents[0] = Object::Reference(doc.add_object(opening));
+    contents[last] = Object::Reference(doc.add_object(closing));
+    contents
+}
+
 /// Add drawing operators as a new content stream for the page.
 ///
 /// Return the page's final `/Contents` array and whether existing content is

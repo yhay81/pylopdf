@@ -90,6 +90,7 @@ mod metadata;
 mod navigation;
 mod objects;
 mod outline;
+mod page_rotation;
 mod page_tree;
 mod redaction;
 mod redaction_images;
@@ -1318,6 +1319,13 @@ impl _Document {
         self.invalidate_hayro_pdf_keeping_placements();
         self.doc
             .set_page_entry(page_number, "Rotate", Object::Integer(rotation))
+    }
+
+    /// Set a page's `/Rotate` to 0, drawing its content, boxes,
+    /// annotations, and destinations so that it shows what it showed, and
+    /// return the matrix from the old user space to the new one.
+    fn remove_page_rotation(&mut self, page_number: u32) -> PyResult<[f64; 6]> {
+        page_rotation::remove_page_rotation(self, page_number)
     }
 
     /// Return the rotation-resolved display width and height of a one-based
