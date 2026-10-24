@@ -442,7 +442,7 @@ The typed object model exposes lopdf's graph.
 | `Permissions` | `PRINT`, `MODIFY`, `COPY`, `ANNOTATE`, `FORM`, `ACCESSIBILITY`, `ASSEMBLE`, `PRINT_HQ` |
 | `Access` | `USER`, `OWNER` |
 | `PageMode`, `PageLayout` | the catalog's `/PageMode` and `/PageLayout` names |
-| `Colorspace` | `GRAY`, `RGB` (CMYK when hayro or a conversion renders it) |
+| `Colorspace` | `GRAY`, `RGB`, `CMYK` (`CMYK` is a recoloring target; `page.pixmap()` and `doc.render()` refuse it until hayro renders CMYK) |
 | `BlendMode` | the sixteen blend modes of ISO 32000-2 §11.3.5 |
 | `FillRule`, `LineCap`, `LineJoin` | `NONZERO`, `EVEN_ODD`; `BUTT`, `ROUND`, `SQUARE`; `MITER`, `ROUND`, `BEVEL` |
 | `TextRenderMode` | `FILL`, `STROKE`, `FILL_STROKE`, `INVISIBLE` |
