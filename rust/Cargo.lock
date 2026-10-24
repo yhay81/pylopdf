@@ -986,10 +986,12 @@ dependencies = [
  "rten-tensor",
  "self_cell",
  "sha2",
+ "subsetter",
  "unicode-bidi",
  "unicode-linebreak",
  "unicode-segmentation",
  "windows-sys",
+ "write-fonts",
  "zune-jpeg",
 ]
 

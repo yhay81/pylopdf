@@ -81,7 +81,7 @@ from pylopdf._tables import (
     _markdown_table_output,
     _MarkdownBudget,
 )
-from pylopdf._types import Access, DocumentComplexity, ImageCompressionResult, Permissions
+from pylopdf._types import Access, DocumentComplexity, FontSubsetResult, ImageCompressionResult, Permissions
 from pylopdf.pylopdf_core import LimitError, PasswordError, PdfError, _Document, _DocumentSnapshot
 
 if sys.platform == "win32":
@@ -1413,6 +1413,42 @@ class Document:
             bytes_before=bytes_before,
             bytes_after=bytes_after,
             bytes_saved=bytes_before - bytes_after,
+        )
+
+    def subset_fonts(self) -> FontSubsetResult:
+        """Reduce embedded fonts to the glyphs that the document draws, and return what changed.
+
+        The walk follows the text state through every content stream that
+        can show text (page content, annotation appearances in every state,
+        Form XObjects with the font they inherit, tiling patterns, Type 3
+        glyph procedures, and soft masks) and collects the glyphs that each
+        embedded TrueType program (``FontFile2``) can draw, which
+        ``subsetter`` then cuts it down to. For a CID font under an
+        ``Identity-H`` or ``Identity-V`` ``Type0`` font, the font's
+        ``CIDToGIDMap`` points the same codes at the kept glyphs. For a
+        simple TrueType font, hayro itself resolves the codes that the
+        document shows, and the subset keeps a ``cmap`` with every mapping of
+        the original to a kept glyph. Content, widths, and ``ToUnicode`` stay
+        as they are, so extracted text and rendering do not change.
+
+        A program stays as it is when another kind of font shares it, when
+        the interactive form's default resources name one of its fonts
+        (a form fill could need any glyph), when a stream that could draw
+        with it does not decode or parse, when a font or descriptor that uses
+        it sits inside another object, or when the subset would not be
+        smaller. CFF programs are not subset yet. pymupdf's ``subset_fonts``
+        returns nothing; this returns a :class:`FontSubsetResult`.
+        """
+        self._ensure_open()
+        considered, subset, skipped, before, after = self._doc.subset_fonts()
+        self._emit_warnings()
+        return FontSubsetResult(
+            considered=considered,
+            subset=subset,
+            skipped=skipped,
+            bytes_before=before,
+            bytes_after=after,
+            bytes_saved=before - after,
         )
 
     def save(  # noqa: PLR0913 - one keyword per save option.

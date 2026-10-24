@@ -797,6 +797,10 @@ SAVE_MESSAGE = (
     "permissions=...); pylopdf writes AES-256 and AES-128 encryption only and has no clean, linear, ascii, or "
     "pretty option; incremental=True takes neither dedupe, renumber, object_streams, nor encryption."
 )
+SUBSET_MESSAGE = (
+    "subset_fonts() subsets the TrueType programs of Identity-encoded CID fonts and has no fallback; "
+    "it returns a FontSubsetResult."
+)
 UNLOCK_MESSAGE = (
     "unlock() returns Access.USER or Access.OWNER and raises PasswordError for a wrong password, "
     "where authenticate() returned 0, 1, 2, 4, or 6."
@@ -1015,6 +1019,17 @@ def _ez_save(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None
         migrator.todo(SAVE_MESSAGE)
         return None
     return f"{receiver}.save({', '.join([bound['filename'], *options])})"
+
+
+def _subset_fonts(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Drop pymupdf's ``verbose``; ``fallback=True`` asks for a manual review."""
+    bound = args.bind(("verbose", "fallback"))
+    if bound is None or not bound:
+        return None
+    if bound.get("fallback", "False") not in _FALSE:
+        migrator.todo(SUBSET_MESSAGE)
+        return None
+    return f"{receiver}.subset_fonts()"
 
 
 def _tobytes(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
@@ -1958,6 +1973,7 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "xref_stream_raw": _one_argument("xref", "{receiver}.objects[{value}].read(decode=False)"),
     "update_stream": _update_stream,
     "save": _save,
+    "subset_fonts": _subset_fonts,
     "ez_save": _ez_save,
     "journal_undo": _no_arguments("{receiver}.history.undo()"),
     "journal_redo": _no_arguments("{receiver}.history.redo()"),

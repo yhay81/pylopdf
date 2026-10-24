@@ -257,6 +257,7 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "doc.save('out.pdf', prune=False, object_streams=True)",
         ),
         ("import fitz\ndoc.save('out.pdf', incremental=False, deflate_images=True)\n", "doc.save('out.pdf')"),
+        ("import fitz\ndoc.subset_fonts(verbose=True)\n", "doc.subset_fonts()"),
         ("import fitz\ndoc.save(path, incremental=True, garbage=0)\n", "doc.save(path, prune=False, incremental=True)"),
         ("import fitz\ndoc.saveIncr()\n", "doc.save(doc.path, incremental=True)"),
         ("import fitz\ndoc.save(path, no_new_id=True)\n", "doc.save(path, keep_id=True)"),
@@ -1021,6 +1022,7 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import fitz\nfrom fitz import Story\n", "Use typst for HTML and CSS pagination"),
         ("import fitz.utils\n", "pylopdf has no fitz.utils module"),
         ("from fitz import Rect\nm.prerotate(90)\n", "pylopdf.Matrix(deg) * m"),
+        ("import fitz\ndoc.subset_fonts(fallback=True)\n", "has no fallback"),
         ("import fitz\ndoc.save(path, garbage=4, clean=True)\n", "has no clean, linear, ascii, or pretty"),
         ("import fitz\ndoc.save(path, garbage=3, incremental=True)\n", "incremental=True takes neither"),
         (

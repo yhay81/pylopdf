@@ -25,6 +25,12 @@ self_cell = "1.3.0"
 # write new documents. Raster images let new documents embed JPEG unchanged
 # and PNG through krilla; PDF import stays disabled because lopdf owns it.
 krilla = { version = "=0.8.2", default-features = false, features = ["raster-images"] }
+# Subset the TrueType programs of existing documents with the subsetter that
+# krilla already embeds, so the wheel gains no new crate.
+subsetter = "0.2.6"
+# Give a subset of a simple TrueType font back a cmap, with the write-fonts
+# and read-fonts versions that subsetter already compiles.
+write-fonts = { version = "0.48.1", features = ["read"] }
 # Shape Unicode text without krilla's deprecated rustybuzz/ttf-parser path.
 harfrust = "0.15.0"
 # Read vertical metrics from the same font model used by HarfRust.
