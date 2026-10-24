@@ -371,6 +371,15 @@ pub(super) fn page_id_from_index(page_ids: &[ObjectId], page_number: u32) -> PyR
         .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))
 }
 
+/// What `transplant_pages` returns: the imported page IDs in order, and the
+/// planned form, optional-content, and structure-tree imports.
+pub(super) type TransplantedPages = (
+    Vec<ObjectId>,
+    Option<AcroFormImport>,
+    Option<LayerImport>,
+    Option<StructureImport>,
+);
+
 impl _Document {
     /// Bound an explicit page batch, counting pages only above the floor.
     pub(super) fn check_page_entries(&self, entries: usize, verb: &str) -> PyResult<()> {
@@ -429,7 +438,7 @@ impl _Document {
         mut other_pages: Vec<ObjectId>,
         page_numbers: &[u32],
         pages_id: ObjectId,
-    ) -> PyResult<(Vec<ObjectId>, Option<AcroFormImport>, Option<LayerImport>)> {
+    ) -> PyResult<TransplantedPages> {
         let complete = page_numbers.len() == other_pages.len();
         let starting_id = self
             .doc
@@ -508,6 +517,17 @@ impl _Document {
                 .iter()
                 .flat_map(|(_, dict)| dict.iter().map(|(_, value)| value)),
         )?;
+        let structure_import = StructureImport::prepare(
+            &self.doc,
+            &mut other_doc,
+            &other_pages,
+            &imported_pages,
+            &mut resolved_pages,
+            new_max_id
+                .checked_add(1)
+                .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?,
+        )?;
+        let new_max_id = new_max_id + structure_import.as_ref().map_or(0, |plan| plan.used_ids);
         if let Some(form_import) = &form_import {
             form_import.reserve(&mut self.doc)?;
         }
@@ -526,7 +546,7 @@ impl _Document {
         }
 
         self.doc.max_id = new_max_id;
-        Ok((ordered_ids, form_import, layer_import))
+        Ok((ordered_ids, form_import, layer_import, structure_import))
     }
 
     /// Return current pages with `new_ids` inserted at zero-based `position`.
@@ -675,7 +695,7 @@ pub(super) fn merge_pages(
     py.detach(|| {
         // Reserve Pages/Catalog IDs in an empty target to avoid source collisions.
         let pages_id = this.ensure_page_tree().map_err(to_py_err)?;
-        let (new_ids, form_import, layer_import) =
+        let (new_ids, form_import, layer_import, structure_import) =
             this.transplant_pages(other, source_pages, &page_numbers, pages_id)?;
         this.invalidate_hayro_pdf_keeping_placements();
         let order = _Document::spliced_page_order(existing_pages, new_ids, position)?;
@@ -685,6 +705,9 @@ pub(super) fn merge_pages(
         }
         if let Some(layer_import) = layer_import {
             layer_import.apply(&mut this.doc);
+        }
+        if let Some(structure_import) = structure_import {
+            structure_import.apply(&mut this.doc);
         }
         // transplant_pages initially moves all non-page objects. Prune
         // attachments/metadata unreachable from selected pages or hidden

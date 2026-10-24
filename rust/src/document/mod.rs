@@ -56,6 +56,7 @@ use crate::prune::{prune_unreachable_objects, reachable_object_ids};
 use crate::read_depth::{self, MAX_READ_DEPTH};
 use crate::recovery::{self, XrefRecovery};
 use crate::renumber::renumber_objects;
+use crate::structure_import::StructureImport;
 use crate::structure_prune::StructurePagePrune;
 use crate::text_replace::{self, TextReplacementError};
 use crate::unallocated::normalize_object_numbers;

@@ -1854,6 +1854,40 @@ def _imported_layer_states(source: Any) -> list[list[Any]]:  # noqa: ANN401 - py
     return [[layer.name, layer.is_visible] for layer in target.layers]
 
 
+def _structure_import_results() -> dict[str, Any]:
+    """Import a tagged page into a tagged document and read the merged structure tree."""
+    import pylopdf  # noqa: PLC0415
+
+    def tagged(text: str) -> bytes:
+        content = f"/P <</MCID 0>> BDC BT /F1 12 Tf 20 150 Td ({text}) Tj ET EMC"
+        return _build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                3: (
+                    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /StructParents 0 "
+                    "/Resources << /Font << /F1 5 0 R >> >> >>"
+                ),
+                4: f"<< /Length {len(content)} >>\nstream\n{content}\nendstream",
+                5: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+                6: "<< /Type /StructTreeRoot /K 7 0 R /ParentTree << /Nums [0 [8 0 R]] >> /ParentTreeNextKey 1 >>",
+                7: "<< /Type /StructElem /S /Document /P 6 0 R /K [8 0 R] >>",
+                8: "<< /Type /StructElem /S /P /P 7 0 R /Pg 3 0 R /K 0 >>",
+            }
+        )
+
+    target = pylopdf.open(tagged("Own"))
+    target.pages.extend(pylopdf.open(tagged("Imported")).pages)
+    saved = pylopdf.open(target.to_bytes())
+    document = saved.catalog["StructTreeRoot"]["K"]
+    return {
+        "keys": [page.obj["StructParents"] for page in saved.pages],
+        "next_key": saved.catalog["StructTreeRoot"]["ParentTreeNextKey"],
+        "kids": [str(kid["S"]) for kid in document["K"]],
+        "pages": [kid["Pg"].xref == page.xref for kid, page in zip(document["K"], saved.pages, strict=True)],
+    }
+
+
 def _document_property_results(root: Path) -> dict[str, Any]:
     """Read and write XMP metadata and the catalog's viewer and marking properties."""
     import pylopdf  # noqa: PLC0415
@@ -2123,6 +2157,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "document_properties": _document_property_results(root),
         "remove_rotation": _remove_rotation_results(),
         "open_document_tags": _open_document_tag_results(),
+        "structure_import": _structure_import_results(),
         "attachments": _attachment_results(),
         "paper_and_dates": _paper_and_date_results(),
         "content_model": _content_model_results(root),

@@ -142,8 +142,9 @@ def test_dedupe_merges_duplicates_and_renumber_keeps_the_count() -> None:
     assert counts["renumber"] == counts["prune"]
     assert counts["dedupe"] < counts["prune"]
     # Merging removes the second copy of every font program, so the output
-    # falls well below twice the size of one copy.
-    assert sizes["dedupe"] < sizes["prune"] * 0.6
+    # falls well below twice the size of one copy; each copy keeps its own
+    # structure elements, which pylopdf never merges.
+    assert sizes["dedupe"] < sizes["prune"] * 0.8
 
 
 def test_merging_follows_chains_of_equal_objects() -> None:
