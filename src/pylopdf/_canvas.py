@@ -1164,7 +1164,7 @@ class Canvas:
         scope: TableHeaderScope | str | None = None,
         numbering: ListNumbering | str | None = None,
     ) -> AbstractContextManager[None]:
-        """Make what the block draws a structure element of a tagged new document.
+        """Make what the block draws a structure element of the document.
 
         Scopes nest into the structure tree, in the order of the calls, and
         each line of text inside one is a span of it. :attr:`TagRole.ARTIFACT`
@@ -1177,12 +1177,17 @@ class Canvas:
         column by default, and ``numbering`` how a :attr:`TagRole.LIST`
         numbers its items, with none by default; other roles take neither.
         Elements cannot span pages.
+
+        On a page of an open document, the elements join the document's
+        structure tree, created when it has none, under its ``Document``
+        element when the tree has a single one: the canvas's Form XObject
+        gets a ``/StructParents`` key of its own, and each element names its
+        marked content in that Form. Drawing on a tagged document outside
+        every tag scope is marked as an artifact, so the document stays
+        tagged. A tag scope cannot start inside an :meth:`opacity` scope there.
         """
         self._check_open()
-        if self._builder is None:
-            msg = "tag() builds the structure tree of a new document; tagging an open document is not supported yet"
-            raise ValueError(msg)
-        if not self._builder.tagged:
+        if self._builder is not None and not self._builder.tagged:
             msg = "tag() needs a tagged document: pass tagged=True, or a standard that requires tagging, to create()"
             raise ValueError(msg)
         try:
