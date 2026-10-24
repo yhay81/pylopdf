@@ -251,3 +251,5 @@ def parse_pdf_date(text: str) -> datetime:
 # The package re-exports these names; reprs, pickles, and documentation name them.
 for _public in (Metadata, PageMode, PageLayout, MarkInfo, PdfaClaim):
     _public.__module__ = "pylopdf"
+for _function in (pdf_date, parse_pdf_date):
+    _function.__module__ = "pylopdf"
