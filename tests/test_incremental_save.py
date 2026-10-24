@@ -28,8 +28,11 @@ def _written(update: bytes) -> set[int]:
 
 
 def _xref_stream_number(update: bytes) -> int | None:
-    found = re.search(rb"(?m)^(\d+) 0 obj\s*<<[^>]*/Type\s*/XRef", update)
-    return None if found is None else int(found.group(1))
+    for found in OBJECT_HEADER.finditer(update):
+        body = update[found.end() : update.index(b"endobj", found.end())]
+        if re.search(rb"/Type\s*/XRef", body):
+            return int(found.group(1))
+    return None
 
 
 def _objects_of(update: bytes) -> set[int]:

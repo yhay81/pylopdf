@@ -129,7 +129,11 @@ struct Update {
 
 impl Update {
     /// Compare `current` with `baseline`; `None` when nothing changed.
-    fn plan(current: &Document, baseline: &Document, compress: bool) -> PyResult<Option<Self>> {
+    fn plan(
+        current: &Document,
+        baseline: &Document,
+        compress: Option<u32>,
+    ) -> PyResult<Option<Self>> {
         let mut objects = Vec::new();
         for (&id, object) in &current.objects {
             if baseline
@@ -140,14 +144,13 @@ impl Update {
                 continue;
             }
             let mut object = object.clone();
-            if compress
+            if let Some(level) = compress
                 && let Object::Stream(stream) = &mut object
                 && stream.allows_compression
-                && stream.dict.get(b"Filter").is_err()
             {
                 // As a full save does, keep the data as it is when Flate
                 // output would not be smaller.
-                let _ = stream.compress();
+                saving::flate_compress(stream, level);
             }
             objects.try_reserve(1).map_err(allocation_err)?;
             objects.push((id, object));
@@ -197,7 +200,8 @@ impl _Document {
 pub(super) fn write_incremental<W: Write>(
     this: &_Document,
     target: &mut W,
-    compress: bool,
+    compress: Option<u32>,
+    renew_id: bool,
 ) -> PyResult<()> {
     let base = this.incremental_base()?;
     let mut baseline = base.baseline()?;
@@ -239,6 +243,7 @@ pub(super) fn write_incremental<W: Write>(
     prefix.extend_from_slice(&base.bytes);
     // `create_from` reads the trailer, cross-reference type, and highest
     // object number of the baseline; the objects themselves are not needed.
+    let baseline_max_id = baseline.max_id;
     baseline.objects.clear();
     let mut incremental = IncrementalDocument::create_from(prefix, baseline);
     let prev = incremental.new_document.trailer.get(b"Prev").ok().cloned();
@@ -246,8 +251,26 @@ pub(super) fn write_incremental<W: Write>(
     if let Some(prev) = prev {
         trailer.set("Prev", prev);
     }
+    if renew_id && !update.objects.is_empty() {
+        // ISO 32000-2 §14.4: an update keeps the first element and renews
+        // the second, here a digest of the content as for a full save.
+        let fresh = Object::String(
+            saving::content_digest(&this.doc).to_vec(),
+            StringFormat::Hexadecimal,
+        );
+        match trailer.get_mut(b"ID") {
+            Ok(Object::Array(items))
+                if items.len() == 2
+                    && items.iter().all(|item| matches!(item, Object::String(..))) =>
+            {
+                items[1] = fresh;
+            }
+            _ => trailer.set("ID", Object::Array(vec![fresh.clone(), fresh])),
+        }
+    }
     incremental.new_document.trailer = trailer;
-    incremental.new_document.max_id = this.doc.max_id;
+    // The update's /Size covers the earlier sections too.
+    incremental.new_document.max_id = this.doc.max_id.max(baseline_max_id);
     for (id, object) in update.objects {
         incremental.new_document.objects.insert(id, object);
     }
@@ -261,13 +284,14 @@ pub(super) fn save_incremental(
     this: &_Document,
     py: Python<'_>,
     path: &str,
-    compress: bool,
+    compress: Option<u32>,
+    renew_id: bool,
 ) -> PyResult<()> {
     py.detach(|| {
         let file = std::fs::File::create(path)
             .map_err(|e| PdfError::new_err(format!("failed to save {path}: {e}")))?;
         let mut writer = std::io::BufWriter::new(file);
-        write_incremental(this, &mut writer, compress)
+        write_incremental(this, &mut writer, compress, renew_id)
             .map_err(|e| PdfError::new_err(format!("failed to save {path}: {e}")))?;
         writer
             .into_inner()
@@ -280,7 +304,8 @@ pub(super) fn save_incremental(
 pub(super) fn save_bytes_incremental(
     this: &_Document,
     py: Python<'_>,
-    compress: bool,
+    compress: Option<u32>,
+    renew_id: bool,
     max_size: Option<usize>,
 ) -> PyResult<Vec<u8>> {
     if max_size == Some(0) {
@@ -290,7 +315,7 @@ pub(super) fn save_bytes_incremental(
     }
     py.detach(|| {
         let mut output = BoundedPdfOutput::new(max_size);
-        let result = write_incremental(this, &mut output, compress);
+        let result = write_incremental(this, &mut output, compress, renew_id);
         if output.exceeded {
             let limit = max_size.expect("an output can exceed only a configured limit");
             return Err(limit_err(

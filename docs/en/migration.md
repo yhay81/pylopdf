@@ -78,6 +78,7 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `doc.saveIncr()`, `doc.save(name, incremental=True)` | `doc.save(path, incremental=True)` | Any path, including the file the document came from; refuses `dedupe`, `renumber`, `object_streams`, and `encryption` |
 | `doc.can_save_incrementally()` | `doc.can_save_incrementally` | A property |
 | `doc.ez_save(path)` | `doc.save(path, dedupe=True, renumber=True, object_streams=True)` | |
+| `doc.save(no_new_id=True)`, `expand=255`, `compression_effort=n` | `doc.save(keep_id=True)`, `decompress=True, compress=False`, `compression_level=…` | `compression_level` is zlib's 0 to 9 where `compression_effort` was 0 to 100 |
 | `doc.journal_enable()`, `journal_start_op(name)` … `journal_stop_op()` | `with doc.transaction(name):` | Always available; a block that raises is undone |
 | `doc.journal_undo()`, `journal_redo()`, `journal_can_do()` | `doc.history.undo()`, `redo()`, `can_undo`, `can_redo` | |
 | `doc.journal_position()`, `journal_op_name(i)` | `doc.history.position`, `doc.history.steps[i]` | |

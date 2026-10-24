@@ -4,13 +4,49 @@ use super::*;
 
 /// Save options enabling object and xref streams.
 ///
-/// Keep ObjectStreamConfig defaults: 100 objects and compression level 6.
-pub(super) fn modern_save_options() -> SaveOptions {
-    SaveOptions {
+/// Object streams keep lopdf's 100 objects each and take the Flate
+/// `compression_level` of the other streams.
+pub(super) fn modern_save_options(compression_level: u32) -> SaveOptions {
+    let mut options = SaveOptions {
         use_object_streams: true,
         use_xref_streams: true,
         ..Default::default()
+    };
+    options.object_stream_config.compression_level = compression_level;
+    options
+}
+
+/// Flate-compress a stream without a filter at `level` (0 to 9), keeping it
+/// as it is unless the output is smaller by more than the 19 bytes that
+/// `/Filter /FlateDecode` adds, as lopdf's `Stream::compress` decides.
+pub(super) fn flate_compress(stream: &mut Stream, level: u32) {
+    use flate2::Compression;
+    use flate2::write::ZlibEncoder;
+
+    if stream.dict.get(b"Filter").is_ok() {
+        return;
     }
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::new(level));
+    let Ok(compressed) = encoder
+        .write_all(&stream.content)
+        .and_then(|()| encoder.finish())
+    else {
+        return;
+    };
+    if compressed.len() + 19 < stream.content.len() {
+        stream.dict.set("Filter", "FlateDecode");
+        stream.set_content(compressed);
+    }
+}
+
+/// Validate a zlib compression level from Python.
+pub(super) fn compression_level_checked(level: u32) -> PyResult<u32> {
+    if level > 9 {
+        return Err(PyValueError::new_err(format!(
+            "compression_level must be from 0 through 9: {level}"
+        )));
+    }
+    Ok(level)
 }
 
 /// A serialization sink that refuses the write crossing one byte budget.
@@ -75,6 +111,7 @@ pub(super) fn write_pdf_stably<W: Write>(
 ) -> std::io::Result<()> {
     let max_id = document.max_id;
     let trailer = document.trailer.clone();
+    document.max_id = crate::prune::output_max_id(document);
     let result = match options {
         Some(options) => document.save_with_options(target, options),
         None => document.save_to(target),
@@ -254,10 +291,12 @@ pub(super) fn save_with_object_streams(
     this: &mut _Document,
     py: Python<'_>,
     path: &str,
+    compression_level: u32,
 ) -> PyResult<()> {
+    let options = modern_save_options(compression_level_checked(compression_level)?);
     this.invalidate_hayro_pdf_keeping_placements();
     py.detach(|| {
-        write_pdf_file_stably(&mut this.doc, path, Some(modern_save_options()))
+        write_pdf_file_stably(&mut this.doc, path, Some(options))
             .map_err(|e| PdfError::new_err(format!("failed to save {path}: {e}")))
     })
 }
@@ -271,9 +310,7 @@ pub(super) fn save_encrypted(
 ) -> PyResult<()> {
     py.detach(|| {
         let mut cloned = this.encrypted_clone(request)?;
-        cloned
-            .save(path)
-            .map(|_| ())
+        write_pdf_file_stably(&mut cloned, path, None)
             .map_err(|e| PdfError::new_err(format!("failed to save {path}: {e}")))
     })
 }
@@ -297,7 +334,7 @@ fn compressible(object: &Object) -> bool {
 }
 
 /// Implements [`_Document::compress`].
-pub(super) fn compress(this: &mut _Document, py: Python<'_>) {
+pub(super) fn compress(this: &mut _Document, py: Python<'_>, level: u32) {
     // Reading first keeps the page index when there is nothing to compress.
     if !this.doc.objects.values().any(compressible) {
         return;
@@ -312,7 +349,7 @@ pub(super) fn compress(this: &mut _Document, py: Python<'_>) {
                 // As in lopdf's Document::compress, a failure leaves the
                 // stream as it was, and so does Flate output that is not
                 // smaller.
-                let _ = stream.compress();
+                flate_compress(stream, level);
                 changed |= stream.dict.has(b"Filter");
             }
         }
@@ -373,4 +410,163 @@ pub(super) fn collect_garbage(
             .collect();
     }
     Ok(())
+}
+
+/// Implements [`_Document::set_cross_reference`].
+///
+/// lopdf writes the cross-reference data in the form that the document
+/// records; a cross-reference stream needs PDF 1.5.
+pub(super) fn set_cross_reference(this: &mut _Document, form: &str) -> PyResult<()> {
+    use lopdf::xref::XrefType;
+
+    let stream = match form {
+        "table" => false,
+        "stream" => true,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "cross_reference must be 'table' or 'stream': {other:?}"
+            )));
+        }
+    };
+    let current = matches!(
+        this.doc.reference_table.cross_reference_type,
+        XrefType::CrossReferenceStream
+    );
+    if current == stream {
+        return Ok(());
+    }
+    let doc: &mut Document = &mut this.doc;
+    doc.reference_table.cross_reference_type = if stream {
+        XrefType::CrossReferenceStream
+    } else {
+        // lopdf 0.46 keeps the stream entries of a cross-reference stream
+        // in the trailer and writes a table's trailer as it is
+        // (J-F-Liu/lopdf#633 removes them on lopdf main).
+        for key in [
+            &b"Type"[..],
+            b"W",
+            b"Index",
+            b"Length",
+            b"Filter",
+            b"DecodeParms",
+            b"XRefStm",
+        ] {
+            doc.trailer.remove(key);
+        }
+        XrefType::CrossReferenceTable
+    };
+    if stream && doc.version.as_str() < "1.5" {
+        doc.version = "1.5".to_owned();
+    }
+    Ok(())
+}
+
+/// Return a digest of every object and of the trailer without `/ID`.
+///
+/// Identical content gives the identifier that ISO 32000-2 §14.4 suggests
+/// computing with a message digest, so saving the same document twice
+/// writes the same bytes. Each value writes a tag and, for containers and
+/// byte strings, a length before its parts, so different structures never
+/// feed the same bytes.
+pub(super) fn content_digest(doc: &Document) -> [u8; 16] {
+    use sha2::{Digest, Sha256};
+
+    fn feed<'a>(hasher: &mut Sha256, stack: &mut Vec<&'a Object>, object: &'a Object) {
+        let tagged = |hasher: &mut Sha256, tag: u8, bytes: &[u8]| {
+            hasher.update([tag]);
+            hasher.update((bytes.len() as u64).to_le_bytes());
+            hasher.update(bytes);
+        };
+        match object {
+            Object::Null => hasher.update(b"n"),
+            Object::Boolean(value) => hasher.update(if *value { b"t" } else { b"f" }),
+            Object::Integer(value) => {
+                hasher.update(b"i");
+                hasher.update(value.to_le_bytes());
+            }
+            Object::Real(value) => {
+                hasher.update(b"r");
+                hasher.update(value.to_le_bytes());
+            }
+            Object::Name(name) => tagged(hasher, b'/', name),
+            Object::String(bytes, _) => tagged(hasher, b's', bytes),
+            Object::Reference((number, generation)) => {
+                hasher.update(b"R");
+                hasher.update(number.to_le_bytes());
+                hasher.update(generation.to_le_bytes());
+            }
+            Object::Array(items) => {
+                hasher.update(b"a");
+                hasher.update((items.len() as u64).to_le_bytes());
+                stack.extend(items.iter().rev());
+            }
+            Object::Dictionary(dict) => feed_dictionary(hasher, stack, dict),
+            Object::Stream(stream) => {
+                tagged(hasher, b'S', &stream.content);
+                feed_dictionary(hasher, stack, &stream.dict);
+            }
+        }
+    }
+
+    fn feed_dictionary<'a>(hasher: &mut Sha256, stack: &mut Vec<&'a Object>, dict: &'a Dictionary) {
+        hasher.update(b"d");
+        hasher.update((dict.len() as u64).to_le_bytes());
+        // Values come off the stack after every key, in reverse, so the
+        // keys go first and the values follow in order.
+        for (key, _) in dict.iter() {
+            hasher.update((key.len() as u64).to_le_bytes());
+            hasher.update(key);
+        }
+        stack.extend(dict.iter().rev().map(|(_, value)| value));
+    }
+
+    let mut hasher = Sha256::new();
+    let mut stack: Vec<&Object> = Vec::new();
+    for (&(number, generation), object) in &doc.objects {
+        hasher.update(number.to_le_bytes());
+        hasher.update(generation.to_le_bytes());
+        stack.push(object);
+        while let Some(object) = stack.pop() {
+            feed(&mut hasher, &mut stack, object);
+        }
+    }
+    let mut trailer = doc.trailer.clone();
+    trailer.remove(b"ID");
+    let trailer = Object::Dictionary(trailer);
+    stack.push(&trailer);
+    while let Some(object) = stack.pop() {
+        feed(&mut hasher, &mut stack, object);
+    }
+    let digest = hasher.finalize();
+    let mut id = [0u8; 16];
+    id.copy_from_slice(&digest[..16]);
+    id
+}
+
+/// Implements [`_Document::prepare_document_id`].
+///
+/// ISO 32000-2 §14.4: the first element identifies the document for good,
+/// and the second changes whenever the file is updated. A missing or
+/// malformed `/ID` becomes `[id id]`; `renew` replaces the second element.
+/// The new element is a digest of the content, so the same content gets
+/// the same identifier.
+pub(super) fn prepare_document_id(this: &mut _Document, py: Python<'_>, renew: bool) {
+    let well_formed = matches!(
+        this.doc.trailer.get(b"ID"),
+        Ok(Object::Array(items))
+            if items.len() == 2 && items.iter().all(|item| matches!(item, Object::String(..)))
+    );
+    if well_formed && !renew {
+        return;
+    }
+    let doc: &Document = &this.doc;
+    let digest = py.detach(|| content_digest(doc));
+    let fresh = Object::String(digest.to_vec(), StringFormat::Hexadecimal);
+    let doc: &mut Document = &mut this.doc;
+    if !well_formed {
+        doc.trailer
+            .set("ID", Object::Array(vec![fresh.clone(), fresh]));
+    } else if let Ok(Object::Array(items)) = doc.trailer.get_mut(b"ID") {
+        items[1] = fresh;
+    }
 }

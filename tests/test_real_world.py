@@ -625,7 +625,11 @@ def test_recovered_pdf_avoids_slow_initial_reserialization() -> None:
     elapsed = time.perf_counter() - start
 
     assert elapsed < 5.0, f"saving took {elapsed:.2f}s"
-    assert b"/Size 2455" in saved
+    # The cross-reference data ends at the highest object that saving keeps.
+    size = re.findall(rb"/Size (\d+)", saved)
+    highest = max(int(number) for number in re.findall(rb"(?m)^(\d+) 0 obj", saved))
+    assert [int(value) for value in size] == [highest + 1]
+    assert highest < 2455
 
 
 @pytest.mark.parametrize("filter_name", ["FlateDecode", "Fl"])
