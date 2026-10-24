@@ -1074,6 +1074,8 @@ TEXT_OPTIONS = {
     "blocks": ("layout", (), ".blocks"),
     "dict": ("layout", (), ".to_dict()"),
     "rawdict": ("layout", ("chars=True",), ".to_dict()"),
+    "html": ("layout", (), ".to_html()"),
+    "xml": ("layout", ("chars=True",), ".to_xml()"),
 }
 RECORD_MESSAGES = {
     "words": "page.words() returns Word records with text, bbox, block, line, and index instead of tuples.",

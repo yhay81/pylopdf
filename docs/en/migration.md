@@ -124,8 +124,9 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `page.get_text()`, `get_text("text")` | `page.text()` | |
 | `page.get_text("words")` | `page.words()` | `Word` records with `text`, `bbox`, `block`, `line`, and `index` instead of tuples |
 | `page.get_text("blocks")` | `page.layout().blocks` | `Block` records with `text`, `bbox`, and `lines` instead of tuples |
-| `page.get_text("dict")`, `get_text("rawdict")` | `page.layout().to_dict()`, `page.layout(chars=True).to_dict()` | The same dictionaries; `page.layout()` itself returns records. No `html` or `xml` |
+| `page.get_text("dict")`, `get_text("rawdict")` | `page.layout().to_dict()`, `page.layout(chars=True).to_dict()` | The same dictionaries; `page.layout()` itself returns records |
 | `page.get_text("json")`, `get_text("rawjson")` | `json.dumps(page.layout().to_dict())`, `json.dumps(page.layout(chars=True).to_dict())` | |
+| `page.get_text("html")`, `get_text("xml")` | `page.layout().to_html()`, `page.layout(chars=True).to_xml()` | One page each; no `ConversionHeader` or `ConversionTrailer` |
 | `page.get_text("xhtml")` | `page.markdown()` | The semantic form of headings, paragraphs, lists, and tables |
 | `page.get_textpage()`, `TextPage`, `page.extend_textpage()` | The page's own `text()`, `words()`, `layout()`, and `search()` | There is no text-page object: each page caches its interpretation, which every view reads |
 | `doc.search_page_for(i, text)` | `doc.pages[i].search(text)` | |

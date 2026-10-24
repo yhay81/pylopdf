@@ -6615,6 +6615,30 @@
             "returns": "dict[str, Any]"
           }
         },
+        "to_html": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "str"
+          }
+        },
+        "to_xml": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "str"
+          }
+        },
         "width": {
           "kind": "property"
         }

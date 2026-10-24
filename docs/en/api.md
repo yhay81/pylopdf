@@ -771,6 +771,15 @@ span's characters join to its text. Glyphs that have no Unicode mapping in
 the PDF are skipped with a `PylopdfWarning` unless `unmapped=` asks for a
 placeholder.
 
+`layout.to_html()` returns a positioned HTML fragment, one `<div>` the size
+of the page with an absolutely placed `<p>` per line, turned along its
+baseline, and a `<span>` per span in its font, size, weight, style, and
+color; invisible text keeps its place with `opacity:0`. `layout.to_xml()`
+returns a `<page>` of `<block>`, `<line>`, and `<font>` elements, with a
+`<char>` per character, inferred spaces marked `synthetic="1"`, when the
+layout holds characters. Both serialize one page; join pages under a root of
+your own.
+
 `layout.to_dict()` returns plain dictionaries for JSON, in the shape of
 [pymupdf's dict, or its rawdict for a layout with characters](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs),
 with text blocks only, without image or vector blocks. Spans have pymupdf's

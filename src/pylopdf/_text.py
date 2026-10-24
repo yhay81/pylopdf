@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from html import escape
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypeAlias, TypedDict
 
 from pylopdf._content import Color, TextRenderMode
@@ -237,6 +238,123 @@ class Layout:
                 for number, block in enumerate(self.blocks)
             ],
         }
+
+    def to_html(self) -> str:
+        """Return the layout as a positioned HTML fragment, as pymupdf's ``"html"`` output.
+
+        The fragment is one ``<div>`` the size of the page, in points, with one
+        absolutely positioned ``<p>`` per line at the top-left corner of its
+        box, turned along its baseline, and one ``<span>`` per span in its
+        font family, size, weight, style, and color. Invisible text keeps its
+        place with ``opacity:0``. Pages join into a document inside
+        ``<html><body>``; the semantic counterpart is :meth:`Page.markdown`.
+        """
+        parts = [f'<div style="position:relative;width:{_pt(self.width)};height:{_pt(self.height)}">']
+        parts.extend(_html_line(line) for block in self.blocks for line in block.lines)
+        parts.append("</div>\n")
+        return "\n".join(parts)
+
+    def to_xml(self) -> str:
+        """Return the layout as XML, as pymupdf's ``"xml"`` output.
+
+        A ``<page>`` holds ``<block>``, ``<line>``, and ``<font>`` elements
+        with their boxes, writing mode, baseline direction, and font, size,
+        and color. A layout with characters gives one ``<char>`` per
+        character with its box, origin, and text, and marks
+        inferred spaces with ``synthetic="1"``; a layout without characters
+        gives each span's text.
+        """
+        parts = [f'<page width="{_num(self.width)}" height="{_num(self.height)}">']
+        for block in self.blocks:
+            parts.append(f'<block bbox="{_nums(block.bbox)}">')
+            for line in block.lines:
+                parts.append(
+                    f'<line bbox="{_nums(line.bbox)}" wmode="{int(line.is_vertical)}" dir="{_nums(line.direction)}">'
+                )
+                parts.extend(_xml_span(span) for span in line.spans)
+                parts.append("</line>")
+            parts.append("</block>")
+        parts.append("</page>\n")
+        return "\n".join(parts)
+
+
+def _num(value: float) -> str:
+    """Return a coordinate with at most three decimals and no trailing zeros."""
+    text = f"{value:.3f}".rstrip("0").rstrip(".")
+    return "0" if text == "-0" else text
+
+
+def _nums(values: Sequence[float]) -> str:
+    return " ".join(_num(value) for value in values)
+
+
+def _pt(value: float) -> str:
+    return f"{_num(value)}pt"
+
+
+def _hex(color: Color | None) -> str:
+    """Return a color as ``#rrggbb``; text without a color paint is black."""
+    if color is None:
+        return "#000000"
+    return f"#{_srgb(color.red):02x}{_srgb(color.green):02x}{_srgb(color.blue):02x}"
+
+
+def _html_line(line: Line) -> str:
+    """Return one line of :meth:`Layout.to_html`."""
+    style = f"position:absolute;margin:0;white-space:pre;left:{_pt(line.bbox.x0)};top:{_pt(line.bbox.y0)}"
+    if line.is_vertical:
+        style += ";writing-mode:vertical-rl"
+    elif line.direction != (1, 0):
+        # Turn the line about the start of its quad, along its baseline.
+        ul = line.quad.ul
+        angle = math.degrees(math.atan2(line.direction.y, line.direction.x))
+        style = (
+            f"position:absolute;margin:0;white-space:pre;left:{_pt(ul.x)};top:{_pt(ul.y)};"
+            f"transform-origin:0 0;transform:rotate({_num(angle)}deg)"
+        )
+    spans = "".join(_html_span(span) for span in line.spans)
+    return f'<p style="{style}">{spans}</p>'
+
+
+def _html_span(span: Span) -> str:
+    """Return one span of :meth:`Layout.to_html`."""
+    family = "serif" if span.is_serif else "monospace" if span.is_monospaced else "sans-serif"
+    font = f"&quot;{escape(span.font)}&quot;,{family}" if span.font else family
+    style = f"font-family:{font};font-size:{_pt(span.size)};line-height:1;color:{_hex(span.color)}"
+    if span.is_bold:
+        style += ";font-weight:bold"
+    if span.is_italic:
+        style += ";font-style:italic"
+    if span.render_mode is TextRenderMode.INVISIBLE:
+        style += ";opacity:0"
+    elif span.color is not None and span.color.alpha < 1:
+        style += f";opacity:{_num(span.color.alpha)}"
+    return f'<span style="{style}">{escape(span.text, quote=False)}</span>'
+
+
+_SYNTHETIC = ' synthetic="1"'
+
+
+def _xml_span(span: Span) -> str:
+    """Return one span of :meth:`Layout.to_xml` as a ``<font>`` element."""
+    flags = (
+        (_ITALIC if span.is_italic else 0)
+        | (_SERIF if span.is_serif else 0)
+        | (_MONOSPACED if span.is_monospaced else 0)
+        | (_BOLD if span.is_bold else 0)
+    )
+    head = (
+        f'<font name="{escape(span.font)}" size="{_num(span.size)}" flags="{flags}" color="{_hex(span.color)}" '
+        f'bbox="{_nums(span.bbox)}">'
+    )
+    if not span.chars:
+        return f"{head}{escape(span.text, quote=False)}</font>"
+    chars = "".join(
+        f'<char bbox="{_nums(char.bbox)}" x="{_num(char.origin.x)}" y="{_num(char.origin.y)}" '
+        f'c="{escape(char.text)}"{_SYNTHETIC if char.is_synthetic else ""}/>'
+        for char in span.chars
+    )
+    return f"{head}{chars}</font>"
 
 
 def _span_dict(span: Span) -> dict[str, Any]:
