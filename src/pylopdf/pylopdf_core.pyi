@@ -797,7 +797,10 @@ class _Document:
         text: bool,
         images: str,
         graphics: str,
+        clip: tuple[float, float, float, float] | None = ...,
     ) -> tuple[list[tuple[float, float, float, float]], int, int, int, int, int, int, int]: ...
+    def clean_page_contents(self, page_number: int) -> None: ...
+    def clean_annotation_contents(self, page_number: int, index: int, xref: int) -> None: ...
     def sanitize(
         self,
         scripts: bool,

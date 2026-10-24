@@ -1112,6 +1112,25 @@ def _sanitize_results() -> dict[str, Any]:
         }
 
 
+def _cleaning_results() -> dict[str, Any]:
+    """Clean a page's content and clip a page to a rectangle."""
+    import pylopdf  # noqa: PLC0415
+
+    with pylopdf.Document() as document:
+        page = document.pages.new((300, 200))
+        with page.draw() as canvas:
+            canvas.text("Left", (20, 50), font=pylopdf.Font.standard("Helvetica"), size=14)
+            canvas.text("Right", (200, 50), font=pylopdf.Font.standard("Helvetica"), size=14)
+        page.clean_contents()
+        cleaned = [op.operator for op in page.operations]
+        report = page.clip_to_rect(pylopdf.Rect(0, 0, 150, 200))
+        return {
+            "balanced": cleaned.count("q") == cleaned.count("Q"),
+            "glyphs": report.glyphs,
+            "text": page.text().split(),
+        }
+
+
 def _widget_results() -> dict[str, Any]:
     """Read form widgets, restyle them, and draw their values again."""
     import pylopdf  # noqa: PLC0415
@@ -2032,6 +2051,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "operations": _operations_results(),
         "redaction": _redaction_results(),
         "sanitize": _sanitize_results(),
+        "cleaning": _cleaning_results(),
         "ocr_layer": _ocr_layer_results(),
         "object_model": _object_model_results(),
         "optional_content": _optional_content_results(),

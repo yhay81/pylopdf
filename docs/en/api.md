@@ -510,6 +510,8 @@ page.rotation = 90
 | `draw(*, underlay=False)` | A [canvas](#canvas) that draws text, lines, rectangles, and other paths, images, and pages of any document in order; see [Writing text](#writing-text) |
 | `replace_text(search, replacement, *, default_char=None)` | Replace text drawn in simple (single-byte) fonts |
 | `operations` | The page's content as [operations](#operations); assignable |
+| `clean_contents()` | Write the content as one stream of normalized, balanced operations and drop unused resources; see [Content operations](#operations) |
+| `clip_to_rect(rect)` | Remove what lies outside a rectangle and clip the content to it; see [Redaction](#redaction) |
 | `redact(areas=None, *, text="remove", images="pixels", graphics="touched", fill=Color(0, 0, 0))` | Remove what redaction annotations or areas cover; see [Redaction](#redaction) |
 
 The same image or page drawn again is stored once in the file.
@@ -852,6 +854,12 @@ doc.save("redacted.pdf")   # a full save; see below
   attachments, bookmarks, and the structure tree can hold the same text
   elsewhere in the file.
 
+`page.clip_to_rect(rect)` removes what lies outside a rectangle with the
+same machinery: glyphs that reach outside it, the image pixels outside it,
+the paths and shadings entirely outside it, and the annotations outside it,
+and then clips the content to it, so what crosses its edge shows only inside.
+It returns a `RedactionReport` as well.
+
 | `RedactionReport` field | Counts |
 |---|---|
 | `areas` | The applied areas, in display space |
@@ -938,6 +946,12 @@ Operands are object-model values: `None`, `bool`, `int`, `float`, `Name`,
 - hayro stops reading content at an operation it cannot read, such as one
   with more than ten operands. The rest stays in `tail`, which `to_bytes()`
   writes last; a list of operations has no tail.
+- `page.clean_contents()` writes the content as one stream from the
+  operations' values: comments, content after where the renderer stops, and
+  `Q` operators that restore nothing go, the states left saved are restored
+  at the end, and resource entries that nothing names go from a copy the
+  page owns. `annotation.clean_contents()` does the same for each appearance
+  stream of an annotation, in place. Rendering and extraction do not change.
 - `page.operations` reads and writes at most 64 MiB of content and reads at
   most 1,048,576 operations; `Operations.parse(data, max_size=None,
   max_operations=None)` lifts both for trusted content.

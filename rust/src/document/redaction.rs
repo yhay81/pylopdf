@@ -107,6 +107,7 @@ fn finite_rect((x0, y0, x1, y1): (f64, f64, f64, f64)) -> PyResult<Rect> {
 }
 
 /// Implements [`_Document::redact_page`].
+#[allow(clippy::too_many_arguments)]
 pub(super) fn redact_page(
     this: &mut _Document,
     py: Python<'_>,
@@ -115,9 +116,15 @@ pub(super) fn redact_page(
     text: bool,
     images: &str,
     graphics: &str,
+    clip: Option<(f64, f64, f64, f64)>,
 ) -> PyResult<RedactionTuple> {
-    let options = options_from(text, images, graphics)?;
+    let mut options = options_from(text, images, graphics)?;
     let page_id = this.page_id(page_number)?;
+    let clip = clip.map(finite_rect).transpose()?;
+    if let Some(clip) = clip {
+        let to_user = replacement::page_display(this, page_id)?.inverse();
+        options.graphics = GraphicsMode::Outside(crate::content::transformed_rect(clip, to_user));
+    }
     if let Some(areas) = &areas
         && areas.len() > MAX_REDACTION_AREAS
     {
@@ -139,7 +146,16 @@ pub(super) fn redact_page(
     }
     let original = this.doc.clone();
     let isolated = this.isolated_content_pages.clone();
-    let result = redact_inner(this, py, page_number, page_id, areas, options, &original);
+    let result = redact_inner(
+        this,
+        py,
+        page_number,
+        page_id,
+        areas,
+        options,
+        clip,
+        &original,
+    );
     if result.as_ref().is_ok_and(|report| !report.0.is_empty()) {
         // The original bytes still hold what the redaction removed, so the
         // document can no longer be saved as an update to them.
@@ -153,6 +169,7 @@ pub(super) fn redact_page(
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn redact_inner(
     this: &mut _Document,
     py: Python<'_>,
@@ -160,6 +177,7 @@ fn redact_inner(
     page_id: ObjectId,
     areas: Option<AreaInput>,
     options: Options,
+    clip: Option<Rect>,
     original: &Document,
 ) -> PyResult<RedactionTuple> {
     let display = replacement::page_display(this, page_id)?;
@@ -208,8 +226,15 @@ fn redact_inner(
             },
             &applied,
         )?;
-        let leftovers = verify(this, py, page_number, &display_areas, options)?;
+        let leftovers = verify(this, py, page_number, &display_areas, options, clip)?;
         if leftovers.glyphs.is_empty() && leftovers.boxes.is_empty() {
+            if let Some(clip) = clip {
+                clip_content(
+                    this,
+                    page_id,
+                    crate::content::transformed_rect(clip, to_user),
+                )?;
+            }
             draw_fills(this, py, page_number, &areas)?;
             // The replaced streams, forms, and images still hold what the
             // areas covered; whatever nothing reaches any more goes now,
@@ -1011,6 +1036,7 @@ fn verify(
     page_number: u32,
     areas: &[Rect],
     options: Options,
+    kept: Option<Rect>,
 ) -> PyResult<Leftovers> {
     use crate::content_model::{ContentItem, ItemKinds};
 
@@ -1076,6 +1102,9 @@ fn verify(
                 let bbox = rect(*bbox);
                 let hit = match options.graphics {
                     GraphicsMode::Keep => false,
+                    GraphicsMode::Outside(_) => {
+                        kept.is_some_and(|kept| !redact::overlaps(bbox, kept))
+                    }
                     GraphicsMode::Covered => areas.iter().any(|area| {
                         bbox.x0 >= area.x0
                             && bbox.x1 <= area.x1
@@ -1128,6 +1157,52 @@ fn verify(
         }
     }
     Ok(leftovers)
+}
+
+/// Wrap the page's content in a clip to `rect`, in default user space, so
+/// that what crosses its edge shows only inside.
+fn clip_content(this: &mut _Document, page_id: ObjectId, rect: Rect) -> PyResult<()> {
+    use crate::content::syntax::Instructions;
+
+    let data = replacement::page_content(&this.doc, page_id)?;
+    let instructions = Instructions::parse(&data, None).map_err(replacement::content_error)?;
+    let (mut depth, mut unmatched) = (0_usize, 0_usize);
+    for index in 0..instructions.len() {
+        match instructions.instruction(index).operator {
+            b"q" => depth += 1,
+            b"Q" if depth == 0 => unmatched += 1,
+            b"Q" => depth -= 1,
+            _ => {}
+        }
+    }
+    let mut content = Vec::new();
+    let prefix = format!(
+        "{}{} {} {} {} re W n\n",
+        "q ".repeat(unmatched + 1),
+        draw::fmt(rect.x0),
+        draw::fmt(rect.y0),
+        draw::fmt(rect.width()),
+        draw::fmt(rect.height()),
+    );
+    content
+        .try_reserve_exact(prefix.len() + data.len() + 2 * (depth + 2))
+        .map_err(|error| {
+            PdfError::new_err(format!("failed to allocate clipped content: {error}"))
+        })?;
+    content.extend_from_slice(prefix.as_bytes());
+    content.extend_from_slice(&data);
+    content.push(b'\n');
+    content.extend_from_slice(" Q".repeat(depth + 1).as_bytes());
+    let mut stream = Stream::new(Dictionary::new(), content);
+    stream
+        .compress()
+        .map_err(|error| lopdf_err(Some("clipped content compression failed"), &error))?;
+    let id = this.doc.add_object(stream);
+    this.doc
+        .set_page_object_entry(page_id, "Contents", Object::Reference(id))?;
+    this.isolated_content_pages.remove(&page_id);
+    this.invalidate_hayro_pdf();
+    Ok(())
 }
 
 /// Draw the areas' fills and overlay text above the page content.

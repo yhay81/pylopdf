@@ -212,6 +212,18 @@
           "kind": "property",
           "returns": "Border | None"
         },
+        "clean_contents": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "None"
+          }
+        },
         "clouds": {
           "kind": "property",
           "returns": "float"
@@ -8412,6 +8424,35 @@
         "boxes": {
           "kind": "property",
           "returns": "PageBoxes"
+        },
+        "clean_contents": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "clip_to_rect": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "rect"
+              }
+            ],
+            "returns": "RedactionReport"
+          }
         },
         "content": {
           "kind": "method",

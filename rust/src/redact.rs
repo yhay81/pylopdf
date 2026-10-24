@@ -29,13 +29,15 @@ pub(crate) enum ImageMode {
 }
 
 /// Which paths and shadings an area removes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum GraphicsMode {
     Keep,
     /// Those that lie inside one area.
     Covered,
     /// Those that touch an area.
     Touched,
+    /// Those that do not overlap the kept rectangle, for clipping a page.
+    Outside(Rect),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -120,6 +122,7 @@ pub(crate) fn select(
         GraphicsMode::Keep => false,
         GraphicsMode::Covered => areas.iter().any(|area| inside(painted, *area)),
         GraphicsMode::Touched => touches(painted),
+        GraphicsMode::Outside(kept) => !overlaps(painted, kept),
     };
     selection.paths = interpretation
         .paths
