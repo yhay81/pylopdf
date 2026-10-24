@@ -1253,8 +1253,9 @@ fn read_membership(doc: &Document, membership: &Dictionary) -> PyResult<LayerVal
 
 /// A pending node of a visibility expression: an array, or one group.
 enum ExpressionFrame<'a> {
-    Array(&'a [Object], u32),
+    Array(&'a [Object], u32, Option<ObjectId>),
     Group(ObjectId, u32),
+    Leave(ObjectId),
 }
 
 /// Read a visibility expression in preorder, cycle-aware and bounded.
@@ -1265,14 +1266,18 @@ fn read_expression(doc: &Document, root: &[Object]) -> PyResult<Vec<ExpressionEn
     stack
         .try_reserve(1)
         .map_err(|error| alloc_err("visibility expression", error))?;
-    stack.push(ExpressionFrame::Array(root, 0));
+    stack.push(ExpressionFrame::Array(root, 0, None));
     while let Some(frame) = stack.pop() {
-        let (items, depth) = match frame {
+        let (items, depth, id) = match frame {
+            ExpressionFrame::Leave(id) => {
+                visited.remove(&id);
+                continue;
+            }
             ExpressionFrame::Group(id, depth) => {
                 push_expression(&mut out, (depth, String::new(), id))?;
                 continue;
             }
-            ExpressionFrame::Array(items, depth) => (items, depth),
+            ExpressionFrame::Array(items, depth, id) => (items, depth, id),
         };
         if depth > MAX_ORDER_DEPTH {
             return Err(limit_err(
@@ -1289,10 +1294,29 @@ fn read_expression(doc: &Document, root: &[Object]) -> PyResult<Vec<ExpressionEn
             b"Not" => "not",
             _ => continue,
         };
+        if let Some(id) = id {
+            visited
+                .try_reserve(1)
+                .map_err(|error| alloc_err("visibility expression", error))?;
+            if !visited.insert(id) {
+                return Err(PdfError::new_err(
+                    "a visibility expression contains a cycle",
+                ));
+            }
+        }
         push_expression(&mut out, (depth, operator.to_owned(), (0, 0)))?;
+        if operands.len() > MAX_LAYER_ENTRIES.saturating_sub(stack.len()) {
+            return Err(limit_err(
+                "layer_count",
+                "too many visibility expression operands",
+            ));
+        }
         stack
-            .try_reserve(operands.len())
+            .try_reserve(operands.len() + usize::from(id.is_some()))
             .map_err(|error| alloc_err("visibility expression", error))?;
+        if let Some(id) = id {
+            stack.push(ExpressionFrame::Leave(id));
+        }
         // Push in reverse so that the operands pop in order.
         for operand in operands.iter().rev() {
             match operand {
@@ -1301,16 +1325,11 @@ fn read_expression(doc: &Document, root: &[Object]) -> PyResult<Vec<ExpressionEn
                         stack.push(ExpressionFrame::Group(*id, depth + 1))
                     }
                     Some(Object::Array(items)) => {
-                        visited
-                            .try_reserve(1)
-                            .map_err(|error| alloc_err("visibility expression", error))?;
-                        if visited.insert(*id) {
-                            stack.push(ExpressionFrame::Array(items, depth + 1));
-                        }
+                        stack.push(ExpressionFrame::Array(items, depth + 1, Some(*id)));
                     }
                     _ => {}
                 },
-                Object::Array(items) => stack.push(ExpressionFrame::Array(items, depth + 1)),
+                Object::Array(items) => stack.push(ExpressionFrame::Array(items, depth + 1, None)),
                 _ => {}
             }
         }

@@ -198,3 +198,26 @@ def test_deep_expressions_are_bounded() -> None:
     with pytest.raises(pylopdf.LimitError) as caught:
         _ = doc.pages[0].resources.layers
     assert caught.value.code == "layer_count"
+
+
+def test_shared_visibility_subexpressions_keep_every_occurrence() -> None:
+    doc = pylopdf.open(
+        _pdf(
+            extra={
+                9: "<< /Type /OCMD /VE [/Or [/Not 13 0 R] 13 0 R] >>",
+                13: "[/And 5 0 R 6 0 R]",
+            }
+        )
+    )
+    shared = LayerExpression("and", tuple(doc.layers))
+
+    assert doc.pages[0].resources.layers["M2"] == LayerMembership(
+        (), expression=LayerExpression("or", (LayerExpression("not", (shared,)), shared))
+    )
+
+
+def test_cyclic_visibility_expressions_are_refused() -> None:
+    doc = pylopdf.open(_pdf(extra={9: "<< /Type /OCMD /VE [/Not 13 0 R] >>", 13: "[/Not 13 0 R]"}))
+
+    with pytest.raises(pylopdf.PdfError, match="cycle"):
+        _ = doc.pages[0].resources.layers
