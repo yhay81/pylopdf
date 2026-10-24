@@ -243,7 +243,6 @@ fn turn_annotation(
     m: &Matrix,
     rotation: i64,
     copies: &mut AppearanceCopies,
-    page_id: ObjectId,
 ) -> PyResult<Dictionary> {
     let mut out = annotation.clone();
     let flags = annotation
@@ -359,7 +358,6 @@ fn turn_annotation(
             }
         }
     }
-    rewrite_destinations(&mut out, page_id, m, rotation)?;
     Ok(out)
 }
 
@@ -620,14 +618,9 @@ impl _Document {
                         if let Some(Object::Dictionary(annotation)) = doc.objects.get(id)
                             && handled.insert(*id)
                         {
-                            let turned = turn_annotation(
-                                doc,
-                                annotation,
-                                m,
-                                rotation,
-                                &mut copies,
-                                page_id,
-                            )?;
+                            let mut turned =
+                                turn_annotation(doc, annotation, m, rotation, &mut copies)?;
+                            rewrite_destinations(&mut turned, page_id, m, rotation)?;
                             replaced.push((*id, Object::Dictionary(turned)));
                         }
                         annots.push(entry);
@@ -639,7 +632,6 @@ impl _Document {
                             m,
                             rotation,
                             &mut copies,
-                            page_id,
                         )?));
                     }
                     _ => annots.push(entry),

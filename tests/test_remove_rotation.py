@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from conftest import build_raw_pdf
 
 import pylopdf
 from pylopdf import Color, Destination, Highlight, Ink, LineAnnotation, Matrix, Note, OutlineEntry, Rect, Square
@@ -162,3 +163,26 @@ def test_widgets_and_free_text_keep_their_turn() -> None:
     after = _pixels(doc)
     differing = sum(1 for old, new in zip(before, after, strict=True) if abs(old - new) > 8)
     assert differing <= len(before) // 1000
+
+
+@pytest.mark.parametrize("rotation", [90, 180, 270])
+def test_direct_link_destinations_are_transformed_once(rotation: int) -> None:
+    doc = pylopdf.open(
+        build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                3: (
+                    f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Rotate {rotation} "
+                    "/Annots [<< /Type /Annot /Subtype /Link /Rect [10 10 50 40] "
+                    "/Dest [3 0 R /XYZ 70 80 2] >>] >>"
+                ),
+            }
+        )
+    )
+    target = doc.pages[0].links[0].target
+
+    doc.pages[0].remove_rotation()
+
+    assert doc.pages[0].links[0].target == target
+    assert pylopdf.open(doc.to_bytes()).pages[0].links[0].target == target
