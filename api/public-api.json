@@ -6315,6 +6315,7 @@
         "bbox": "Rect",
         "direction": "Point",
         "is_vertical": "bool",
+        "quad": "Quad",
         "spans": "tuple[Span, ...]",
         "text": "str"
       },
@@ -6323,7 +6324,8 @@
         "bbox",
         "direction",
         "is_vertical",
-        "spans"
+        "spans",
+        "quad"
       ],
       "kind": "class",
       "members": {
@@ -6334,6 +6336,9 @@
           "kind": "property"
         },
         "is_vertical": {
+          "kind": "property"
+        },
+        "quad": {
           "kind": "property"
         },
         "spans": {
@@ -6369,6 +6374,11 @@
             "annotation": "tuple[Span, ...]",
             "kind": "keyword_only",
             "name": "spans"
+          },
+          {
+            "annotation": "Quad",
+            "kind": "keyword_only",
+            "name": "quad"
           }
         ],
         "returns": "None"
@@ -8569,6 +8579,12 @@
                 "name": "clip"
               },
               {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "quads"
+              },
+              {
                 "annotation": "int | None",
                 "default": 4096,
                 "kind": "keyword_only",
@@ -8611,7 +8627,35 @@
                 "name": "exact_bboxes"
               }
             ],
-            "returns": "list[Rect]"
+            "returns": "list[Rect] | list[Quad]"
+          }
+        },
+        "selection": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "start"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "end"
+              },
+              {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              }
+            ],
+            "returns": "str"
           }
         },
         "svg": {
@@ -11915,6 +11959,7 @@
         "is_monospaced": "bool",
         "is_serif": "bool",
         "origin": "Point",
+        "quad": "Quad",
         "render_mode": "TextRenderMode",
         "size": "float",
         "text": "str"
@@ -11934,7 +11979,8 @@
         "is_clipped",
         "ascender",
         "descender",
-        "chars"
+        "chars",
+        "quad"
       ],
       "kind": "class",
       "members": {
@@ -11972,6 +12018,9 @@
           "kind": "property"
         },
         "origin": {
+          "kind": "property"
+        },
+        "quad": {
           "kind": "property"
         },
         "render_mode": {
@@ -12060,6 +12109,11 @@
             "annotation": "tuple[Char, ...]",
             "kind": "keyword_only",
             "name": "chars"
+          },
+          {
+            "annotation": "Quad",
+            "kind": "keyword_only",
+            "name": "quad"
           }
         ],
         "returns": "None"

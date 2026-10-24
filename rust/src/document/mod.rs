@@ -946,6 +946,56 @@ impl _Document {
             needle,
             max_hits,
             options.unwrap_or_default(),
+            crate::extract::TextPage::search,
+        )
+    }
+
+    /// Return the text of a one-based page from the glyph nearest `start` to
+    /// the one nearest `end`, in reading order.
+    #[pyo3(signature = (page_number, start, end, options=None))]
+    fn select_text(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        start: (f64, f64),
+        end: (f64, f64),
+        options: Option<TextOptions>,
+    ) -> PyResult<String> {
+        extraction::select_text(
+            self,
+            py,
+            page_number,
+            start,
+            end,
+            options.unwrap_or_default(),
+        )
+    }
+
+    /// Search a one-based page case-insensitively and return the quad of
+    /// every line of every match.
+    #[pyo3(signature = (
+        page_number,
+        needle,
+        max_hits=Some(DEFAULT_MAX_SEARCH_HITS),
+        options=None
+    ))]
+    #[allow(clippy::type_complexity)]
+    fn search_page_quads(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        needle: &str,
+        max_hits: Option<usize>,
+        options: Option<TextOptions>,
+    ) -> PyResult<Vec<crate::extract::QuadTuple>> {
+        extraction::search_page(
+            self,
+            py,
+            page_number,
+            needle,
+            max_hits,
+            options.unwrap_or_default(),
+            crate::extract::TextPage::search_quads,
         )
     }
 
