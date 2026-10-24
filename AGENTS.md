@@ -2727,6 +2727,17 @@ the concept and API overview.
   at the imported page that lists it. A complete import does not walk the
   tree, so only the 1 MiB top-level name budget, which every import shares
   when the receiving document has a form, can refuse one.
+- Page imports also register optional-content groups (`LayerImport` in
+  `document/layers.rs`): before mutation, the groups of the renumbered
+  source's `/OCGs` that the imported page dictionaries reach (Catalog,
+  Pages, and Page objects excluded) are planned into the receiving
+  `/OCProperties` with the visibility that the source's `/D` gives them, by
+  hayro's rule, and appended to an existing `/D /Order` (or a new one when
+  the receiver had no optional content); the commit after the page-tree
+  rebuild only stores the plan, before pruning. Each import renumbers, so
+  importing the same page twice makes independent groups; same-document
+  copies share theirs. Radio groups, locks, and the source's `/Order`
+  structure are not carried.
 - Page deletion and `select` remove the form widgets and fields of dropped
   pages with `FormPagePrune` in the same module, which reuses the partial
   import's walk on the document itself, with the remaining pages as the

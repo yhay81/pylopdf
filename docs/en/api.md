@@ -147,7 +147,7 @@ replace its objects, so pages and other handles taken before go stale.
 | Member | Purpose |
 |---|---|
 | `doc.pages.new(size=(595, 842), *, index=None)` | Add a blank page, A4 by default, appended unless `index` is given |
-| `doc.pages.insert(index, pages)`, `doc.pages.extend(pages)` | Insert or append copies of one page or a sequence of pages, from this document or another one, with their links and form fields |
+| `doc.pages.insert(index, pages)`, `doc.pages.extend(pages)` | Insert or append copies of one page or a sequence of pages, from this document or another one, with their links, form fields, and layers |
 | `del doc.pages[i]`, `del doc.pages[a:b]` | Delete pages |
 | `doc.pages.select(indexes)` | Keep the listed pages in the listed order; repeating an index duplicates the page |
 | `doc.pages.move(index, to)` | Move a page so that it ends at index `to` |
@@ -168,7 +168,10 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # reverse the order
 past the end appends. The pages of one call come from one document, and a
 page of another document appears at most once per call. Pages of another
 document are imported with their links, annotations, and form fields; a field
-name already in use gains the smallest unused `+N` suffix. A copy of a page of
+name already in use gains the smallest unused `+N` suffix. The
+[layers](#layers) that the imported pages use join the document's layers with
+the visibility that the source's default configuration gave them, each import
+making groups of its own. A copy of a page of
 the same document is a new page object that shares its content streams and
 resources with the original until either is edited.
 

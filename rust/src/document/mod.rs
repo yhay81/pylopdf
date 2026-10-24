@@ -115,7 +115,7 @@ pub(crate) use self::images::*;
 use self::incremental::IncrementalBase;
 pub(crate) use self::input::*;
 use self::labels::*;
-use self::layers::*;
+pub(crate) use self::layers::*;
 use self::limits::*;
 pub(crate) use self::lowlevel::{_decode_text_string, _encode_text_string, StaleObjectError};
 use self::lowlevel::{DEFAULT_MAX_STREAM_DATA_SIZE, Root, Step};

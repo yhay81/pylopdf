@@ -1711,6 +1711,7 @@ def _optional_content_results() -> dict[str, Any]:
         "applied": applied,
         "resources": sorted(saved.pages[0].resources.layers),
         "link_layer": repr(saved.pages[0].links[0].layer),
+        "imported": _imported_layer_states(saved),
         "configurations": [
             [config.name, str(config.base_state), [layer.name for layer in config.on], repr(config.order)]
             for config in saved.layers.configurations
@@ -1801,6 +1802,15 @@ def _open_document_tag_results() -> dict[str, Any]:
         "mcids": [kid["MCID"] for element in root["K"] for kid in element["K"]],
         "text": saved.pages[0].text().split(),
     }
+
+
+def _imported_layer_states(source: Any) -> list[list[Any]]:  # noqa: ANN401 - pylopdf imports lazily.
+    """Import a layered page into a new document and list the layers it brings."""
+    import pylopdf  # noqa: PLC0415
+
+    target = pylopdf.Document()
+    target.pages.extend(source.pages)
+    return [[layer.name, layer.is_visible] for layer in target.layers]
 
 
 def _document_property_results(root: Path) -> dict[str, Any]:

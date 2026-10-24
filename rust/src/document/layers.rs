@@ -1204,12 +1204,12 @@ pub(super) fn add_layer_configuration(
 
 /// One operand of a visibility expression in preorder: its depth, its
 /// operator (`"and"`, `"or"`, `"not"`, or `""` for a group), and the group.
-pub(super) type ExpressionEntry = (u32, String, (u32, u16));
+pub(crate) type ExpressionEntry = (u32, String, (u32, u16));
 
 /// An `/OC` value as it crosses the boundary: kind (0 none, 1 group, 2
 /// membership dictionary), the group, the policy, the groups, and the
 /// visibility expression in preorder.
-pub(super) type LayerValue = (
+pub(crate) type LayerValue = (
     u8,
     (u32, u16),
     String,
@@ -1636,4 +1636,103 @@ pub(super) fn page_layers(
         out.push((String::from_utf8_lossy(name).into_owned(), value));
     }
     Ok(out)
+}
+
+/// The optional-content groups that imported pages reach, planned into the
+/// receiving document's `/OCProperties` before any import mutation.
+pub(super) struct LayerImport {
+    plan: PropertiesPlan,
+}
+
+impl LayerImport {
+    /// Plan the groups of `source`'s `/OCGs` that `roots`, the imported page
+    /// dictionaries, reach, each listed in `target`'s `/OCGs` with the
+    /// visibility that `source`'s default configuration gives it and
+    /// appended to `target`'s `/Order` when it has one.
+    pub(super) fn prepare<'a>(
+        target: &Document,
+        source: &'a Document,
+        roots: impl IntoIterator<Item = &'a Object>,
+    ) -> PyResult<Option<Self>> {
+        let Some(properties) = oc_properties(source) else {
+            return Ok(None);
+        };
+        let listed = references(source, properties, b"OCGs")?;
+        if listed.is_empty() {
+            return Ok(None);
+        }
+        let reachable = crate::prune::reachable_object_ids(source, roots, |object| {
+            !matches!(
+                object.type_name().unwrap_or(b""),
+                b"Catalog" | b"Pages" | b"Page"
+            )
+        })?;
+        let mut imported = Vec::new();
+        imported
+            .try_reserve_exact(listed.len())
+            .map_err(|error| alloc_err("imported optional-content groups", error))?;
+        for id in listed {
+            if reachable.contains(&id) && !imported.iter().any(|(item, _)| *item == id) {
+                imported.push((id, group_visible(source, id)?));
+            }
+        }
+        if imported.is_empty() {
+            return Ok(None);
+        }
+        let fresh = oc_properties(target).is_none();
+        let mut plan = PropertiesPlan::read(target)?;
+        let mut on = plan.config_refs(target, b"ON")?;
+        let mut off = plan.config_refs(target, b"OFF")?;
+        let mut order = match plan
+            .config
+            .get(b"Order")
+            .ok()
+            .and_then(|object| array_of(target, object))
+        {
+            Some(items) => {
+                let mut copy = Vec::new();
+                copy.try_reserve_exact(items.len() + imported.len())
+                    .map_err(|error| alloc_err("optional-content order", error))?;
+                copy.extend_from_slice(items);
+                Some(copy)
+            }
+            None if fresh => Some(Vec::new()),
+            None => None,
+        };
+        for &(id, visible) in &imported {
+            plan.list(id)?;
+            plan_visibility(&plan, &mut on, &mut off, id, visible)?;
+            if let Some(order) = &mut order {
+                if order.len() >= MAX_LAYER_ENTRIES {
+                    return Err(limit_err(
+                        "layer_count",
+                        format!("/Order already lists {MAX_LAYER_ENTRIES} entries"),
+                    ));
+                }
+                order
+                    .try_reserve(1)
+                    .map_err(|error| alloc_err("optional-content order", error))?;
+                order.push(Object::Reference(id));
+            }
+        }
+        if let Some(order) = order {
+            plan.config.set("Order", Object::Array(order));
+        }
+        if on.is_empty() {
+            plan.config.remove(b"ON");
+        } else {
+            plan.config.set("ON", reference_array(&on)?);
+        }
+        if off.is_empty() {
+            plan.config.remove(b"OFF");
+        } else {
+            plan.config.set("OFF", reference_array(&off)?);
+        }
+        Ok(Some(Self { plan }))
+    }
+
+    /// Store the planned `/OCProperties`; this cannot fail.
+    pub(super) fn apply(self, doc: &mut Document) {
+        self.plan.commit(doc);
+    }
 }

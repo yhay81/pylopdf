@@ -429,7 +429,7 @@ impl _Document {
         mut other_pages: Vec<ObjectId>,
         page_numbers: &[u32],
         pages_id: ObjectId,
-    ) -> PyResult<(Vec<ObjectId>, Option<AcroFormImport>)> {
+    ) -> PyResult<(Vec<ObjectId>, Option<AcroFormImport>, Option<LayerImport>)> {
         let complete = page_numbers.len() == other_pages.len();
         let starting_id = self
             .doc
@@ -501,6 +501,13 @@ impl _Document {
             &imported_pages,
             complete,
         )?;
+        let layer_import = LayerImport::prepare(
+            &self.doc,
+            &other_doc,
+            resolved_pages
+                .iter()
+                .flat_map(|(_, dict)| dict.iter().map(|(_, value)| value)),
+        )?;
         if let Some(form_import) = &form_import {
             form_import.reserve(&mut self.doc)?;
         }
@@ -519,7 +526,7 @@ impl _Document {
         }
 
         self.doc.max_id = new_max_id;
-        Ok((ordered_ids, form_import))
+        Ok((ordered_ids, form_import, layer_import))
     }
 
     /// Return current pages with `new_ids` inserted at zero-based `position`.
@@ -668,13 +675,16 @@ pub(super) fn merge_pages(
     py.detach(|| {
         // Reserve Pages/Catalog IDs in an empty target to avoid source collisions.
         let pages_id = this.ensure_page_tree().map_err(to_py_err)?;
-        let (new_ids, form_import) =
+        let (new_ids, form_import, layer_import) =
             this.transplant_pages(other, source_pages, &page_numbers, pages_id)?;
         this.invalidate_hayro_pdf_keeping_placements();
         let order = _Document::spliced_page_order(existing_pages, new_ids, position)?;
         this.rebuild_page_tree(pages_id, order)?;
         if let Some(form_import) = form_import {
             form_import.apply(&mut this.doc);
+        }
+        if let Some(layer_import) = layer_import {
+            layer_import.apply(&mut this.doc);
         }
         // transplant_pages initially moves all non-page objects. Prune
         // attachments/metadata unreachable from selected pages or hidden
