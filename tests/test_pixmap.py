@@ -212,6 +212,25 @@ def test_gray_rendering_converts_rgb_with_bt601_weights() -> None:
         page.pixmap(colorspace="cmyk")  # ty: ignore[invalid-argument-type]
 
 
+@pytest.mark.parametrize("name", ["usrguide.pdf", "pdfium-smask-blend.pdf", "wdl6812-manuscript.pdf"])
+def test_every_layout_converts_the_same_raster(name: str) -> None:
+    page = pylopdf.open(Path(__file__).parent / "assets" / "real_world" / name).pages[0]
+
+    def luma(data: bytes, channels: int) -> bytes:
+        return bytes(
+            (77 * data[i] + 150 * data[i + 1] + 29 * data[i + 2] + 128) >> 8 for i in range(0, len(data), channels)
+        )
+
+    rgb = bytes(page.pixmap(dpi=36))
+    opaque = bytes(page.pixmap(dpi=36, alpha=True, background=(255, 255, 255, 255)))
+    assert rgb == bytes(byte for index, byte in enumerate(opaque) if index % 4 != 3)
+    assert bytes(page.pixmap(dpi=36, colorspace="gray")) == luma(rgb, 3)
+    rgba = bytes(page.pixmap(dpi=36, alpha=True))
+    gray_alpha = bytes(page.pixmap(dpi=36, alpha=True, colorspace="gray"))
+    assert gray_alpha[0::2] == luma(rgba, 4)
+    assert gray_alpha[1::2] == rgba[3::4]
+
+
 def test_from_array_copies_the_pixels_of_a_buffer() -> None:
     pixels = bytes(range(2 * 3 * 4))
 

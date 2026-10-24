@@ -196,20 +196,11 @@ impl RasterGeometry {
 /// Return a rendered raster's samples in `layout`: straight-alpha RGBA, RGB,
 /// or their gray counterparts. Without alpha the raster was cleared to an
 /// opaque background, so every pixel is opaque and premultiplication is moot;
-/// the alpha bytes, and for gray the color components, are dropped in place
-/// without a second buffer.
+/// the alpha bytes, and for gray the color components, are dropped in one
+/// pass in place without a second buffer.
 pub(super) fn raster_samples(pixmap: hayro::vello_cpu::Pixmap, layout: Layout) -> Vec<u8> {
     let mut data = rgba_bytes(pixmap);
-    if !layout.alpha {
-        let pixels = data.len() / 4;
-        for index in 0..pixels {
-            data.copy_within(index * 4..index * 4 + 3, index * 3);
-        }
-        data.truncate(pixels * 3);
-    }
-    if layout.gray {
-        crate::pixmap::to_gray_in_place(&mut data, layout.alpha);
-    }
+    crate::pixmap::rgba_to_layout_in_place(&mut data, layout);
     data
 }
 

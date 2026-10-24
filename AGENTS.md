@@ -1352,9 +1352,10 @@ the concept and API overview.
   crossing the limit before Python bytes conversion and grows its retained
   output fallibly. `max_size=None` is the explicit trusted-output opt-out.
   Failures use `pixmap_output_size`; the `Document.render` batch budget uses
-  `render_output_size`. Gray rendering converts the RGB raster in place with
+  `render_output_size`. Gray rendering converts the RGBA raster in place with
   BT.601 weights `(77 R + 150 G + 29 B + 128) >> 8` after hayro renders it,
-  because hayro rasterizes RGB only. `from_array` reads any buffer of
+  because hayro rasterizes RGB only; `rgba_to_layout_in_place` reads each
+  pixel whole and writes every layout in one pass. `from_array` reads any buffer of
   unsigned bytes shaped `(height, width[, channels])` through
   `PyBuffer::to_vec`, which also copies a non-contiguous array, and refuses
   sides above 65,535 pixels. Every consumer takes the layout:
