@@ -99,6 +99,9 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `doc.stream` | The bytes passed to `pylopdf.open`, or `doc.to_bytes()` | pylopdf does not keep the input bytes |
 | `doc.get_ocgs()`, `add_ocg(name, on=, intent=)` | `doc.layers`, `doc.layers.add(name, visible=, intent=)` | `Layer` handles instead of a dictionary keyed by xref; `intent` is a tuple of names |
 | `PDF_OC_ON`, `PDF_OC_OFF`, `PDF_OC_TOGGLE` | `layer.is_visible = True`, `False`, `not layer.is_visible` | |
+| `doc.get_layer(config)`, `set_layer(config, ...)` | `doc.layers.configurations[i]` and its assignable `base_state`, `on`, `off`, `locked`, `radio_groups` | Index 0 is the default configuration, where pymupdf used -1; arrays hold `Layer` handles |
+| `doc.add_layer(name, creator, on)`, `switch_layer(config)` | `doc.layers.configurations.add(name, creator=, on=)`, `configuration.apply()` | |
+| `doc.layer_ui_configs()`, `set_layer_ui_config(n, action)`, `PDF_LAYER_UI_*` | `configuration.order` and `radio_groups`, `layer.is_visible` | `order` is the tree of `Layer` handles and `LayerOrder(label, items)` values that the flat list was made from |
 | `doc.xref_*`, `pdf_catalog()`, `pdf_trailer()` | `doc.objects`, `doc.catalog`, `doc.trailer` | Typed Python values instead of PDF syntax; see [Low-level objects](api.md#low-level-objects) |
 
 ### Text, rendering, and images { #mapping-text }

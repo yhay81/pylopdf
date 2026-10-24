@@ -142,6 +142,7 @@ replacement, and the migration hint):
 - Document.__delitem__ -> Pages.__delitem__: Use del doc.pages[i] or del doc.pages[a:b].
 - Document.__getitem__ -> Pages.__getitem__: Use doc.pages[i]; doc.pages also takes slices.
 - Document.__len__ -> Pages.__len__: Use len(doc.pages).
+- Document.add_layer -> LayerConfigurations.add: Use doc.layers.configurations.add(name, creator=..., on=[...]); it returns a LayerConfiguration handle.
 - Document.add_ocg -> Layers.add: Use doc.layers.add(name, visible=on, intent=("View",)); intent is a tuple of names, and the handle replaces the returned xref.
 - Document.authenticate -> Document.unlock: Use doc.unlock(password), which returns Access.USER or Access.OWNER and raises PasswordError for a wrong password.
 - Document.bake -> Document.flatten: doc.flatten(annotations=True, widgets=True) draws appearances into page content and removes the annotations, keeping links; the codemod rewrites bake() calls.
@@ -160,6 +161,7 @@ replacement, and the migration hint):
 - Document.extract_image -> ImageObject.extract: Use doc.images[xref].extract(), which returns an EncodedImage with format, data, and resolution; the size, color space, filters, and masks are properties of doc.images[xref].
 - Document.ez_save -> Document.save: Use doc.save(path, dedupe=True, renumber=True, object_streams=True), the options that ez_save's defaults stand for.
 - Document.fullcopy_page -> Pages.insert: Use doc.pages.insert(to, doc.pages[i]), or doc.pages.extend(doc.pages[i]) to append.
+- Document.get_layer -> LayerConfiguration: Read doc.layers.configurations[i]: base_state, on, off, locked, and radio_groups hold Layer handles; index 0 is the default configuration, where pymupdf used -1.
 - Document.get_new_xref -> Objects.add: Call doc.objects.add(value), which creates the object and returns its object number.
 - Document.get_ocgs -> Document.layers: Use doc.layers: Layer handles with name, intent, is_visible, and xref, in /OCGs order, instead of a dictionary keyed by xref.
 - Document.get_outline_xrefs -> OutlineItem.xref: Use [item.xref for item in doc.outline.walk()].
@@ -178,6 +180,7 @@ replacement, and the migration hint):
 - Document.is_encrypted -> Document.needs_password: Read doc.needs_password, which is true until unlock() succeeds.
 - Document.is_form_pdf -> Document.form: len(doc.form) counts the form's fields; an empty doc.form means no form.
 - Document.is_stream -> Stream: Check isinstance(doc.objects[xref], pylopdf.Stream).
+- Document.layer_ui_configs -> LayerConfiguration.order: Walk doc.layers.configurations[0].order: Layer handles and LayerOrder(label, items) values; a layer in one of radio_groups shows as a radio button.
 - Document.load_page -> Pages.__getitem__: Use doc.pages[i].
 - Document.markinfo -> Document.mark_info: doc.mark_info returns a MarkInfo record with marked, user_properties, and suspects, or None; assign a MarkInfo to replace it.
 - Document.move_page -> Pages.move: Use doc.pages.move(i, to); to is the index where the page ends up, where pymupdf inserted before page to.
@@ -201,6 +204,8 @@ replacement, and the migration hint):
 - Document.search_page_for -> Page.search: Call doc.pages[i].search(text).
 - Document.select -> Pages.select: Use doc.pages.select(indexes).
 - Document.set_language -> Document.language: Assign doc.language = tag, or del doc.language to remove it; pylopdf keeps the complete BCP 47 tag, such as zh-TW, where pymupdf keeps at most three letters.
+- Document.set_layer -> LayerConfiguration: Assign base_state, on, off, locked, or radio_groups on doc.layers.configurations[i]; each takes Layer handles instead of xrefs.
+- Document.set_layer_ui_config -> Layer.is_visible: Assign layer.is_visible on the handle from doc.layers; showing a layer hides the others of its radio-button groups.
 - Document.set_markinfo -> Document.mark_info: Assign doc.mark_info = MarkInfo(marked=..., user_properties=..., suspects=...); flags left out are written false, as in pymupdf.
 - Document.set_metadata -> Document.metadata: doc.metadata is a live mapping of the entries present: assign or update() keys to store values, del a key to remove it; created and modified replace creationDate and modDate.
 - Document.set_page_labels -> Document.page_labels: Assign a list of PageLabelRange(start, style, prefix, first) records to doc.page_labels.
@@ -209,6 +214,7 @@ replacement, and the migration hint):
 - Document.set_toc -> Document.outline: Assign a list of OutlineEntry(level, title, Destination(page)) records to doc.outline; pages are zero-based, where set_toc took one-based pages.
 - Document.set_toc_item -> OutlineItem: Assign title, destination, color, bold, italic, or is_open on the OutlineItem from doc.outline.walk().
 - Document.set_xml_metadata -> Document.xmp: Assign doc.xmp = packet to rewrite or add the XMP metadata stream.
+- Document.switch_layer -> LayerConfiguration.apply: Use doc.layers.configurations[i].apply(), which makes the configuration the default that rendering, extraction, and viewers use.
 - Document.to_markdown -> Document.markdown: Call doc.markdown(...).
 - Document.to_text -> Document.text: Call doc.text() for the plain text of every page.
 - Document.tobytes -> Document.to_bytes: Use doc.to_bytes(...), which takes the options of save() and a max_size bound.
@@ -300,6 +306,7 @@ replacement, and the migration hint):
 - PDF_CH_FIELD_IS_* -> FieldFlags: Choice field flags such as PDF_CH_FIELD_IS_COMBO and PDF_CH_FIELD_IS_MULTI_SELECT are FieldFlags members such as FieldFlags.COMBO and MULTI_SELECT.
 - PDF_ENCRYPT_* -> Encryption: Pass encryption=Encryption(user_password=..., owner_password=..., permissions=...) to save() or to_bytes(), which writes AES-256 encryption; encryption=None writes none.
 - PDF_FIELD_IS_* -> FieldFlags: PDF_FIELD_IS_READ_ONLY, PDF_FIELD_IS_REQUIRED, and PDF_FIELD_IS_NO_EXPORT are FieldFlags.READ_ONLY, REQUIRED, and NO_EXPORT, which doc.form[name].flags returns.
+- PDF_LAYER_UI_* -> LayerOrder: A LayerOrder with a label is a label entry, a layer in one of the configuration's radio_groups a radio button, and any other layer a check box.
 - PDF_OC_* -> Layer.is_visible: Assign layer.is_visible = True or False; toggle with layer.is_visible = not layer.is_visible.
 - PDF_PAGE_LABEL_* -> PageLabelStyle: PageLabelStyle members name the label styles, such as PageLabelStyle.LOWER_ROMAN for PDF_PAGE_LABEL_ROMAN_LC; PageLabelRange(style=None) labels with the prefix only, for PDF_PAGE_LABEL_NONE.
 - PDF_PERM_* -> Permissions: PDF_PERM_PRINT is Permissions.PRINT, and so on.
