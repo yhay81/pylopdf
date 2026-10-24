@@ -1167,7 +1167,9 @@ fn path_bbox(path: &BezPath) -> Option<Rect> {
                 _ => None,
             });
             let first = points.next()?;
-            Some(points.fold(Rect::from_points(first, first), |rect, point| rect.union_pt(point)))
+            Some(points.fold(Rect::from_points(first, first), |rect, point| {
+                rect.union_pt(point)
+            }))
         })?;
     (bbox.x0.is_finite() && bbox.y0.is_finite() && bbox.x1.is_finite() && bbox.y1.is_finite())
         .then_some(bbox)
