@@ -158,6 +158,12 @@ impl Survey {
     /// entries, never free ones, from classic tables and cross-reference
     /// streams alike.
     fn of(doc: &Document) -> Result<Self, TryReserveError> {
+        Self::skipping(doc, None)
+    }
+
+    /// Walk as [`Survey::of`] does, without the in-use entry numbered `skip`,
+    /// which names an object that loading removed on purpose.
+    fn skipping(doc: &Document, skip: Option<u32>) -> Result<Self, TryReserveError> {
         let mut survey = Self {
             matches: true,
             members: Vec::new(),
@@ -167,6 +173,7 @@ impl Survey {
             .reference_table
             .entries
             .iter()
+            .filter(|&(&number, _)| Some(number) != skip)
             .filter_map(|(&number, entry)| match *entry {
                 XrefEntry::Normal { generation, .. } => Some((number, generation, entry)),
                 XrefEntry::Compressed { .. } => Some((number, 0, entry)),
@@ -201,6 +208,33 @@ impl Survey {
         survey.matches &= entries.next().is_none();
         Ok(survey)
     }
+}
+
+/// Whether lopdf decrypted exactly the objects that the cross-reference
+/// entries of an encrypted input locate.
+///
+/// [`reconcile_loaded_objects`] cannot run on such a graph: the streams it
+/// re-reads from the input would be ciphertext. This check changes nothing
+/// and answers `false` wherever that function would have to read the input:
+/// for an object that no entry locates or an in-use entry without one, for
+/// a stream that lopdf loaded without its `/Length`, and for an object
+/// stream member that the container's table does not place where the entry
+/// says. Decryption removes the encryption dictionary, whose entry is
+/// skipped. An incremental save appends to such an input only when this
+/// holds.
+pub(crate) fn decrypted_graph_matches_entries(doc: &Document) -> PyResult<bool> {
+    let skip = doc
+        .encryption_state
+        .as_ref()
+        .and_then(|state| state.encrypt_object_id())
+        .map(|(number, _)| number);
+    let survey = Survey::skipping(doc, skip).map_err(allocation_error)?;
+    if !survey.matches || !survey.streams.is_empty() {
+        return Ok(false);
+    }
+    Ok(misplaced_members(doc, survey.members)
+        .map_err(allocation_error)?
+        .is_empty())
 }
 
 /// Whether an in-use cross-reference entry names this object ID.

@@ -1633,8 +1633,17 @@ the concept and API overview.
   keys), and raises a higher version through the catalog's `/Version`.
   `_Document.incremental_base` holds the input as an `Arc<Vec<u8>>` shared
   with the original-byte rendering source, kept for the document's lifetime
-  whenever loading kept the original bytes: no cross-reference recovery, no
-  encryption, `object_recovery` matched, and no object moved. `compress`
+  whenever loading kept the original bytes: no cross-reference recovery,
+  `object_recovery` matched, and no object moved. An encrypted input
+  qualifies through `incremental::extendable` instead: decrypted with
+  AES-128 (R4, `AESV2`) or AES-256 (R6), and
+  `object_recovery::decrypted_graph_matches_entries`, a read-only form of
+  the reconciliation that answers `false` wherever it would have to read
+  ciphertext from the input (a stream without a readable `/Length`) and
+  skips the entry of the encryption dictionary, which decryption removes.
+  The base then also keeps the password, the baseline is read with it, and
+  lopdf's `IncrementalDocument` encrypts the update with the retained
+  `encryption_state`. `compress`
   compresses clones of the written streams only; `prune` runs as for a full
   save; `dedupe`, `renumber`, `object_streams`, and `encryption` refuse
   before any change. `tests/test_interop.py` validates pyHanko signatures
