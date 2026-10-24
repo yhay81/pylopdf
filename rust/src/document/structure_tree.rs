@@ -154,10 +154,15 @@ impl StructureAppend {
             .get(b"RoleMap")
             .ok()
             .and_then(|map| deref_dict_ref(doc, map));
-        let kids = root.1.get(b"K").ok().map(|kids| deref_object(doc, kids));
-        let only = match kids {
+        // Kids are read as written: a lone reference is one kid, and a
+        // reference to an array holds the kids.
+        let only = match root.1.get(b"K").ok() {
             Some(Object::Array(items)) if items.len() == 1 => Some(&items[0]),
-            Some(item @ Object::Reference(_)) => Some(item),
+            Some(item @ Object::Reference(id)) => match doc.objects.get(id) {
+                Some(Object::Array(items)) if items.len() == 1 => Some(&items[0]),
+                Some(Object::Dictionary(_)) => Some(item),
+                _ => None,
+            },
             _ => None,
         };
         let document_element = match only {

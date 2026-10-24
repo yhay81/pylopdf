@@ -216,3 +216,27 @@ def test_tags_inside_opacity_scopes_are_refused() -> None:
     with pytest.raises(pylopdf.PdfError, match="opacity"):
         canvas.__exit__(None, None, None)
     assert "StructTreeRoot" not in doc.catalog
+
+
+def test_a_lone_document_element_reference_takes_the_new_elements() -> None:
+    doc = pylopdf.Document()
+    page = doc.pages.new((300, 300))
+    document = doc.objects.add({"Type": pylopdf.Name("StructElem"), "S": pylopdf.Name("Document"), "K": []})
+    root = doc.objects.add(
+        {
+            "Type": pylopdf.Name("StructTreeRoot"),
+            "K": doc.objects[document],
+            "ParentTree": {"Nums": []},
+        }
+    )
+    doc.objects[document]["P"] = doc.objects[root]
+    doc.catalog["StructTreeRoot"] = doc.objects[root]
+
+    with page.draw() as canvas, canvas.tag(TagRole.PARAGRAPH):
+        canvas.text("Inside", (20, 40))
+
+    root_dict = _structure(doc)
+    assert root_dict["K"].xref == document
+    (paragraph,) = doc.objects[document]["K"]
+    assert (str(paragraph["S"]), paragraph["P"].xref) == ("P", document)
+    _check_consistency(doc)
