@@ -1077,7 +1077,20 @@ TEXT_OPTIONS = {
     "html": ("layout", (), ".to_html()"),
     "xml": ("layout", ("chars=True",), ".to_xml()"),
 }
+EXTRACTED_FONT_MESSAGE = (
+    "doc.fonts[xref].extract() returns a FontProgram with format and data, or None when the font is not "
+    "embedded, instead of a (name, ext, type, content) tuple; read name and subtype from doc.fonts[xref]."
+)
+CHAR_WIDTHS_MESSAGE = (
+    "doc.fonts[xref].widths is a tuple of advances in em indexed by character code, instead of a list of "
+    "(glyph, width) pairs."
+)
 RECORD_MESSAGES = {
+    "fonts": (
+        "page.resources.fonts returns FontObject handles instead of tuples: read font.xref, name, subtype, "
+        "encoding, and is_embedded."
+    ),
+    "xobjects": "page.resources.forms returns FormObject handles with xref, bbox, and matrix instead of tuples.",
     "words": "page.words() returns Word records with text, bbox, block, line, and index instead of tuples.",
     "blocks": "page.layout().blocks holds Block records with text, bbox, and lines instead of tuples.",
     "images": (
@@ -1260,6 +1273,41 @@ def _get_images(migrator: _Migrator, receiver: str, args: _Arguments) -> str | N
         return None
     migrator.todo(RECORD_MESSAGES["images"])
     return f"{receiver}.resources.images"
+
+
+def _get_fonts(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``get_fonts(full=...)`` to ``resources.fonts``, whose items are handles."""
+    bound = args.bind(("full",))
+    if bound is None or bound.get("full", "False") not in _FALSE | _TRUE:
+        return None
+    migrator.todo(RECORD_MESSAGES["fonts"])
+    return f"{receiver}.resources.fonts"
+
+
+def _get_xobjects(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``get_xobjects()`` to ``resources.forms``, whose items are handles."""
+    if args.bind(()) is None:
+        return None
+    migrator.todo(RECORD_MESSAGES["xobjects"])
+    return f"{receiver}.resources.forms"
+
+
+def _extract_font(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``extract_font(xref)`` to ``fonts[xref].extract()``, which returns a record or ``None``."""
+    bound = args.bind(("xref", "info_only", "named"))
+    if bound is None or "xref" not in bound or set(bound) - {"xref"}:
+        return None
+    migrator.todo(EXTRACTED_FONT_MESSAGE)
+    return f"{receiver}.fonts[{bound['xref']}].extract()"
+
+
+def _get_char_widths(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``get_char_widths(xref)`` to ``fonts[xref].widths``, a tuple of advances in em."""
+    bound = args.bind(("xref", "limit", "idx", "fontdict"))
+    if bound is None or "xref" not in bound or set(bound) - {"xref", "limit"}:
+        return None
+    migrator.todo(CHAR_WIDTHS_MESSAGE)
+    return f"{receiver}.fonts[{bound['xref']}].widths"
 
 
 def _extract_image(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
@@ -1961,6 +2009,8 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
         "get_pixmap", ("matrix", "dpi", "colorspace", "clip", "alpha", "annots", "background")
     ),
     "get_page_images": _page_method("get_images", ("full",)),
+    "get_page_fonts": _page_method("get_fonts", ("full",)),
+    "get_page_xobjects": _page_method("get_xobjects", ()),
     "render_page": _render_page,
     "render_page_svg": _page_method("svg", ("max_size",)),
     "pages": _pages_call,
@@ -1998,6 +2048,10 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "get_cdrawings": _get_drawings,
     "get_image_info": _get_image_info,
     "get_images": _get_images,
+    "get_fonts": _get_fonts,
+    "get_xobjects": _get_xobjects,
+    "extract_font": _extract_font,
+    "get_char_widths": _get_char_widths,
     "extract_image": _extract_image,
     "get_pixmap": _get_pixmap,
     "get_svg_image": _get_svg_image,

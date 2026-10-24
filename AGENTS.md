@@ -442,6 +442,19 @@ the concept and API overview.
   placement collection grow fallibly; allocator refusal must not be mistaken
   for an unsupported image or codec failure. Format tags are static. Never
   return a partial list.
+- `rust/src/document/inventory.rs` holds the resource inventories:
+  `page_resource_inventory` walks a page's inherited resources and, depth
+  first, its Form XObjects' resources once, listing indirect image XObjects,
+  Form XObjects, and font dictionaries in resource order, at most 4,096 of
+  each and 32 levels, with the refusal code of the inventory asked for
+  (`image_inventory_count`, `form_inventory_count`, `font_inventory_count`);
+  `page.resources.images`, `fonts`, and `forms` read it. `doc.fonts` lists
+  every object whose `/Subtype` a `/Font` resource can select. `FontObject`
+  (`src/pylopdf/_font_objects.py`) reads `font_facts` on every access;
+  `widths` evaluates the content engine's `FontMetrics` (made `pub(crate)`
+  for this) for every one-byte or two-byte code, so the widths are those
+  that extraction moves by, and `extract()` strictly decodes `/FontFile`,
+  `/FontFile2`, or `/FontFile3` under `max_size` (`font_program_size`).
 - `Document.attachments.add`, `Attachment.write`, and `Attachment.read`
   share a 64 MiB default attachment boundary (the core's `embfile_add`,
   `embfile_upd`, and `embfile_get`). Adds and writes reject byte input before its PyO3 copy and repeat the check in

@@ -497,7 +497,7 @@ its interpretations.
 |---|---|
 | `pixmap(*, dpi=None, matrix=None, clip=None, alpha=False, background=None, annotations=True, colorspace="rgb")` | Render to a [`Pixmap`](#pixmap) |
 | `svg(*, annotations=True, max_size=64 MiB)` | Render to an SVG string, with text drawn as paths |
-| `resources` | What the page's resources reach: `resources.images` lists its image objects; see [Images](#images) |
+| `resources` | What the page's resources reach: `resources.images`, `resources.fonts`, and `resources.forms` list its image objects, fonts, and Form XObjects; see [Images](#images) and [Fonts and Form XObjects](#font-objects) |
 
 A pixmap is RGB on white at 72 dpi by default and RGBA with `alpha=True`.
 Pass `dpi` or `matrix`, not both. Any invertible matrix renders: the pixmap
@@ -1033,6 +1033,42 @@ with pylopdf.open("scan.pdf") as doc:
 Where an image is drawn belongs to the page's content:
 `page.content(text_runs=False, paths=False).images` lists every placement
 with its box and matrix.
+
+## Fonts and Form XObjects { #font-objects }
+
+`doc.fonts` maps object numbers to the document's font dictionaries, those
+that `/Font` resources select (a Type 0 font's descendant CIDFont is not
+one), and `page.resources.fonts` lists the ones that a page's resources
+reach, once each in resource order, those of its Form XObjects included.
+Each is a `FontObject` that reads the document on every access:
+
+| Member | Meaning |
+|---|---|
+| `xref`, `obj` | The object number, and the font dictionary in the [object model](#low-level-objects) |
+| `name` | `/BaseFont` with its subset prefix, such as `"ABCDEF+Arial"`; a Type 3 font's `/Name` or `""` |
+| `subtype` | `"Type1"`, `"MMType1"`, `"TrueType"`, `"Type0"`, or `"Type3"` |
+| `encoding` | The encoding's name, an encoding dictionary's `/BaseEncoding`, or an embedded CMap's `/CMapName`; `None` without one |
+| `is_embedded` | Whether the PDF holds the glyphs: an embedded program, or Type 3 procedures |
+| `widths` | The advance of every character code in em, indexed by code: 256 for a simple or Type 3 font, 65,536 two-byte codes for a Type 0 font, as extraction and rendering move by them |
+| `extract(*, max_size=64 MiB)` | The embedded program as a `FontProgram` with `format` (`"type1"`, `"truetype"`, `"cff"`, or `"opentype"`) and the decoded `data`, or `None` for a font that is not embedded; a larger program raises `LimitError` with code `font_program_size` |
+
+```python
+from pathlib import Path
+
+extensions = {"type1": "pfa", "truetype": "ttf", "cff": "cff", "opentype": "otf"}
+with pylopdf.open("report.pdf") as doc:
+    for font in doc.pages[0].resources.fonts:
+        if (program := font.extract()) is not None:
+            Path(f"{font.xref}.{extensions[program.format]}").write_bytes(program.data)
+```
+
+`page.resources.forms` lists the Form XObjects that a page's resources reach,
+depth first, as `FormObject` handles with `xref`, `obj`, `bbox` (in the
+form's own space), and `matrix`. A page that lists more than 4,096 fonts or
+Form XObjects raises `LimitError` with code `font_inventory_count` or
+`form_inventory_count`. Fonts stored directly in a resource dictionary, and
+fonts that only annotation appearances or Type 3 procedures use, are not
+listed.
 
 ## Canvas { #canvas }
 

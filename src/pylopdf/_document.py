@@ -28,6 +28,7 @@ from pylopdf._fallback_fonts import (
     _replace_fallback_fonts,
     _reset_fallback_fonts,
 )
+from pylopdf._font_objects import Fonts
 from pylopdf._fonts import (
     _font_input_limit_error,
 )
@@ -996,6 +997,19 @@ class Document:
         """
         self._ensure_open()
         return Images(self)
+
+    @property
+    def fonts(self) -> Fonts:
+        """Return the font dictionaries, keyed by object number.
+
+        ``doc.fonts[xref]`` is a :class:`FontObject` with the font's name,
+        subtype, encoding, and glyph widths, and
+        :meth:`FontObject.extract` for its embedded program; another object
+        number raises :class:`KeyError`. ``page.resources.fonts`` lists the
+        fonts that one page's resources reach.
+        """
+        self._ensure_open()
+        return Fonts(self)
 
     @property
     def attachments(self) -> Attachments:

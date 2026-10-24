@@ -689,6 +689,9 @@ def _layout_results() -> dict[str, Any]:
         ],
     }
     _require(len(text_options["quads"]) == 2, "search quads changed")  # noqa: PLR2004 - two matching lines.
+    fonts = painted.resources.fonts
+    text_options["fonts"] = [[font.name, font.subtype, font.is_embedded, round(font.widths[65], 3)] for font in fonts]
+    _require(text_options["fonts"] == [["Helvetica", "Type1", False, 0.667]], "font inventory changed")
     text_options["selection"] = columns.selection((41, 66), (210, 86))
     _require(text_options["selection"] == "Left one\nLeft two\nRight one\nRi", "selection changed")
     _require(text_options["default"] == "Red\nOutline\nHidden\n", "hidden glyphs were extracted by default")

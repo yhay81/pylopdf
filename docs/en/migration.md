@@ -144,6 +144,10 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `pix.width`, `height`, `alpha`, `stride`, `colorspace` | Same | `colorspace` is `Colorspace.GRAY` or `Colorspace.RGB`; `csRGB` and `csGRAY` are `Colorspace.RGB` and `Colorspace.GRAY` |
 | `page.get_svg_image()` | `page.svg()` | Text is always drawn as paths, at 72 dpi |
 | `page.get_images()` | `page.resources.images` | `ImageObject` handles with `xref`, `width`, `height`, `bits`, `colorspace`, `filters`, and masks instead of tuples |
+| `page.get_fonts()`, `doc.get_page_fonts(i)` | `page.resources.fonts` | `FontObject` handles with `xref`, `name`, `subtype`, `encoding`, and `is_embedded` instead of tuples |
+| `doc.extract_font(xref)` | `doc.fonts[xref].extract()` | A `FontProgram` with `format` and `data`, or `None` for a font that is not embedded |
+| `doc.get_char_widths(xref)` | `doc.fonts[xref].widths` | The advances in em indexed by character code |
+| `page.get_xobjects()`, `doc.get_page_xobjects(i)` | `page.resources.forms` | `FormObject` handles with `xref`, `bbox`, and `matrix` |
 | `doc.extract_image(xref)` | `doc.images[xref].extract()` | An `EncodedImage` with `format`, `data`, and `resolution`; the size, color space, and masks are properties of `doc.images[xref]` |
 | `pymupdf.Pixmap(doc, xref)` | `doc.images[xref].to_pixmap()` | `alpha=True` applies the image's masks |
 | `pymupdf.Pixmap(filename)`, `pymupdf.Pixmap(stream)` | `Pixmap.from_file(path)`, `Pixmap.from_bytes(data)` | PNG and JPEG; other formats belong to Pillow, then `Pixmap.from_array(numpy.asarray(image))` |

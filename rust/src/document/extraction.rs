@@ -746,11 +746,6 @@ pub(super) fn select_text(
 /// whether it is itself a stencil mask.
 pub(super) type ImageFactsTuple = (i64, i64, i64, String, String, Vec<String>, u32, u32, bool);
 
-/// Bound the resource walk of one page's image inventory.
-const MAX_IMAGE_INVENTORY_ENTRIES: usize = 4_096;
-const MAX_IMAGE_INVENTORY_FORMS: usize = 4_096;
-const MAX_IMAGE_INVENTORY_DEPTH: usize = 32;
-
 /// Read a name, or the name an indirect reference resolves to, as text.
 fn object_name_text(doc: &Document, object: &Object) -> Option<String> {
     deref_object(doc, object)
@@ -929,89 +924,8 @@ pub(super) fn image_xrefs(this: &_Document) -> PyResult<Vec<u32>> {
 /// XObject once in resource order. Images that only inline content or
 /// annotation appearances hold are not listed, as in pymupdf.
 pub(super) fn page_image_inventory(this: &_Document, page_number: u32) -> PyResult<Vec<u32>> {
-    let doc = &this.doc;
-    let page_id = this.page_id(page_number)?;
-    let page = resolve_inherited_page_dict(doc, page_id)?;
-    let mut inventory: Vec<u32> = Vec::new();
-    let mut seen_images: HashSet<ObjectId> = HashSet::new();
-    let mut seen_forms: HashSet<ObjectId> = HashSet::new();
-    let grow = |label: &str, error: std::collections::TryReserveError| {
-        PdfError::new_err(format!(
-            "failed to grow the image inventory {label}: {error}"
-        ))
-    };
-    // (resources, depth)
-    let mut pending: Vec<(Dictionary, usize)> = Vec::new();
-    if let Ok(resources) = page.get(b"Resources")
-        && let Ok(resources) = deref_object(doc, resources).as_dict()
-    {
-        pending
-            .try_reserve(1)
-            .map_err(|error| grow("walk", error))?;
-        pending.push((resources.clone(), 0));
-    }
-    while let Some((resources, depth)) = pending.pop() {
-        let Ok(x_objects) = resources.get(b"XObject") else {
-            continue;
-        };
-        let Ok(x_objects) = deref_object(doc, x_objects).as_dict() else {
-            continue;
-        };
-        let mut forms = Vec::new();
-        for (_, value) in x_objects.iter() {
-            let Ok(id) = value.as_reference() else {
-                continue;
-            };
-            let Ok(stream) = doc.get_object(id).and_then(Object::as_stream) else {
-                continue;
-            };
-            match stream.dict.get(b"Subtype").and_then(Object::as_name) {
-                Ok(b"Image") => {
-                    if !seen_images.insert(id) {
-                        continue;
-                    }
-                    if inventory.len() >= MAX_IMAGE_INVENTORY_ENTRIES {
-                        return Err(limit_err(
-                            "image_inventory_count",
-                            format!(
-                                "the page lists more than {MAX_IMAGE_INVENTORY_ENTRIES} image XObjects"
-                            ),
-                        ));
-                    }
-                    inventory
-                        .try_reserve(1)
-                        .map_err(|error| grow("entries", error))?;
-                    inventory.push(id.0);
-                }
-                Ok(b"Form") => {
-                    if depth + 1 > MAX_IMAGE_INVENTORY_DEPTH || !seen_forms.insert(id) {
-                        continue;
-                    }
-                    if seen_forms.len() > MAX_IMAGE_INVENTORY_FORMS {
-                        return Err(limit_err(
-                            "image_inventory_count",
-                            format!(
-                                "the page nests more than {MAX_IMAGE_INVENTORY_FORMS} Form XObjects"
-                            ),
-                        ));
-                    }
-                    if let Ok(form_resources) = stream.dict.get(b"Resources")
-                        && let Ok(form_resources) = deref_object(doc, form_resources).as_dict()
-                    {
-                        forms.try_reserve(1).map_err(|error| grow("walk", error))?;
-                        forms.push((form_resources.clone(), depth + 1));
-                    }
-                }
-                _ => {}
-            }
-        }
-        // Visit nested Forms in resource order once the listing is complete.
-        pending
-            .try_reserve(forms.len())
-            .map_err(|error| grow("walk", error))?;
-        pending.extend(forms.into_iter().rev());
-    }
-    Ok(inventory)
+    page_resource_inventory(this, page_number, InventoryKind::Images)
+        .map(|inventory| inventory.images)
 }
 
 /// What `ImageObject.extract` returns: the encoded image's format, its

@@ -8,7 +8,7 @@
 //! result with hayro verifies it. Nothing here is public API before the
 //! Rewriting milestone; a private `_Document.content_glyphs` hook drives the tests.
 
-mod fonts;
+pub(crate) mod fonts;
 pub(crate) mod interpret;
 pub(crate) mod syntax;
 
