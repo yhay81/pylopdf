@@ -171,7 +171,7 @@ indexing and slice assignment. Rectangles are `IRect` values or
 ```python
 def pixel(pix: Pixmap, x: int, y: int) -> tuple[int, ...]:
     """Return the samples of one pixel, alpha included."""
-    return tuple(int(value) for value in samples(pix)[y, x])
+    return tuple(int(value) for value in numpy.asarray(pix).reshape(pix.height, pix.width, pix.channels)[y, x])
 
 
 def fill(pix: Pixmap, rect, color: tuple[int, ...]) -> Pixmap:
@@ -293,6 +293,9 @@ def to_image(pix: Pixmap) -> Image.Image:
 
 
 def from_image(image: Image.Image, like: Pixmap) -> Pixmap:
+    if image.mode not in {"L", "LA", "RGB", "RGBA"}:
+        alpha = "transparency" in image.info or "A" in image.getbands()
+        image = image.convert("RGBA" if alpha else "RGB")
     return from_samples(numpy.asarray(image).reshape(image.height, image.width, -1), like)
 
 

@@ -226,3 +226,24 @@ def test_pillow_round_trips_every_layout(options: dict[str, object], mode: str) 
     back = R["from_image"](image, pix)
     assert (bytes(back), back.channels, back.resolution) == (bytes(pix), pix.channels, (144, 144))
     assert R["to_image"](pix).convert("CMYK").mode == "CMYK"
+
+
+@pytest.mark.parametrize("mode", ["CMYK", "P", "1", "I"])
+def test_from_image_converts_other_modes_to_color_samples(mode: str) -> None:
+    image = R["to_image"](_rgb()).convert(mode)
+
+    decoded = R["from_image"](image, _rgb())
+
+    assert decoded.channels == 3
+    assert bytes(decoded) == image.convert("RGB").tobytes()
+    assert decoded.resolution == (150, 150)
+
+
+def test_from_image_preserves_palette_transparency() -> None:
+    image = R["to_image"](_rgb()).convert("P")
+    image.info["transparency"] = image.getpixel((0, 0))
+
+    decoded = R["from_image"](image, _rgb())
+
+    assert decoded.alpha
+    assert bytes(decoded) == image.convert("RGBA").tobytes()
