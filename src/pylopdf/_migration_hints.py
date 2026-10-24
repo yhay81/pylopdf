@@ -201,7 +201,7 @@ HINTS: dict[str, str] = {
     "Document.render_page": "Document.render_page is Page.pixmap in pylopdf. Use doc.pages[i].pixmap(dpi=72 * scale, alpha=True).to_bytes() for the PNG.",
     "Document.render_page_svg": "Document.render_page_svg is Page.svg in pylopdf. Use doc.pages[i].svg().",
     "Document.render_pages": "Document.render_pages is Document.render in pylopdf. Use doc.render(pages, ...), which takes dpi or matrix, not both.",
-    "Document.repair": "pylopdf plans the capability of pymupdf's Document.repair in the Persistence milestone of ROADMAP.md.",
+    "Document.repair": "Document.repair is open in pylopdf. pylopdf repairs damaged cross-reference data when it opens a document and reports it with doc.is_repaired; saving writes the repaired structure.",
     "Document.resolve_link": "Document.resolve_link is Document.destinations in pylopdf. For a named destination, doc.destinations[name]; for '#page=N', Destination(N - 1); links and the outline already read their targets resolved.",
     "Document.resolve_names": "Document.resolve_names is Document.destinations in pylopdf. doc.destinations maps each named destination to its Destination(page, point, zoom), or None when it names no page.",
     "Document.saveIncr": "Document.saveIncr is Document.save in pylopdf. Use doc.save(path, incremental=True), which appends one update to the bytes the document was opened from and may write to any path.",

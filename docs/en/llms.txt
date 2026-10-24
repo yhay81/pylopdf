@@ -211,6 +211,7 @@ replacement, and the migration hint):
 - Document.pdf_catalog -> Document.catalog: Use doc.catalog, a live dictionary handle; doc.catalog.xref is its object number.
 - Document.pdf_trailer -> Document.trailer: Use doc.trailer, a live dictionary handle, instead of its PDF syntax.
 - Document.reload_page -> Pages.__getitem__: Fetch the page again with doc.pages[page.index].
+- Document.repair -> open: pylopdf repairs damaged cross-reference data when it opens a document and reports it with doc.is_repaired; saving writes the repaired structure.
 - Document.resolve_link -> Document.destinations: For a named destination, doc.destinations[name]; for '#page=N', Destination(N - 1); links and the outline already read their targets resolved.
 - Document.resolve_names -> Document.destinations: doc.destinations maps each named destination to its Destination(page, point, zoom), or None when it names no page.
 - Document.saveIncr -> Document.save: Use doc.save(path, incremental=True), which appends one update to the bytes the document was opened from and may write to any path.
