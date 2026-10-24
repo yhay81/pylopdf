@@ -2551,6 +2551,40 @@ impl TextPage {
         assemble_text(&lines, size)
     }
 
+    /// Return the text in reading order from the glyph nearest `start` to
+    /// the one nearest `end`, as a viewer selects it: the first and last lines
+    /// in part and the lines between whole, without a final line break.
+    pub(crate) fn selection(
+        &self,
+        start: (f64, f64),
+        end: (f64, f64),
+        view: &ViewOptions,
+    ) -> Result<String, TextPageLimit> {
+        let lines = self.view_lines(view)?;
+        let (Some(first), Some(last)) = (nearest_glyph(&lines, start), nearest_glyph(&lines, end))
+        else {
+            return Ok(String::new());
+        };
+        let (first, last) = if first <= last {
+            (first, last)
+        } else {
+            (last, first)
+        };
+        let mut selected: Vec<&[GlyphRecord]> = Vec::new();
+        for (index, line) in lines.iter().enumerate().take(last.0 + 1).skip(first.0) {
+            let from = if index == first.0 { first.1 } else { 0 };
+            let to = if index == last.0 {
+                last.1 + 1
+            } else {
+                line.len()
+            };
+            try_push_text(&mut selected, &line[from..to], "selected lines")?;
+        }
+        let mut text = assemble_text(&selected, None)?;
+        text.pop();
+        Ok(text)
+    }
+
     pub(crate) fn text_size(&self) -> usize {
         self.text_size
     }
@@ -2650,6 +2684,26 @@ impl std::ops::Deref for ViewLines<'_> {
             Self::Copied(lines) => lines,
         }
     }
+}
+
+/// The `(line, glyph)` of the glyph whose box lies nearest to a point, the
+/// first in reading order among equally near ones, or `None` without glyphs.
+fn nearest_glyph(lines: &[Vec<GlyphRecord>], (x, y): (f64, f64)) -> Option<(usize, usize)> {
+    let mut nearest = None;
+    let mut best = f64::INFINITY;
+    for (line_index, line) in lines.iter().enumerate() {
+        for (index, glyph) in line.iter().enumerate() {
+            let (x0, y0, x1, y1) = glyph_bbox(glyph);
+            let dx = (x0 - x).max(x - x1).max(0.0);
+            let dy = (y0 - y).max(y - y1).max(0.0);
+            let distance = dx.hypot(dy);
+            if distance < best {
+                best = distance;
+                nearest = Some((line_index, index));
+            }
+        }
+    }
+    nearest
 }
 
 /// Copy one glyph with the text that the view options make of it.
@@ -3183,16 +3237,16 @@ fn assembled_text_size(lines: &[Vec<GlyphRecord>]) -> Option<usize> {
 }
 
 /// Whether dehyphenation joins line `index` to the line after it.
-fn joins_next(lines: &[Vec<GlyphRecord>], index: usize) -> bool {
+fn joins_next<L: AsRef<[GlyphRecord]>>(lines: &[L], index: usize) -> bool {
     lines
         .get(index + 1)
-        .and_then(|line| line.first())
+        .and_then(|line| line.as_ref().first())
         .is_some_and(|glyph| glyph.joins_previous)
 }
 
 /// Assemble glyphs into top-to-bottom, left-to-right plain text.
-fn assemble_text(
-    lines: &[Vec<GlyphRecord>],
+fn assemble_text<L: AsRef<[GlyphRecord]>>(
+    lines: &[L],
     exact_size: Option<usize>,
 ) -> Result<String, TextPageLimit> {
     let mut out = String::new();
@@ -3203,7 +3257,7 @@ fn assemble_text(
     }
     for (index, line) in lines.iter().enumerate() {
         let mut previous: Option<&GlyphRecord> = None;
-        for glyph in line {
+        for glyph in line.as_ref() {
             if needs_gap(previous, glyph) && !out.ends_with(' ') && !out.ends_with('\n') {
                 try_push_str_text(&mut out, " ", "plain text output")?;
             }

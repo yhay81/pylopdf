@@ -714,6 +714,31 @@ where
     })
 }
 
+/// Implements [`_Document::select_text`].
+pub(super) fn select_text(
+    this: &mut _Document,
+    py: Python<'_>,
+    page_number: u32,
+    start: (f64, f64),
+    end: (f64, f64),
+    options: TextOptions,
+) -> PyResult<String> {
+    if ![start.0, start.1, end.0, end.1]
+        .iter()
+        .all(|value| value.is_finite())
+    {
+        return Err(PyValueError::new_err("selection points must be finite"));
+    }
+    let settings = this.interpreter_settings();
+    this.contain_renderer_panics(|this| {
+        py.detach(|| {
+            this.text_page((page_number, options.collect), settings)?
+                .selection(start, end, &options.view)
+                .map_err(text_page_limit_err)
+        })
+    })
+}
+
 /// The dictionary facts of one image XObject: width, height, bits per
 /// component (0 when absent), color space and alternate or base color space
 /// names (empty when absent), the names of its filters in decoding order, the

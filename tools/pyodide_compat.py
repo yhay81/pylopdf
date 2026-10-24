@@ -675,7 +675,9 @@ def _layout_results() -> dict[str, Any]:
             [[round(value, 3) for value in point] for point in quad] for quad in columns.search("Left", quads=True)
         ],
     }
-    _require(len(text_options["quads"]) == 2, "search quads changed")  # noqa: PLR2004 - two matching lines.
+    _require(len(text_options["quads"]) == 2, "search quads changed")
+    text_options["selection"] = columns.selection((41, 66), (210, 86))
+    _require(text_options["selection"] == "Left one\nLeft two\nRight one\nRi", "selection changed")  # noqa: PLR2004 - two matching lines.
     _require(text_options["default"] == "Red\nOutline\nHidden\n", "hidden glyphs were extracted by default")
     _require(text_options["clipped"].endswith("Clipped\n"), "clipped=True left out a clipped glyph")
     _require(text_options["clip"] == "Red\nOutline\n", "clip= kept other text")

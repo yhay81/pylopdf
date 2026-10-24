@@ -8526,6 +8526,34 @@
             "returns": "list[Rect] | list[Quad]"
           }
         },
+        "selection": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "start"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "end"
+              },
+              {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              }
+            ],
+            "returns": "str"
+          }
+        },
         "svg": {
           "kind": "method",
           "signature": {

@@ -361,6 +361,7 @@ no page was added, deleted, or reordered in between.
 | `text(*, clip=None, ...)` | The page's text in reading order, or the text in a rectangle |
 | `words(*, clip=None, ...)` | The words in reading order, as `Word` records |
 | `layout(*, clip=None, chars=False, ...)` | Blocks, lines, and spans as a `Layout`; see [Positioned text](#positioned-text) |
+| `selection(start, end, *, clip=None)` | The text a viewer selects by dragging from one display-space point to another, in reading order |
 | `search(text, *, clip=None, quads=False, max_hits=4096, ...)` | Case-insensitive search; returns a list of `Rect`, or with `quads=True` one `Quad` per line of each match |
 | `tables(*, strategy="lines", clip=None)` | Tables as a list of `Table` records; see [Tables](#tables) |
 | `markdown(*, table_strategy="lines")` | Markdown for this page |

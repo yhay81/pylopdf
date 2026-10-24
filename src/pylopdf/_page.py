@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Literal, overload
 
@@ -309,6 +310,45 @@ class Page:
         if chars:
             return _text.build_layout(*self._document._page_raw_layout(page_number, options))
         return _text.build_layout(*self._document._page_layout(page_number, options))
+
+    def selection(
+        self,
+        start: Sequence[float],
+        end: Sequence[float],
+        *,
+        clip: Sequence[float] | None = None,
+    ) -> str:
+        """Return the text that a viewer selects by dragging from ``start`` to ``end``.
+
+        The selection runs in reading order from the character nearest
+        ``start`` to the one nearest ``end``, whichever comes first, with the
+        first and last lines in part and the lines between them whole, as
+        :meth:`text` assembles them, and without a final line break. Both
+        points are in display space; ``clip`` limits the characters as
+        :meth:`text` does. A page without text selects ``""``.
+        """
+        points = []
+        for name, point in (("start", start), ("end", end)):
+            try:
+                x, y = (float(value) for value in point)
+            except (TypeError, ValueError) as error:
+                msg = f"{name} must be a point (x, y): {point!r}"
+                raise ValueError(msg) from error
+            if not (math.isfinite(x) and math.isfinite(y)):
+                msg = f"{name} must be a finite point: {point!r}"
+                raise ValueError(msg)
+            points.append((x, y))
+        options = _text.text_options(
+            clip=clip,
+            clipped=False,
+            ligatures=True,
+            whitespace=True,
+            dehyphenate=False,
+            unmapped="skip",
+        )
+        text = self._document._doc.select_text(self._page_number(), points[0], points[1], options)
+        self._document._emit_warnings()
+        return text
 
     def ocr(  # noqa: PLR0913 - OCR resource controls are keyword-only.
         self,

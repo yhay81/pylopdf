@@ -597,6 +597,13 @@ class _Document:
         max_hits: int | None = 4096,
         options: _TextOptions | None = None,
     ) -> list[tuple[float, float, float, float]]: ...
+    def select_text(
+        self,
+        page_number: int,
+        start: tuple[float, float],
+        end: tuple[float, float],
+        options: _TextOptions | None = None,
+    ) -> str: ...
     def search_page_quads(
         self,
         page_number: int,
