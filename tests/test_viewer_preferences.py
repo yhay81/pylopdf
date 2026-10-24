@@ -97,7 +97,9 @@ def test_malformed_entries_read_as_absent() -> None:
     )
     doc = pylopdf.open(_pdf(preferences))
 
-    assert doc.viewer_preferences == ViewerPreferences(fit_window=True, enforce=())
+    assert doc.viewer_preferences == ViewerPreferences(fit_window=True)
+    assert pylopdf.open(_pdf("<< /Enforce [/PrintScaling 42] >>")).viewer_preferences == ViewerPreferences()
+    assert pylopdf.open(_pdf("<< /Enforce [] >>")).viewer_preferences == ViewerPreferences(enforce=())
     assert pylopdf.open(_pdf("[/FitWindow]")).viewer_preferences is None
     assert pylopdf.open(_pdf("<< /PrintPageRange [3 1] >>")).viewer_preferences == ViewerPreferences()
 

@@ -368,7 +368,9 @@ def _read_enforced(enforce: object) -> tuple[str, ...] | None:
     """Read ``/Enforce`` as names, or ``None`` when it is malformed."""
     if not isinstance(enforce, Array) or len(enforce) > _MAX_ENFORCED:
         return None
-    names = tuple(str(name) for name in enforce if isinstance(name, Name))
+    if not all(isinstance(name, Name) for name in enforce):
+        return None
+    names = tuple(str(name) for name in enforce)
     return names if all(_is_preference_name(name) for name in names) else None
 
 
