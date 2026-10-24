@@ -454,11 +454,7 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
     _require(_CASE_LAW in mhlw_text[0], "MHLW fixture lost embedded Japanese text")
     _require(_CASE_LAW in mhlw_markdown, "MHLW Markdown lost embedded Japanese text")
     _require(mhlw.text() == "".join(mhlw_text), "batched get_text diverged from per-page extraction")
-    subset_source = pylopdf.open((real_world / "mhlw-doc.pdf").read_bytes())
-    program = subset_source.objects[152].read()
-    copy = subset_source.objects.add_stream(program, {"Length1": len(program)})
-    subset_source.objects[12]["FontDescriptor"]["FontFile2"] = subset_source.objects[copy]
-    subset_document = pylopdf.open(subset_source.to_bytes())
+    subset_document = pylopdf.open((real_world / "mhlw-doc.pdf").read_bytes())
     subset_result = subset_document.subset_fonts()
     subset_text = [page.text() for page in pylopdf.open(subset_document.to_bytes()).pages]
     _require(subset_text == mhlw_text, "font subsetting changed the extracted text")

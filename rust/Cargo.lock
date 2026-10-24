@@ -991,6 +991,7 @@ dependencies = [
  "unicode-linebreak",
  "unicode-segmentation",
  "windows-sys",
+ "write-fonts",
  "zune-jpeg",
 ]
 

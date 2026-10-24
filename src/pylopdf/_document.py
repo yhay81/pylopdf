@@ -1419,20 +1419,21 @@ class Document:
         can show text (page content, annotation appearances in every state,
         Form XObjects with the font they inherit, tiling patterns, Type 3
         glyph procedures, and soft masks) and collects the glyphs that each
-        embedded font program can draw. A TrueType program (``FontFile2``) of
-        a CID font under an ``Identity-H`` or ``Identity-V`` ``Type0`` font
-        is then cut to those glyphs with ``subsetter``, and the font's
-        ``CIDToGIDMap`` points the same codes at them, so the content, the
-        widths, and ``ToUnicode`` stay as they are and extracted text and
-        rendering do not change.
+        embedded TrueType program (``FontFile2``) can draw, which
+        ``subsetter`` then cuts it down to. For a CID font under an
+        ``Identity-H`` or ``Identity-V`` ``Type0`` font, the font's
+        ``CIDToGIDMap`` points the same codes at the kept glyphs. For a
+        simple TrueType font, hayro itself resolves the codes that the
+        document shows, and the subset keeps a ``cmap`` with every mapping of
+        the original to a kept glyph. Content, widths, and ``ToUnicode`` stay
+        as they are, so extracted text and rendering do not change.
 
         A program stays as it is when another kind of font shares it, when
         the interactive form's default resources name one of its fonts
         (a form fill could need any glyph), when a stream that could draw
         with it does not decode or parse, when a font or descriptor that uses
         it sits inside another object, or when the subset would not be
-        smaller. Fonts that are already subsets shrink only by the glyphs
-        that the document no longer draws. pymupdf's ``subset_fonts``
+        smaller. CFF programs are not subset yet. pymupdf's ``subset_fonts``
         returns nothing; this returns a :class:`FontSubsetResult`.
         """
         self._ensure_open()

@@ -96,7 +96,7 @@ class FontSubsetResult:
     """
 
     considered: int
-    """The embedded TrueType programs of CID fonts in the document."""
+    """The embedded TrueType programs of CID and simple TrueType fonts in the document."""
     subset: int
     """The programs reduced to the glyphs that the document can draw."""
     skipped: int

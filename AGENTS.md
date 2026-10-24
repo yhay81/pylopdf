@@ -520,11 +520,19 @@ the concept and API overview.
   does not decode or parse marks every candidate it could draw with as
   unknown. It handles a `FontFile2` program only when every font over it is
   a `CIDFontType2` object under an `Identity-H` or `Identity-V` `Type0`
-  object, so codes are CIDs: `subsetter` (the crate krilla embeds) cuts the
-  program, and the `CIDToGIDMap` (a new stream for `Identity`) points the
-  same CIDs at the new glyph IDs, so content, `/W`, and `ToUnicode` stay.
-  Programs that another font kind, a directly held font or descriptor, a
-  map shared across programs, or the AcroForm `/DR` involve stay whole.
+  object, whose codes are CIDs, or a simple `TrueType` object. `subsetter`
+  (the crate krilla embeds) cuts the program; the `CIDToGIDMap` (a new
+  stream for `Identity`) points the same CIDs at the new glyph IDs, and for
+  simple fonts hayro is the oracle: the font and what it reaches go into a
+  one-page document that shows each used code with its own `Tj`, a
+  `GlyphRecorder` device reads the glyph IDs hayro draws, the symbolic and
+  Mac lookups of each code in the program's own `cmap` are kept too, and
+  the subset gets a `cmap` (write-fonts, at subsetter's version) with every
+  original mapping to a kept glyph at its new ID, one format 4 segment per
+  code. Content, `/W`, and `ToUnicode` stay. Programs that another font
+  kind, a directly held font or descriptor, a map shared across programs,
+  or the AcroForm `/DR` involve stay whole. On the bundled corpus MuPDF
+  renders and extracts every subset page exactly as before.
 - Native OCR uses RTen 0.27 with only its `rten_format` feature. RTen 0.27
   deprecates the `.rten` format (robertknight/rten#1470) and no longer
   enables it by default; a release that removes it would require ONNX model

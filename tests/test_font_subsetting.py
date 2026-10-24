@@ -11,7 +11,7 @@ import pylopdf
 REAL_WORLD = Path(__file__).parent / "assets" / "real_world"
 # In mhlw-doc.pdf one full YuMincho program (object 152, 733,908 bytes)
 # serves a Type0 font (object 5, `/F1`) and a simple TrueType font (object 12,
-# `/F2`), which subsetting does not handle.
+# `/F2`).
 TYPE0_FONT = 5
 SIMPLE_FONT = 12
 PROGRAM = 152
@@ -49,15 +49,16 @@ def test_subsetting_keeps_text_and_rendering_and_shrinks_the_file() -> None:
 
     result = doc.subset_fonts()
 
+    # The Type0 font's program and the simple font's copy.
     assert result == pylopdf.FontSubsetResult(
-        considered=1,
-        subset=1,
+        considered=2,
+        subset=2,
         skipped=0,
-        bytes_before=733_908,
+        bytes_before=2 * 733_908,
         bytes_after=result.bytes_after,
-        bytes_saved=733_908 - result.bytes_after,
+        bytes_saved=2 * 733_908 - result.bytes_after,
     )
-    assert result.bytes_after < 733_908 // 5
+    assert result.bytes_after < 2 * 733_908 // 5
     assert _signature(doc) == expected
     saved = doc.to_bytes()
     assert len(saved) < before * 2 // 3
@@ -76,18 +77,48 @@ def test_subsetting_a_subset_again_changes_nothing() -> None:
     again = pylopdf.open(saved).subset_fonts()
 
     assert again.subset == 0
-    assert again.skipped == 1
+    assert again.skipped == 2
 
 
 @pytest.mark.filterwarnings("ignore::pylopdf.PylopdfWarning")
-def test_a_program_that_a_simple_font_shares_is_left_alone() -> None:
+def test_a_program_shared_by_a_cid_font_and_a_simple_font_is_subset() -> None:
     doc = _mhlw()
-    before = doc.objects[PROGRAM].read()
+    expected = _signature(doc)
+    before = len(doc.to_bytes())
 
     result = doc.subset_fonts()
 
-    assert (result.considered, result.subset, result.skipped) == (1, 0, 1)
-    assert doc.objects[PROGRAM].read() == before
+    assert (result.considered, result.subset, result.skipped) == (1, 1, 0)
+    assert result.bytes_after < 733_908 // 5
+    saved = doc.to_bytes()
+    assert len(saved) < before // 3
+    with pylopdf.open(saved) as reopened:
+        assert _signature(reopened) == expected
+
+
+@pytest.mark.parametrize("name", ["senate-expenditures.pdf", "nics-background-checks-2015-11.pdf"])
+def test_simple_truetype_fonts_keep_their_codes(name: str) -> None:
+    doc = pylopdf.open(REAL_WORLD / name)
+    expected = _signature(doc)
+
+    result = doc.subset_fonts()
+
+    assert result.subset >= 1
+    assert result.bytes_saved > 0
+    with pylopdf.open(doc.to_bytes()) as reopened:
+        assert _signature(reopened) == expected
+
+
+@pytest.mark.filterwarnings("ignore::pylopdf.PylopdfWarning")
+def test_a_simple_font_held_directly_keeps_its_program_whole() -> None:
+    doc = _mhlw()
+    resources = doc.pages[0].obj["Resources"]["Font"]
+    # Copy the simple font into the resource dictionary, so no object holds it.
+    direct = dict(doc.objects[SIMPLE_FONT].items())
+    resources["F2"] = direct
+    doc = pylopdf.open(doc.to_bytes())
+
+    assert doc.subset_fonts().subset == 0
 
 
 @pytest.mark.filterwarnings("ignore::pylopdf.PylopdfWarning")
@@ -95,8 +126,12 @@ def test_a_font_in_the_form_default_resources_is_left_alone() -> None:
     doc = _exclusive_program()
     font = doc.objects[TYPE0_FONT]
     doc.catalog["AcroForm"] = {"Fields": [], "DR": {"Font": {"F1": font}}}
+    before = doc.objects[PROGRAM].read()
 
-    assert doc.subset_fonts().subset == 0
+    # Only the simple font's copy of the program is subset.
+    assert doc.subset_fonts().subset == 1
+
+    assert doc.objects[PROGRAM].read() == before
 
 
 @pytest.mark.filterwarnings("ignore::pylopdf.PylopdfWarning")
@@ -114,7 +149,7 @@ def test_a_form_draws_with_the_font_it_inherits() -> None:
     doc = pylopdf.open(doc.to_bytes())
     expected = _signature(doc)
 
-    assert doc.subset_fonts().subset == 1
+    assert doc.subset_fonts().subset == 2
 
     assert _signature(doc) == expected
 
@@ -131,10 +166,11 @@ def test_a_stream_that_does_not_decode_keeps_its_fonts_whole() -> None:
     doc.objects[broken]["Filter"] = pylopdf.Name("JBIG2Decode")
     doc.pages[0].obj["Resources"]["XObject"] = {"Broken": doc.objects[broken]}
     _add_text_stream(doc, b"q /F1 12 Tf /Broken Do Q")
+    before = doc.objects[PROGRAM].read()
 
-    result = doc.subset_fonts()
+    doc.subset_fonts()
 
-    assert result.subset == 0
+    assert doc.objects[PROGRAM].read() == before
 
 
 @pytest.mark.filterwarnings("ignore::pylopdf.PylopdfWarning")
@@ -146,7 +182,7 @@ def test_an_explicit_cid_to_gid_map_is_rewritten() -> None:
     doc = pylopdf.open(doc.to_bytes())
     expected = _signature(doc)
 
-    assert doc.subset_fonts().subset == 1
+    assert doc.subset_fonts().subset == 2
 
     assert _signature(doc) == expected
     rewritten = doc.objects[TYPE0_FONT]["DescendantFonts"][0]["CIDToGIDMap"].read()

@@ -383,13 +383,14 @@ plain 8-bit gray or RGB images without masks, keeps an image whose new
 encoding would not be smaller, and returns statistics.
 
 `subset_fonts` follows the text state through every content stream that can
-show text, collects the glyphs each embedded font program can draw, and cuts
-the TrueType programs of CID fonts with the `Identity-H` or `Identity-V`
-encoding down to them; the content, widths, and `ToUnicode` stay as they are,
-so extracted text and rendering do not change. It leaves a program alone when
-a simple font shares it, when the form's default resources name its font, or
-when a stream that could draw with it does not decode, and returns a
-`FontSubsetResult` with what it saved.
+show text, collects the glyphs each embedded TrueType program can draw, and
+cuts the program down to them: a CID font with the `Identity-H` or
+`Identity-V` encoding keeps its codes through a new `CIDToGIDMap`, and a
+simple TrueType font through a `cmap` that maps what it mapped before to the
+kept glyphs. The content, widths, and `ToUnicode` stay as they are, so
+extracted text and rendering do not change. It leaves a program alone when
+the form's default resources name its font or when a stream that could draw
+with it does not decode, and returns a `FontSubsetResult` with what it saved.
 
 `fallback_fonts` maps `"ja"`, `"ko"`, `"zh-CN"`, and `"zh-TW"`, the
 languages of the Adobe-Japan1, Korea1, GB1, and CNS1 character collections,
