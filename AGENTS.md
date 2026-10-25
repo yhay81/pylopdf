@@ -435,7 +435,17 @@ the concept and API overview.
   (`image_snapshot`, within `max_interpretation_size` and at most 65,535
   pixels a side), run a fresh `ContentGuard` on it, and decode or render it
   inside `contain_renderer_panics`: `extract` with the placement extractor
-  below, `to_pixmap` with the page renderer over white or transparency. The
+  below, `to_pixmap` with the page renderer over white or transparency.
+  `replace(source)` (`replace_image` in `document/images.rs`) reads, limits,
+  and encodes the new image with the canvas's `draw::image_streams` before
+  any change, then calls `invalidate_hayro_pdf`, which also forgets the
+  placement digest of the old samples, stores the new stream under the old
+  object ID with the old `/OC` and `/StructParent`, and adds its soft mask;
+  the old masks stay until a pruning save. `canvas.image` draws an
+  `ImageObject` through `draw(Image)`'s path, with a placement matrix from
+  the image's `/Width` and `/Height` (`add_image_object`), and a new
+  document's canvas draws `to_pixmap(alpha=True)` in both, through the
+  item's matrix for `draw`. The
   core `extract_images` placement decoder stays as the test hook behind
   `tests/conftest.py`'s `drawn_images`. It materializes each drawn placement
   as JPEG passthrough or PNG. Reject the complete result above 4,096 placements,

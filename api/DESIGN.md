@@ -273,7 +273,7 @@ interpret the page separately and agree with it on the bundled corpus.
 | `doc.layers.configurations` | A sequence of `LayerConfiguration` handles: the default configuration `/D` first, then `/Configs`, with `add(name, /, *, creator=None, base_state=LayerBaseState.ON, on=(), off=())`. A configuration has `name`, `creator`, `base_state` (`LayerBaseState`: `ON`, `OFF`, `UNCHANGED`), `on`, `off`, `locked`, `radio_groups` (tuples of `Layer` handles), and `order`, the user-interface tree of `/Order` as a tuple of `Layer` handles and `LayerOrder(label, items)` values, an unlabeled `LayerOrder` after a layer holding its children; all are assignable. `apply()` makes a configuration the default. |
 | `LayerMembership(layers, /, *, policy=VisibilityPolicy.ANY_ON, expression=None)` | A value for an optional-content membership dictionary: `layers` is a sequence of `Layer` handles, `policy` a `VisibilityPolicy` (`ALL_ON`, `ANY_ON`, `ANY_OFF`, `ALL_OFF`), and `expression` a `LayerExpression(operator, operands)` visibility expression, where `operator` is `"and"`, `"or"`, or `"not"` and operands are layers or expressions. Content whose membership names no group is visible. |
 | `layer` on annotations, links, widgets, and images | `Annotation.layer`, `Link.layer`, `Widget.layer`, and `ImageObject.layer` read the `/OC` entry as a `Layer` handle, a `LayerMembership`, or `None`; they are assignable and deletable, and assigning a `LayerMembership` writes a new membership dictionary. `Canvas.layer(layer)` scopes written content in a group or membership. |
-| `doc.images` | A mapping of image objects by `xref`; each `ImageObject` has `xref`, `obj`, `width`, `height`, `bits`, `colorspace`, `alternate_colorspace`, `filters`, `soft_mask`, `mask`, `is_stencil`, `extract()` for the encoded image as an `EncodedImage(format, data, resolution)`, and `to_pixmap(alpha=False)`. |
+| `doc.images` | A mapping of image objects by `xref`; each `ImageObject` has `xref`, `obj`, `width`, `height`, `bits`, `colorspace`, `alternate_colorspace`, `filters`, `soft_mask`, `mask`, `is_stencil`, `extract()` for the encoded image as an `EncodedImage(format, data, resolution)`, `to_pixmap(alpha=False)`, and `replace(source)`, which puts a new image under the same object number for every placement. |
 
 ## 6. Reading
 
@@ -507,6 +507,7 @@ hint.
 | `get_page_labels()`, `set_page_labels()`, `Page.get_label()` | `doc.page_labels`, `page.label` |
 | `get_form_fields()`, `set_form_field()` | `doc.form` |
 | `extract_image(xref)` | `doc.images[xref].extract()` |
+| `Page.replace_image(xref, ...)` | `doc.images[xref].replace(source)` |
 | `get_pdfa_claim()` | `doc.pdfa_claim` |
 | `set_fallback_font(...)` | `doc.fallback_fonts`, an assignable mapping from CJK language to `FallbackFont` |
 | `Page.number`, `Page.parent` | `page.index`, `page.document` |

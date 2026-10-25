@@ -3046,14 +3046,58 @@ impl _Canvas {
         xref: u32,
         matrix: (f64, f64, f64, f64, f64, f64),
     ) -> PyResult<()> {
+        let matrix = [matrix.0, matrix.1, matrix.2, matrix.3, matrix.4, matrix.5];
+        for value in matrix {
+            coordinate(value)?;
+        }
+        self.record_image_item(target, source, xref, matrix)
+    }
+
+    /// Record the Image XObject `xref` of `source` drawn into a display
+    /// rectangle, placed as `canvas.image` places encoded images.
+    #[allow(clippy::too_many_arguments)]
+    fn add_image_object(
+        &mut self,
+        target: &Bound<'_, _Document>,
+        source: &Bound<'_, _Document>,
+        xref: u32,
+        rect: (f64, f64, f64, f64),
+        keep_aspect: bool,
+        rotation: i64,
+    ) -> PyResult<()> {
+        let rect = rect_array(rect)?;
+        quarter_turn(rotation)?;
+        let (width, height) = source.borrow().image_size(xref)?;
+        let (page_width, page_height) = self.recording.size;
+        let placement = draw::image_placement_matrix(
+            [0.0, 0.0, page_width, page_height],
+            0,
+            rect,
+            width,
+            height,
+            keep_aspect,
+            rotation,
+        );
+        // The placement maps the unit square into the canvas's PDF space,
+        // which the flip turns into its display space, as for `Op::Image`.
+        let matrix = concat(placement, [1.0, 0.0, 0.0, -1.0, 0.0, page_height]);
+        self.record_image_item(target, source, xref, matrix)
+    }
+}
+
+impl _Canvas {
+    /// Record an image object, once per canvas, drawn through `matrix`.
+    fn record_image_item(
+        &mut self,
+        target: &Bound<'_, _Document>,
+        source: &Bound<'_, _Document>,
+        xref: u32,
+        matrix: [f64; 6],
+    ) -> PyResult<()> {
         if self.new_document {
             return Err(PdfError::new_err(
                 "a new document cannot draw image items yet; draw them on the finished document's pages",
             ));
-        }
-        let matrix = [matrix.0, matrix.1, matrix.2, matrix.3, matrix.4, matrix.5];
-        for value in matrix {
-            coordinate(value)?;
         }
         let item = if target.is(source) {
             let id = source.borrow().image_object_id(xref)?;

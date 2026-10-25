@@ -352,6 +352,7 @@ hayroがまだ報告しない情報はモデルにありません。色の色空
 | `soft_mask`, `mask`, `is_stencil` | 画像オブジェクトとしてのソフトマスクとステンシルマスク、画像自体がステンシルマスクかどうか |
 | `extract()` | 画像のデータを`format`、`data`、`resolution`を持つ`EncodedImage`で。JPEGデータは格納されたまま、ほかの画像はPNGで、マスクは含みません |
 | `to_pixmap(*, alpha=False)` | 画像のピクセルを[`Pixmap`](#pixmap)で。マスクを含まないRGB、またはマスクが透明度を決めるRGBA |
+| `replace(source, *, max_size=64 MiB, max_pixels=64,000,000)` | JPEGまたはPNGのパス、エンコード済みのbytes、`Pixmap`を、画像のオブジェクト番号のまま画像の代わりに置きます。どの配置も新しい画像を描きます。画像のレイヤーと構造上の親は残り、入力は[`canvas.image`](#canvas)と同じように制限されます |
 
 ```python
 from pathlib import Path
@@ -362,7 +363,16 @@ with pylopdf.open("scan.pdf") as doc:
         Path(f"image-{image.xref}.{encoded.format}").write_bytes(encoded.data)
 ```
 
-画像が描かれる位置はページの内容に属します。`page.content(text_runs=False, paths=False).images`がすべての配置をボックスと行列とともに並べます。
+画像が描かれる位置はページの内容に属します。`page.content(text_runs=False, paths=False).images`がすべての配置をボックスと行列とともに並べ、`canvas.image(rect, image)`は画像オブジェクトをどのページにももう一度描きます。
+
+```python
+with pylopdf.open("brochure.pdf") as doc:
+    logo = doc.images[12]
+    logo.replace("new-logo.png")            # それを表示するすべてのページが変わります
+    with doc.pages[-1].draw() as canvas:
+        canvas.image((40, 40, 140, 90), logo)
+    doc.save("brochure-new.pdf")
+```
 
 ## キャンバス { #canvas }
 
@@ -388,7 +398,7 @@ with page.draw() as canvas:
 | `line`, `rect(rect, *, radius=0)`, `circle`, `ellipse`, `polygon`, `bezier` | それぞれパスを1つ。オプションは`path`と同じです |
 | `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None)` | 最初のベースラインが`at`から始まる行 |
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` | `rect`の中で折り返したテキスト。`TextFit`を返します |
-| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEGまたはPNGのパス、エンコード済みのbytes、`Pixmap`のいずれか。`rotate`で時計回りに回します |
+| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEGまたはPNGのパス、エンコード済みのbytes、`Pixmap`、[`ImageObject`](#images)のいずれか。`rotate`で時計回りに回します |
 | `page(rect, source, *, keep_aspect=True)` | 開いている任意の文書（この文書も含む）のページをベクタのまま |
 | `draw(item)` | [`page.content()`](#content)が返した`Path`項目または`Image`項目 |
 
@@ -416,7 +426,7 @@ with page.draw() as canvas:
 | `opacity(alpha)` | 描画を1つのグループとして合成し、それを不透明度`alpha`で描きます |
 | `blend(mode)` | `BlendMode`を使って、描画をその下にあるものとブレンドします |
 
-`page.draw(underlay=True)`は、ページの既存の内容の下に書き込みます。1つのキャンバスで何度も描いた画像やページ、または文書が以前に配置した画像やページは、1回だけ格納されます。ページは`canvas.page()`を呼び出した時点の状態で描かれます。`draw(item)`は項目のクリップ、グループの不透明度、ブレンドモードを再現しますが、ソフトマスクは再現しません。画像は、画像自身のマスクとともにそのオブジェクトから描きます。項目と同じ文書のページのキャンバスはそのオブジェクトをもう一度描き、別の文書のキャンバスは`draw`を呼び出した時点で、そのオブジェクトが参照するオブジェクトとともにコピーします。テキストラン、パターンのペイント、インライン画像、画像マスクはまだ描けません。テストコーパスの全ページのパスと画像を白紙のページに描き直すと、まだ描けない項目の外側では、72 dpiで元のレンダリングとの差がチャンネルごとに16階調以内に収まります。1つのキャンバスが保持できるパスの点は1,048,576個まで、スコープの入れ子は16段までです。それを超えると`LimitError`を送出し、そのコードは`path_point_count`または`canvas_scope_depth`です。
+`page.draw(underlay=True)`は、ページの既存の内容の下に書き込みます。1つのキャンバスで何度も描いた画像やページ、または文書が以前に配置した画像やページは、1回だけ格納されます。ページは`canvas.page()`を呼び出した時点の状態で描かれます。`draw(item)`は項目のクリップ、グループの不透明度、ブレンドモードを再現しますが、ソフトマスクは再現しません。画像の項目は、`image()`が`ImageObject`を描くのと同じく、画像自身のマスクとともにそのオブジェクトから描きます。オブジェクトと同じ文書のページのキャンバスはそのオブジェクトをもう一度描き、別の文書のキャンバスは呼び出した時点で、そのオブジェクトが参照するオブジェクトとともにコピーし、新しい文書のキャンバスは`to_pixmap(alpha=True)`がレンダリングするピクセルを描きます。テキストラン、パターンのペイント、インライン画像、画像マスクはまだ描けません。テストコーパスの全ページのパスと画像を白紙のページに描き直すと、まだ描けない項目の外側では、72 dpiで元のレンダリングとの差がチャンネルごとに16階調以内に収まります。1つのキャンバスが保持できるパスの点は1,048,576個まで、スコープの入れ子は16段までです。それを超えると`LimitError`を送出し、そのコードは`path_point_count`または`canvas_scope_depth`です。
 
 ## 新しい文書 { #create }
 

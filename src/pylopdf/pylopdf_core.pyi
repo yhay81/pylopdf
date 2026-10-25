@@ -312,6 +312,15 @@ class _Canvas:
         xref: int,
         matrix: tuple[float, float, float, float, float, float],
     ) -> None: ...
+    def add_image_object(
+        self,
+        target: _Document,
+        source: _Document,
+        xref: int,
+        rect: tuple[float, float, float, float],
+        keep_aspect: bool,
+        rotation: int,
+    ) -> None: ...
 
 class Pixmap:
     @property
@@ -701,6 +710,15 @@ class _Document:
     def image_facts(self, xref: int) -> tuple[int, int, int, str, str, list[str], int, int, bool] | None: ...
     def extract_image(self, xref: int) -> tuple[str, tuple[int, int], bytes]: ...
     def image_pixmap(self, xref: int, alpha: bool) -> Pixmap: ...
+    def replace_image(
+        self,
+        xref: int,
+        data: bytes | None = None,
+        path: str | None = None,
+        pixmap: Pixmap | None = None,
+        max_size: int | None = None,
+        max_pixels: int | None = None,
+    ) -> None: ...
     def page_content(
         self,
         page_number: int,

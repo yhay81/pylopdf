@@ -346,6 +346,13 @@ pub fn image_streams(parts: ImageParts) -> Result<ImageStreams, String> {
     })
 }
 
+impl ImageStreams {
+    /// The Image XObject and its optional SMask, which the caller adds.
+    pub fn into_parts(self) -> (Stream, Option<Stream>) {
+        (self.image, self.smask)
+    }
+}
+
 /// Add prepared image streams, returning the Image XObject's ObjectId.
 pub fn add_image_streams(doc: &mut impl ObjectSink, streams: ImageStreams) -> ObjectId {
     let mut image = streams.image;

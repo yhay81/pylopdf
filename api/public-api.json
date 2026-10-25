@@ -1351,7 +1351,7 @@
                 "name": "rect"
               },
               {
-                "annotation": "str | os.PathLike[str] | bytes | bytearray | memoryview | Pixmap",
+                "annotation": "str | os.PathLike[str] | bytes | bytearray | memoryview | Pixmap | ImageObject",
                 "kind": "positional_or_keyword",
                 "name": "source"
               },
@@ -6225,6 +6225,35 @@
         "obj": {
           "kind": "property",
           "returns": "Stream"
+        },
+        "replace": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "self"
+              },
+              {
+                "annotation": "str | os.PathLike[str] | bytes | bytearray | memoryview | Pixmap",
+                "kind": "positional_only",
+                "name": "source"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              },
+              {
+                "annotation": "int | None",
+                "default": 64000000,
+                "kind": "keyword_only",
+                "name": "max_pixels"
+              }
+            ],
+            "returns": "None"
+          }
         },
         "soft_mask": {
           "kind": "property",

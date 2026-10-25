@@ -652,6 +652,15 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "canvas.image(r, data, rotate=90, max_size=None)",
         ),
         (
+            "import fitz\npage.insert_image(r, xref=x, rotate=90)\n",
+            "with page.draw() as canvas:\n    canvas.image(r, page.document.images[x], rotate=270)\n",
+        ),
+        (
+            "import fitz\ndoc = fitz.open()\ndoc[0].replace_image(x, filename='logo.png')\n",
+            "doc.pages[0].document.images[x].replace('logo.png')\n",
+        ),
+        ("import fitz\npage.replace_image(xref, stream=data)\n", "page.document.images[xref].replace(data)\n"),
+        (
             "import fitz\nxref = page.insert_image(r, filename='logo.png')\n",
             "\nxref = page.content(text_runs=False, paths=False, annotations=False).images[-1].xref\n",
         ),
@@ -1114,7 +1123,10 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import fitz\nnames = fitz.Base14_fontnames\n", "typing.get_args(pylopdf.StandardFontName)"),
         ("import fitz\npage.draw_rect(r, radius=0.1)\n", "whose radius is in points"),
         ("import fitz\npage.insert_image(r, filename=f, mask=m)\n", "Page.insert_image is Canvas.image"),
-        ("import fitz\npage.insert_image(r, xref=x)\n", "Page.insert_image is Canvas.image"),
+        ("import fitz\ndoc.new_page().insert_image(r, xref=x)\n", "Page.insert_image is Canvas.image"),
+        ("import fitz\npage.insert_image(r, xref=x, filename=f)\n", "Page.insert_image is Canvas.image"),
+        ("import fitz\npage.replace_image(xref, filename=f, pixmap=p)\n", "Page.replace_image is ImageObject.replace"),
+        ("import fitz\npage.replace_image(xref)\n", "Page.replace_image is ImageObject.replace"),
         ("import fitz\npage.insert_image(r, filename=f, stream=s)\n", "Page.insert_image is Canvas.image"),
         ("import fitz\nxref = doc.new_page().insert_image(r, stream=d)\n", "Page.insert_image is Canvas.image"),
         ("import fitz\npage.show_pdf_page(r, src, oc=5)\n", "Page.show_pdf_page is Canvas.page"),

@@ -1040,6 +1040,7 @@ each, those of the Form XObjects that it uses included. Each is an
 | `soft_mask`, `mask`, `is_stencil` | The soft mask and the stencil mask, as image objects, and whether the image is itself a stencil mask |
 | `extract()` | The image's data as an `EncodedImage` with `format`, `data`, and `resolution`: JPEG data as it is stored and any other image as PNG, without its masks |
 | `to_pixmap(*, alpha=False)` | The image's pixels as a [`Pixmap`](#pixmap): RGB without its masks, or RGBA in which they set the transparency |
+| `replace(source, *, max_size=64 MiB, max_pixels=64,000,000)` | Puts a JPEG or PNG path, encoded bytes, or a `Pixmap` in the image's place, under its object number, so every placement draws the new image; the image keeps its layer and structure parent, and input is limited as [`canvas.image`](#canvas) limits it |
 
 ```python
 from pathlib import Path
@@ -1052,7 +1053,17 @@ with pylopdf.open("scan.pdf") as doc:
 
 Where an image is drawn belongs to the page's content:
 `page.content(text_runs=False, paths=False).images` lists every placement
-with its box and matrix.
+with its box and matrix, and `canvas.image(rect, image)` draws an image
+object again on any page.
+
+```python
+with pylopdf.open("brochure.pdf") as doc:
+    logo = doc.images[12]
+    logo.replace("new-logo.png")            # every page that shows it changes
+    with doc.pages[-1].draw() as canvas:
+        canvas.image((40, 40, 140, 90), logo)
+    doc.save("brochure-new.pdf")
+```
 
 ## Fonts and Form XObjects { #font-objects }
 
@@ -1117,7 +1128,7 @@ with page.draw() as canvas:
 | `line`, `rect(rect, *, radius=0)`, `circle`, `ellipse`, `polygon`, `bezier` | One path each, with the options of `path` |
 | `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None, rotate=0)` | Lines whose first baseline starts at `at`, turned clockwise about `at` by `rotate` |
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, rotate=0, ...)` | Text wrapped inside `rect`, turned clockwise by `rotate`; returns a `TextFit` |
-| `image(rect, source, *, keep_aspect=True, rotate=0)` | A JPEG or PNG path, encoded bytes, or a `Pixmap`, turned clockwise by `rotate` |
+| `image(rect, source, *, keep_aspect=True, rotate=0)` | A JPEG or PNG path, encoded bytes, a `Pixmap`, or an [`ImageObject`](#images), turned clockwise by `rotate` |
 | `page(rect, source, *, clip=None, keep_aspect=True, rotate=0)` | A page of any open document, this one included, as vectors: the part inside `clip`, a rectangle of the source page's display coordinates, turned clockwise by `rotate` |
 | `draw(item)` | A `Path` or `Image` item that [`page.content()`](#content) returned |
 
@@ -1209,10 +1220,12 @@ before, is stored once, whatever its rotation or clip. A page is drawn as it
 was when `canvas.page()` was called; a `clip` fills `rect` in place of the
 whole page, at its own aspect ratio unless `keep_aspect=False`, and nothing
 outside it is painted. `draw(item)` repeats an item's clips, group
-opacities, and blend modes, but not its soft masks. An image is drawn from its
-object, with the image's own masks: a canvas on a page of the item's document
-draws that object again, and a canvas of another document copies it, with the
-objects it reaches, when `draw` is called. Text runs, pattern paints, inline
+opacities, and blend modes, but not its soft masks. An image item is drawn
+from its object, with the image's own masks, as `image()` draws an
+`ImageObject`: a canvas on a page of the object's document draws that object
+again, a canvas of another document copies it, with the objects it reaches,
+when the call is made, and a new document's canvas draws its pixels as
+`to_pixmap(alpha=True)` renders them. Text runs, pattern paints, inline
 images, and image masks cannot be drawn yet. Redrawn on a blank page, the
 paths and images of every page of the test corpus render within 16 levels per
 channel of the original at 72 dpi, outside the items that cannot be drawn

@@ -37,4 +37,7 @@ with tempfile.TemporaryDirectory() as folder:
     assert [image[0] for image in page.get_images()] == [xref]
     assert (doc.extract_image(xref)["width"], doc.extract_image(xref)["height"]) == (100, 100)
     assert doc.extract_image(xref)["ext"] == "png"
+    page.insert_image(fitz.Rect(120, 120, 170, 170), xref=xref)
+    page.replace_image(xref, pixmap=doc[0].get_pixmap(dpi=18))
+    assert doc.extract_image(xref)["width"] == 50
 print("pages ok")

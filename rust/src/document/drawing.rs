@@ -765,6 +765,25 @@ impl _Document {
             .ok_or_else(|| no_longer_an_image(xref))
     }
 
+    /// The pixel width and height of the Image XObject that `xref` names.
+    pub(crate) fn image_size(&self, xref: u32) -> PyResult<(u32, u32)> {
+        let doc: &Document = &self.doc;
+        let (_, stream) = image_stream(doc, xref).ok_or_else(|| no_longer_an_image(xref))?;
+        let side = |key: &[u8]| {
+            stream
+                .dict
+                .get(key)
+                .map(|value| deref_object(doc, value))
+                .ok()
+                .and_then(|value| value.as_i64().ok())
+                .and_then(|value| u32::try_from(value).ok())
+                .filter(|value| *value > 0)
+        };
+        side(b"Width").zip(side(b"Height")).ok_or_else(|| {
+            PdfError::new_err(format!("image {xref} has no positive /Width and /Height"))
+        })
+    }
+
     /// Copy the Image XObject that `xref` names, and every object that it
     /// reaches but the catalog and the page tree, under their IDs in this
     /// document, for a canvas of another document; refused above `limit`

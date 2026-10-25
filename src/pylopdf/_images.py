@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
 from pylopdf._font_objects import FontObject, FormObject
 from pylopdf._layers import Layer, LayerMembership, _layer_from_core, _layer_to_core
+from pylopdf._limits import (
+    _DEFAULT_MAX_IMAGE_INPUT_SIZE,
+    _DEFAULT_MAX_IMAGE_PIXELS,
+    _validate_optional_positive_int,
+)
 from pylopdf._objects import _object_number
-from pylopdf.pylopdf_core import Pixmap, StaleObjectError
+from pylopdf.pylopdf_core import LimitError, Pixmap, StaleObjectError
 
 if TYPE_CHECKING:
     from pylopdf._document import Document
@@ -180,6 +186,48 @@ class ImageObject:
         pixmap = self._document._doc.image_pixmap(self._xref, alpha)
         self._document._emit_warnings()
         return pixmap
+
+    def replace(
+        self,
+        source: str | os.PathLike[str] | bytes | bytearray | memoryview | Pixmap,
+        /,
+        *,
+        max_size: int | None = _DEFAULT_MAX_IMAGE_INPUT_SIZE,
+        max_pixels: int | None = _DEFAULT_MAX_IMAGE_PIXELS,
+    ) -> None:
+        """Replace the image with a JPEG or PNG file, encoded bytes, or a :class:`Pixmap`.
+
+        The new image keeps this object number, so every placement of the
+        image, on any page, in Form XObjects, and in annotation appearances,
+        draws it, stretched into the placement as the old image was. Its
+        layer (``/OC``) and its place in the structure tree
+        (``/StructParent``) stay; its masks and the rest of its dictionary
+        are those of the new image, and the old masks go when the document
+        is saved unless something else uses them. JPEG data is stored as it
+        is, and PNG data and Pixmaps with Flate and a soft mask for their
+        alpha. Input is limited as :meth:`Canvas.image` limits it, refused
+        with :class:`LimitError` code ``image_input_size`` or
+        ``image_pixel_count``, and nothing changes on any refusal.
+        """
+        _validate_optional_positive_int("max_size", max_size)
+        _validate_optional_positive_int("max_pixels", max_pixels)
+        self._facts()
+        core = self._document._doc
+        if isinstance(source, Pixmap):
+            core.replace_image(self._xref, pixmap=source)
+        elif isinstance(source, (bytes, bytearray, memoryview)):
+            # Refuse oversized input before copying it for the core, which checks again.
+            size = source.nbytes if isinstance(source, memoryview) else len(source)
+            if max_size is not None and size > max_size:
+                msg = f"encoded image input is {size} bytes, exceeding the {max_size}-byte limit"
+                code = "image_input_size"
+                raise LimitError(code, msg)
+            core.replace_image(self._xref, data=bytes(source), max_size=max_size, max_pixels=max_pixels)
+        elif isinstance(source, (str, os.PathLike)):
+            core.replace_image(self._xref, path=os.fspath(source), max_size=max_size, max_pixels=max_pixels)
+        else:
+            msg = f"source must be a path, bytes, or a Pixmap, not {type(source).__name__}"
+            raise TypeError(msg)
 
     def __eq__(self, other: object) -> bool:
         """Compare the document, the object numbering, and the object number."""

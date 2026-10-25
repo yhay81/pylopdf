@@ -1326,6 +1326,17 @@ def _extract_image(migrator: _Migrator, receiver: str, args: _Arguments) -> str 
     return f"{receiver}.images[{bound['xref']}].extract()"
 
 
+def _replace_image(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``replace_image(xref, filename=/stream=/pixmap=)`` to the image handle's ``replace``."""
+    bound = args.bind(("xref", "filename", "pixmap", "stream"))
+    if bound is None or len(args.positional) > 1 or "xref" not in bound:
+        return None
+    sources = [bound[key] for key in ("filename", "pixmap", "stream") if bound.get(key, "None") != "None"]
+    if len(sources) != 1:
+        return None
+    return f"{receiver}.document.images[{bound['xref']}].replace({sources[0]})"
+
+
 #: The RGB color space, which ``pixmap()`` renders by default, as module constants become enum members.
 _RGB_COLORSPACES = frozenset({"pylopdf.Colorspace.RGB", "Colorspace.RGB", "csRGB"})
 #: pymupdf's identity matrix, the only one that ``svg()`` draws with.
@@ -2113,6 +2124,7 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "extract_font": _extract_font,
     "get_char_widths": _get_char_widths,
     "extract_image": _extract_image,
+    "replace_image": _replace_image,
     "get_pixmap": _get_pixmap,
     "get_svg_image": _get_svg_image,
     "render_pages": _render_pages,
@@ -2563,10 +2575,15 @@ def _image_block(migrator: _Migrator, receiver: str, args: _Arguments) -> str | 
     if bound is None or len(args.positional) > 1 or "rect" not in bound:
         return None
     options = {key: value for key, value in bound.items() if value not in IMAGE_DEFAULTS.get(key, ())}
-    sources = [key for key in ("filename", "stream", "pixmap") if key in options]
-    unsupported = {"alpha", "height", "width", "mask", "oc", "xref"} & set(options)
+    sources = [key for key in ("filename", "stream", "pixmap", "xref") if key in options]
+    unsupported = {"alpha", "height", "width", "mask", "oc"} & set(options)
     if len(sources) != 1 or unsupported or options.get("overlay", "True") not in _FALSE | _TRUE:
         return None
+    if sources == ["xref"]:
+        # An image of the page's document, drawn again; the page is read twice.
+        if not _repeatable(cst.parse_expression(receiver)):
+            return None
+        options["xref"] = f"{receiver}.document.images[{options['xref']}]"
     keywords = []
     if "keep_proportion" in options:
         keywords.append(f"keep_aspect={options['keep_proportion']}")

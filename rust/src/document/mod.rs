@@ -928,6 +928,23 @@ impl _Document {
         extraction::image_pixmap(self, py, xref, alpha)
     }
 
+    /// Replace the image XObject `xref` with an image, given as encoded
+    /// `data`, a file at `path`, or a `pixmap`, keeping its object number.
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (xref, data=None, path=None, pixmap=None, max_size=None, max_pixels=None))]
+    fn replace_image(
+        &mut self,
+        py: Python<'_>,
+        xref: u32,
+        data: Option<Vec<u8>>,
+        path: Option<String>,
+        pixmap: Option<PyRef<'_, crate::pixmap::Pixmap>>,
+        max_size: Option<usize>,
+        max_pixels: Option<u64>,
+    ) -> PyResult<()> {
+        images::replace_image(self, py, xref, (data, path, pixmap), (max_size, max_pixels))
+    }
+
     /// Collect the content model of a one-based page: its painted items of
     /// the kinds selected by `(text_runs, paths, images)`, in paint order,
     /// and the fonts and graphics contexts they index.
