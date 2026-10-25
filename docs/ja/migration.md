@@ -104,6 +104,9 @@ python -m pylopdf.migrate src/
 | `pymupdf.Font(...)` | `Font.standard(name)`, `Font.from_file(path)`, `Font.from_bytes(data)`, `Font.installed(language=...)` | PostScript名で指定するStandard 14フォント（`"helv"`は`"Helvetica"`）、OpenTypeファイル、インストール済みのフォントextra。pymupdfのほかの内蔵フォントと、`script=`、`ordering=`、`embed=`は使えません |
 | `font.text_length(text, fontsize)`, `pymupdf.get_text_length(text, fontname, fontsize)` | `font.text_width(text, size)` | `size`に既定値はありません。`font.text_height(text, size, width=...)`は、折り返したテキストを`canvas.textbox`が描くとおりに測ります |
 | `font.has_glyph(ord(c))` | `font.has_glyph(c)` | 文字そのものを受け取り、グリフ番号ではなく真偽値を返します |
+| `font.glyph_advance(ord(c))`、`font.char_lengths(text, fontsize)` | `font.char_widths(c, 1)[0]`、`font.char_widths(text, size)` | 各文字を単独で描いたときの送り幅です。`size`に既定値はありません |
+| `font.glyph_bbox(ord(c))`、`font.valid_codepoints()`、`font.buffer`、`font.flags` | `font.char_bbox(c)`、`font.chars()`、`font.program()`、`font.is_monospaced` | `chars()`は文字を1つの文字列で返します。ほかのフラグは`is_bold`、`is_italic`、`is_serif`です |
+| `pymupdf.unicode_to_glyph_name(code)`、`glyph_name_to_unicode(name)` | `pylopdf.glyph_name(char)`、`pylopdf.glyph_text(name)` | コードポイントではなく文字と文字列を受け取り、返します。文字を表さない名前には`glyph_text`が`""`を返します |
 | `pymupdf.Base14_fontnames`, `Base14_fontdict` | `typing.get_args(pylopdf.StandardFontName)` | `Font.standard()`が受け付ける14のPostScript名 |
 | `page.insert_image(rect, filename=/stream=/pixmap=)` | `canvas.image(rect, source)` | `with page.draw() as canvas:`の中で呼びます。sourceはパス、JPEGまたはPNGのbytes、`Pixmap`で、`keep_proportion=`は`keep_aspect=`になります。`rotate=`は時計回りで、pymupdfは反時計回りです。同じ画像を2回描いても1回だけ格納されるので`xref=`は不要で、各配置の`xref`は`page.content().images`で分かります |
 | `page.show_pdf_page(rect, docsrc, pno)` | `canvas.page(rect, docsrc.pages[pno])` | 同じ文書のページでもかまいません。`clip=`と`rotate=`はまだありません |

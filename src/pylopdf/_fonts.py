@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast, get_args
 
+from pylopdf._geometry import Rect
 from pylopdf._hints import hinted_getattr
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
@@ -20,6 +21,8 @@ from pylopdf._limits import (
 )
 from pylopdf._types import StandardFontName
 from pylopdf.pylopdf_core import LimitError, PdfError, _Font
+from pylopdf.pylopdf_core import glyph_name as _glyph_name
+from pylopdf.pylopdf_core import glyph_text as _glyph_text
 
 if TYPE_CHECKING:
     from typing import Any
@@ -407,7 +410,8 @@ class Font:
     input once. Pass it as ``font`` to :meth:`Canvas.text` and
     :meth:`Canvas.textbox` on any document, and share it between threads.
     :meth:`text_width` measures one line and :meth:`text_height` wrapped text
-    exactly as the canvas draws them.
+    exactly as the canvas draws them; :meth:`char_widths` and
+    :meth:`char_bbox` give the metrics of single characters drawn alone.
 
     An OpenType face is shaped with HarfRust and embedded as a subset by
     krilla. A Standard 14 font is drawn without embedding, so it prints
@@ -614,6 +618,88 @@ class Font:
         """
         return self._font.descender
 
+    @property
+    def bbox(self) -> Rect:
+        """The font bounding box in fractions of the em, y upward from the baseline.
+
+        An OpenType face reports the box of its ``head`` table, which the
+        default instance of a variable face describes. A Standard 14 font
+        reports the box of the URW font that renderers commonly substitute
+        for it, whose top and bottom are its :attr:`ascender` and
+        :attr:`descender`, such as ``Rect(-0.21, -0.299, 1.032, 1.075)``
+        for Helvetica.
+        """
+        return Rect(*self._font.bbox)
+
+    @property
+    def glyph_count(self) -> int:
+        """The number of glyphs: those of an OpenType face's ``maxp`` table, or of a Standard 14 font's AFM metrics."""
+        return self._font.glyph_count
+
+    @property
+    def is_monospaced(self) -> bool:
+        """Whether every glyph has the same advance, as the face declares it.
+
+        An OpenType face declares it in its ``post`` table, and Adobe's AFM
+        metrics declare it for the Courier fonts.
+        """
+        return self._font.monospaced
+
+    def chars(self) -> str:
+        """Return every character that :meth:`has_glyph` accepts, in code point order.
+
+        A Standard 14 text font has the WinAnsi characters (roughly
+        Latin-1), and Symbol and ZapfDingbats the characters whose WinAnsi
+        byte their built-in encoding maps to a glyph.
+        """
+        return self._font.chars()
+
+    def char_widths(
+        self,
+        text: str,
+        size: float,
+        *,
+        max_text_size: int | None = _DEFAULT_MAX_GENERATED_TEXT_SIZE,
+    ) -> tuple[float, ...]:
+        """Return the advance of each character of ``text`` drawn alone at ``size`` points.
+
+        Each character takes the advance of the glyph that the font maps it
+        to, without shaping, kerning, or ligatures, so the widths can differ
+        from the line that :meth:`text_width` measures; ``size`` scales
+        fractions of the em to points, so a size of 1 returns the advances
+        in fractions of the em. A variable face measures at the instance it
+        draws. A character the font has no glyph for raises
+        :class:`PdfError`. Text is limited to 1 MiB of UTF-8 by default
+        (``max_text_size``, ``None`` for trusted input), refused with
+        :class:`LimitError` code ``text_input_size``.
+        """
+        if not isinstance(text, str):
+            msg = f"text must be a string: {text!r}"
+            raise TypeError(msg)
+        _validate_utf8_text_input(text, max_text_size)
+        return tuple(self._font.char_widths(text, _measure_size(size, "size"), max_text_size))
+
+    def char_bbox(self, char: str) -> Rect:
+        """Return the ink box of the glyph for the one-character string ``char``.
+
+        The box is in fractions of the em, y upward from the glyph's origin
+        on the baseline: the outline's extent for an OpenType face, at the
+        instance that a variable face draws, and Adobe's AFM box for a
+        Standard 14 font. A glyph without ink, such as a space, has an empty
+        box at its origin. A character the font has no glyph for raises
+        :class:`PdfError`.
+        """
+        return Rect(*self._font.char_bbox(ord(_one_char(char))))
+
+    def program(self) -> bytes | None:
+        """Return the bytes that an OpenType face was loaded from, or ``None`` for a Standard 14 font.
+
+        A face of a collection returns the whole collection, which its
+        ``index`` selects from; a variable face returns its complete program,
+        whatever instance it draws.
+        """
+        return self._font.program()
+
     def text_width(
         self,
         text: str,
@@ -679,17 +765,49 @@ class Font:
         A Standard 14 font has one when its encoding, WinAnsi for the text
         fonts, maps the character to a glyph of the font.
         """
-        if not isinstance(char, str):
-            msg = f"char must be a one-character string: {char!r}"
-            raise TypeError(msg)
-        if len(char) != 1:
-            msg = f"char must be a one-character string: {char!r}"
-            raise ValueError(msg)
-        return self._font.has_glyph(ord(char))
+        return self._font.has_glyph(ord(_one_char(char)))
 
     def __repr__(self) -> str:
         """Return the font's name."""
         return f"Font({self.name!r})"
+
+
+def _one_char(char: object) -> str:
+    """Return ``char`` when it is a one-character string."""
+    if not isinstance(char, str):
+        msg = f"char must be a one-character string: {char!r}"
+        raise TypeError(msg)
+    if len(char) != 1:
+        msg = f"char must be a one-character string: {char!r}"
+        raise ValueError(msg)
+    return char
+
+
+def glyph_name(char: str) -> str:
+    """Return the glyph name of the one-character string ``char``.
+
+    The name comes from the Adobe Glyph List, such as ``"eacute"`` for
+    ``"é"``, and from the ITC Zapf Dingbats list only for a character that
+    the AGL does not name. Other characters take the name that the AGL
+    specification composes: ``uni`` and four hexadecimal digits, or ``u``
+    and five or six beyond the Basic Multilingual Plane, such as
+    ``"uni4E00"``. The name does not depend on any font.
+    """
+    return _glyph_name(ord(_one_char(char)))
+
+
+def glyph_text(name: str) -> str:
+    """Return the text that the glyph name ``name`` stands for, or ``""`` for none.
+
+    The Adobe Glyph List specification reads AGL and ITC Zapf Dingbats
+    names, ``uniXXXX`` and ``uXXXX`` sequences, and components joined by
+    underscores, so ``"f_f_i"`` stands for ``"ffi"``, and ignores a suffix
+    after a period, as in ``"A.swash"``. It does not depend on any font.
+    """
+    if not isinstance(name, str):
+        msg = f"name must be a string: {name!r}"
+        raise TypeError(msg)
+    return _glyph_text(name)
 
 
 def _require_winansi(text: str) -> None:
@@ -704,5 +822,7 @@ def _require_winansi(text: str) -> None:
         raise ValueError(msg) from exc
 
 
-# The package re-exports this class; reprs, pickles, and documentation name it.
+# The package re-exports these names; reprs, pickles, and documentation name them.
 Font.__module__ = "pylopdf"
+glyph_name.__module__ = "pylopdf"
+glyph_text.__module__ = "pylopdf"

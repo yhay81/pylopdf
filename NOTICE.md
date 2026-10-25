@@ -26,6 +26,16 @@ APAFML. The required Adobe license text is distributed in
 - Source: <https://github.com/kjanat/mosaic>
 - Package: <https://crates.io/crates/pdf-base14-metrics/0.0.2>
 
+pylopdf uses read-fonts 0.46 (MIT OR Apache-2.0) with its `agl` feature,
+which includes the Adobe Glyph List and the ITC Zapf Dingbats glyph list for
+`pylopdf.glyph_name` and `pylopdf.glyph_text`. The lists are copyright Adobe
+and available under the BSD 3-Clause license reproduced in
+`LICENSES/AGL-BSD-3-Clause.txt`.
+
+- Source: <https://github.com/googlefonts/fontations> and
+  <https://github.com/adobe-type-tools/agl-aglfn>
+- Package: <https://crates.io/crates/read-fonts/0.46.0>
+
 pylopdf uses `unicode-linebreak` 0.1.5 (Apache-2.0) and
 `unicode-segmentation` 1.13 (MIT OR Apache-2.0) for UAX #14 wrapping and
 grapheme-safe emergency breaks. It uses `unicode-bidi` 0.3.18 (MIT OR

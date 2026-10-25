@@ -516,7 +516,9 @@ pylopdf.Font.installed(*, language=None, family=None, serif=False, weight=None, 
 | `Font.installed(language="ja")`, `Font.installed(family="Noto Sans JP")` | インストール済みextraのフォント。`serif=True`でその言語の明朝体（セリフ体）を選びます |
 | `Font.installed(language="he", weight=700)` | インストール済み可変フォントのBoldの太さ |
 
-フォントは、[キャンバス](#canvas)が描くとおりにテキストを測ります。`text_width(text, size)`は1行の幅で、カーニングと合字を含みます。`text_height(text, size, *, width, line_height=None)`は、テキストを幅`width`ポイントで折り返したときに`canvas.textbox`が必要とする高さです。この高さのtextboxにはテキストがちょうど収まります。プロパティは`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`、`units_per_em`、`ascender`、`descender`で、`has_glyph(char)`はフェイスがその文字のグリフを持つかどうかを返します。`typing.get_args(pylopdf.StandardFontName)`は`Font.standard()`が受け付ける14の名前を列挙します。Standard 14フォントは埋め込まれず、西欧（WinAnsi）の文字しか書けません。
+フォントは、[キャンバス](#canvas)が描くとおりにテキストを測ります。`text_width(text, size)`は1行の幅で、カーニングと合字を含みます。`text_height(text, size, *, width, line_height=None)`は、テキストを幅`width`ポイントで折り返したときに`canvas.textbox`が必要とする高さです。この高さのtextboxにはテキストがちょうど収まります。プロパティは`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`、`is_monospaced`、`units_per_em`、`ascender`、`descender`、`bbox`（emに対する比で表したフォントの外接矩形で、ベースラインから上向きがy）、`glyph_count`です。`has_glyph(char)`はフェイスがその文字のグリフを持つかどうかを返し、`chars()`はそのような文字すべてを1つの文字列で返します。`char_widths(text, size)`は各文字を単独で描いたときの送り幅をカーニングや合字なしで返し、`char_bbox(char)`はその文字のグリフのインクの外接矩形をemに対する比で上向きのyで返します。`program()`はOpenTypeフォントを読み込んだときのバイト列を返します。`typing.get_args(pylopdf.StandardFontName)`は`Font.standard()`が受け付ける14の名前を列挙します。Standard 14フォントは埋め込まれず、西欧（WinAnsi）の文字しか書けません。これらはAdobeのメトリクスを報告し、その`bbox`はレンダラーが代わりに描くことの多いURWフォントの外接矩形で、上端と下端がアセンダーとディセンダーです。
+
+`pylopdf.glyph_name(char)`と`pylopdf.glyph_text(name)`は、フォントによらずAdobe Glyph Listに従って文字とグリフ名を相互に変換します。`glyph_name("é")`は`"eacute"`で、このリストに名前のない文字は`"uni4E00"`のような名前になり、`glyph_text("f_f_i")`は`"ffi"`です。
 
 `weight`を指定せずに読み込んだ可変フォントは既定のインスタンスを使いますが、それがRegularの太さとは限りません。可変フォントのNoto Sans CJK JPの既定はThinです。Regularにするには`weight=400`を渡してください。フォームに記入する書体（`doc.form.font`）も同じです。
 

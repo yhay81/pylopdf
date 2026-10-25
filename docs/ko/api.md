@@ -517,7 +517,9 @@ pylopdf.Font.installed(*, language=None, family=None, serif=False, weight=None, 
 | `Font.installed(language="ja")`, `Font.installed(family="Noto Sans JP")` | 설치된 extra의 글꼴. `serif=True`이면 그 언어의 세리프 글꼴 |
 | `Font.installed(language="he", weight=700)` | 설치된 가변 글꼴의 볼드 굵기 |
 
-글꼴은 [캔버스](#canvas)가 그리는 대로 텍스트를 잽니다. `text_width(text, size)`는 커닝과 합자를 포함한 한 줄의 폭입니다. `text_height(text, size, *, width, line_height=None)`는 텍스트를 `width`포인트 폭으로 줄바꿈했을 때 `canvas.textbox`에 필요한 높이이므로, 이 높이의 textbox에 텍스트가 정확히 들어갑니다. 속성은 `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, `units_per_em`, `ascender`, `descender`이고, `has_glyph(char)`는 글꼴에 그 문자의 글리프가 있는지 알려 줍니다. `typing.get_args(pylopdf.StandardFontName)`는 `Font.standard()`가 받는 14개의 이름을 나열합니다. Standard 14 글꼴은 포함되지 않으며 서유럽(WinAnsi) 문자만 쓸 수 있습니다.
+글꼴은 [캔버스](#canvas)가 그리는 대로 텍스트를 잽니다. `text_width(text, size)`는 커닝과 합자를 포함한 한 줄의 폭입니다. `text_height(text, size, *, width, line_height=None)`는 텍스트를 `width`포인트 폭으로 줄바꿈했을 때 `canvas.textbox`에 필요한 높이이므로, 이 높이의 textbox에 텍스트가 정확히 들어갑니다. 속성은 `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `units_per_em`, `ascender`, `descender`, `bbox`(em에 대한 비율로 나타낸 글꼴 경계 상자이며 y는 기준선에서 위쪽), `glyph_count`입니다. `has_glyph(char)`는 글꼴에 그 문자의 글리프가 있는지 알려 주고, `chars()`는 그런 문자를 모두 하나의 문자열로 반환합니다. `char_widths(text, size)`는 각 문자를 단독으로 그릴 때의 전진 폭을 커닝이나 합자 없이 반환하고, `char_bbox(char)`는 그 글리프의 잉크 경계 상자를 em에 대한 비율과 위쪽 y로 반환합니다. `program()`은 OpenType 글꼴을 불러온 바이트를 반환합니다. `typing.get_args(pylopdf.StandardFontName)`는 `Font.standard()`가 받는 14개의 이름을 나열합니다. Standard 14 글꼴은 포함되지 않으며 서유럽(WinAnsi) 문자만 쓸 수 있습니다. 이 글꼴은 Adobe의 메트릭을 보고하며, `bbox`는 렌더러가 흔히 대신 그리는 URW 글꼴의 상자이고 그 위와 아래가 어센더와 디센더입니다.
+
+`pylopdf.glyph_name(char)`와 `pylopdf.glyph_text(name)`는 글꼴과 관계없이 Adobe Glyph List에 따라 문자와 글리프 이름을 서로 변환합니다. `glyph_name("é")`는 `"eacute"`이고, 목록에 이름이 없는 문자는 `"uni4E00"` 같은 이름을 받으며, `glyph_text("f_f_i")`는 `"ffi"`입니다.
 
 `weight` 없이 불러온 가변 글꼴은 기본 인스턴스를 사용하며, 기본 인스턴스가 항상 Regular 굵기인 것은 아닙니다. 가변 글꼴인 Noto Sans CJK JP의 기본값은 Thin입니다. Regular를 쓰려면 `weight=400`을 전달하세요. 폼을 채우는 글꼴(`doc.form.font`)도 마찬가지입니다.
 

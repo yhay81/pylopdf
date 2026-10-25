@@ -189,6 +189,8 @@
     "Widgets",
     "Word",
     "create",
+    "glyph_name",
+    "glyph_text",
     "open",
     "parse_pdf_date",
     "pdf_date",
@@ -4312,6 +4314,67 @@
           "kind": "property",
           "returns": "float"
         },
+        "bbox": {
+          "kind": "property",
+          "returns": "Rect"
+        },
+        "char_bbox": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "char"
+              }
+            ],
+            "returns": "Rect"
+          }
+        },
+        "char_widths": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "text"
+              },
+              {
+                "annotation": "float",
+                "kind": "positional_or_keyword",
+                "name": "size"
+              },
+              {
+                "annotation": "int | None",
+                "default": 1048576,
+                "kind": "keyword_only",
+                "name": "max_text_size"
+              }
+            ],
+            "returns": "tuple[float, ...]"
+          }
+        },
+        "chars": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "str"
+          }
+        },
         "descender": {
           "kind": "property",
           "returns": "float"
@@ -4382,6 +4445,10 @@
             "returns": "Font"
           }
         },
+        "glyph_count": {
+          "kind": "property",
+          "returns": "int"
+        },
         "has_glyph": {
           "kind": "method",
           "signature": {
@@ -4445,6 +4512,10 @@
           "kind": "property",
           "returns": "bool"
         },
+        "is_monospaced": {
+          "kind": "property",
+          "returns": "bool"
+        },
         "is_serif": {
           "kind": "property",
           "returns": "bool"
@@ -4452,6 +4523,18 @@
         "name": {
           "kind": "property",
           "returns": "str | None"
+        },
+        "program": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "bytes | None"
+          }
         },
         "standard": {
           "kind": "classmethod",
@@ -14854,6 +14937,32 @@
           }
         ],
         "returns": "Builder"
+      }
+    },
+    "glyph_name": {
+      "kind": "function",
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "char"
+          }
+        ],
+        "returns": "str"
+      }
+    },
+    "glyph_text": {
+      "kind": "function",
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "name"
+          }
+        ],
+        "returns": "str"
       }
     },
     "open": {

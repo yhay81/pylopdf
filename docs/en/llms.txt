@@ -269,7 +269,15 @@ replacement, and the migration hint):
 - FZ_MIN_INF_RECT -> Rect.INFINITE: Read Rect.INFINITE.x0, the lower coordinate bound of the infinite rectangle.
 - FileDataError -> MalformedPdfError: Catch MalformedPdfError, a PdfError and thus a ValueError, which empty input raises as well.
 - FileNotFoundError -> FileNotFoundError: Catch Python's built-in FileNotFoundError, which pylopdf raises for a missing file.
+- Font.buffer -> Font.program: font.program() returns the bytes that an OpenType face was loaded from, or None for a Standard 14 font, which is not embedded.
+- Font.char_lengths -> Font.char_widths: font.char_widths(text, size) returns the advance of each character drawn alone as a tuple; size has no default.
+- Font.flags -> Font.is_monospaced: Read font.is_bold, font.is_italic, font.is_serif, and font.is_monospaced; pylopdf never imitates bold or italic, so there are no fake flags.
+- Font.glyph_advance -> Font.char_widths: font.char_widths(char, 1)[0] is a character's advance in fractions of the em; it takes the character, not its code point.
+- Font.glyph_bbox -> Font.char_bbox: font.char_bbox(char) takes the character, not its code point, and returns its glyph's ink box in fractions of the em, y upward.
+- Font.glyph_name_to_unicode -> glyph_text: pylopdf.glyph_text(name) returns the text that a glyph name stands for by the Adobe Glyph List, "" for none, whatever the font.
 - Font.text_length -> Font.text_width: font.text_width(text, size) measures one line with the shaping that drawing uses; size has no default, and a line break raises.
+- Font.unicode_to_glyph_name -> glyph_name: pylopdf.glyph_name(char) takes the character and returns its Adobe Glyph List name, whatever the font.
+- Font.valid_codepoints -> Font.chars: font.chars() returns every character the font has a glyph for as one string; [ord(c) for c in font.chars()] gives the code points.
 - INFINITE_* -> Rect.INFINITE: INFINITE_RECT(), INFINITE_IRECT(), and INFINITE_QUAD() are the class attributes Rect.INFINITE, IRect.INFINITE, and Quad.INFINITE.
 - IRect.__setitem__ -> IRect: IRect values are immutable; build a new IRect instead.
 - IRect.include_point -> IRect.__or__: Use r | p, which returns a new IRect.
@@ -549,6 +557,7 @@ replacement, and the migration hint):
 - get_pdf_now -> pdf_date: Use pylopdf.pdf_date(), or pdf_date(value) for a given datetime; parse_pdf_date(text) reads one back.
 - get_pdf_str -> String: Write a Python str into the object model, which encodes it as a PDF text string, or read String.text.
 - get_text_length -> Font.text_width: Font.standard("Helvetica").text_width(text, size) measures Standard 14 text; an OpenType face measures with its own Font.text_width.
+- glyph_name_to_unicode -> glyph_text: pylopdf.glyph_text(name) returns the text that a glyph name stands for, "" for none, where pymupdf returns one code point.
 - linkDest -> Destination: link.target holds a URI string, Destination(page, point, zoom), RemoteDestination(file, page), Launch(file), or NamedAction(name).
 - paper_* -> PaperSize: Use PaperSize members, such as PaperSize.A4 for paper_size("a4") and PaperSize.A4.landscape for "a4-l"; a member is a (width, height) pair that doc.pages.new takes, and Rect(0, 0, *PaperSize.A4) replaces paper_rect.
 - planish_line -> Matrix.planish: Matrix.planish(p1, p2) returns the same matrix.
@@ -556,6 +565,7 @@ replacement, and the migration hint):
 - sRGB_to_* -> Color: Span colors are Color values with red, green, and blue from 0 to 1, which sRGB_to_pdf returned; layout().to_dict() keeps pymupdf's sRGB integer c, which (c >> 16 & 255, c >> 8 & 255, c & 255) splits as sRGB_to_rgb did.
 - set_log -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
 - set_messages -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
+- unicode_to_glyph_name -> glyph_name: pylopdf.glyph_name(char) takes the character and returns its Adobe Glyph List name, or uniXXXX for a character the list does not name.
 
 pylopdf 0.15 name map (replaced names that the capability map does not list):
 - AnnotationInfo -> Annotation: page.annotations lists Annotation handles instead of AnnotationInfo dictionaries; links are in page.links.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import re
 import struct
@@ -543,3 +544,140 @@ def test_symbol_fonts_draw_with_their_built_in_encoding() -> None:
     assert b"/BaseFont/Symbol" in data
     assert b"/BaseFont/ZapfDingbats" in data
     assert b"WinAnsiEncoding" not in data
+
+
+NOTO_SANS_HEBREW = FONT_ROOT / "pylopdf-fonts-he" / "src" / "pylopdf_fonts_he" / "NotoSansHebrew-Variable.ttf"
+
+
+def test_an_opentype_face_reports_its_box_glyph_count_and_coverage(regular: pylopdf.Font) -> None:
+    # pymupdf 2.0 reports the same box, glyph count, and number of code points.
+    assert tuple(regular.bbox) == pytest.approx((-1.002, -1.048, 2.928, 1.808))
+    assert regular.glyph_count == 17936
+    assert regular.is_monospaced is False
+    chars = regular.chars()
+    assert len(chars) == 16732
+    assert list(chars) == sorted(chars)
+    assert "A" in chars
+    assert "髙" in chars
+    assert "🦀" not in chars
+    assert all(regular.has_glyph(char) for char in chars)
+
+
+def test_char_widths_are_the_advances_of_characters_drawn_alone(regular: pylopdf.Font) -> None:
+    assert regular.char_widths("Aあ", 10) == pytest.approx((6.08, 10.0))
+    assert regular.char_widths("A", 1) == pytest.approx((0.608,))
+    for char in "AVofi見。":
+        assert regular.char_widths(char, 7)[0] == pytest.approx(regular.text_width(char, 7))
+    # Shaping kerns "AV", which the widths of the characters alone do not.
+    assert sum(regular.char_widths("AV", 10)) > regular.text_width("AV", 10)
+    assert regular.char_widths("", 10) == ()
+
+
+def test_char_bbox_is_the_ink_box_that_drawing_paints(regular: pylopdf.Font) -> None:
+    _doc, page = _new_page()
+    with page.draw() as canvas:
+        canvas.text("Aあg", (40, 150), font=regular, size=100)
+    for glyph, char in zip(_glyphs(page), "Aあg", strict=True):
+        box = regular.char_bbox(char)
+        assert glyph.bbox is not None
+        expected = (
+            glyph.origin.x + box.x0 * 100,
+            glyph.origin.y - box.y1 * 100,
+            glyph.origin.x + box.x1 * 100,
+            glyph.origin.y - box.y0 * 100,
+        )
+        assert tuple(glyph.bbox) == pytest.approx(expected, abs=0.01)
+    assert regular.char_bbox("g").y0 < 0
+    assert regular.char_bbox(" ") == pylopdf.Rect(0, 0, 0, 0)
+
+
+@pytest.mark.parametrize("name", get_args(pylopdf.StandardFontName))
+def test_standard_14_fonts_report_their_urw_box_and_afm_metrics(name: StandardFontName) -> None:
+    font = pylopdf.Font.standard(name)
+    assert font.bbox.y1 == pytest.approx(font.ascender)
+    assert font.bbox.y0 == pytest.approx(font.descender)
+    assert font.is_monospaced is name.startswith("Courier")
+    assert font.program() is None
+    chars = font.chars()
+    assert chars
+    assert all(font.has_glyph(char) for char in chars)
+    assert sum(font.char_widths(chars, 9)) == pytest.approx(font.text_width(chars, 9))
+
+
+def test_standard_14_metrics_are_adobes() -> None:
+    helvetica = pylopdf.Font.standard("Helvetica")
+    # The URW box, as pymupdf reports it; Adobe's FontBBox is -166 -225 1000 931.
+    assert tuple(helvetica.bbox) == pytest.approx((-0.21, -0.299, 1.032, 1.075))
+    assert helvetica.glyph_count == 315
+    assert helvetica.char_widths("Hi!", 10) == pytest.approx((7.22, 2.22, 2.78))
+    assert tuple(helvetica.char_bbox("A")) == pytest.approx((0.014, 0.0, 0.654, 0.718))
+    assert "é" in helvetica.chars()
+    assert "Ā" not in helvetica.chars()
+    symbol = pylopdf.Font.standard("Symbol")
+    # Symbol draws its built-in encoding, addressed through WinAnsi bytes: "a" is alpha.
+    assert symbol.char_widths("a", 10) == pytest.approx((6.31,))
+
+
+def test_a_variable_instance_measures_at_its_weight() -> None:
+    thin = pylopdf.Font.from_file(NOTO_SANS_HEBREW)
+    bold = pylopdf.Font.from_file(NOTO_SANS_HEBREW, weight=700)
+    assert thin.glyph_count == bold.glyph_count
+    assert thin.chars() == bold.chars()
+    for font in (thin, bold):
+        assert font.char_widths("ש", 20)[0] == pytest.approx(font.text_width("ש", 20))
+    assert bold.char_widths("ש", 20)[0] > thin.char_widths("ש", 20)[0]
+    assert bold.char_bbox("ש") != thin.char_bbox("ש")
+    assert bold.program() == thin.program() == NOTO_SANS_HEBREW.read_bytes()
+
+
+def test_program_returns_the_bytes_the_face_was_loaded_from(regular: pylopdf.Font) -> None:
+    data = NOTO_SANS_JP.read_bytes()
+    assert regular.program() == data
+    assert pylopdf.Font.from_bytes(data).program() == data
+
+
+def test_character_metrics_validate_their_input(regular: pylopdf.Font) -> None:
+    with pytest.raises(pylopdf.PdfError, match=r"no glyph for '🦀' \(U\+1F980\)"):
+        regular.char_widths("A🦀", 10)
+    with pytest.raises(pylopdf.PdfError, match="no glyph"):
+        regular.char_bbox("🦀")
+    with pytest.raises(pylopdf.PdfError, match="no glyph"):
+        pylopdf.Font.standard("Helvetica").char_widths("Ā", 10)
+    for value in ("ab", ""):
+        with pytest.raises(ValueError, match="one-character"):
+            regular.char_bbox(value)
+    with pytest.raises(TypeError, match="one-character"):
+        regular.char_bbox(65)  # ty: ignore[invalid-argument-type]
+    with pytest.raises(TypeError, match="text must be a string"):
+        regular.char_widths(b"A", 10)  # ty: ignore[invalid-argument-type]
+    for size in (0, -1, math.nan):
+        with pytest.raises(ValueError, match="size"):
+            regular.char_widths("A", size)
+    with pytest.raises(pylopdf.LimitError) as excinfo:
+        regular.char_widths("A" * 11, 10, max_text_size=10)
+    assert excinfo.value.code == "text_input_size"
+    assert len(regular.char_widths("A" * 11, 10, max_text_size=None)) == 11
+
+
+def test_glyph_names_follow_the_adobe_glyph_list(regular: pylopdf.Font) -> None:
+    assert pylopdf.glyph_name("A") == "A"
+    assert pylopdf.glyph_name("é") == "eacute"
+    # The AGL names U+2192 arrowright; the ITC Zapf Dingbats list names it a161.
+    assert pylopdf.glyph_name("→") == "arrowright"
+    assert pylopdf.glyph_name("✔") == "a20"
+    assert pylopdf.glyph_name("Δ") == "Deltagreek"
+    assert pylopdf.glyph_name("∆") == "Delta"
+    assert pylopdf.glyph_name("一") == "uni4E00"
+    assert pylopdf.glyph_name("😀") == "u1F600"
+    assert pylopdf.glyph_text("f_f_i") == "ffi"
+    assert pylopdf.glyph_text("uni4E00") == "一"
+    assert pylopdf.glyph_text("u1F600") == "😀"
+    assert pylopdf.glyph_text("A.swash") == "A"
+    assert pylopdf.glyph_text("a161") == "→"
+    assert pylopdf.glyph_text("nonsense") == ""
+    for font in (regular, pylopdf.Font.standard("Helvetica"), pylopdf.Font.standard("Symbol")):
+        assert all(pylopdf.glyph_text(pylopdf.glyph_name(char)) == char for char in font.chars())
+    with pytest.raises(ValueError, match="one-character"):
+        pylopdf.glyph_name("ab")
+    with pytest.raises(TypeError, match="name must be a string"):
+        pylopdf.glyph_text(None)  # ty: ignore[invalid-argument-type]

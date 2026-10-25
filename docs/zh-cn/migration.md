@@ -104,6 +104,9 @@ python -m pylopdf.migrate src/
 | `pymupdf.Font(...)` | `Font.standard(name)`、`Font.from_file(path)`、`Font.from_bytes(data)`、`Font.installed(language=...)` | 按PostScript名称指定的Standard 14字体（`"helv"`对应`"Helvetica"`）、OpenType文件和已安装的字体extra；pymupdf的其他内置字体以及`script=`、`ordering=`和`embed=`不可用 |
 | `font.text_length(text, fontsize)`、`pymupdf.get_text_length(text, fontname, fontsize)` | `font.text_width(text, size)` | `size`没有默认值；`font.text_height(text, size, width=...)`按`canvas.textbox`的绘制方式测量换行后的文本 |
 | `font.has_glyph(ord(c))` | `font.has_glyph(c)` | 接受字符本身，返回布尔值而不是字形编号 |
+| `font.glyph_advance(ord(c))`、`font.char_lengths(text, fontsize)` | `font.char_widths(c, 1)[0]`、`font.char_widths(text, size)` | 每个字符单独绘制时的步进宽度；`size`没有默认值 |
+| `font.glyph_bbox(ord(c))`、`font.valid_codepoints()`、`font.buffer`、`font.flags` | `font.char_bbox(c)`、`font.chars()`、`font.program()`、`font.is_monospaced` | `chars()`把字符作为一个字符串返回；其他标志是`is_bold`、`is_italic`和`is_serif` |
+| `pymupdf.unicode_to_glyph_name(code)`、`glyph_name_to_unicode(name)` | `pylopdf.glyph_name(char)`、`pylopdf.glyph_text(name)` | 接受并返回字符和字符串，而不是码位；对不代表任何字符的名称，`glyph_text`返回`""` |
 | `pymupdf.Base14_fontnames`、`Base14_fontdict` | `typing.get_args(pylopdf.StandardFontName)` | `Font.standard()`接受的14个PostScript名称 |
 | `page.insert_image(rect, filename=/stream=/pixmap=)` | `canvas.image(rect, source)` | 在`with page.draw() as canvas:`中调用。source为路径、JPEG或PNG的bytes，或`Pixmap`，`keep_proportion=`变为`keep_aspect=`；`rotate=`按顺时针旋转，而pymupdf按逆时针旋转。同一图像绘制两次只存储一份，因此不需要`xref=`，每次放置的`xref`可从`page.content().images`得到 |
 | `page.show_pdf_page(rect, docsrc, pno)` | `canvas.page(rect, docsrc.pages[pno])` | 页面可以属于同一文档；尚不支持`clip=`和`rotate=` |

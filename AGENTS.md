@@ -2331,7 +2331,25 @@ the concept and API overview.
   or `draw::standard_textbox_layout` with `LinePlacement::lines`, on text
   normalized as `Canvas.textbox` normalizes it (`_textbox_text`) and returns
   `TextBoxLayout::height`, so a textbox of that height fits with zero spare
-  height. `has_glyph(char)` takes one character and returns a bool. Filling a
+  height. `has_glyph(char)` takes one character and returns a bool, and
+  `chars()` lists every character it accepts: read-fonts' `Charmap::unicodes`
+  plus, for a symbol or Mac Roman subtable, the code points below U+10000 that
+  `map_unicode` converts. The metrics of a character drawn alone come from the
+  same sources (`CharGlyph`): `char_widths` takes HarfRust's
+  `ShaperFont::glyph_h_advance`, which rounds an instance's HVAR deltas as
+  shaping does, where read-fonts' `GlyphMetrics::h_advance` keeps them
+  fractional (786.5 against the 787 that the bold instance of Noto Sans Hebrew
+  draws); `char_bbox` takes read-fonts' exact `GlyphMetrics::extents` at the
+  instance, which the content model's outline boxes match; `bbox`,
+  `glyph_count`, and `is_monospaced` read `head`, `maxp`, and `post`. A
+  Standard 14 font answers from its AFM metrics (`draw::standard_char_metric`,
+  by WinAnsi glyph name or, for Symbol and ZapfDingbats, by code), except
+  `bbox`, which is the URW box of `draw::standard_font_bbox`, the table that
+  `standard_line_metrics` reads its ascender and descender from.
+  `glyph_name` and `glyph_text` (module functions in `font.rs`) read the Adobe
+  Glyph List through read-fonts' `agl` feature; `glyph_name` prefers an AGL
+  name to an ITC Zapf Dingbats `aNNN` name of the same character, else
+  composes `uniXXXX` or `uXXXXX`. Filling a
   form with an OpenType `doc.form.font` draws the same bytes and index as the
   core's font-bytes path, and a face loaded without `weight` produces
   byte-identical output; `doc.form.font` refuses a Standard 14 `Font`,

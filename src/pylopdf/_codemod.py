@@ -168,6 +168,13 @@ HAS_GLYPH_MESSAGE = (
     "Font.has_glyph(char) takes a one-character string and returns whether the face has a glyph for it, "
     "not the glyph number."
 )
+CHAR_METRIC_MESSAGE = (
+    "Font.char_widths(text, size) and Font.char_bbox(char) take characters, not code points, "
+    "and have no language, script, or small_caps option."
+)
+GLYPH_NAME_MESSAGE = "pylopdf.glyph_name(char) takes the character, not its code point."
+#: The defaults of pymupdf's shaping options of Font measurements, which pylopdf has no counterpart for.
+FONT_MEASURE_DEFAULTS = {"language": ("None",), "script": ("0",), "wmode": ("0",), "small_caps": ("0", "False")}
 #: pymupdf's line caps and joins, by number, as ``LineCap`` and ``LineJoin`` members.
 LINE_CAPS = ("BUTT", "ROUND", "SQUARE")
 LINE_JOINS = ("MITER", "ROUND", "BEVEL")
@@ -1947,8 +1954,7 @@ def _text_length(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     bound = args.bind(("text", "fontsize", "language", "script", "wmode", "small_caps", "max_text_size"))
     if bound is None or "text" not in bound:
         return None
-    defaults = {"language": ("None",), "script": ("0",), "wmode": ("0",), "small_caps": ("0", "False")}
-    if any(bound.get(key, values[0]) not in values for key, values in defaults.items()):
+    if any(bound.get(key, values[0]) not in values for key, values in FONT_MEASURE_DEFAULTS.items()):
         return None
     arguments = [bound["text"], bound.get("fontsize", "11")]
     if "max_text_size" in bound:
@@ -1956,13 +1962,8 @@ def _text_length(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
     return f"{receiver}.text_width({', '.join(arguments)})"
 
 
-def _has_glyph(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
-    """Rewrite ``has_glyph(ord(char))`` and ``has_glyph(code)`` to take the character itself."""
-    bound = args.bind(("chr", "language", "script", "fallback", "small_caps"))
-    if bound is None or set(bound) != {"chr"}:
-        migrator.todo(HAS_GLYPH_MESSAGE)
-        return None
-    value = bound["chr"]
+def _code_point_character(value: str) -> str | None:
+    """Return the character that a pymupdf code point argument names: ``c`` for ``ord(c)``, ``chr(n)`` for a literal."""
     node = cst.parse_expression(value)
     if (
         isinstance(node, cst.Call)
@@ -1971,15 +1972,74 @@ def _has_glyph(migrator: _Migrator, receiver: str, args: _Arguments) -> str | No
         and node.args[0].keyword is None
         and not node.args[0].star
     ):
-        character = _code(node.args[0].value)
-    elif _int_literal(value) is not None:
-        character = f"chr({value})"
-    elif _string_literal(value) is not None:
+        return _code(node.args[0].value)
+    return f"chr({value})" if _int_literal(value) is not None else None
+
+
+def _has_glyph(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``has_glyph(ord(char))`` and ``has_glyph(code)`` to take the character itself."""
+    bound = args.bind(("chr", "language", "script", "fallback", "small_caps"))
+    if bound is None or set(bound) != {"chr"}:
+        migrator.todo(HAS_GLYPH_MESSAGE)
         return None
-    else:
+    if _string_literal(bound["chr"]) is not None:
+        return None
+    character = _code_point_character(bound["chr"])
+    if character is None:
         migrator.todo(HAS_GLYPH_MESSAGE)
         return None
     return f"{receiver}.has_glyph({character})"
+
+
+def _char_metric(parameters: tuple[str, ...], template: str) -> Callable[[_Migrator, str, _Arguments], str | None]:
+    """Rewrite a ``Font`` metric of one code point to ``template`` of its character.
+
+    ``parameters`` are the shaping options that pymupdf's method takes, which
+    pylopdf has no counterpart for unless they keep their defaults.
+    """
+
+    def rule(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+        bound = args.bind(("chr", *parameters))
+        if (
+            bound is None
+            or "chr" not in bound
+            or any(
+                bound.get(key, FONT_MEASURE_DEFAULTS[key][0]) not in FONT_MEASURE_DEFAULTS[key] for key in parameters
+            )
+        ):
+            migrator.todo(CHAR_METRIC_MESSAGE)
+            return None
+        character = _code_point_character(bound["chr"])
+        if character is None:
+            migrator.todo(CHAR_METRIC_MESSAGE)
+            return None
+        return template.format(receiver=receiver, character=character)
+
+    return rule
+
+
+def _char_lengths(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``Font.char_lengths(text, fontsize=11)`` to ``char_widths(text, size)``, whose size has no default."""
+    bound = args.bind(("text", "fontsize", "language", "script", "wmode", "small_caps"))
+    if (
+        bound is None
+        or "text" not in bound
+        or any(bound.get(key, values[0]) not in values for key, values in FONT_MEASURE_DEFAULTS.items())
+    ):
+        migrator.todo(CHAR_METRIC_MESSAGE)
+        return None
+    return f"{receiver}.char_widths({bound['text']}, {bound.get('fontsize', '11')})"
+
+
+def _unicode_to_glyph_name(migrator: _Migrator, _: str, args: _Arguments) -> str | None:
+    """Rewrite ``Font.unicode_to_glyph_name(code)``, which reads no font, to ``glyph_name(char)``."""
+    bound = args.bind(("ch",))
+    function = migrator.class_name("glyph_name")
+    character = None if bound is None or "ch" not in bound else _code_point_character(bound["ch"])
+    if character is None or function is None:
+        migrator.todo(GLYPH_NAME_MESSAGE)
+        return None
+    return f"{function}({character})"
 
 
 #: Calls rewritten wherever they appear.
@@ -2088,6 +2148,13 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "has_annots": _no_arguments("any(page.annotations for page in {receiver}.pages)"),
     "text_length": _text_length,
     "has_glyph": _has_glyph,
+    "glyph_advance": _char_metric(
+        ("language", "script", "wmode", "small_caps"), "{receiver}.char_widths({character}, 1)[0]"
+    ),
+    "glyph_bbox": _char_metric(("language", "script", "small_caps"), "{receiver}.char_bbox({character})"),
+    "char_lengths": _char_lengths,
+    "valid_codepoints": _no_arguments("[ord(char) for char in {receiver}.chars()]"),
+    "unicode_to_glyph_name": _unicode_to_glyph_name,
 }
 
 
@@ -2790,6 +2857,17 @@ def _get_text_length(migrator: _Migrator, prefix: str | None, _: str, args: _Arg
     return f'{font}.standard("{name}").text_width({bound["text"]}, {bound.get("fontsize", "11")})'
 
 
+def _module_glyph_name(migrator: _Migrator, prefix: str | None, _: str, args: _Arguments) -> str | None:
+    """Rewrite pymupdf's ``unicode_to_glyph_name(code)`` to ``glyph_name(char)``."""
+    bound = args.bind(("ch",))
+    function = f"{prefix}glyph_name" if prefix else migrator.class_name("glyph_name")
+    character = None if bound is None or "ch" not in bound else _code_point_character(bound["ch"])
+    if character is None or function is None:
+        migrator.todo(GLYPH_NAME_MESSAGE)
+        return None
+    return f"{function}({character})"
+
+
 def _geometry_constant(_: _Migrator, __: str | None, function: str, args: _Arguments) -> str | None:
     """Rewrite a call of ``EMPTY_RECT()`` or ``IdentityMatrix()``, already renamed, to the class attribute."""
     return None if args.positional or args.keywords else function
@@ -2830,6 +2908,7 @@ MODULE_CALL_RULES: dict[str, Callable[[_Migrator, str | None, str, _Arguments], 
     "peek_metadata": _probe,
     "Font": _font,
     "get_text_length": _get_text_length,
+    "unicode_to_glyph_name": _module_glyph_name,
     "paper_size": _paper,
     "paper_rect": _paper,
     **dict.fromkeys(GEOMETRY_CONSTANTS, _geometry_constant),

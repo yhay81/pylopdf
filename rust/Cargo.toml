@@ -34,8 +34,10 @@ write-fonts = { version = "0.48.1", features = ["read"] }
 # Shape Unicode text without krilla's deprecated rustybuzz/ttf-parser path.
 harfrust = "0.15.0"
 # Read vertical metrics from the same font model used by HarfRust.
-# Keep the 0.46 type generation aligned with HarfRust 0.15.
-read-fonts = "0.46.0"
+# Keep the 0.46 type generation aligned with HarfRust 0.15. The agl feature
+# adds the Adobe Glyph List (56 KB of trie data) that pylopdf.glyph_name and
+# glyph_text read; it changes no mapping of the OpenType faces pylopdf loads.
+read-fonts = { version = "0.46.0", features = ["agl"] }
 # Measure the PDF Core 14 fonts from Adobe's canonical AFM data.
 pdf-base14-metrics = "0.0.2"
 # Apply UAX #14 wrapping to Latin, CJK, and mixed-script text.
