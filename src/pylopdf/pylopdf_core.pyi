@@ -183,6 +183,9 @@ class _Font:
 
 def glyph_name(codepoint: int) -> str: ...
 def glyph_text(name: str) -> str: ...
+def image_info(
+    data: bytes | None = None, path: str | None = None, max_size: int | None = None
+) -> tuple[str, int, int, int, bool, int, tuple[int, int], int]: ...
 
 _Rgba: TypeAlias = tuple[float, float, float, float]
 _CanvasStroke: TypeAlias = tuple[_Rgba, float, int, int, float, list[float], float]

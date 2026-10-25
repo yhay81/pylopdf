@@ -985,9 +985,11 @@ class Canvas:
     ) -> None:
         """Draw a JPEG, PNG, or JPEG 2000 image, a :class:`Pixmap`, or an :class:`ImageObject` into ``rect``.
 
-        An encoded image is a path or bytes. ``rotate`` turns the image
-        clockwise by 0, 90, 180, or 270 degrees, and ``keep_aspect`` centres
-        it in ``rect`` at its aspect ratio. An
+        An encoded image is a path or bytes; a JPEG or PNG first stands as
+        its EXIF orientation asks, as viewers show it, which
+        :func:`image_info` reads. ``rotate`` then turns the image clockwise
+        by 0, 90, 180, or 270 degrees, and ``keep_aspect`` centres it in
+        ``rect`` at its aspect ratio. An
         image drawn several times, or placed in this document before, is
         stored once. JPEG and JPEG 2000 data is stored as it is, unless a
         palette maps JPEG 2000 samples; a new document's canvas decodes

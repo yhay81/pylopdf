@@ -1040,7 +1040,7 @@ each, those of the Form XObjects that it uses included. Each is an
 | `soft_mask`, `mask`, `is_stencil` | The soft mask and the stencil mask, as image objects, and whether the image is itself a stencil mask |
 | `extract()` | The image's data as an `EncodedImage` with `format`, `data`, and `resolution`: JPEG data as it is stored, JPEG 2000 data whose only filter is `JPXDecode` as it is stored with the format `"jpx"`, and any other image as PNG, without its masks |
 | `to_pixmap(*, alpha=False)` | The image's pixels as a [`Pixmap`](#pixmap): RGB without its masks, or RGBA in which they set the transparency |
-| `replace(source, *, max_size=64 MiB, max_pixels=64,000,000)` | Puts a JPEG, PNG, or JPEG 2000 path, encoded bytes, or a `Pixmap` in the image's place, under its object number, so every placement draws the new image; the image keeps its layer and structure parent, and input is limited as [`canvas.image`](#canvas) limits it |
+| `replace(source, *, max_size=64 MiB, max_pixels=64,000,000)` | Puts a JPEG, PNG, or JPEG 2000 path, encoded bytes, or a `Pixmap` in the image's place, under its object number, so every placement draws the new image as the old one was placed, without its EXIF orientation; the image keeps its layer and structure parent, and input is limited as [`canvas.image`](#canvas) limits it |
 
 ```python
 from pathlib import Path
@@ -1128,7 +1128,7 @@ with page.draw() as canvas:
 | `line`, `rect(rect, *, radius=0)`, `circle`, `ellipse`, `polygon`, `bezier` | One path each, with the options of `path` |
 | `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None, rotate=0)` | Lines whose first baseline starts at `at`, turned clockwise about `at` by `rotate` |
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, rotate=0, ...)` | Text wrapped inside `rect`, turned clockwise by `rotate`; returns a `TextFit` |
-| `image(rect, source, *, keep_aspect=True, rotate=0)` | A JPEG, PNG, or JPEG 2000 path, encoded bytes, a `Pixmap`, or an [`ImageObject`](#images), turned clockwise by `rotate` |
+| `image(rect, source, *, keep_aspect=True, rotate=0)` | A JPEG, PNG, or JPEG 2000 path, encoded bytes, a `Pixmap`, or an [`ImageObject`](#images), standing as its EXIF orientation asks and then turned clockwise by `rotate` |
 | `page(rect, source, *, clip=None, keep_aspect=True, rotate=0)` | A page of any open document, this one included, as vectors: the part inside `clip`, a rectangle of the source page's display coordinates, turned clockwise by `rotate` |
 | `draw(item)` | A `Path` or `Image` item that [`page.content()`](#content) returned |
 
@@ -1216,7 +1216,12 @@ mask's drawing, so an empty mask hides the block's drawing.
 
 `page.draw(underlay=True)` writes below the page's existing content. An image
 or page that a canvas draws several times, or that the document placed
-before, is stored once, whatever its rotation or clip. A page is drawn as it
+before, is stored once, whatever its rotation or clip. A JPEG or PNG appears
+as its EXIF orientation asks, as viewers show it, mirrored or turned by its
+placement while its data stays as it is; a `Pixmap` and an image object have
+no orientation. [`image_info()`](#module-level) reads the orientation, size,
+and resolution of an image file, and the [images-to-PDF
+recipes](ecosystem.md#images-to-pdf) make a page of each image. A page is drawn as it
 was when `canvas.page()` was called; a `clip` fills `rect` in place of the
 whole page, at its own aspect ratio unless `keep_aspect=False`, and nothing
 outside it is painted. `draw(item)` repeats an item's clips, group
@@ -1713,6 +1718,7 @@ Image processing belongs to NumPy, Pillow, and OpenCV:
 | Name | Purpose |
 |---|---|
 | `open(source, /, *, password=None, limits=None)` | Open a document; see [Document](#document) |
+| `image_info(source, /, *, max_size=64 MiB)` | An `ImageInfo` record of a JPEG, PNG, or JPEG 2000 file, a path or encoded bytes, read from its header without decoding: `format` (`"jpeg"`, `"png"`, or `"jpx"`), `width` and `height` as stored, `components` (1 gray, 3 RGB, 4 CMYK), `alpha`, `bits` per component, `resolution` in dots per inch (96 when the file states none), and the EXIF `orientation` from 1 to 8 that [`canvas.image`](#canvas) applies |
 | `probe(source, /, *, password=None, max_file_size=None)` | A `Probe` record with `page_count`, `version`, `needs_password`, `is_repaired`, and `metadata` (`title`, `author`, `subject`, `keywords`, `creator`, `producer`, `created`, and `modified` when present), read without loading the document |
 | `DocumentLimits`, `DocumentLimits.web()` | Resource limits for untrusted input; see [Security](security.md#untrusted-pdfs) |
 | `OcrEngine` | A reusable OCR engine; see [Offline OCR](ocr.md) |
@@ -1743,7 +1749,7 @@ are `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`,
 
 Results are records: frozen dataclasses such as `Word`, `Block`, `Line`,
 `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord`, `Path`,
-`Image`, `MarkInfo`, `PdfaClaim`, `OutlineEntry`, `PageLabelRange`, the
+`Image`, `ImageInfo`, `MarkInfo`, `PdfaClaim`, `OutlineEntry`, `PageLabelRange`, the
 outline targets, `DocumentComplexity`, and `ImageCompressionResult`. The API
 returns a plain dictionary only from `Layout.to_dict()`, which gives pymupdf's
 shape for JSON.

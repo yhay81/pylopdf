@@ -57,6 +57,8 @@ python -m pylopdf.migrate src/
 | `doc.copy_page(pno, to)`、`fullcopy_page(pno, to)` | `doc.pages.insert(to, doc.pages[pno])` | pylopdf从不让两个页面共享同一个页面对象 |
 | `doc.move_page(pno, to)` | `doc.pages.move(pno, index)` | `index`是页面最终所在的位置；pymupdf则是插入到第`to`页之前 |
 | `doc.insert_pdf(docsrc, from_page=a, to_page=b, start_at=i)` | `doc.pages.insert(i, docsrc.pages[a:b + 1])`、`doc.pages.extend(docsrc.pages)` | 名称冲突的导入表单字段会被重命名为`name+N`；没有`widgets=`和`join_duplicates=` |
+| `doc.insert_file(path)` | `doc.pages.extend(pylopdf.open(path).pages)` | 适用于PDF；图像通过[图像转PDF的配方](ecosystem.md#images-to-pdf)成为页面 |
+| `doc.convert_to_pdf()` | `doc.to_bytes()` | pylopdf的`Document`始终是PDF；图像和CBZ归档通过[图像转PDF的配方](ecosystem.md#images-to-pdf)成为页面 |
 | `doc.get_toc()`、`set_toc(toc)` | `doc.outline.entries()`、`doc.outline = entries` | 使用`OutlineEntry`记录，其`destination`是页码从0开始的`Destination`，而不是`[level, title, page]`列表 |
 | `doc.outline`、`item.next`、`item.down` | `doc.outline`、`item.children`、`doc.outline.walk()` | `doc.outline`是顶层`OutlineItem`句柄的序列，而不是第一个条目 |
 | `doc.set_toc_item(i, ...)`、`del_toc_item(i)` | 为`OutlineItem`的`title`、`destination`、`color`、`bold`、`italic`或`is_open`赋值 | `del_toc_item`会将条目变灰并移除其目标 |
@@ -91,6 +93,8 @@ python -m pylopdf.migrate src/
 | `doc.extract_image(xref)` | `doc.images[xref].extract()` | 带有`format`、`data`和`resolution`的`EncodedImage`；尺寸、色彩空间和蒙版是`doc.images[xref]`的属性 |
 | `pymupdf.Pixmap(doc, xref)` | `doc.images[xref].to_pixmap()` | `alpha=True`会应用图像的蒙版 |
 | `pymupdf.Pixmap(filename)`、`pymupdf.Pixmap(stream)` | `Pixmap.from_file(path)`、`Pixmap.from_bytes(data)` | 支持PNG、JPEG和JPEG 2000；其他格式用Pillow读取后传给`Pixmap.from_array(numpy.asarray(image))` |
+| `pymupdf.image_profile(stream)` | `pylopdf.image_info(source)` | 从文件头读取的`ImageInfo`记录：`resolution`对应xres和yres，`components`对应colorspace，`bits`对应bpc，`format`对应ext；JPEG、PNG和JPEG 2000以外的数据会引发`PdfError` |
+| `pix.pdfocr_save(path)`、`pix.pdfocr_tobytes()` | `page.apply_ocr()` | 先把图像画到页面上，再保存文档；参见[离线OCR](ocr.md#searchable) |
 | `page.get_image_info()` | `page.content(text_runs=False, paths=False).images` | 带有`xref`、`bbox`、`matrix`（pymupdf的`transform`）、尺寸、颜色空间、蒙版和分辨率的`Image`记录；尚不支持`hashes=` |
 | `page.get_drawings()`、`get_cdrawings()` | `page.content(text_runs=False, images=False).paths` | 带有`segments`、`fill`、`fill_rule`、`stroke`和`bbox`的`Path`记录；`extended=True`作为单独条目返回的裁剪、分组和标记内容由每条路径的`context`持有 |
 | `page.get_texttrace()`, `get_bboxlog()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | 以不可变的值返回带字形的文本段、路径和图像；参见[页面内容](api.md#content) |
@@ -108,7 +112,7 @@ python -m pylopdf.migrate src/
 | `font.glyph_bbox(ord(c))`、`font.valid_codepoints()`、`font.buffer`、`font.flags` | `font.char_bbox(c)`、`font.chars()`、`font.program()`、`font.is_monospaced` | `chars()`把字符作为一个字符串返回；其他标志是`is_bold`、`is_italic`和`is_serif` |
 | `pymupdf.unicode_to_glyph_name(code)`、`glyph_name_to_unicode(name)` | `pylopdf.glyph_name(char)`、`pylopdf.glyph_text(name)` | 接受并返回字符和字符串，而不是码位；对不代表任何字符的名称，`glyph_text`返回`""` |
 | `pymupdf.Base14_fontnames`、`Base14_fontdict` | `typing.get_args(pylopdf.StandardFontName)` | `Font.standard()`接受的14个PostScript名称 |
-| `page.insert_image(rect, filename=/stream=/pixmap=)` | `canvas.image(rect, source)` | 在`with page.draw() as canvas:`中调用。source为路径、JPEG、PNG或JPEG 2000的bytes，或`Pixmap`，`keep_proportion=`变为`keep_aspect=`；`rotate=`按顺时针旋转，而pymupdf按逆时针旋转。同一图像绘制两次只存储一份，`xref=`变为`canvas.image(rect, doc.images[xref])`，每次放置的`xref`可从`page.content().images`得到 |
+| `page.insert_image(rect, filename=/stream=/pixmap=)` | `canvas.image(rect, source)` | 在`with page.draw() as canvas:`中调用。source为路径、JPEG、PNG或JPEG 2000的bytes，或`Pixmap`，`keep_proportion=`变为`keep_aspect=`；`rotate=`按顺时针旋转，而pymupdf按逆时针旋转。JPEG和PNG按其EXIF方向显示，pymupdf则忽略它。同一图像绘制两次只存储一份，`xref=`变为`canvas.image(rect, doc.images[xref])`，每次放置的`xref`可从`page.content().images`得到 |
 | `page.replace_image(xref, filename=/stream=/pixmap=)` | `doc.images[xref].replace(source)` | 图像在任何页面上的每个放置都绘制新图像；图像保留其图层和结构父项，页面也不会多出内容流 |
 | `page.show_pdf_page(rect, docsrc, pno)` | `canvas.page(rect, docsrc.pages[pno])` | 页面可以属于同一文档；尚不支持`clip=`和`rotate=` |
 | `page.new_shape()`、`shape.draw_*`、`finish()`、`insert_text()`、`commit()` | `with page.draw() as canvas:` | 画布按调用顺序绘制路径和文本，并在代码块结束时写入；`finish()`的样式变为每次调用的`fill=`和`stroke=`；参见[画布](api.md#canvas) |
@@ -146,8 +150,6 @@ python -m pylopdf.migrate src/
 |---|---|
 | Story API、`insert_htmlbox`（排版） | [typst](ecosystem.md#typesetting) |
 | 数字签名 | [pyHanko](ecosystem.md#signatures) |
-| 增量保存 | 已在计划中；在此之前pylopdf会重写整个文件，签名由pyHanko处理 |
-| 将图像或CBZ归档转换为PDF | 已在计划中；在此之前请用Pillow或img2pdf转换 |
 | 打开XPS或EPUB | 无此计划：pylopdf是PDF库 |
 
 ## 迁移示例 { #worked-example }

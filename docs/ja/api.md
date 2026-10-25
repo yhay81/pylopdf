@@ -352,7 +352,7 @@ hayroがまだ報告しない情報はモデルにありません。色の色空
 | `soft_mask`, `mask`, `is_stencil` | 画像オブジェクトとしてのソフトマスクとステンシルマスク、画像自体がステンシルマスクかどうか |
 | `extract()` | 画像のデータを`format`、`data`、`resolution`を持つ`EncodedImage`で。JPEGデータと、フィルターが`JPXDecode`だけのJPEG 2000データは格納されたまま（後者の形式は`"jpx"`）、ほかの画像はPNGで、マスクは含みません |
 | `to_pixmap(*, alpha=False)` | 画像のピクセルを[`Pixmap`](#pixmap)で。マスクを含まないRGB、またはマスクが透明度を決めるRGBA |
-| `replace(source, *, max_size=64 MiB, max_pixels=64,000,000)` | JPEG、PNG、JPEG 2000のパス、エンコード済みのbytes、`Pixmap`を、画像のオブジェクト番号のまま画像の代わりに置きます。どの配置も新しい画像を描きます。画像のレイヤーと構造上の親は残り、入力は[`canvas.image`](#canvas)と同じように制限されます |
+| `replace(source, *, max_size=64 MiB, max_pixels=64,000,000)` | JPEG、PNG、JPEG 2000のパス、エンコード済みのbytes、`Pixmap`を、画像のオブジェクト番号のまま画像の代わりに置きます。どの配置も古い画像が置かれていたとおりに新しい画像を描き、EXIFの向きは適用しません。画像のレイヤーと構造上の親は残り、入力は[`canvas.image`](#canvas)と同じように制限されます |
 
 ```python
 from pathlib import Path
@@ -398,7 +398,7 @@ with page.draw() as canvas:
 | `line`, `rect(rect, *, radius=0)`, `circle`, `ellipse`, `polygon`, `bezier` | それぞれパスを1つ。オプションは`path`と同じです |
 | `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None)` | 最初のベースラインが`at`から始まる行 |
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` | `rect`の中で折り返したテキスト。`TextFit`を返します |
-| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEG、PNG、JPEG 2000のパス、エンコード済みのbytes、`Pixmap`、[`ImageObject`](#images)のいずれか。`rotate`で時計回りに回します |
+| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEG、PNG、JPEG 2000のパス、エンコード済みのbytes、`Pixmap`、[`ImageObject`](#images)のいずれか。EXIFの向きのとおりに立て、`rotate`でさらに時計回りに回します |
 | `page(rect, source, *, keep_aspect=True)` | 開いている任意の文書（この文書も含む）のページをベクタのまま |
 | `draw(item)` | [`page.content()`](#content)が返した`Path`項目または`Image`項目 |
 
@@ -426,7 +426,7 @@ with page.draw() as canvas:
 | `opacity(alpha)` | 描画を1つのグループとして合成し、それを不透明度`alpha`で描きます |
 | `blend(mode)` | `BlendMode`を使って、描画をその下にあるものとブレンドします |
 
-`page.draw(underlay=True)`は、ページの既存の内容の下に書き込みます。1つのキャンバスで何度も描いた画像やページ、または文書が以前に配置した画像やページは、1回だけ格納されます。ページは`canvas.page()`を呼び出した時点の状態で描かれます。`draw(item)`は項目のクリップ、グループの不透明度、ブレンドモードを再現しますが、ソフトマスクは再現しません。画像の項目は、`image()`が`ImageObject`を描くのと同じく、画像自身のマスクとともにそのオブジェクトから描きます。オブジェクトと同じ文書のページのキャンバスはそのオブジェクトをもう一度描き、別の文書のキャンバスは呼び出した時点で、そのオブジェクトが参照するオブジェクトとともにコピーし、新しい文書のキャンバスは`to_pixmap(alpha=True)`がレンダリングするピクセルを描きます。テキストラン、パターンのペイント、インライン画像、画像マスクはまだ描けません。テストコーパスの全ページのパスと画像を白紙のページに描き直すと、まだ描けない項目の外側では、72 dpiで元のレンダリングとの差がチャンネルごとに16階調以内に収まります。1つのキャンバスが保持できるパスの点は1,048,576個まで、スコープの入れ子は16段までです。それを超えると`LimitError`を送出し、そのコードは`path_point_count`または`canvas_scope_depth`です。
+`page.draw(underlay=True)`は、ページの既存の内容の下に書き込みます。1つのキャンバスで何度も描いた画像やページ、または文書が以前に配置した画像やページは、1回だけ格納されます。JPEGとPNGは、ビューアーと同じくEXIFの向きのとおりに表示されます。データはそのままで、配置で反転や回転をします。`Pixmap`と画像オブジェクトには向きがありません。[`image_info()`](#module-level)は画像ファイルの向き、大きさ、解像度を読み、[画像をPDFにするレシピ](ecosystem.md#images-to-pdf)は画像ごとにページを作ります。ページは`canvas.page()`を呼び出した時点の状態で描かれます。`draw(item)`は項目のクリップ、グループの不透明度、ブレンドモードを再現しますが、ソフトマスクは再現しません。画像の項目は、`image()`が`ImageObject`を描くのと同じく、画像自身のマスクとともにそのオブジェクトから描きます。オブジェクトと同じ文書のページのキャンバスはそのオブジェクトをもう一度描き、別の文書のキャンバスは呼び出した時点で、そのオブジェクトが参照するオブジェクトとともにコピーし、新しい文書のキャンバスは`to_pixmap(alpha=True)`がレンダリングするピクセルを描きます。テキストラン、パターンのペイント、インライン画像、画像マスクはまだ描けません。テストコーパスの全ページのパスと画像を白紙のページに描き直すと、まだ描けない項目の外側では、72 dpiで元のレンダリングとの差がチャンネルごとに16階調以内に収まります。1つのキャンバスが保持できるパスの点は1,048,576個まで、スコープの入れ子は16段までです。それを超えると`LimitError`を送出し、そのコードは`path_point_count`または`canvas_scope_depth`です。
 
 ## 新しい文書 { #create }
 
@@ -678,6 +678,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | 名前 | 用途 |
 |---|---|
 | `open(source, /, *, password=None, limits=None)` | 文書を開きます。[Document](#document)を参照 |
+| `image_info(source, /, *, max_size=64 MiB)` | JPEG、PNG、JPEG 2000のファイル（パスまたはエンコード済みのbytes）のヘッダーを、デコードせずに読んだ`ImageInfo`レコード。`format`（`"jpeg"`、`"png"`、`"jpx"`）、格納されたままの`width`と`height`、`components`（1はグレー、3はRGB、4はCMYK）、`alpha`、成分あたりの`bits`、dpi単位の`resolution`（ファイルが示さなければ96）、[`canvas.image`](#canvas)が適用する1から8のEXIFの`orientation` |
 | `probe(source, /, *, password=None, max_file_size=None)` | 文書を読み込まずに読み取った、`page_count`、`version`、`needs_password`、`is_repaired`、`metadata`（`title`、`author`、`subject`、`keywords`、`creator`、`producer`、`created`、`modified`のうち存在するもの）を持つ`Probe`レコード |
 | `DocumentLimits`, `DocumentLimits.web()` | 信頼できない入力向けの資源の上限。[セキュリティ](security.md#untrusted-pdfs)を参照 |
 | `OcrEngine` | 再利用できるOCRエンジン。[オフラインOCR](ocr.md)を参照 |
@@ -695,7 +696,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 
 コードとフラグは列挙型のメンバだけで、モジュールの定数はありません。pymupdfの`PDF_PERM_PRINT`は`Permissions.PRINT`、`PDF_ANNOT_TEXT`は`AnnotationType.TEXT`、`PDF_ANNOT_IS_HIDDEN`は`AnnotationFlags.HIDDEN`で、値は同じです。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
 
-結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`、しおりの行き先、`DocumentComplexity`、`ImageCompressionResult`などの変更できないデータクラス（frozen dataclass）です。APIがただの辞書を返すのは、JSON向けにpymupdfの形を返す`Layout.to_dict()`だけです。
+結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`、`ImageInfo`、`MarkInfo`、`PdfaClaim`、`OutlineEntry`、`PageLabelRange`、しおりの行き先、`DocumentComplexity`、`ImageCompressionResult`などの変更できないデータクラス（frozen dataclass）です。APIがただの辞書を返すのは、JSON向けにpymupdfの形を返す`Layout.to_dict()`だけです。
 
 ## 例外と警告 { #exceptions }
 

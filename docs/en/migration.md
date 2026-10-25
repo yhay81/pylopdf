@@ -92,6 +92,8 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `doc.copy_page(pno, to)`, `fullcopy_page(pno, to)` | `doc.pages.insert(to, doc.pages[pno])` | pylopdf never shares one page object between two pages |
 | `doc.move_page(pno, to)` | `doc.pages.move(pno, index)` | `index` is where the page ends up; pymupdf inserted before page `to` |
 | `doc.insert_pdf(docsrc, from_page=a, to_page=b, start_at=i)` | `doc.pages.insert(i, docsrc.pages[a:b + 1])`, `doc.pages.extend(docsrc.pages)` | Imported form fields whose names clash are renamed `name+N`; no `widgets=` or `join_duplicates=` |
+| `doc.insert_file(path)` | `doc.pages.extend(pylopdf.open(path).pages)` | For a PDF; an image becomes a page with the [images-to-PDF recipes](ecosystem.md#images-to-pdf) |
+| `doc.convert_to_pdf()` | `doc.to_bytes()` | A pylopdf `Document` is always a PDF; images and CBZ archives become pages with the [images-to-PDF recipes](ecosystem.md#images-to-pdf) |
 | `doc.get_toc()`, `set_toc(toc)` | `doc.outline.entries()`, `doc.outline = entries` | `OutlineEntry` records whose `destination` is a `Destination` with a page number that starts at 0, instead of `[level, title, page]` lists |
 | `doc.outline`, `item.next`, `item.down` | `doc.outline`, `item.children`, `doc.outline.walk()` | `doc.outline` is the sequence of top-level `OutlineItem` handles instead of the first item |
 | `doc.set_toc_item(i, ...)`, `del_toc_item(i)` | Assign `title`, `destination`, `color`, `bold`, `italic`, or `is_open` on an `OutlineItem` | `del_toc_item` grayed the item out and removed its target |
@@ -151,6 +153,8 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `doc.extract_image(xref)` | `doc.images[xref].extract()` | An `EncodedImage` with `format`, `data`, and `resolution`; the size, color space, and masks are properties of `doc.images[xref]` |
 | `pymupdf.Pixmap(doc, xref)` | `doc.images[xref].to_pixmap()` | `alpha=True` applies the image's masks |
 | `pymupdf.Pixmap(filename)`, `pymupdf.Pixmap(stream)` | `Pixmap.from_file(path)`, `Pixmap.from_bytes(data)` | PNG, JPEG, and JPEG 2000; other formats belong to Pillow, then `Pixmap.from_array(numpy.asarray(image))` |
+| `pymupdf.image_profile(stream)` | `pylopdf.image_info(source)` | An `ImageInfo` record read from the header: `resolution` holds xres and yres, `components` the colorspace, `bits` the bpc, and `format` the ext; data that is not JPEG, PNG, or JPEG 2000 raises `PdfError` |
+| `pix.pdfocr_save(path)`, `pix.pdfocr_tobytes()` | `page.apply_ocr()` | Draw the image on a page first, then save the document; see [Offline OCR](ocr.md#searchable) |
 | `page.get_image_info()` | `page.content(text_runs=False, paths=False).images` | `Image` records with `xref`, `bbox`, `matrix` (pymupdf's `transform`), size, color space, mask, and resolution; no `hashes=` yet |
 | `page.get_drawings()`, `get_cdrawings()` | `page.content(text_runs=False, images=False).paths` | `Path` records with `segments`, `fill`, `fill_rule`, `stroke`, and `bbox`; each path's `context` holds the clips, groups, and marked content that `extended=True` listed as entries of their own |
 | `page.cluster_drawings(x_tolerance=…, y_tolerance=…)` | `page.content(clip=page.rect).path_clusters(x_tolerance=…, y_tolerance=…)` | Boxes of nearby paths, sorted from top to bottom |
@@ -170,7 +174,7 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `font.glyph_bbox(ord(c))`, `font.valid_codepoints()`, `font.buffer`, `font.flags` | `font.char_bbox(c)`, `font.chars()`, `font.program()`, `font.is_monospaced` | `chars()` returns the characters as one string; the other flags are `is_bold`, `is_italic`, and `is_serif` |
 | `pymupdf.unicode_to_glyph_name(code)`, `glyph_name_to_unicode(name)` | `pylopdf.glyph_name(char)`, `pylopdf.glyph_text(name)` | Take and return characters and strings, not code points; `glyph_text` returns `""` for a name that stands for no character |
 | `pymupdf.Base14_fontnames`, `Base14_fontdict` | `typing.get_args(pylopdf.StandardFontName)` | The 14 PostScript names that `Font.standard()` takes |
-| `page.insert_image(rect, filename=/stream=/pixmap=)` | `canvas.image(rect, source)` | Inside `with page.draw() as canvas:`; the source is the path, JPEG, PNG, or JPEG 2000 bytes, or `Pixmap`, `keep_proportion=` becomes `keep_aspect=`, and `rotate=` turns the image clockwise, where pymupdf turns it anticlockwise. The same image drawn twice is stored once, `xref=` becomes `canvas.image(rect, doc.images[xref])`, and `page.content().images` reports each placement's `xref` |
+| `page.insert_image(rect, filename=/stream=/pixmap=)` | `canvas.image(rect, source)` | Inside `with page.draw() as canvas:`; the source is the path, JPEG, PNG, or JPEG 2000 bytes, or `Pixmap`, `keep_proportion=` becomes `keep_aspect=`, and `rotate=` turns the image clockwise, where pymupdf turns it anticlockwise. A JPEG or PNG appears as its EXIF orientation asks, which pymupdf ignores. The same image drawn twice is stored once, `xref=` becomes `canvas.image(rect, doc.images[xref])`, and `page.content().images` reports each placement's `xref` |
 | `page.replace_image(xref, filename=/stream=/pixmap=)` | `doc.images[xref].replace(source)` | Every placement of the image, on any page, draws the new one; the image keeps its layer and structure parent, and the page gets no extra content stream |
 | `page.show_pdf_page(rect, docsrc, pno)` | `canvas.page(rect, docsrc.pages[pno])` | The page can belong to the same document. `keep_proportion=` becomes `keep_aspect=`, `clip=` is a rectangle in the source page's display coordinates, and `rotate=` turns the page clockwise, where pymupdf turns it anticlockwise, so `rotate=90` becomes `rotate=270` |
 | `page.new_shape()`, `shape.draw_*`, `finish()`, `insert_text()`, `commit()` | `with page.draw() as canvas:` | The canvas draws paths and text in the order of the calls and writes them when the block ends; `finish()` styles become each call's `fill=` and `stroke=`; see [Canvas](api.md#canvas) |
@@ -256,8 +260,6 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 |---|---|
 | Story API, `insert_htmlbox` (typesetting) | [typst](ecosystem.md#typesetting) |
 | Digital signatures | [pyHanko](ecosystem.md#signatures) |
-| Incremental save | Planned; until then pylopdf rewrites the whole file, and pyHanko handles signatures |
-| Converting images or CBZ archives to PDF | Planned; until then, convert them with Pillow or img2pdf |
 | Opening XPS or EPUB | Not planned: pylopdf is a PDF library |
 
 ## Worked example { #worked-example }

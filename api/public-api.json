@@ -69,6 +69,7 @@
     "IRect",
     "Image",
     "ImageCompressionResult",
+    "ImageInfo",
     "ImageMask",
     "ImageObject",
     "Images",
@@ -191,6 +192,7 @@
     "create",
     "glyph_name",
     "glyph_text",
+    "image_info",
     "open",
     "parse_pdf_date",
     "pdf_date",
@@ -6162,6 +6164,100 @@
             "annotation": "int",
             "kind": "keyword_only",
             "name": "bytes_saved"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "ImageInfo": {
+      "annotations": {
+        "alpha": "bool",
+        "bits": "int",
+        "components": "int",
+        "format": "Literal['jpeg', 'png', 'jpx']",
+        "height": "int",
+        "orientation": "int",
+        "resolution": "tuple[int, int]",
+        "width": "int"
+      },
+      "dataclass_fields": [
+        "format",
+        "width",
+        "height",
+        "components",
+        "alpha",
+        "bits",
+        "resolution",
+        "orientation"
+      ],
+      "kind": "class",
+      "members": {
+        "alpha": {
+          "kind": "property"
+        },
+        "bits": {
+          "kind": "property"
+        },
+        "components": {
+          "kind": "property"
+        },
+        "format": {
+          "kind": "property"
+        },
+        "height": {
+          "kind": "property"
+        },
+        "orientation": {
+          "kind": "property"
+        },
+        "resolution": {
+          "kind": "property"
+        },
+        "width": {
+          "kind": "property"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Literal['jpeg', 'png', 'jpx']",
+            "kind": "positional_or_keyword",
+            "name": "format"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "width"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "height"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "components"
+          },
+          {
+            "annotation": "bool",
+            "kind": "positional_or_keyword",
+            "name": "alpha"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "bits"
+          },
+          {
+            "annotation": "tuple[int, int]",
+            "kind": "positional_or_keyword",
+            "name": "resolution"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "orientation"
           }
         ],
         "returns": "None"
@@ -14992,6 +15088,25 @@
           }
         ],
         "returns": "str"
+      }
+    },
+    "image_info": {
+      "kind": "function",
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str | os.PathLike[str] | bytes | bytearray | memoryview",
+            "kind": "positional_only",
+            "name": "source"
+          },
+          {
+            "annotation": "int | None",
+            "default": 67108864,
+            "kind": "keyword_only",
+            "name": "max_size"
+          }
+        ],
+        "returns": "ImageInfo"
       }
     },
     "open": {

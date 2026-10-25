@@ -1256,6 +1256,15 @@ def _get_image_info(migrator: _Migrator, receiver: str, args: _Arguments) -> str
     return f"{receiver}.content(text_runs=False, paths=False).images"
 
 
+IMAGE_INFO_MESSAGE = (
+    "pylopdf.image_info returns an ImageInfo record instead of a dictionary: read .width, .height, .resolution "
+    "(xres, yres), .orientation, .components (colorspace), .bits (bpc), and .format (ext); it raises PdfError "
+    "for data that is not JPEG, PNG, or JPEG 2000, and canvas.image applies the orientation itself."
+)
+CONVERT_TO_PDF_MESSAGE = (
+    "pylopdf opens PDF only, so doc.to_bytes() returns the file; draw images and CBZ archives on pages with the "
+    "images_to_pdf and cbz_to_pdf recipes of the ecosystem guide."
+)
 EXTRACTED_IMAGE_MESSAGE = (
     "doc.images[xref].extract() returns an EncodedImage instead of a dictionary: read .format, .data, and "
     ".resolution; the size, color space, and masks are properties of doc.images[xref]."
@@ -1315,6 +1324,14 @@ def _get_char_widths(migrator: _Migrator, receiver: str, args: _Arguments) -> st
         return None
     migrator.todo(CHAR_WIDTHS_MESSAGE)
     return f"{receiver}.fonts[{bound['xref']}].widths"
+
+
+def _convert_to_pdf(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``convert_to_pdf()`` of the whole document to ``to_bytes()``."""
+    migrator.todo(CONVERT_TO_PDF_MESSAGE)
+    if args.positional or args.keywords:
+        return None
+    return f"{receiver}.to_bytes()"
 
 
 def _extract_image(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
@@ -2124,6 +2141,7 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "extract_font": _extract_font,
     "get_char_widths": _get_char_widths,
     "extract_image": _extract_image,
+    "convert_to_pdf": _convert_to_pdf,
     "replace_image": _replace_image,
     "get_pixmap": _get_pixmap,
     "get_svg_image": _get_svg_image,
@@ -2874,6 +2892,16 @@ def _get_text_length(migrator: _Migrator, prefix: str | None, _: str, args: _Arg
     return f'{font}.standard("{name}").text_width({bound["text"]}, {bound.get("fontsize", "11")})'
 
 
+def _image_profile(migrator: _Migrator, prefix: str | None, _: str, args: _Arguments) -> str | None:
+    """Rewrite pymupdf's ``image_profile(stream)`` to ``image_info(stream)``, which returns a record."""
+    bound = args.bind(("stream", "keep_image"))
+    function = f"{prefix}image_info" if prefix else migrator.class_name("image_info")
+    migrator.todo(IMAGE_INFO_MESSAGE)
+    if bound is None or "stream" not in bound or bound.get("keep_image", "False") != "False" or function is None:
+        return None
+    return f"{function}({bound['stream']})"
+
+
 def _module_glyph_name(migrator: _Migrator, prefix: str | None, _: str, args: _Arguments) -> str | None:
     """Rewrite pymupdf's ``unicode_to_glyph_name(code)`` to ``glyph_name(char)``."""
     bound = args.bind(("ch",))
@@ -2926,6 +2954,7 @@ MODULE_CALL_RULES: dict[str, Callable[[_Migrator, str | None, str, _Arguments], 
     "Font": _font,
     "get_text_length": _get_text_length,
     "unicode_to_glyph_name": _module_glyph_name,
+    "image_profile": _image_profile,
     "paper_size": _paper,
     "paper_rect": _paper,
     **dict.fromkeys(GEOMETRY_CONSTANTS, _geometry_constant),

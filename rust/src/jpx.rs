@@ -62,6 +62,11 @@ impl JpxColor {
 pub struct JpxHeader {
     pub width: u32,
     pub height: u32,
+    /// Colour components without alpha: 1 gray, 3 RGB, 4 CMYK, a
+    /// palette's by its entries.
+    pub components: u8,
+    /// Bits per component as stored.
+    pub bits: u8,
     pub alpha: bool,
     /// Whether a palette maps the samples, which hayro reads as gray
     /// indices unless the PDF names an Indexed colour space.
@@ -100,10 +105,12 @@ fn open(data: &[u8]) -> Result<(Image<'_>, JpxColor), String> {
 /// Read the header of a JP2 file or a raw codestream.
 pub fn header(data: &[u8]) -> Result<JpxHeader, String> {
     guarded(|| {
-        let (image, _) = open(data)?;
+        let (image, color) = open(data)?;
         Ok(JpxHeader {
             width: image.width(),
             height: image.height(),
+            components: color.channels() as u8,
+            bits: image.original_bit_depth(),
             alpha: image.has_alpha(),
             palette: header_box(data, *b"pclr").is_some(),
         })

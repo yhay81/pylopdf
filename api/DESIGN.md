@@ -334,7 +334,7 @@ return one from `builder.page(size)`.
 | `line`, `rect(rect, *, radius=0, ...)`, `circle`, `ellipse`, `polygon`, `bezier` | Shortcuts that build one path. |
 | `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None, rotate=0)` | Shaped with HarfRust and embedded as a subset by krilla. The fill and the stroke select the render mode; invisible text belongs to `page.apply_ocr`. `rotate` turns the lines clockwise about `at` in right angles, as `image` turns images; a `transform` scope turns by other angles. |
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, rotate=0, ...)` → `TextFit` | Wraps with UAX #14 and places lines as `text` does, the first baseline one ascender below the top; on overflow it draws nothing and reports the shortfall. `rotate` turns the lines inside `rect`, which they then wrap across for 90 and 270. |
-| `image(rect, source, *, keep_aspect=True, rotate=0)` | `source` is a path, encoded bytes, a `Pixmap`, or an `ImageObject`; the same image is stored once. |
+| `image(rect, source, *, keep_aspect=True, rotate=0)` | `source` is a path, encoded bytes, a `Pixmap`, or an `ImageObject`; the same image is stored once; a JPEG or PNG stands as its EXIF orientation asks before `rotate` turns it. |
 | `page(rect, source, *, clip=None, keep_aspect=True, rotate=0)` | Places another page, which may belong to the same document. |
 | `clip(path)`, `transform(matrix)`, `opacity(alpha)`, `blend(mode)`, `mask(*, subtype=SoftMaskType.LUMINOSITY)`, `layer(layer)`, `tag(role, ...)` | Context managers that scope a graphics state; `tag` scopes build a tagged new document's structure tree, and add elements to an open document's structure tree. `mask` returns a second canvas, whose drawing in the block is the soft mask of what the block draws on the first, in the user space where the block starts. |
 | `bookmark(title, *, level=1, at=(0, 0))` | An outline entry of a new document. |
@@ -360,6 +360,13 @@ line_height=None)` for the height that `textbox` needs for the text wrapped
 `width` points wide, so a page can be planned before anything is drawn.
 `glyph_name(char)` and `glyph_text(name)` translate between characters and
 glyph names by the Adobe Glyph List, independently of any font.
+
+`image_info(source, /, *, max_size=64 MiB)` reads a JPEG, PNG, or JPEG 2000
+file's header into an `ImageInfo` record (`format`, `width`, `height`,
+`components`, `alpha`, `bits`, `resolution`, and the EXIF `orientation`)
+without decoding it. Converting images, CBZ archives, and scans to PDF is a
+set of tested recipes over it, `canvas.image`, and `apply_ocr()`, not an API:
+pylopdf opens PDF only.
 
 `pylopdf.create(*, standard=None, tagged=False, language=None, title=None,
 author=None, subject=None, keywords=(), created=None)` returns a `Builder`
@@ -508,6 +515,8 @@ hint.
 | `get_form_fields()`, `set_form_field()` | `doc.form` |
 | `extract_image(xref)` | `doc.images[xref].extract()` |
 | `Page.replace_image(xref, ...)` | `doc.images[xref].replace(source)` |
+| `image_profile(stream)` | `image_info(source)`, an `ImageInfo` record read from the header |
+| `convert_to_pdf()`, `insert_file(path)`, `Pixmap.pdfocr_save()` | `doc.to_bytes()`, `doc.pages.extend(pylopdf.open(path).pages)`, and the tested images-to-PDF recipes with `page.apply_ocr()` |
 | `get_pdfa_claim()` | `doc.pdfa_claim` |
 | `set_fallback_font(...)` | `doc.fallback_fonts`, an assignable mapping from CJK language to `FallbackFont` |
 | `Page.number`, `Page.parent` | `page.index`, `page.document` |

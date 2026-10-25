@@ -202,7 +202,9 @@ class ImageObject:
 
         The new image keeps this object number, so every placement of the
         image, on any page, in Form XObjects, and in annotation appearances,
-        draws it, stretched into the placement as the old image was. Its
+        draws it, stretched into the placement as the old image was; the
+        placements keep their matrices, so the new data's EXIF orientation
+        does not apply. Its
         layer (``/OC``) and its place in the structure tree
         (``/StructParent``) stay; its masks and the rest of its dictionary
         are those of the new image, and the old masks go when the document

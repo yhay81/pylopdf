@@ -111,6 +111,7 @@ from pylopdf._form import (
 from pylopdf._geometry import IRect, Matrix, Point, Quad, Rect
 from pylopdf._hints import missing_attribute
 from pylopdf._history import History
+from pylopdf._image_files import ImageInfo, image_info
 from pylopdf._images import EncodedImage, ImageObject, Images, Resources
 from pylopdf._layers import (
     Layer,
@@ -233,6 +234,7 @@ __all__ = [
     "IRect",
     "Image",
     "ImageCompressionResult",
+    "ImageInfo",
     "ImageMask",
     "ImageObject",
     "Images",
@@ -353,6 +355,7 @@ __all__ = [
     "create",
     "glyph_name",
     "glyph_text",
+    "image_info",
     "open",
     "parse_pdf_date",
     "pdf_date",

@@ -18,6 +18,7 @@ mod generate;
 mod generated_pdf;
 mod graph_guard;
 mod image_compression;
+mod image_header;
 mod jpx;
 mod layout;
 mod object_recovery;
@@ -63,6 +64,7 @@ fn pylopdf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<_Font>()?;
     m.add_function(wrap_pyfunction!(font::glyph_name, m)?)?;
     m.add_function(wrap_pyfunction!(font::glyph_text, m)?)?;
+    m.add_function(wrap_pyfunction!(image_header::image_info, m)?)?;
     m.add_class::<_OcrEngine>()?;
     m.add_class::<Pixmap>()?;
     m.add("PdfError", m.py().get_type::<PdfError>())?;

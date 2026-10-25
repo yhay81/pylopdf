@@ -51,6 +51,11 @@ with pylopdf.open("scan.pdf") as doc:
     doc.save("searchable.pdf", dedupe=True, object_streams=True)
 ```
 
+Scanned image files become pages first: `images_to_pdf()` from the
+[images-to-PDF recipes](ecosystem.md#images-to-pdf) gives each image a page
+of its own size, standing as its EXIF orientation asks, and
+`pylopdf.open(images_to_pdf(paths))` then takes the same loop.
+
 `apply_ocr()` does not change how the page looks. It skips a page that already
 has text, so running the same script twice does not add the text twice. For a
 page that mixes typed text and a scanned image, pass `clip=(x0, y0, x1, y1)`
