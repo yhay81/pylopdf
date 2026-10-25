@@ -5,7 +5,7 @@ description: pylopdfをTypst、pyHanko、veraPDF、OCRエンジン、NumPy、Pil
 
 # エコシステム連携
 
-pylopdfは組版、PDF/Aの出力、電子署名、画像処理を実装しません。これらはすでに実績あるライブラリがうまくこなしており、以下のレシピではそれらをpylopdfと組み合わせる方法を紹介します。各レシピは[`tests/test_interop.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_interop.py)と[`tests/test_image_recipes.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_image_recipes.py)の統合テストでカバーしています。
+pylopdfは組版、PDF/Aの出力、電子署名、画像処理、JPEG・PNG・JPEG 2000以外の画像形式を実装しません。これらはすでに実績あるライブラリがうまくこなしており、以下のレシピではそれらをpylopdfと組み合わせる方法を紹介します。各レシピは[`tests/test_interop.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_interop.py)、[`tests/test_image_recipes.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_image_recipes.py)、[`tests/test_conversion_recipes.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_conversion_recipes.py)の統合テストでカバーしています。
 
 ## typstで新しい文書を組版する { #typesetting }
 
@@ -267,3 +267,63 @@ def warped(pix: Pixmap, quad, width: int, height: int) -> Pixmap:
 ```
 
 `to_image(pix).convert("CMYK")`でCMYKの値が得られ、PillowはTIFFやWebPなど自分が扱えるあらゆる形式で保存できます。それらの形式の画像は`from_image`で戻せます。
+
+## 画像とコミックアーカイブをPDFにする { #images-to-pdf }
+
+pylopdfはJPEG、PNG、JPEG 2000の画像をページに描き、JPEGとJPEG 2000のデータはそのまま格納します。`image_info()`は画像の大きさ、解像度、EXIFの向きをデコードせずに読みます。以下の関数は画像1枚につき1ページのPDFを作り、各ページを画像がその解像度で表示される大きさにします。`canvas.image`はEXIFの向きのとおりに画像を立てます。これらは画像やCBZアーカイブに対するpymupdfの`convert_to_pdf()`と、画像に対する`insert_file()`の代わりになります。どれもこのページのコードを実行する[`tests/test_conversion_recipes.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_conversion_recipes.py)でテストしています。
+
+```python
+import io
+import zipfile
+
+import pylopdf
+
+IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".jp2", ".j2k", ".jpx")
+
+
+def page_size(info: pylopdf.ImageInfo) -> tuple[float, float]:
+    """Return the size in points at which an image shows upright at its own resolution."""
+    width = info.width * 72 / info.resolution[0]
+    height = info.height * 72 / info.resolution[1]
+    # Orientations 5 to 8 turn the image a quarter, as canvas.image shows it.
+    return (height, width) if info.orientation >= 5 else (width, height)
+
+
+def images_to_pdf(images) -> bytes:
+    """Return a PDF with one page per image, given as paths or encoded bytes."""
+    doc = pylopdf.Document()
+    for image in images:
+        size = page_size(pylopdf.image_info(image))
+        with doc.pages.new(size).draw() as canvas:
+            # The page has the image's shape at its resolution, which can differ across and down.
+            canvas.image((0, 0, *size), image, keep_aspect=False)
+    return doc.to_bytes()
+
+
+def cbz_to_pdf(path) -> bytes:
+    """Return a PDF of a comic book archive's images, in the order of their names."""
+    with zipfile.ZipFile(path) as archive:
+        names = sorted(name for name in archive.namelist() if name.lower().endswith(IMAGE_SUFFIXES))
+        return images_to_pdf([archive.read(name) for name in names])
+```
+
+開いている文書に追加するには、そのページを拡張します：`doc.pages.extend(pylopdf.open(images_to_pdf(paths)).pages)`。TIFF、WebP、GIFなどpylopdfが読まない形式はPillowが読みます。次の関数はそのようなファイルの各フレームを、向きを立て、解像度を保ったまま`images_to_pdf`用のPNGのbytesにします。
+
+```python
+def pillow_frames(path) -> list[bytes]:
+    """Return every frame of an image that Pillow reads as PNG bytes."""
+    from PIL import Image, ImageOps, ImageSequence
+
+    frames = []
+    with Image.open(path) as image:
+        for frame in ImageSequence.Iterator(image):
+            upright = ImageOps.exif_transpose(frame)
+            if upright.mode not in ("1", "L", "LA", "P", "RGB", "RGBA"):
+                upright = upright.convert("RGBA" if "A" in upright.getbands() else "RGB")
+            buffer = io.BytesIO()
+            upright.save(buffer, "PNG", dpi=frame.info.get("dpi", (96, 96)))
+            frames.append(buffer.getvalue())
+    return frames
+```
+
+スキャンした画像のページを検索可能にするには、`pylopdf.open(images_to_pdf(paths))`の各ページで[`apply_ocr()`](ocr.md#searchable)を実行します。

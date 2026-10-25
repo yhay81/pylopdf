@@ -43,6 +43,8 @@ with pylopdf.open("scan.pdf") as doc:
     doc.save("searchable.pdf", dedupe=True, object_streams=True)
 ```
 
+스캔한 이미지 파일은 먼저 페이지가 되어야 합니다. [이미지를 PDF로 만드는 레시피](ecosystem.md#images-to-pdf)의 `images_to_pdf()`는 각 이미지에 그 크기의 페이지를 주고 EXIF 방향대로 세웁니다. 그다음 `pylopdf.open(images_to_pdf(paths))`에 같은 루프를 쓰면 됩니다.
+
 `apply_ocr()`은 페이지의 겉모습을 바꾸지 않습니다. 이미 텍스트가 있는 페이지는 건너뛰므로, 같은 스크립트를 두 번 실행해도 텍스트가 두 번 추가되지 않습니다. 입력된 텍스트와 스캔 이미지가 섞인 페이지에서는 스캔 영역을 둘러싸는 `clip=(x0, y0, x1, y1)`을 전달하세요. 그러면 그 영역 안의 텍스트만 기존 텍스트로 간주합니다. 기존 텍스트와 관계없이 OCR 텍스트를 추가하려면 `skip_existing=False`를 전달합니다.
 
 ## 다른 OCR 엔진 사용하기 { #other-engines }

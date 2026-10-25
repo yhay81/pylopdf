@@ -663,6 +663,17 @@ pub fn image_placement_matrix(
     }
 }
 
+/// Mirror an image placement horizontally inside its unit square, before
+/// it applies, when `mirror` is set.
+pub fn mirrored(matrix: [f64; 6], mirror: bool) -> [f64; 6] {
+    let [a, b, c, d, e, f] = matrix;
+    if mirror {
+        [-a, -b, c, d, e + a, f + b]
+    } else {
+        matrix
+    }
+}
+
 /// Build drawing operators from a `cm` matrix and XObject name.
 pub fn draw_ops(matrix: [f64; 6], name: &str) -> Vec<u8> {
     let [a, b, c, d, e, f] = matrix;

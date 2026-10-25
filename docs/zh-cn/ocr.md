@@ -43,6 +43,8 @@ with pylopdf.open("scan.pdf") as doc:
     doc.save("searchable.pdf", dedupe=True, object_streams=True)
 ```
 
+扫描的图像文件要先成为页面：[图像转PDF的配方](ecosystem.md#images-to-pdf)中的`images_to_pdf()`为每幅图像生成与其大小相同的页面，并按EXIF方向摆正，然后对`pylopdf.open(images_to_pdf(paths))`使用同样的循环。
+
 `apply_ocr()`不会改变页面的外观。它会跳过已有文本的页面，因此同一脚本运行两次也不会重复添加文本。对于既有排版文字又有扫描图像的页面，请用`clip=(x0, y0, x1, y1)`框出扫描区域：此时只有该区域内的文本才算作已有文本。如需无论如何都添加OCR文本，请传入`skip_existing=False`。
 
 ## 使用其他OCR引擎 { #other-engines }

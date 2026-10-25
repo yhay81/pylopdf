@@ -648,6 +648,9 @@ enum Op {
         rect: [f64; 4],
         keep_aspect: bool,
         rotation: i64,
+        /// Whether the image is mirrored horizontally before it turns, as
+        /// its EXIF orientation asks.
+        mirror: bool,
     },
     Page {
         page: usize,
@@ -1579,16 +1582,20 @@ impl CanvasRecording {
                     rect,
                     keep_aspect,
                     rotation,
+                    mirror,
                 } => {
                     let (image_width, image_height) = placements.images[*image];
-                    let placement = draw::image_placement_matrix(
-                        crop,
-                        0,
-                        *rect,
-                        image_width,
-                        image_height,
-                        *keep_aspect,
-                        *rotation,
+                    let placement = draw::mirrored(
+                        draw::image_placement_matrix(
+                            crop,
+                            0,
+                            *rect,
+                            image_width,
+                            image_height,
+                            *keep_aspect,
+                            *rotation,
+                        ),
+                        *mirror,
                     );
                     let mut joined = flip.clone().into_bytes();
                     extend(
@@ -1857,6 +1864,7 @@ impl CanvasRecording {
                     rect,
                     keep_aspect,
                     rotation,
+                    mirror,
                 } => {
                     let CanvasImage::Krilla {
                         image,
@@ -1870,14 +1878,17 @@ impl CanvasRecording {
                     // at v = 1, into the y-up page; krilla draws the image in
                     // the unit square of display space, whose top row is at
                     // t = 0, so flip on both sides.
-                    let placement = draw::image_placement_matrix(
-                        [0.0, 0.0, self.size.0, height],
-                        0,
-                        *rect,
-                        *width,
-                        *image_height,
-                        *keep_aspect,
-                        *rotation,
+                    let placement = draw::mirrored(
+                        draw::image_placement_matrix(
+                            [0.0, 0.0, self.size.0, height],
+                            0,
+                            *rect,
+                            *width,
+                            *image_height,
+                            *keep_aspect,
+                            *rotation,
+                        ),
+                        *mirror,
                     );
                     let unit = concat(
                         concat([1.0, 0.0, 0.0, -1.0, 0.0, 1.0], placement),
@@ -2247,6 +2258,14 @@ impl _Canvas {
         py: Python<'_>,
     ) -> PyResult<()> {
         quarter_turn(rotation)?;
+        // Show encoded input as its EXIF orientation asks, before `rotation`.
+        let (mirror, turn) = match &input {
+            ImageInput::Encoded(data) => {
+                crate::image_header::orientation_transform(crate::image_header::orientation(data))
+            }
+            ImageInput::Pixmap { .. } => (false, 0),
+        };
+        let rotation = (rotation.rem_euclid(360) + turn) % 360;
         let digest = py.detach(|| input.digest());
         let known = self
             .recording
@@ -2283,6 +2302,7 @@ impl _Canvas {
             rect,
             keep_aspect,
             rotation,
+            mirror,
         })
     }
 }

@@ -149,6 +149,7 @@ replacement, and the migration hint):
 - Document.add_ocg -> Layers.add: Use doc.layers.add(name, visible=on, intent=("View",)); intent is a tuple of names, and the handle replaces the returned xref.
 - Document.authenticate -> Document.unlock: Use doc.unlock(password), which returns Access.USER or Access.OWNER and raises PasswordError for a wrong password.
 - Document.bake -> Document.flatten: doc.flatten(annotations=True, widgets=True) draws appearances into page content and removes the annotations, keeping links; the codemod rewrites bake() calls.
+- Document.convert_to_pdf -> Document.to_bytes: A pylopdf Document is always a PDF, so doc.to_bytes() returns its file; to convert images or a CBZ archive, use the images_to_pdf and cbz_to_pdf recipes of the ecosystem guide.
 - Document.copy_page -> Pages.insert: Use doc.pages.insert(to, doc.pages[i]); the copy is a new page object, not a second reference.
 - Document.del_toc_item -> OutlineItem.destination: pymupdf grays the item out and removes its target: set destination = None, color, and italic on the OutlineItem from doc.outline.walk(), or assign doc.outline without the entry.
 - Document.del_xml_metadata -> Document.xmp: del doc.xmp removes the catalog's XMP metadata entry.
@@ -185,6 +186,7 @@ replacement, and the migration hint):
 - Document.get_xml_metadata -> Document.xmp: doc.xmp returns the XMP packet as text, or None without one where pymupdf returns an empty string.
 - Document.has_annots -> Page.annotations: any(page.annotations for page in doc.pages)
 - Document.has_links -> Page.links: any(page.links for page in doc.pages)
+- Document.insert_file -> Pages.extend: doc.pages.extend(pylopdf.open(path).pages) appends a PDF's pages; an image becomes a page with the images_to_pdf recipe of the ecosystem guide, or with canvas.image on doc.pages.new(size).
 - Document.insert_page -> Pages.new: Use page = doc.pages.new(size, index=i), then draw the text inside with page.draw() as canvas: canvas.text(text, at).
 - Document.insert_pdf -> Pages.insert: Use doc.pages.insert(index, other.pages[a:b + 1]), or doc.pages.extend(other.pages) to append.
 - Document.is_encrypted -> Document.needs_password: Read doc.needs_password, which is true until unlock() succeeds.
@@ -449,6 +451,8 @@ replacement, and the migration hint):
 - Page.wrap_contents -> Page.operations: page.draw() isolates unbalanced content in q and Q by itself; to wrap explicitly, assign page.operations = [Operation("q"), *page.operations, Operation("Q")].
 - Pixmap.h -> Pixmap.height: Read pix.height.
 - Pixmap.n -> Pixmap.channels: Read pix.channels.
+- Pixmap.pdfocr_save -> Page.apply_ocr: Draw the image on a page, with canvas.image on doc.pages.new(size) or the images_to_pdf recipe of the ecosystem guide, run page.apply_ocr(), and save the document.
+- Pixmap.pdfocr_tobytes -> Page.apply_ocr: Draw the image on a page, with canvas.image on doc.pages.new(size) or the images_to_pdf recipe of the ecosystem guide, run page.apply_ocr(), and call doc.to_bytes().
 - Pixmap.samples -> Pixmap: bytes(pix) copies the pixels; memoryview(pix) and numpy.asarray(pix) read them without a copy, shaped (height, width, channels).
 - Pixmap.samples_mv -> Pixmap: Use memoryview(pix), shaped (height, width, channels).
 - Pixmap.set_dpi -> Pixmap.from_array: A Pixmap is immutable: pix = Pixmap.from_array(pix, resolution=(xres, yres)) shares the pixels at the new resolution.
@@ -559,6 +563,7 @@ replacement, and the migration hint):
 - get_pdf_str -> String: Write a Python str into the object model, which encodes it as a PDF text string, or read String.text.
 - get_text_length -> Font.text_width: Font.standard("Helvetica").text_width(text, size) measures Standard 14 text; an OpenType face measures with its own Font.text_width.
 - glyph_name_to_unicode -> glyph_text: pylopdf.glyph_text(name) returns the text that a glyph name stands for, "" for none, where pymupdf returns one code point.
+- image_profile -> image_info: Call pylopdf.image_info(source), which takes a path or encoded bytes and returns an ImageInfo record: format ('jpeg', 'png', or 'jpx'), width, height, components, alpha, bits, resolution as (xres, yres), and orientation; canvas.image applies the orientation itself, so no transform is needed.
 - linkDest -> Destination: link.target holds a URI string, Destination(page, point, zoom), RemoteDestination(file, page), Launch(file), or NamedAction(name).
 - paper_* -> PaperSize: Use PaperSize members, such as PaperSize.A4 for paper_size("a4") and PaperSize.A4.landscape for "a4-l"; a member is a (width, height) pair that doc.pages.new takes, and Rect(0, 0, *PaperSize.A4) replaces paper_rect.
 - planish_line -> Matrix.planish: Matrix.planish(p1, p2) returns the same matrix.

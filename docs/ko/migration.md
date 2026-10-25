@@ -57,6 +57,8 @@ python -m pylopdf.migrate src/
 | `doc.copy_page(pno, to)`, `fullcopy_page(pno, to)` | `doc.pages.insert(to, doc.pages[pno])` | pylopdf는 페이지 객체 하나를 두 페이지가 공유하지 않음 |
 | `doc.move_page(pno, to)` | `doc.pages.move(pno, index)` | `index`는 페이지가 옮겨진 뒤의 위치. pymupdf는 페이지 `to` 앞에 삽입했음 |
 | `doc.insert_pdf(docsrc, from_page=a, to_page=b, start_at=i)` | `doc.pages.insert(i, docsrc.pages[a:b + 1])`, `doc.pages.extend(docsrc.pages)` | 가져온 폼 필드의 이름이 겹치면 `name+N`으로 이름을 바꿈. `widgets=`, `join_duplicates=`는 없음 |
+| `doc.insert_file(path)` | `doc.pages.extend(pylopdf.open(path).pages)` | PDF의 경우. 이미지는 [이미지를 PDF로 만드는 레시피](ecosystem.md#images-to-pdf)로 페이지가 됨 |
+| `doc.convert_to_pdf()` | `doc.to_bytes()` | pylopdf의 `Document`는 항상 PDF임. 이미지와 CBZ 아카이브는 [이미지를 PDF로 만드는 레시피](ecosystem.md#images-to-pdf)로 페이지가 됨 |
 | `doc.get_toc()`, `set_toc(toc)` | `doc.outline.entries()`, `doc.outline = entries` | `[level, title, page]` 리스트 대신, `destination`이 0부터 시작하는 페이지 번호의 `Destination`인 `OutlineEntry` 레코드 |
 | `doc.outline`, `item.next`, `item.down` | `doc.outline`, `item.children`, `doc.outline.walk()` | `doc.outline`은 첫 항목이 아니라 최상위 `OutlineItem` 핸들의 시퀀스 |
 | `doc.set_toc_item(i, ...)`, `del_toc_item(i)` | `OutlineItem`의 `title`, `destination`, `color`, `bold`, `italic`, `is_open`에 대입 | `del_toc_item`은 항목을 회색으로 바꾸고 대상을 없앴습니다 |
@@ -91,6 +93,8 @@ python -m pylopdf.migrate src/
 | `doc.extract_image(xref)` | `doc.images[xref].extract()` | `format`, `data`, `resolution`이 있는 `EncodedImage`. 크기, 색 공간, 마스크는 `doc.images[xref]`의 속성 |
 | `pymupdf.Pixmap(doc, xref)` | `doc.images[xref].to_pixmap()` | `alpha=True`는 이미지의 마스크를 적용 |
 | `pymupdf.Pixmap(filename)`, `pymupdf.Pixmap(stream)` | `Pixmap.from_file(path)`, `Pixmap.from_bytes(data)` | PNG, JPEG, JPEG 2000. 다른 형식은 Pillow로 읽어 `Pixmap.from_array(numpy.asarray(image))`에 전달 |
+| `pymupdf.image_profile(stream)` | `pylopdf.image_info(source)` | 헤더에서 읽은 `ImageInfo` 레코드. `resolution`이 xres와 yres를, `components`가 colorspace를, `bits`가 bpc를, `format`이 ext를 담음. JPEG, PNG, JPEG 2000이 아닌 데이터는 `PdfError` |
+| `pix.pdfocr_save(path)`, `pix.pdfocr_tobytes()` | `page.apply_ocr()` | 먼저 이미지를 페이지에 그린 뒤 문서를 저장함. [오프라인 OCR](ocr.md#searchable) 참고 |
 | `page.get_image_info()` | `page.content(text_runs=False, paths=False).images` | `xref`, `bbox`, `matrix`(pymupdf의 `transform`), 크기, 색 공간, 마스크, 해상도가 있는 `Image` 레코드. `hashes=`는 아직 지원하지 않음 |
 | `page.get_drawings()`, `get_cdrawings()` | `page.content(text_runs=False, images=False).paths` | `segments`, `fill`, `fill_rule`, `stroke`, `bbox`가 있는 `Path` 레코드. `extended=True`가 별도 항목으로 반환하던 클립, 그룹, 마크된 콘텐츠는 각 경로의 `context`에 있음 |
 | `page.get_texttrace()`, `get_bboxlog()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | 글리프가 있는 텍스트 런, 경로, 이미지를 불변 값으로 반환. [페이지 내용](api.md#content) 참고 |
@@ -108,7 +112,7 @@ python -m pylopdf.migrate src/
 | `font.glyph_bbox(ord(c))`, `font.valid_codepoints()`, `font.buffer`, `font.flags` | `font.char_bbox(c)`, `font.chars()`, `font.program()`, `font.is_monospaced` | `chars()`는 문자를 하나의 문자열로 반환하며, 다른 플래그는 `is_bold`, `is_italic`, `is_serif` |
 | `pymupdf.unicode_to_glyph_name(code)`, `glyph_name_to_unicode(name)` | `pylopdf.glyph_name(char)`, `pylopdf.glyph_text(name)` | 코드 포인트가 아니라 문자와 문자열을 받고 반환하며, 문자를 나타내지 않는 이름에는 `glyph_text`가 `""`를 반환 |
 | `pymupdf.Base14_fontnames`, `Base14_fontdict` | `typing.get_args(pylopdf.StandardFontName)` | `Font.standard()`가 받는 14개의 PostScript 이름 |
-| `page.insert_image(rect, filename=/stream=/pixmap=)` | `canvas.image(rect, source)` | `with page.draw() as canvas:` 안에서 호출함. source는 경로, JPEG, PNG, JPEG 2000 bytes, 또는 `Pixmap`이고, `keep_proportion=`은 `keep_aspect=`가 됨. `rotate=`는 시계 방향이며 pymupdf는 반시계 방향임. 같은 이미지를 두 번 그려도 한 번만 저장되고, `xref=`는 `canvas.image(rect, doc.images[xref])`가 되며, 각 배치의 `xref`는 `page.content().images`로 알 수 있음 |
+| `page.insert_image(rect, filename=/stream=/pixmap=)` | `canvas.image(rect, source)` | `with page.draw() as canvas:` 안에서 호출함. source는 경로, JPEG, PNG, JPEG 2000 bytes, 또는 `Pixmap`이고, `keep_proportion=`은 `keep_aspect=`가 됨. `rotate=`는 시계 방향이며 pymupdf는 반시계 방향임. JPEG와 PNG는 EXIF 방향대로 보이며 pymupdf는 이를 무시함. 같은 이미지를 두 번 그려도 한 번만 저장되고, `xref=`는 `canvas.image(rect, doc.images[xref])`가 되며, 각 배치의 `xref`는 `page.content().images`로 알 수 있음 |
 | `page.replace_image(xref, filename=/stream=/pixmap=)` | `doc.images[xref].replace(source)` | 어느 페이지에서든 이미지의 모든 배치가 새 이미지를 그림. 이미지의 레이어와 구조상 부모는 유지되고, 페이지에 내용 스트림이 늘지 않음 |
 | `page.show_pdf_page(rect, docsrc, pno)` | `canvas.page(rect, docsrc.pages[pno])` | 같은 문서의 페이지여도 됨. `clip=`과 `rotate=`는 아직 없음 |
 | `page.new_shape()`, `shape.draw_*`, `finish()`, `insert_text()`, `commit()` | `with page.draw() as canvas:` | 캔버스는 경로와 텍스트를 호출한 순서대로 그리고 블록이 끝날 때 기록함. `finish()`의 스타일은 각 호출의 `fill=`과 `stroke=`가 됨. [캔버스](api.md#canvas) 참고 |
@@ -146,8 +150,6 @@ python -m pylopdf.migrate src/
 |---|---|
 | Story API, `insert_htmlbox`(조판) | [typst](ecosystem.md#typesetting) |
 | 디지털 서명 | [pyHanko](ecosystem.md#signatures) |
-| 증분 저장 | 계획됨. 그때까지 pylopdf는 파일 전체를 다시 쓰며, 서명은 pyHanko가 처리 |
-| 이미지나 CBZ 아카이브를 PDF로 변환 | 계획됨. 그전까지는 Pillow나 img2pdf로 변환하세요 |
 | XPS나 EPUB 열기 | 계획 없음. pylopdf는 PDF 라이브러리 |
 
 ## 예제 { #worked-example }

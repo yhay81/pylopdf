@@ -5,12 +5,14 @@ description: Tested recipes connecting pylopdf with Typst, pyHanko, veraPDF, OCR
 
 # Ecosystem recipes
 
-pylopdf does not implement typesetting, PDF/A output, digital signatures, or
-image processing. Established libraries already do these well, and the recipes
-below show how to combine them with pylopdf. Each recipe is covered by the
+pylopdf does not implement typesetting, PDF/A output, digital signatures,
+image processing, or image formats beyond JPEG, PNG, and JPEG 2000.
+Established libraries already do these well, and the recipes below show how
+to combine them with pylopdf. Each recipe is covered by the
 integration tests in
-[`tests/test_interop.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_interop.py)
-and [`tests/test_image_recipes.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_image_recipes.py).
+[`tests/test_interop.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_interop.py),
+[`tests/test_image_recipes.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_image_recipes.py),
+and [`tests/test_conversion_recipes.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_conversion_recipes.py).
 
 ## Typesetting new documents with typst { #typesetting }
 
@@ -324,3 +326,77 @@ def warped(pix: Pixmap, quad, width: int, height: int) -> Pixmap:
 `to_image(pix).convert("CMYK")` gives CMYK samples, and Pillow saves every
 format it knows, such as TIFF and WebP; `from_image` brings an image of any
 of those back.
+
+## Images and comic archives to PDF { #images-to-pdf }
+
+pylopdf draws JPEG, PNG, and JPEG 2000 images on pages, storing JPEG and
+JPEG 2000 data as it is, and `image_info()` reads an image's size, resolution,
+and EXIF orientation without decoding it. The functions below make a PDF
+with one page per image, each page the size at which the image shows at its
+own resolution; `canvas.image` stands the image up as its EXIF orientation
+asks. They replace pymupdf's `convert_to_pdf()` of an image or a CBZ archive
+and `insert_file()` of an image; each is tested by
+[`tests/test_conversion_recipes.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_conversion_recipes.py),
+which runs the code on this page.
+
+```python
+import io
+import zipfile
+
+import pylopdf
+
+IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".jp2", ".j2k", ".jpx")
+
+
+def page_size(info: pylopdf.ImageInfo) -> tuple[float, float]:
+    """Return the size in points at which an image shows upright at its own resolution."""
+    width = info.width * 72 / info.resolution[0]
+    height = info.height * 72 / info.resolution[1]
+    # Orientations 5 to 8 turn the image a quarter, as canvas.image shows it.
+    return (height, width) if info.orientation >= 5 else (width, height)
+
+
+def images_to_pdf(images) -> bytes:
+    """Return a PDF with one page per image, given as paths or encoded bytes."""
+    doc = pylopdf.Document()
+    for image in images:
+        size = page_size(pylopdf.image_info(image))
+        with doc.pages.new(size).draw() as canvas:
+            # The page has the image's shape at its resolution, which can differ across and down.
+            canvas.image((0, 0, *size), image, keep_aspect=False)
+    return doc.to_bytes()
+
+
+def cbz_to_pdf(path) -> bytes:
+    """Return a PDF of a comic book archive's images, in the order of their names."""
+    with zipfile.ZipFile(path) as archive:
+        names = sorted(name for name in archive.namelist() if name.lower().endswith(IMAGE_SUFFIXES))
+        return images_to_pdf([archive.read(name) for name in names])
+```
+
+To add the pages to an open document, extend its pages:
+`doc.pages.extend(pylopdf.open(images_to_pdf(paths)).pages)`. Pillow reads
+the formats that pylopdf does not, such as TIFF, WebP, and GIF; this function
+turns every frame of such a file into PNG bytes for `images_to_pdf`, standing
+it up and keeping its resolution:
+
+```python
+def pillow_frames(path) -> list[bytes]:
+    """Return every frame of an image that Pillow reads as PNG bytes."""
+    from PIL import Image, ImageOps, ImageSequence
+
+    frames = []
+    with Image.open(path) as image:
+        for frame in ImageSequence.Iterator(image):
+            upright = ImageOps.exif_transpose(frame)
+            if upright.mode not in ("1", "L", "LA", "P", "RGB", "RGBA"):
+                upright = upright.convert("RGBA" if "A" in upright.getbands() else "RGB")
+            buffer = io.BytesIO()
+            upright.save(buffer, "PNG", dpi=frame.info.get("dpi", (96, 96)))
+            frames.append(buffer.getvalue())
+    return frames
+```
+
+To make the pages of scanned images searchable, run
+[`apply_ocr()`](ocr.md#searchable) on each page of
+`pylopdf.open(images_to_pdf(paths))`.

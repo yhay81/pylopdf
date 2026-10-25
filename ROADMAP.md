@@ -831,7 +831,8 @@ Workstream Writing. Depends on the canvas.
   layers on everything the canvas draws.
 - Conversion of images (JPEG, PNG, and JPEG 2000 directly, other formats
   through Pillow) and CBZ archives to PDF, and of scans to searchable PDF with
-  OCR.
+  OCR (done: `image_info()`, EXIF orientation in `canvas.image`, and the
+  tested images-to-PDF recipes of the ecosystem guide).
 - The complete round trip: `draw(item)` paints every item kind that
   `Page.content()` reads, so the documented list of what does not round-trip
   under [Canvas](#canvas) becomes empty. Beyond the text runs of Canvas,

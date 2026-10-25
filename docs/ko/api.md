@@ -353,7 +353,7 @@ hayro가 아직 알려 주지 않는 정보는 모델에 없습니다. 색의 �
 | `soft_mask`, `mask`, `is_stencil` | 이미지 객체로서의 소프트 마스크와 스텐실 마스크, 이미지 자체가 스텐실 마스크인지 여부 |
 | `extract()` | 이미지 데이터를 `format`, `data`, `resolution`이 있는 `EncodedImage`로. JPEG 데이터와 필터가 `JPXDecode`뿐인 JPEG 2000 데이터는 저장된 그대로(후자의 형식은 `"jpx"`), 다른 이미지는 PNG로, 마스크는 포함하지 않음 |
 | `to_pixmap(*, alpha=False)` | 이미지의 픽셀을 [`Pixmap`](#pixmap)으로. 마스크가 없는 RGB, 또는 마스크가 투명도를 정하는 RGBA |
-| `replace(source, *, max_size=64 MiB, max_pixels=64,000,000)` | JPEG, PNG, JPEG 2000 경로, 인코딩된 bytes, 또는 `Pixmap`을 이미지의 객체 번호 그대로 이미지 자리에 둠. 모든 배치가 새 이미지를 그리고, 이미지의 레이어와 구조상 부모는 유지되며, 입력은 [`canvas.image`](#canvas)와 같이 제한됨 |
+| `replace(source, *, max_size=64 MiB, max_pixels=64,000,000)` | JPEG, PNG, JPEG 2000 경로, 인코딩된 bytes, 또는 `Pixmap`을 이미지의 객체 번호 그대로 이미지 자리에 둠. 모든 배치가 옛 이미지가 놓였던 대로 새 이미지를 그리며 EXIF 방향은 적용하지 않음. 이미지의 레이어와 구조상 부모는 유지되며, 입력은 [`canvas.image`](#canvas)와 같이 제한됨 |
 
 ```python
 from pathlib import Path
@@ -399,7 +399,7 @@ with page.draw() as canvas:
 | `line`, `rect(rect, *, radius=0)`, `circle`, `ellipse`, `polygon`, `bezier` | 각각 경로 하나. 옵션은 `path`와 같음 |
 | `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None)` | 첫 기준선이 `at`에서 시작하는 줄 |
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` | `rect` 안에서 줄바꿈한 텍스트. `TextFit`을 반환 |
-| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEG, PNG, JPEG 2000 경로, 인코딩된 bytes, `Pixmap`, 또는 [`ImageObject`](#images). `rotate`는 시계 방향으로 돌림 |
+| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEG, PNG, JPEG 2000 경로, 인코딩된 bytes, `Pixmap`, 또는 [`ImageObject`](#images). EXIF 방향대로 세운 뒤 `rotate`로 시계 방향으로 더 돌림 |
 | `page(rect, source, *, keep_aspect=True)` | 열려 있는 아무 문서(이 문서 포함)의 페이지를 벡터로 그림 |
 | `draw(item)` | [`page.content()`](#content)가 반환한 `Path` 또는 `Image` 항목 |
 
@@ -427,7 +427,7 @@ with page.draw() as canvas:
 | `opacity(alpha)` | 그림을 하나의 그룹으로 합성한 뒤 불투명도 `alpha`로 그림 |
 | `blend(mode)` | `BlendMode`로 그림을 그 아래에 있는 것과 혼합 |
 
-`page.draw(underlay=True)`는 페이지의 기존 내용 아래에 씁니다. 캔버스가 여러 번 그리는 이미지나 페이지, 또는 문서가 이전에 배치한 이미지나 페이지는 한 번만 저장됩니다. 페이지는 `canvas.page()`를 호출한 시점의 상태로 그려집니다. `draw(item)`은 항목의 클립, 그룹 불투명도, 블렌드 모드를 재현하지만 소프트 마스크는 재현하지 않습니다. 이미지 항목은 `image()`가 `ImageObject`를 그리는 것과 같이 이미지 자체의 마스크와 함께 그 객체에서 그립니다. 객체가 속한 문서의 페이지에 있는 캔버스는 그 객체를 다시 그리고, 다른 문서의 캔버스는 호출한 시점에 그 객체를 그것이 참조하는 객체와 함께 복사하며, 새 문서의 캔버스는 `to_pixmap(alpha=True)`가 렌더링하는 픽셀을 그립니다. 텍스트 런, 패턴 페인트, 인라인 이미지, 이미지 마스크는 아직 그릴 수 없습니다. 테스트 코퍼스의 모든 페이지에 있는 경로와 이미지를 빈 페이지에 다시 그리면, 아직 그릴 수 없는 항목 바깥에서는 72 dpi로 렌더링했을 때 원본과의 차이가 채널마다 16단계 이내입니다. 캔버스 하나에는 경로 점이 최대 1,048,576개까지 들어가고 범위는 최대 16단계까지 중첩할 수 있으며, 이를 넘으면 `LimitError`가 발생하고 그 코드는 `path_point_count` 또는 `canvas_scope_depth`입니다.
+`page.draw(underlay=True)`는 페이지의 기존 내용 아래에 씁니다. 캔버스가 여러 번 그리는 이미지나 페이지, 또는 문서가 이전에 배치한 이미지나 페이지는 한 번만 저장됩니다. JPEG와 PNG는 뷰어처럼 EXIF 방향대로 보입니다. 데이터는 그대로 두고 배치가 반전하거나 돌립니다. `Pixmap`과 이미지 객체에는 방향이 없습니다. [`image_info()`](#module-level)는 이미지 파일의 방향, 크기, 해상도를 읽고, [이미지를 PDF로 만드는 레시피](ecosystem.md#images-to-pdf)는 이미지마다 페이지를 만듭니다. 페이지는 `canvas.page()`를 호출한 시점의 상태로 그려집니다. `draw(item)`은 항목의 클립, 그룹 불투명도, 블렌드 모드를 재현하지만 소프트 마스크는 재현하지 않습니다. 이미지 항목은 `image()`가 `ImageObject`를 그리는 것과 같이 이미지 자체의 마스크와 함께 그 객체에서 그립니다. 객체가 속한 문서의 페이지에 있는 캔버스는 그 객체를 다시 그리고, 다른 문서의 캔버스는 호출한 시점에 그 객체를 그것이 참조하는 객체와 함께 복사하며, 새 문서의 캔버스는 `to_pixmap(alpha=True)`가 렌더링하는 픽셀을 그립니다. 텍스트 런, 패턴 페인트, 인라인 이미지, 이미지 마스크는 아직 그릴 수 없습니다. 테스트 코퍼스의 모든 페이지에 있는 경로와 이미지를 빈 페이지에 다시 그리면, 아직 그릴 수 없는 항목 바깥에서는 72 dpi로 렌더링했을 때 원본과의 차이가 채널마다 16단계 이내입니다. 캔버스 하나에는 경로 점이 최대 1,048,576개까지 들어가고 범위는 최대 16단계까지 중첩할 수 있으며, 이를 넘으면 `LimitError`가 발생하고 그 코드는 `path_point_count` 또는 `canvas_scope_depth`입니다.
 
 ## 새 문서 { #create }
 
@@ -679,6 +679,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 | 이름 | 용도 |
 |---|---|
 | `open(source, /, *, password=None, limits=None)` | 문서를 엶. [Document](#document) 참고 |
+| `image_info(source, /, *, max_size=64 MiB)` | JPEG, PNG, JPEG 2000 파일(경로 또는 인코딩된 bytes)의 헤더를 디코딩하지 않고 읽은 `ImageInfo` 레코드. `format`(`"jpeg"`, `"png"`, `"jpx"`), 저장된 그대로의 `width`와 `height`, `components`(1 그레이, 3 RGB, 4 CMYK), `alpha`, 성분당 `bits`, dpi 단위의 `resolution`(파일이 밝히지 않으면 96), [`canvas.image`](#canvas)가 적용하는 1부터 8까지의 EXIF `orientation` |
 | `probe(source, /, *, password=None, max_file_size=None)` | 문서를 불러오지 않고 읽은 `Probe` 레코드. `page_count`, `version`, `needs_password`, `is_repaired`, `metadata`(`title`, `author`, `subject`, `keywords`, `creator`, `producer`, `created`, `modified` 중 있는 것)를 가짐 |
 | `DocumentLimits`, `DocumentLimits.web()` | 신뢰할 수 없는 입력을 위한 리소스 제한. [보안](security.md#untrusted-pdfs) 참고 |
 | `OcrEngine` | 재사용 가능한 OCR 엔진. [오프라인 OCR](ocr.md) 참고 |
@@ -696,7 +697,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 
 코드와 플래그는 열거형 멤버로만 제공되며 모듈 상수는 없습니다. pymupdf의 `PDF_PERM_PRINT`는 `Permissions.PRINT`, `PDF_ANNOT_TEXT`는 `AnnotationType.TEXT`, `PDF_ANNOT_IS_HIDDEN`은 `AnnotationFlags.HIDDEN`이며 값은 같습니다. `Access`의 멤버는 `USER`와 `OWNER`이고, `Encryption`은 저장하는 파일을 암호화하는 방법을 나타냅니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
 
-결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord`, `Path`, `Image`, `MarkInfo`, `PdfaClaim`, `OutlineEntry`, `PageLabelRange`, 목차 대상, `DocumentComplexity`, `ImageCompressionResult` 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 일반 딕셔너리를 반환하는 곳은 JSON용으로 pymupdf의 형태를 돌려주는 `Layout.to_dict()`뿐입니다.
+결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord`, `Path`, `Image`, `ImageInfo`, `MarkInfo`, `PdfaClaim`, `OutlineEntry`, `PageLabelRange`, 목차 대상, `DocumentComplexity`, `ImageCompressionResult` 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 일반 딕셔너리를 반환하는 곳은 JSON용으로 pymupdf의 형태를 돌려주는 `Layout.to_dict()`뿐입니다.
 
 ## 예외와 경고 { #exceptions }
 

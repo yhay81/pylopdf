@@ -43,6 +43,8 @@ with pylopdf.open("scan.pdf") as doc:
     doc.save("searchable.pdf", dedupe=True, object_streams=True)
 ```
 
+スキャンした画像ファイルは先にページにします。[画像をPDFにするレシピ](ecosystem.md#images-to-pdf)の`images_to_pdf()`は、各画像にその大きさのページを与え、EXIFの向きのとおりに立てます。`pylopdf.open(images_to_pdf(paths))`に同じループを使えます。
+
 `apply_ocr()`はページの見た目を変えません。すでにテキストがあるページは読み飛ばすので、同じスクリプトを2回実行してもテキストが二重に追加されることはありません。入力したテキストとスキャン画像が混在するページでは、スキャンした領域を囲む`clip=(x0, y0, x1, y1)`を渡してください。その領域内のテキストだけが既存のテキストとみなされます。それでもOCRテキストを追加したい場合は`skip_existing=False`を渡します。
 
 ## ほかのOCRエンジンを使う { #other-engines }

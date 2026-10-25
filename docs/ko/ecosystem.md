@@ -5,7 +5,7 @@ description: pylopdf를 Typst, pyHanko, veraPDF, OCR 엔진, NumPy, Pillow와 �
 
 # 생태계 연동
 
-pylopdf는 조판, PDF/A 출력, 디지털 서명, 이미지 처리를 구현하지 않습니다. 이미 잘 만들어진 라이브러리가 이런 작업을 잘 처리하며, 아래 레시피는 그 라이브러리를 pylopdf와 함께 쓰는 방법을 보여 줍니다. 각 레시피는 [`tests/test_interop.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_interop.py)와 [`tests/test_image_recipes.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_image_recipes.py)의 통합 테스트로 검증합니다.
+pylopdf는 조판, PDF/A 출력, 디지털 서명, 이미지 처리, JPEG·PNG·JPEG 2000 이외의 이미지 형식을 구현하지 않습니다. 이미 잘 만들어진 라이브러리가 이런 작업을 잘 처리하며, 아래 레시피는 그 라이브러리를 pylopdf와 함께 쓰는 방법을 보여 줍니다. 각 레시피는 [`tests/test_interop.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_interop.py), [`tests/test_image_recipes.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_image_recipes.py), [`tests/test_conversion_recipes.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_conversion_recipes.py)의 통합 테스트로 검증합니다.
 
 ## typst로 새 문서 조판하기 { #typesetting }
 
@@ -267,3 +267,63 @@ def warped(pix: Pixmap, quad, width: int, height: int) -> Pixmap:
 ```
 
 `to_image(pix).convert("CMYK")`로 CMYK 샘플을 얻고, Pillow는 TIFF와 WebP처럼 자신이 아는 모든 형식으로 저장합니다. 그런 형식의 이미지는 `from_image`로 되돌립니다.
+
+## 이미지와 만화 아카이브를 PDF로 만들기 { #images-to-pdf }
+
+pylopdf는 JPEG, PNG, JPEG 2000 이미지를 페이지에 그리며, JPEG와 JPEG 2000 데이터는 그대로 저장합니다. `image_info()`는 이미지의 크기, 해상도, EXIF 방향을 디코딩하지 않고 읽습니다. 아래 함수는 이미지마다 한 페이지인 PDF를 만들고, 각 페이지를 이미지가 자기 해상도로 보이는 크기로 합니다. `canvas.image`는 EXIF 방향대로 이미지를 세웁니다. 이 함수들은 이미지나 CBZ 아카이브에 대한 pymupdf의 `convert_to_pdf()`와 이미지에 대한 `insert_file()`을 대신하며, 모두 이 페이지의 코드를 실행하는 [`tests/test_conversion_recipes.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_conversion_recipes.py)로 테스트합니다.
+
+```python
+import io
+import zipfile
+
+import pylopdf
+
+IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".jp2", ".j2k", ".jpx")
+
+
+def page_size(info: pylopdf.ImageInfo) -> tuple[float, float]:
+    """Return the size in points at which an image shows upright at its own resolution."""
+    width = info.width * 72 / info.resolution[0]
+    height = info.height * 72 / info.resolution[1]
+    # Orientations 5 to 8 turn the image a quarter, as canvas.image shows it.
+    return (height, width) if info.orientation >= 5 else (width, height)
+
+
+def images_to_pdf(images) -> bytes:
+    """Return a PDF with one page per image, given as paths or encoded bytes."""
+    doc = pylopdf.Document()
+    for image in images:
+        size = page_size(pylopdf.image_info(image))
+        with doc.pages.new(size).draw() as canvas:
+            # The page has the image's shape at its resolution, which can differ across and down.
+            canvas.image((0, 0, *size), image, keep_aspect=False)
+    return doc.to_bytes()
+
+
+def cbz_to_pdf(path) -> bytes:
+    """Return a PDF of a comic book archive's images, in the order of their names."""
+    with zipfile.ZipFile(path) as archive:
+        names = sorted(name for name in archive.namelist() if name.lower().endswith(IMAGE_SUFFIXES))
+        return images_to_pdf([archive.read(name) for name in names])
+```
+
+열린 문서에 페이지를 더하려면 그 페이지를 확장합니다: `doc.pages.extend(pylopdf.open(images_to_pdf(paths)).pages)`. TIFF, WebP, GIF처럼 pylopdf가 읽지 않는 형식은 Pillow가 읽습니다. 다음 함수는 그런 파일의 모든 프레임을 방향을 세우고 해상도를 유지한 채 `images_to_pdf`용 PNG bytes로 바꿉니다.
+
+```python
+def pillow_frames(path) -> list[bytes]:
+    """Return every frame of an image that Pillow reads as PNG bytes."""
+    from PIL import Image, ImageOps, ImageSequence
+
+    frames = []
+    with Image.open(path) as image:
+        for frame in ImageSequence.Iterator(image):
+            upright = ImageOps.exif_transpose(frame)
+            if upright.mode not in ("1", "L", "LA", "P", "RGB", "RGBA"):
+                upright = upright.convert("RGBA" if "A" in upright.getbands() else "RGB")
+            buffer = io.BytesIO()
+            upright.save(buffer, "PNG", dpi=frame.info.get("dpi", (96, 96)))
+            frames.append(buffer.getvalue())
+    return frames
+```
+
+스캔한 이미지의 페이지를 검색 가능하게 하려면 `pylopdf.open(images_to_pdf(paths))`의 각 페이지에서 [`apply_ocr()`](ocr.md#searchable)를 실행합니다.

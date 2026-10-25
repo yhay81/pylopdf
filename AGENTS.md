@@ -133,11 +133,12 @@ the concept and API overview.
   - Rendering: `pixmap.rs`, `render_cache.rs`; `document/rendering.rs`;
     `src/pylopdf/_pixmap.py` and `_fallback_fonts.py`.
   - Writing: `builder.rs`, `canvas.rs`, `draw.rs`, `generate.rs`, `jpx.rs`,
+    `image_header.rs`,
     `generated_pdf.rs`, `layout.rs`, `font.rs`,
     `bundled_font_cache.rs`, `placement_reuse.rs`;
     `document/{drawing,images,text_insertion,geometry,fonts}.rs`;
-    `src/pylopdf/_canvas.py`, `_create.py`, `_fonts.py`, and
-    `_geometry.py`.
+    `src/pylopdf/_canvas.py`, `_create.py`, `_fonts.py`, `_geometry.py`, and
+    `_image_files.py`.
   - Interaction: `form.rs`, `acroform_import.rs`, `annotation_appearance.rs`;
     `document/{forms,annotations,flattening}.rs`; `src/pylopdf/_annotations.py`,
     `_form.py`, and `_links.py`.
@@ -2030,6 +2031,21 @@ the concept and API overview.
   allocating decoded storage. `max_size=None` and `max_pixels=None` are explicit
   trusted-input opt-outs; failures use `image_input_size` and
   `image_pixel_count`.
+  `rust/src/image_header.rs` reads JPEG, PNG, and JPEG 2000 headers without
+  decoding: `image_info()` (`src/pylopdf/_image_files.py`) returns them as an
+  `ImageInfo` record whose resolution follows the rules of Pixmap decoding,
+  and `canvas.image` applies the EXIF orientation of encoded JPEG (APP1
+  `Exif`) and PNG (`eXIf`) input, as viewers and Pillow's `exif_transpose`
+  do and pymupdf's `insert_image` does not: `orientation_transform` gives
+  the mirroring and quarter turn, `Op::Image` records the mirror, and
+  `draw::mirrored` flips the placement's unit square before the user's
+  `rotate`, on both canvas paths, so the data stays as it is. MuPDF renders
+  all eight orientations as Pillow's `exif_transpose` shows them. A Pixmap
+  and an image object carry no orientation, and `ImageObject.replace` keeps
+  the old placements' matrices. Image and CBZ conversion is the tested
+  recipes of `docs/en/ecosystem.md#images-to-pdf`
+  (`tests/test_conversion_recipes.py` runs that section's blocks; the
+  localized guides copy them unchanged).
   `canvas.image(rotate=)` rotates every source clockwise in normalized
   right-angle steps, where pymupdf's `insert_image` turns anticlockwise,
   swaps the aspect ratio for 90/270, and composes with target page rotation

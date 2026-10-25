@@ -972,6 +972,14 @@ def test_codemod_migrates_inline_document_serialization(migrate_source: Migrate,
     assert migrate_source(result.code).code == result.code
 
 
+def test_codemod_rewrites_image_profiles_and_conversions_for_review(migrate_source: Migrate) -> None:
+    result = migrate_source("import fitz\ninfo = fitz.image_profile(data)\npdf = doc.convert_to_pdf()\n")
+
+    assert "info = pylopdf.image_info(data)\n" in result.code
+    assert "pdf = doc.to_bytes()\n" in result.code
+    assert len(result.todos) == 2
+
+
 def test_codemod_marks_probe_results_for_review(migrate_source: Migrate) -> None:
     result = migrate_source("import pylopdf\ninfo = pylopdf.peek_metadata(stream=data)\n")
 
@@ -1078,6 +1086,12 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import fitz\nwidths = doc.get_char_widths(12)\n", "doc.fonts[xref].widths is a tuple of advances"),
         ("import fitz\nimage = doc.extract_image(xref)\n", "doc.images[xref].extract() returns an EncodedImage"),
         ("import fitz\nmask = doc.extract_image(xref)['smask']\n", "returns an EncodedImage"),
+        ("import fitz\ninfo = fitz.image_profile(data)\n", "pylopdf.image_info returns an ImageInfo record"),
+        ("import fitz\ninfo = fitz.image_profile(data, keep_image=True)\n", "returns an ImageInfo record"),
+        ("import fitz\npdf = doc.convert_to_pdf()\n", "pylopdf opens PDF only"),
+        ("import fitz\npdf = doc.convert_to_pdf(0, 2)\n", "pylopdf opens PDF only"),
+        ("import fitz\ndoc.insert_file('scan.png')\n", "Document.insert_file is Pages.extend"),
+        ("import fitz\npix.pdfocr_save('scan.pdf')\n", "Pixmap.pdfocr_save is Page.apply_ocr"),
         ("import fitz\nsvg = page.get_svg_image(text_as_path=False)\n", "Page.get_svg_image is Page.svg"),
         ("import fitz\nchannels = pix.n\n", "Pixmap.n is Pixmap.channels"),
         ("import fitz\ncs = fitz.csCMYK\n", "csCMYK"),
