@@ -2287,10 +2287,21 @@ impl _Canvas {
     }
 }
 
-/// Return the krilla image of JPEG or PNG input or a Pixmap. JPEG data is
-/// embedded as it is; PNG data and Pixmaps are compressed by krilla.
+/// Return the krilla image of JPEG, PNG, or JPEG 2000 input or a Pixmap.
+/// JPEG data is embedded as it is; PNG data and Pixmaps are compressed by
+/// krilla, and JPEG 2000 data, which krilla cannot embed, is decoded first.
 fn krilla_image(input: ImageInput) -> PyResult<CanvasImage> {
     let image = match input {
+        ImageInput::Encoded(data) if crate::jpx::is_jpx(&data) => {
+            let samples = crate::jpx::decode(&data).map_err(PdfError::new_err)?;
+            let layout = crate::pixmap::Layout {
+                gray: samples.gray,
+                alpha: samples.alpha,
+            };
+            let rgba =
+                crate::pixmap::expand_to_rgba(layout, &samples.data).map_err(PdfError::new_err)?;
+            KrillaImage::from_rgba8(rgba, samples.width, samples.height)
+        }
         ImageInput::Encoded(data) => {
             let is_png = data.starts_with(b"\x89PNG\r\n\x1a\n");
             let is_jpeg = data.starts_with(&[0xFF, 0xD8, 0xFF]);
@@ -2301,7 +2312,7 @@ fn krilla_image(input: ImageInput) -> PyResult<CanvasImage> {
                 KrillaImage::from_jpeg(data, false)
             } else {
                 return Err(PdfError::new_err(
-                    "unsupported image format (pass JPEG or PNG; convert other formats with Pillow or similar first)",
+                    "unsupported image format (pass JPEG, PNG, or JPEG 2000; convert other formats with Pillow or similar first)",
                 ));
             };
             image

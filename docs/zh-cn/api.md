@@ -350,9 +350,9 @@ hayro尚未报告的信息不在模型中：颜色的色彩空间和分量、图
 | `colorspace`、`alternate_colorspace` | 色彩空间，如`"DeviceRGB"`或`"ICCBased"`，以及索引、ICC或分色色彩空间的基础或替代空间 |
 | `filters` | 按解码顺序排列的流过滤器，如`("DCTDecode",)` |
 | `soft_mask`、`mask`、`is_stencil` | 作为图像对象的软蒙版和模板蒙版，以及图像本身是否为模板蒙版 |
-| `extract()` | 以带有`format`、`data`和`resolution`的`EncodedImage`返回图像数据：JPEG数据按存储原样返回，其他图像以PNG返回，不含蒙版 |
+| `extract()` | 以带有`format`、`data`和`resolution`的`EncodedImage`返回图像数据：JPEG数据以及过滤器仅为`JPXDecode`的JPEG 2000数据按存储原样返回（后者的格式为`"jpx"`），其他图像以PNG返回，不含蒙版 |
 | `to_pixmap(*, alpha=False)` | 以[`Pixmap`](#pixmap)返回图像的像素：不含蒙版的RGB，或由蒙版决定透明度的RGBA |
-| `replace(source, *, max_size=64 MiB, max_pixels=64,000,000)` | 用JPEG或PNG文件路径、已编码的bytes或`Pixmap`替换图像，保留其对象编号，因此每个放置都绘制新图像；图像保留其图层和结构父项，输入的限制与[`canvas.image`](#canvas)相同 |
+| `replace(source, *, max_size=64 MiB, max_pixels=64,000,000)` | 用JPEG、PNG或JPEG 2000文件路径、已编码的bytes或`Pixmap`替换图像，保留其对象编号，因此每个放置都绘制新图像；图像保留其图层和结构父项，输入的限制与[`canvas.image`](#canvas)相同 |
 
 ```python
 from pathlib import Path
@@ -398,7 +398,7 @@ with page.draw() as canvas:
 | `line`、`rect(rect, *, radius=0)`、`circle`、`ellipse`、`polygon`、`bezier` | 各绘制一条路径，选项与`path`相同 |
 | `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None)` | 第一条基线从`at`开始的若干行文本 |
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` | 在`rect`内自动换行的文本；返回`TextFit` |
-| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEG或PNG文件路径、已编码的bytes、`Pixmap`，或[`ImageObject`](#images)；`rotate`按顺时针旋转 |
+| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEG、PNG或JPEG 2000文件路径、已编码的bytes、`Pixmap`，或[`ImageObject`](#images)；`rotate`按顺时针旋转 |
 | `page(rect, source, *, keep_aspect=True)` | 以矢量形式绘制任意已打开文档（包括本文档）的某一页 |
 | `draw(item)` | [`page.content()`](#content)返回的`Path`项或`Image`项 |
 
@@ -667,7 +667,7 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 | `bytes(pix)` | 像素的副本 |
 | `resolution` | 水平和垂直分辨率（dpi）：渲染的页面为其渲染分辨率，否则为96；PNG和JPEG输出会写入它 |
 | `Pixmap.from_array(array, /, *, resolution=None)` | 复制上述形状的`uint8`数组得到的pixmap，`resolution`是由1到65,535的整数组成的`(x, y)`元组，默认为96；传入`Pixmap`时共享其像素，未指定时沿用其分辨率 |
-| `Pixmap.from_file(path, /, *, max_size=64 MiB, max_pixels=64,000,000)`、`Pixmap.from_bytes(data, /, ...)` | 解码PNG或JPEG：PNG以8位样本保留灰度、RGB和alpha，JPEG解码为灰度或RGB（CMYK会转换），分辨率取自文件，否则为96；超出上限的输入引发代码为`image_input_size`或`image_pixel_count`的`LimitError` |
+| `Pixmap.from_file(path, /, *, max_size=64 MiB, max_pixels=64,000,000)`、`Pixmap.from_bytes(data, /, ...)` | 解码PNG、JPEG或JPEG 2000：PNG以8位样本保留灰度、RGB和alpha，JPEG解码为灰度或RGB（CMYK会转换），JPEG 2000（JP2文件或原始码流）解码为带alpha的灰度或RGB（应用调色板，CMYK会转换），分辨率取自文件，否则为96；超出上限的输入引发代码为`image_input_size`或`image_pixel_count`的`LimitError` |
 | `to_bytes(format="png", *, quality=95, max_size=64 MiB)` | PNG或JPEG bytes；JPEG没有alpha |
 | `save(path, /, *, format=None, quality=95)` | 写出PNG或JPEG；未指定`format`时由扩展名`.png`、`.jpg`或`.jpeg`决定 |
 

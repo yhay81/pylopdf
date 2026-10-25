@@ -3812,7 +3812,7 @@
     "EncodedImage": {
       "annotations": {
         "data": "bytes",
-        "format": "Literal['jpeg', 'png']",
+        "format": "Literal['jpeg', 'jpx', 'png']",
         "resolution": "tuple[int, int]"
       },
       "dataclass_fields": [
@@ -3835,7 +3835,7 @@
       "signature": {
         "parameters": [
           {
-            "annotation": "Literal['jpeg', 'png']",
+            "annotation": "Literal['jpeg', 'jpx', 'png']",
             "kind": "keyword_only",
             "name": "format"
           },

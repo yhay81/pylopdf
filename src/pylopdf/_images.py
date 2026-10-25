@@ -32,13 +32,14 @@ _Facts = tuple[int, int, int, str, str, list[str], int, int, bool]
 class EncodedImage:
     """The data of one image, as :meth:`ImageObject.extract` returns it."""
 
-    format: Literal["jpeg", "png"]
-    """``"jpeg"`` when the image's DCT data passes through unchanged, else ``"png"``."""
+    format: Literal["jpeg", "jpx", "png"]
+    """``"jpeg"`` or ``"jpx"`` when the image's DCT or JPEG 2000 data passes
+    through unchanged, else ``"png"``."""
     data: bytes
     """The encoded image."""
     resolution: tuple[int, int]
     """The horizontal and vertical resolution in dots per inch: a JPEG's own
-    density, else 96."""
+    density or a JP2 file's resolution box, else 96."""
 
 
 class ImageObject:
@@ -157,8 +158,10 @@ class ImageObject:
     def extract(self) -> EncodedImage:
         """Return the image's data without its masks.
 
-        DCT data passes through unchanged as JPEG; other data, including JPX,
-        JBIG2, CCITT, and Flate, is decoded and returned as PNG. Decoding runs
+        DCT data passes through unchanged as JPEG and data whose only filter
+        is JPXDecode as JPEG 2000 (``"jpx"``, a JP2 file or a raw
+        codestream); other data, including JBIG2, CCITT, and Flate, is
+        decoded and returned as PNG. Decoding runs
         under the same content and colour-space guards and resource limits as
         rendering.
         """
@@ -166,7 +169,7 @@ class ImageObject:
         image_format, resolution, data = self._document._doc.extract_image(self._xref)
         self._document._emit_warnings()
         return EncodedImage(
-            format=cast("Literal['jpeg', 'png']", image_format),
+            format=cast("Literal['jpeg', 'jpx', 'png']", image_format),
             data=data,
             resolution=resolution,
         )
@@ -195,7 +198,7 @@ class ImageObject:
         max_size: int | None = _DEFAULT_MAX_IMAGE_INPUT_SIZE,
         max_pixels: int | None = _DEFAULT_MAX_IMAGE_PIXELS,
     ) -> None:
-        """Replace the image with a JPEG or PNG file, encoded bytes, or a :class:`Pixmap`.
+        """Replace the image with a JPEG, PNG, or JPEG 2000 file, encoded bytes, or a :class:`Pixmap`.
 
         The new image keeps this object number, so every placement of the
         image, on any page, in Form XObjects, and in annotation appearances,
@@ -203,9 +206,9 @@ class ImageObject:
         layer (``/OC``) and its place in the structure tree
         (``/StructParent``) stay; its masks and the rest of its dictionary
         are those of the new image, and the old masks go when the document
-        is saved unless something else uses them. JPEG data is stored as it
-        is, and PNG data and Pixmaps with Flate and a soft mask for their
-        alpha. Input is limited as :meth:`Canvas.image` limits it, refused
+        is saved unless something else uses them. JPEG and JPEG 2000 data
+        is stored as it is, JPEG 2000 alpha included, and PNG data and
+        Pixmaps with Flate and a soft mask for their alpha. Input is limited as :meth:`Canvas.image` limits it, refused
         with :class:`LimitError` code ``image_input_size`` or
         ``image_pixel_count``, and nothing changes on any refusal.
         """

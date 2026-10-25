@@ -1016,8 +1016,8 @@ fn guarded_image_snapshot(xref: u32, data: Vec<u8>) -> PyResult<Pdf> {
 /// Implements [`_Document::extract_image`].
 ///
 /// Draw the image without its masks on a page of its own and let hayro decode
-/// it as the placement extractor does: DCT data passes through as JPEG and
-/// other data becomes PNG. The content and colour-space guards run on that
+/// it as the placement extractor does: DCT data passes through as JPEG, JPX
+/// data as JPEG 2000, and other data becomes PNG. The content and colour-space guards run on that
 /// page.
 pub(super) fn extract_image(
     this: &mut _Document,
@@ -1038,10 +1038,18 @@ pub(super) fn extract_image(
             let (_, _, _, format, bytes) = images
                 .pop()
                 .ok_or_else(|| PdfError::new_err(format!("xref {xref} could not be decoded")))?;
-            let resolution = if format == "jpeg" {
-                crate::extract::jpeg_resolution(&bytes)
-            } else {
-                (96, 96)
+            let resolution = match format {
+                "jpeg" => crate::extract::jpeg_resolution(&bytes),
+                "jpx" => crate::jpx::resolution(&bytes).map_or(
+                    crate::pixmap::DEFAULT_RESOLUTION,
+                    |(x, y)| {
+                        (
+                            crate::pixmap::whole_resolution(x),
+                            crate::pixmap::whole_resolution(y),
+                        )
+                    },
+                ),
+                _ => crate::pixmap::DEFAULT_RESOLUTION,
             };
             Ok((format, resolution, bytes))
         })

@@ -4919,7 +4919,7 @@ fn glyphs_quad(glyphs: &[GlyphRecord]) -> QuadTuple {
     )
 }
 
-/// Extracted image: `(width, height, page bbox, "jpeg"/"png", bytes)`.
+/// Extracted image: `(width, height, page bbox, "jpeg"/"jpx"/"png", bytes)`.
 pub(crate) type ImageTuple = (u32, u32, BBox, &'static str, Vec<u8>);
 type EncodedRasterPng = (u32, u32, Vec<u8>);
 
@@ -5154,6 +5154,35 @@ fn try_jpeg_passthrough(
         _ => return Ok(None),
     };
     Ok(data.starts_with(&JPEG_MAGIC).then_some(data))
+}
+
+/// Return the stored JPEG 2000 data of an image whose only filter is
+/// JPXDecode, a JP2 file or a raw codestream, for extraction unchanged.
+fn try_jpx_passthrough(
+    stream: &hayro::hayro_syntax::object::Stream<'_>,
+    max_bytes: usize,
+) -> Result<Option<Vec<u8>>, String> {
+    if stream.filters().as_slice() != [Filter::JpxDecode] {
+        return Ok(None);
+    }
+    let data = stream.raw_data();
+    if !crate::jpx::is_jpx(&data) {
+        return Ok(None);
+    }
+    if data.len() > max_bytes {
+        return Err(IMAGE_BYTE_LIMIT_ERROR.to_owned());
+    }
+    match data {
+        Cow::Owned(data) => Ok(Some(data)),
+        Cow::Borrowed(data) => {
+            let mut owned = Vec::new();
+            owned.try_reserve_exact(data.len()).map_err(|error| {
+                format!("failed to allocate JPEG 2000 extraction payload: {error}")
+            })?;
+            owned.extend_from_slice(data);
+            Ok(Some(owned))
+        }
+    }
 }
 
 /// Transform an image pixel rectangle and return its display-space bounding box.
@@ -5470,6 +5499,21 @@ impl Device<'_> for ImageCollector {
                 ) {
                     Ok(Some(jpeg)) => {
                         self.push((raster.width(), raster.height(), bbox, "jpeg", jpeg));
+                        return;
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        self.error = Some(error);
+                        return;
+                    }
+                }
+                // And images whose only filter is JPXDecode as their JPEG 2000 data.
+                match try_jpx_passthrough(
+                    raster.stream(),
+                    MAX_EXTRACTED_IMAGE_BYTES.saturating_sub(self.bytes),
+                ) {
+                    Ok(Some(jpx)) => {
+                        self.push((raster.width(), raster.height(), bbox, "jpx", jpx));
                         return;
                     }
                     Ok(None) => {}

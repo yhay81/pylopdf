@@ -1038,9 +1038,9 @@ each, those of the Form XObjects that it uses included. Each is an
 | `colorspace`, `alternate_colorspace` | The color space, such as `"DeviceRGB"` or `"ICCBased"`, and the base or alternate space of an indexed, ICC-based, or separation space |
 | `filters` | The stream's filters in decoding order, such as `("DCTDecode",)` |
 | `soft_mask`, `mask`, `is_stencil` | The soft mask and the stencil mask, as image objects, and whether the image is itself a stencil mask |
-| `extract()` | The image's data as an `EncodedImage` with `format`, `data`, and `resolution`: JPEG data as it is stored and any other image as PNG, without its masks |
+| `extract()` | The image's data as an `EncodedImage` with `format`, `data`, and `resolution`: JPEG data as it is stored, JPEG 2000 data whose only filter is `JPXDecode` as it is stored with the format `"jpx"`, and any other image as PNG, without its masks |
 | `to_pixmap(*, alpha=False)` | The image's pixels as a [`Pixmap`](#pixmap): RGB without its masks, or RGBA in which they set the transparency |
-| `replace(source, *, max_size=64 MiB, max_pixels=64,000,000)` | Puts a JPEG or PNG path, encoded bytes, or a `Pixmap` in the image's place, under its object number, so every placement draws the new image; the image keeps its layer and structure parent, and input is limited as [`canvas.image`](#canvas) limits it |
+| `replace(source, *, max_size=64 MiB, max_pixels=64,000,000)` | Puts a JPEG, PNG, or JPEG 2000 path, encoded bytes, or a `Pixmap` in the image's place, under its object number, so every placement draws the new image; the image keeps its layer and structure parent, and input is limited as [`canvas.image`](#canvas) limits it |
 
 ```python
 from pathlib import Path
@@ -1128,7 +1128,7 @@ with page.draw() as canvas:
 | `line`, `rect(rect, *, radius=0)`, `circle`, `ellipse`, `polygon`, `bezier` | One path each, with the options of `path` |
 | `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None, rotate=0)` | Lines whose first baseline starts at `at`, turned clockwise about `at` by `rotate` |
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, rotate=0, ...)` | Text wrapped inside `rect`, turned clockwise by `rotate`; returns a `TextFit` |
-| `image(rect, source, *, keep_aspect=True, rotate=0)` | A JPEG or PNG path, encoded bytes, a `Pixmap`, or an [`ImageObject`](#images), turned clockwise by `rotate` |
+| `image(rect, source, *, keep_aspect=True, rotate=0)` | A JPEG, PNG, or JPEG 2000 path, encoded bytes, a `Pixmap`, or an [`ImageObject`](#images), turned clockwise by `rotate` |
 | `page(rect, source, *, clip=None, keep_aspect=True, rotate=0)` | A page of any open document, this one included, as vectors: the part inside `clip`, a rectangle of the source page's display coordinates, turned clockwise by `rotate` |
 | `draw(item)` | A `Path` or `Image` item that [`page.content()`](#content) returned |
 
@@ -1701,7 +1701,7 @@ checking whether a rectangle lies inside a quad tests all four corners.
 | `numpy.asarray(pix)`, `memoryview(pix)` | The pixels without copying, shaped `(height, width)` for gray and `(height, width, channels)` otherwise |
 | `bytes(pix)` | A copy of the pixels |
 | `Pixmap.from_array(array, /, *, resolution=None)` | A pixmap with a copy of a `uint8` array shaped as above, at `resolution`, an `(x, y)` tuple of integers from 1 through 65,535 that defaults to 96; given a `Pixmap`, it shares its pixels and keeps its resolution unless told otherwise |
-| `Pixmap.from_file(path, /, *, max_size=64 MiB, max_pixels=64,000,000)`, `Pixmap.from_bytes(data, /, ...)` | Decode a PNG or JPEG: PNG keeps gray, RGB, and alpha as 8-bit samples, JPEG decodes to gray or RGB (CMYK converts), and the resolution comes from the file, else 96; larger input raises `LimitError` with `image_input_size` or `image_pixel_count` |
+| `Pixmap.from_file(path, /, *, max_size=64 MiB, max_pixels=64,000,000)`, `Pixmap.from_bytes(data, /, ...)` | Decode a PNG, JPEG, or JPEG 2000 image: PNG keeps gray, RGB, and alpha as 8-bit samples, JPEG decodes to gray or RGB (CMYK converts), JPEG 2000 (a JP2 file or a raw codestream) decodes to gray or RGB with its alpha (palettes apply and CMYK converts), and the resolution comes from the file, else 96; larger input raises `LimitError` with `image_input_size` or `image_pixel_count` |
 | `to_bytes(format="png", *, quality=95, max_size=64 MiB)` | PNG or JPEG bytes; JPEG has no alpha |
 | `save(path, /, *, format=None, quality=95)` | Write PNG or JPEG; the extension `.png`, `.jpg`, or `.jpeg` names the format unless `format` does |
 

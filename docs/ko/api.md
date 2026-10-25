@@ -351,9 +351,9 @@ hayro가 아직 알려 주지 않는 정보는 모델에 없습니다. 색의 �
 | `colorspace`, `alternate_colorspace` | `"DeviceRGB"`나 `"ICCBased"` 같은 색 공간과, 인덱스, ICC 기반, 분판 색 공간의 기반 또는 대체 색 공간 |
 | `filters` | `("DCTDecode",)`처럼 디코딩 순서대로의 스트림 필터 |
 | `soft_mask`, `mask`, `is_stencil` | 이미지 객체로서의 소프트 마스크와 스텐실 마스크, 이미지 자체가 스텐실 마스크인지 여부 |
-| `extract()` | 이미지 데이터를 `format`, `data`, `resolution`이 있는 `EncodedImage`로. JPEG 데이터는 저장된 그대로, 다른 이미지는 PNG로, 마스크는 포함하지 않음 |
+| `extract()` | 이미지 데이터를 `format`, `data`, `resolution`이 있는 `EncodedImage`로. JPEG 데이터와 필터가 `JPXDecode`뿐인 JPEG 2000 데이터는 저장된 그대로(후자의 형식은 `"jpx"`), 다른 이미지는 PNG로, 마스크는 포함하지 않음 |
 | `to_pixmap(*, alpha=False)` | 이미지의 픽셀을 [`Pixmap`](#pixmap)으로. 마스크가 없는 RGB, 또는 마스크가 투명도를 정하는 RGBA |
-| `replace(source, *, max_size=64 MiB, max_pixels=64,000,000)` | JPEG나 PNG 경로, 인코딩된 bytes, 또는 `Pixmap`을 이미지의 객체 번호 그대로 이미지 자리에 둠. 모든 배치가 새 이미지를 그리고, 이미지의 레이어와 구조상 부모는 유지되며, 입력은 [`canvas.image`](#canvas)와 같이 제한됨 |
+| `replace(source, *, max_size=64 MiB, max_pixels=64,000,000)` | JPEG, PNG, JPEG 2000 경로, 인코딩된 bytes, 또는 `Pixmap`을 이미지의 객체 번호 그대로 이미지 자리에 둠. 모든 배치가 새 이미지를 그리고, 이미지의 레이어와 구조상 부모는 유지되며, 입력은 [`canvas.image`](#canvas)와 같이 제한됨 |
 
 ```python
 from pathlib import Path
@@ -399,7 +399,7 @@ with page.draw() as canvas:
 | `line`, `rect(rect, *, radius=0)`, `circle`, `ellipse`, `polygon`, `bezier` | 각각 경로 하나. 옵션은 `path`와 같음 |
 | `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None)` | 첫 기준선이 `at`에서 시작하는 줄 |
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` | `rect` 안에서 줄바꿈한 텍스트. `TextFit`을 반환 |
-| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEG나 PNG 경로, 인코딩된 bytes, `Pixmap`, 또는 [`ImageObject`](#images). `rotate`는 시계 방향으로 돌림 |
+| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEG, PNG, JPEG 2000 경로, 인코딩된 bytes, `Pixmap`, 또는 [`ImageObject`](#images). `rotate`는 시계 방향으로 돌림 |
 | `page(rect, source, *, keep_aspect=True)` | 열려 있는 아무 문서(이 문서 포함)의 페이지를 벡터로 그림 |
 | `draw(item)` | [`page.content()`](#content)가 반환한 `Path` 또는 `Image` 항목 |
 
@@ -668,7 +668,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 | `bytes(pix)` | 픽셀의 사본 |
 | `resolution` | 가로와 세로 해상도(dpi). 렌더링한 페이지는 그 해상도, 그 밖에는 96이며 PNG와 JPEG 출력에 기록됩니다 |
 | `Pixmap.from_array(array, /, *, resolution=None)` | 같은 모양의 `uint8` 배열을 복사한 pixmap. `resolution`은 1부터 65,535까지의 정수로 된 `(x, y)` 튜플이며 기본값은 96. `Pixmap`을 전달하면 픽셀을 공유하고, 지정하지 않으면 그 해상도를 이어받음 |
-| `Pixmap.from_file(path, /, *, max_size=64 MiB, max_pixels=64,000,000)`, `Pixmap.from_bytes(data, /, ...)` | PNG 또는 JPEG를 디코딩. PNG는 그레이, RGB, 알파를 8비트 샘플로 유지하고, JPEG는 그레이 또는 RGB가 되며(CMYK는 변환), 해상도는 파일에서, 없으면 96. 한도를 넘는 입력은 `image_input_size` 또는 `image_pixel_count` 코드의 `LimitError` |
+| `Pixmap.from_file(path, /, *, max_size=64 MiB, max_pixels=64,000,000)`, `Pixmap.from_bytes(data, /, ...)` | PNG, JPEG, JPEG 2000을 디코딩. PNG는 그레이, RGB, 알파를 8비트 샘플로 유지하고, JPEG는 그레이 또는 RGB가 되며(CMYK는 변환), JPEG 2000(JP2 파일 또는 원시 코드스트림)은 알파를 포함한 그레이 또는 RGB가 되며(팔레트를 적용하고 CMYK는 변환), 해상도는 파일에서, 없으면 96. 한도를 넘는 입력은 `image_input_size` 또는 `image_pixel_count` 코드의 `LimitError` |
 | `to_bytes(format="png", *, quality=95, max_size=64 MiB)` | PNG 또는 JPEG bytes. JPEG에는 알파가 없음 |
 | `save(path, /, *, format=None, quality=95)` | PNG 또는 JPEG로 기록. `format`이 없으면 확장자 `.png`, `.jpg`, `.jpeg`로 정함 |
 

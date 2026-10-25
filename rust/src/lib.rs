@@ -18,6 +18,7 @@ mod generate;
 mod generated_pdf;
 mod graph_guard;
 mod image_compression;
+mod jpx;
 mod layout;
 mod object_recovery;
 mod object_stream_work;

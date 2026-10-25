@@ -90,7 +90,7 @@ python -m pylopdf.migrate src/
 | `page.get_images()` | `page.resources.images` | タプルの代わりに`xref`、`width`、`height`、`bits`、`colorspace`、`filters`、マスクを持つ`ImageObject`ハンドル |
 | `doc.extract_image(xref)` | `doc.images[xref].extract()` | `format`、`data`、`resolution`を持つ`EncodedImage`。サイズ、色空間、マスクは`doc.images[xref]`のプロパティです |
 | `pymupdf.Pixmap(doc, xref)` | `doc.images[xref].to_pixmap()` | `alpha=True`で画像のマスクを適用します |
-| `pymupdf.Pixmap(filename)`、`pymupdf.Pixmap(stream)` | `Pixmap.from_file(path)`、`Pixmap.from_bytes(data)` | PNGとJPEG。ほかの形式はPillowで読み、`Pixmap.from_array(numpy.asarray(image))`に渡します |
+| `pymupdf.Pixmap(filename)`、`pymupdf.Pixmap(stream)` | `Pixmap.from_file(path)`、`Pixmap.from_bytes(data)` | PNG、JPEG、JPEG 2000。ほかの形式はPillowで読み、`Pixmap.from_array(numpy.asarray(image))`に渡します |
 | `page.get_image_info()` | `page.content(text_runs=False, paths=False).images` | `xref`、`bbox`、`matrix`（pymupdfの`transform`）、サイズ、色空間、マスク、解像度を持つ`Image`レコード。`hashes=`にはまだ対応していません |
 | `page.get_drawings()`, `get_cdrawings()` | `page.content(text_runs=False, images=False).paths` | `segments`、`fill`、`fill_rule`、`stroke`、`bbox`を持つ`Path`レコード。`extended=True`が別の項目として返したクリップ、グループ、マーク付きコンテンツは、各パスの`context`が持ちます |
 | `page.get_texttrace()`, `get_bboxlog()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | グリフを持つテキストラン、パス、画像を不変の値で返します。[ページの内容](api.md#content)を参照 |
@@ -108,7 +108,7 @@ python -m pylopdf.migrate src/
 | `font.glyph_bbox(ord(c))`、`font.valid_codepoints()`、`font.buffer`、`font.flags` | `font.char_bbox(c)`、`font.chars()`、`font.program()`、`font.is_monospaced` | `chars()`は文字を1つの文字列で返します。ほかのフラグは`is_bold`、`is_italic`、`is_serif`です |
 | `pymupdf.unicode_to_glyph_name(code)`、`glyph_name_to_unicode(name)` | `pylopdf.glyph_name(char)`、`pylopdf.glyph_text(name)` | コードポイントではなく文字と文字列を受け取り、返します。文字を表さない名前には`glyph_text`が`""`を返します |
 | `pymupdf.Base14_fontnames`, `Base14_fontdict` | `typing.get_args(pylopdf.StandardFontName)` | `Font.standard()`が受け付ける14のPostScript名 |
-| `page.insert_image(rect, filename=/stream=/pixmap=)` | `canvas.image(rect, source)` | `with page.draw() as canvas:`の中で呼びます。sourceはパス、JPEGまたはPNGのbytes、`Pixmap`で、`keep_proportion=`は`keep_aspect=`になります。`rotate=`は時計回りで、pymupdfは反時計回りです。同じ画像を2回描いても1回だけ格納され、`xref=`は`canvas.image(rect, doc.images[xref])`になり、各配置の`xref`は`page.content().images`で分かります |
+| `page.insert_image(rect, filename=/stream=/pixmap=)` | `canvas.image(rect, source)` | `with page.draw() as canvas:`の中で呼びます。sourceはパス、JPEG、PNG、JPEG 2000のbytes、`Pixmap`で、`keep_proportion=`は`keep_aspect=`になります。`rotate=`は時計回りで、pymupdfは反時計回りです。同じ画像を2回描いても1回だけ格納され、`xref=`は`canvas.image(rect, doc.images[xref])`になり、各配置の`xref`は`page.content().images`で分かります |
 | `page.replace_image(xref, filename=/stream=/pixmap=)` | `doc.images[xref].replace(source)` | どのページでも画像のすべての配置が新しい画像を描きます。画像のレイヤーと構造上の親は残り、ページに内容ストリームは増えません |
 | `page.show_pdf_page(rect, docsrc, pno)` | `canvas.page(rect, docsrc.pages[pno])` | 同じ文書のページでもかまいません。`clip=`と`rotate=`はまだありません |
 | `page.new_shape()`, `shape.draw_*`, `finish()`, `insert_text()`, `commit()` | `with page.draw() as canvas:` | キャンバスはパスとテキストを呼び出した順に描き、ブロックが終わったときに書き込みます。`finish()`のスタイルは各呼び出しの`fill=`と`stroke=`になります。[キャンバス](api.md#canvas)を参照 |

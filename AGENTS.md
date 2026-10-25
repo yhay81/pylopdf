@@ -132,7 +132,7 @@ the concept and API overview.
     `src/pylopdf/_tables.py`, `_markdown.py`, `_ocr.py`, and `_images.py`.
   - Rendering: `pixmap.rs`, `render_cache.rs`; `document/rendering.rs`;
     `src/pylopdf/_pixmap.py` and `_fallback_fonts.py`.
-  - Writing: `builder.rs`, `canvas.rs`, `draw.rs`, `generate.rs`,
+  - Writing: `builder.rs`, `canvas.rs`, `draw.rs`, `generate.rs`, `jpx.rs`,
     `generated_pdf.rs`, `layout.rs`, `font.rs`,
     `bundled_font_cache.rs`, `placement_reuse.rs`;
     `document/{drawing,images,text_insertion,geometry,fonts}.rs`;
@@ -435,7 +435,8 @@ the concept and API overview.
   (`image_snapshot`, within `max_interpretation_size` and at most 65,535
   pixels a side), run a fresh `ContentGuard` on it, and decode or render it
   inside `contain_renderer_panics`: `extract` with the placement extractor
-  below, `to_pixmap` with the page renderer over white or transparency.
+  below, which passes data whose only filter is `JPXDecode` through as
+  `"jpx"`, `to_pixmap` with the page renderer over white or transparency.
   `replace(source)` (`replace_image` in `document/images.rs`) reads, limits,
   and encodes the new image with the canvas's `draw::image_streams` before
   any change, then calls `invalidate_hayro_pdf`, which also forgets the
@@ -1403,8 +1404,12 @@ the concept and API overview.
   `Pixmap.from_array` of a Pixmap clones its `Arc` instead of copying the
   samples, which is how a resolution changes. `Pixmap.from_file` and
   `from_bytes` decode PNG (png's `normalize_to_color8`, keeping gray, RGB,
-  and alpha) and JPEG (zune-jpeg to gray or RGB, CMYK and YCCK converted,
-  inside `catch_unwind`) under `canvas.image`'s 64 MiB `image_input_size` and
+  and alpha), JPEG (zune-jpeg to gray or RGB, CMYK and YCCK converted,
+  inside `catch_unwind`), and JPEG 2000 (`rust/src/jpx.rs`, hayro-jpeg2000,
+  the decoder that hayro renders `JPXDecode` with, to gray or RGB with
+  straight alpha, palettes applied and CMYK converted as `(1 - c)(1 - k)`,
+  inside `catch_unwind`, the resolution from a JP2 `resc` or `resd` box)
+  under `canvas.image`'s 64 MiB `image_input_size` and
   64,000,000-pixel `image_pixel_count` limits, sharing `read_image_input` and
   `validate_image_input`; the pixel and 65,535-pixel side checks read the
   headers before any sample is allocated, and a buffer that is not `bytes` is
@@ -2011,8 +2016,15 @@ the concept and API overview.
   Pixmaps must not create a mask. Encoded JPEG insertion moves the admitted
   input directly into its XObject. PNG alpha separation compacts decoded color
   samples in place and fallibly allocates only the separate alpha plane.
-  Encoded `canvas.image` input defaults to 64 MiB and PNG decode to 64,000,000
-  pixels. A path reads through a bounded Rust path with the GIL released
+  Encoded `canvas.image` input defaults to 64 MiB and PNG and JPEG 2000
+  input to 64,000,000 pixels, read from the PNG IHDR or the JPEG 2000 header.
+  JPEG 2000 input, a JP2 file or a raw codestream, is stored as it is with
+  `JPXDecode` and without `/ColorSpace` or `/BitsPerComponent`, which the
+  data states, and `/SMaskInData 1` when it has an alpha channel, which
+  hayro honors; data with a `pclr` palette is decoded and stored with Flate
+  instead, because hayro decodes `JPXDecode` with palette indices
+  unresolved and would draw them as gray. krilla cannot embed JPEG 2000, so
+  a new document's canvas decodes it. A path reads through a bounded Rust path with the GIL released
   and fallible 64 KiB retained-buffer growth; bytes are checked in Python
   before the PyO3 copy and again in Rust. Preflight PNG IHDR dimensions before
   allocating decoded storage. `max_size=None` and `max_pixels=None` are explicit
