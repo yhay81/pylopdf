@@ -90,7 +90,7 @@ python -m pylopdf.migrate src/
 | `page.get_images()` | `page.resources.images` | 튜플 대신 `xref`, `width`, `height`, `bits`, `colorspace`, `filters`, 마스크가 있는 `ImageObject` 핸들 |
 | `doc.extract_image(xref)` | `doc.images[xref].extract()` | `format`, `data`, `resolution`이 있는 `EncodedImage`. 크기, 색 공간, 마스크는 `doc.images[xref]`의 속성 |
 | `pymupdf.Pixmap(doc, xref)` | `doc.images[xref].to_pixmap()` | `alpha=True`는 이미지의 마스크를 적용 |
-| `pymupdf.Pixmap(filename)`, `pymupdf.Pixmap(stream)` | `Pixmap.from_file(path)`, `Pixmap.from_bytes(data)` | PNG와 JPEG. 다른 형식은 Pillow로 읽어 `Pixmap.from_array(numpy.asarray(image))`에 전달 |
+| `pymupdf.Pixmap(filename)`, `pymupdf.Pixmap(stream)` | `Pixmap.from_file(path)`, `Pixmap.from_bytes(data)` | PNG, JPEG, JPEG 2000. 다른 형식은 Pillow로 읽어 `Pixmap.from_array(numpy.asarray(image))`에 전달 |
 | `page.get_image_info()` | `page.content(text_runs=False, paths=False).images` | `xref`, `bbox`, `matrix`(pymupdf의 `transform`), 크기, 색 공간, 마스크, 해상도가 있는 `Image` 레코드. `hashes=`는 아직 지원하지 않음 |
 | `page.get_drawings()`, `get_cdrawings()` | `page.content(text_runs=False, images=False).paths` | `segments`, `fill`, `fill_rule`, `stroke`, `bbox`가 있는 `Path` 레코드. `extended=True`가 별도 항목으로 반환하던 클립, 그룹, 마크된 콘텐츠는 각 경로의 `context`에 있음 |
 | `page.get_texttrace()`, `get_bboxlog()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | 글리프가 있는 텍스트 런, 경로, 이미지를 불변 값으로 반환. [페이지 내용](api.md#content) 참고 |
@@ -108,7 +108,7 @@ python -m pylopdf.migrate src/
 | `font.glyph_bbox(ord(c))`, `font.valid_codepoints()`, `font.buffer`, `font.flags` | `font.char_bbox(c)`, `font.chars()`, `font.program()`, `font.is_monospaced` | `chars()`는 문자를 하나의 문자열로 반환하며, 다른 플래그는 `is_bold`, `is_italic`, `is_serif` |
 | `pymupdf.unicode_to_glyph_name(code)`, `glyph_name_to_unicode(name)` | `pylopdf.glyph_name(char)`, `pylopdf.glyph_text(name)` | 코드 포인트가 아니라 문자와 문자열을 받고 반환하며, 문자를 나타내지 않는 이름에는 `glyph_text`가 `""`를 반환 |
 | `pymupdf.Base14_fontnames`, `Base14_fontdict` | `typing.get_args(pylopdf.StandardFontName)` | `Font.standard()`가 받는 14개의 PostScript 이름 |
-| `page.insert_image(rect, filename=/stream=/pixmap=)` | `canvas.image(rect, source)` | `with page.draw() as canvas:` 안에서 호출함. source는 경로, JPEG나 PNG bytes, 또는 `Pixmap`이고, `keep_proportion=`은 `keep_aspect=`가 됨. `rotate=`는 시계 방향이며 pymupdf는 반시계 방향임. 같은 이미지를 두 번 그려도 한 번만 저장되고, `xref=`는 `canvas.image(rect, doc.images[xref])`가 되며, 각 배치의 `xref`는 `page.content().images`로 알 수 있음 |
+| `page.insert_image(rect, filename=/stream=/pixmap=)` | `canvas.image(rect, source)` | `with page.draw() as canvas:` 안에서 호출함. source는 경로, JPEG, PNG, JPEG 2000 bytes, 또는 `Pixmap`이고, `keep_proportion=`은 `keep_aspect=`가 됨. `rotate=`는 시계 방향이며 pymupdf는 반시계 방향임. 같은 이미지를 두 번 그려도 한 번만 저장되고, `xref=`는 `canvas.image(rect, doc.images[xref])`가 되며, 각 배치의 `xref`는 `page.content().images`로 알 수 있음 |
 | `page.replace_image(xref, filename=/stream=/pixmap=)` | `doc.images[xref].replace(source)` | 어느 페이지에서든 이미지의 모든 배치가 새 이미지를 그림. 이미지의 레이어와 구조상 부모는 유지되고, 페이지에 내용 스트림이 늘지 않음 |
 | `page.show_pdf_page(rect, docsrc, pno)` | `canvas.page(rect, docsrc.pages[pno])` | 같은 문서의 페이지여도 됨. `clip=`과 `rotate=`는 아직 없음 |
 | `page.new_shape()`, `shape.draw_*`, `finish()`, `insert_text()`, `commit()` | `with page.draw() as canvas:` | 캔버스는 경로와 텍스트를 호출한 순서대로 그리고 블록이 끝날 때 기록함. `finish()`의 스타일은 각 호출의 `fill=`과 `stroke=`가 됨. [캔버스](api.md#canvas) 참고 |

@@ -90,7 +90,7 @@ python -m pylopdf.migrate src/
 | `page.get_images()` | `page.resources.images` | 以带有`xref`、`width`、`height`、`bits`、`colorspace`、`filters`和蒙版的`ImageObject`句柄代替元组 |
 | `doc.extract_image(xref)` | `doc.images[xref].extract()` | 带有`format`、`data`和`resolution`的`EncodedImage`；尺寸、色彩空间和蒙版是`doc.images[xref]`的属性 |
 | `pymupdf.Pixmap(doc, xref)` | `doc.images[xref].to_pixmap()` | `alpha=True`会应用图像的蒙版 |
-| `pymupdf.Pixmap(filename)`、`pymupdf.Pixmap(stream)` | `Pixmap.from_file(path)`、`Pixmap.from_bytes(data)` | 支持PNG和JPEG；其他格式用Pillow读取后传给`Pixmap.from_array(numpy.asarray(image))` |
+| `pymupdf.Pixmap(filename)`、`pymupdf.Pixmap(stream)` | `Pixmap.from_file(path)`、`Pixmap.from_bytes(data)` | 支持PNG、JPEG和JPEG 2000；其他格式用Pillow读取后传给`Pixmap.from_array(numpy.asarray(image))` |
 | `page.get_image_info()` | `page.content(text_runs=False, paths=False).images` | 带有`xref`、`bbox`、`matrix`（pymupdf的`transform`）、尺寸、颜色空间、蒙版和分辨率的`Image`记录；尚不支持`hashes=` |
 | `page.get_drawings()`、`get_cdrawings()` | `page.content(text_runs=False, images=False).paths` | 带有`segments`、`fill`、`fill_rule`、`stroke`和`bbox`的`Path`记录；`extended=True`作为单独条目返回的裁剪、分组和标记内容由每条路径的`context`持有 |
 | `page.get_texttrace()`, `get_bboxlog()`, `get_displaylist()`, `run()`, `get_image_rects()` | `page.content()` | 以不可变的值返回带字形的文本段、路径和图像；参见[页面内容](api.md#content) |
@@ -108,7 +108,7 @@ python -m pylopdf.migrate src/
 | `font.glyph_bbox(ord(c))`、`font.valid_codepoints()`、`font.buffer`、`font.flags` | `font.char_bbox(c)`、`font.chars()`、`font.program()`、`font.is_monospaced` | `chars()`把字符作为一个字符串返回；其他标志是`is_bold`、`is_italic`和`is_serif` |
 | `pymupdf.unicode_to_glyph_name(code)`、`glyph_name_to_unicode(name)` | `pylopdf.glyph_name(char)`、`pylopdf.glyph_text(name)` | 接受并返回字符和字符串，而不是码位；对不代表任何字符的名称，`glyph_text`返回`""` |
 | `pymupdf.Base14_fontnames`、`Base14_fontdict` | `typing.get_args(pylopdf.StandardFontName)` | `Font.standard()`接受的14个PostScript名称 |
-| `page.insert_image(rect, filename=/stream=/pixmap=)` | `canvas.image(rect, source)` | 在`with page.draw() as canvas:`中调用。source为路径、JPEG或PNG的bytes，或`Pixmap`，`keep_proportion=`变为`keep_aspect=`；`rotate=`按顺时针旋转，而pymupdf按逆时针旋转。同一图像绘制两次只存储一份，`xref=`变为`canvas.image(rect, doc.images[xref])`，每次放置的`xref`可从`page.content().images`得到 |
+| `page.insert_image(rect, filename=/stream=/pixmap=)` | `canvas.image(rect, source)` | 在`with page.draw() as canvas:`中调用。source为路径、JPEG、PNG或JPEG 2000的bytes，或`Pixmap`，`keep_proportion=`变为`keep_aspect=`；`rotate=`按顺时针旋转，而pymupdf按逆时针旋转。同一图像绘制两次只存储一份，`xref=`变为`canvas.image(rect, doc.images[xref])`，每次放置的`xref`可从`page.content().images`得到 |
 | `page.replace_image(xref, filename=/stream=/pixmap=)` | `doc.images[xref].replace(source)` | 图像在任何页面上的每个放置都绘制新图像；图像保留其图层和结构父项，页面也不会多出内容流 |
 | `page.show_pdf_page(rect, docsrc, pno)` | `canvas.page(rect, docsrc.pages[pno])` | 页面可以属于同一文档；尚不支持`clip=`和`rotate=` |
 | `page.new_shape()`、`shape.draw_*`、`finish()`、`insert_text()`、`commit()` | `with page.draw() as canvas:` | 画布按调用顺序绘制路径和文本，并在代码块结束时写入；`finish()`的样式变为每次调用的`fill=`和`stroke=`；参见[画布](api.md#canvas) |

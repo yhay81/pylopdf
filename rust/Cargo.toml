@@ -57,6 +57,10 @@ png = "0.18"
 # Lanczos3 resizing is implemented locally to keep wheel growth bounded.
 zune-jpeg = { version = "0.5.15", default-features = false, features = ["std"] }
 jpeg-encoder = "0.7.0"
+# Read JPEG 2000 headers before passing the data through as JPXDecode, and
+# decode it for Pixmaps, with the decoder and features that hayro already
+# links for rendering.
+hayro-jpeg2000 = { version = "0.4.1", default-features = false, features = ["std"] }
 # Create unpredictable, exclusive sibling paths for failure-atomic PNG saves.
 # lopdf already brings this crate into every supported target.
 getrandom = "0.4.3"

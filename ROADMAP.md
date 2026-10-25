@@ -824,8 +824,9 @@ Workstream Writing. Depends on the canvas.
   through `glyph_name()` and `glyph_text()`).
 - Images: JPEG 2000 passthrough, masks and alpha, and replacing or removing an
   image object (done: soft masks from PNG and Pixmap alpha,
-  `ImageObject.replace()`, and image objects drawn again with
-  `canvas.image()`, on any canvas).
+  `ImageObject.replace()`, image objects drawn again with `canvas.image()`,
+  on any canvas, and JPEG 2000 stored as `JPXDecode` data, decoded into
+  Pixmaps, and extracted as it is stored).
 - Placement of pages with a clip and rotation (done), and optional-content
   layers on everything the canvas draws.
 - Conversion of images (JPEG, PNG, and JPEG 2000 directly, other formats

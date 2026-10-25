@@ -983,19 +983,22 @@ class Canvas:
         max_size: int | None = _DEFAULT_MAX_IMAGE_INPUT_SIZE,
         max_pixels: int | None = _DEFAULT_MAX_IMAGE_PIXELS,
     ) -> None:
-        """Draw a JPEG or PNG file, encoded bytes, a :class:`Pixmap`, or an :class:`ImageObject` into ``rect``.
+        """Draw a JPEG, PNG, or JPEG 2000 image, a :class:`Pixmap`, or an :class:`ImageObject` into ``rect``.
 
-        ``rotate`` turns the image clockwise by 0, 90, 180, or 270 degrees,
-        and ``keep_aspect`` centres it in ``rect`` at its aspect ratio. An
+        An encoded image is a path or bytes. ``rotate`` turns the image
+        clockwise by 0, 90, 180, or 270 degrees, and ``keep_aspect`` centres
+        it in ``rect`` at its aspect ratio. An
         image drawn several times, or placed in this document before, is
-        stored once. An :class:`ImageObject` of this document is drawn
-        again, with its masks; one of another document is copied, with the
-        objects it reaches, when this call is made; a new document's canvas
-        draws its pixels as :meth:`ImageObject.to_pixmap` renders them with
-        ``alpha=True``. Encoded input is limited to 64 MiB and PNG input to
-        64,000,000 pixels by default (``None`` for trusted input), refused
-        with :class:`LimitError` code ``image_input_size`` or
-        ``image_pixel_count``.
+        stored once. JPEG and JPEG 2000 data is stored as it is, unless a
+        palette maps JPEG 2000 samples; a new document's canvas decodes
+        JPEG 2000. An :class:`ImageObject` of this document is drawn again,
+        with its masks; one of another document is copied, with the objects
+        it reaches, when this call is made; a new document's canvas draws
+        its pixels as :meth:`ImageObject.to_pixmap` renders them with
+        ``alpha=True``. Encoded input is limited to 64 MiB and PNG and
+        JPEG 2000 input to 64,000,000 pixels by default (``None`` for
+        trusted input), refused with :class:`LimitError` code
+        ``image_input_size`` or ``image_pixel_count``.
         """
         self._check_open()
         box = tuple(_rect(rect, "rect"))

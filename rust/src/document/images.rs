@@ -4,7 +4,7 @@ use super::*;
 
 /// Image input whose XObject a document may already have placed.
 pub(crate) enum ImageInput {
-    /// Accepted JPEG or PNG bytes.
+    /// Accepted JPEG, PNG, or JPEG 2000 bytes.
     Encoded(Vec<u8>),
     /// A Pixmap's gray or RGB samples, with or without straight alpha.
     Pixmap {
@@ -34,7 +34,7 @@ impl ImageInput {
                 .map_err(PdfError::new_err)?
                 .ok_or_else(|| {
                     PdfError::new_err(
-                        "unsupported image format (pass JPEG or PNG; convert other formats with Pillow or similar first)",
+                        "unsupported image format (pass JPEG, PNG, or JPEG 2000; convert other formats with Pillow or similar first)",
                     )
                 }),
             Self::Pixmap {
@@ -153,12 +153,12 @@ pub(crate) fn validate_image_input(
             ),
         ));
     }
-    if let (Some(limit), Some(pixels)) = (max_pixels, draw::png_pixel_count(data))
+    if let (Some(limit), Some((format, pixels))) = (max_pixels, draw::decoded_pixel_count(data))
         && pixels > limit
     {
         return Err(limit_err(
             "image_pixel_count",
-            format!("PNG image contains {pixels} pixels, exceeding the {limit}-pixel limit"),
+            format!("{format} image contains {pixels} pixels, exceeding the {limit}-pixel limit"),
         ));
     }
     Ok(())

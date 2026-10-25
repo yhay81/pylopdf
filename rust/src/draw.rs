@@ -38,14 +38,34 @@ impl ObjectSink for Document {
 pub struct ImageParts {
     pub width: u32,
     pub height: u32,
-    /// ColorSpace name for the XObject dictionary.
-    pub color_space: &'static str,
-    /// Filter name: DCTDecode passes JPEG through; FlateDecode compresses samples.
+    /// ColorSpace name for the XObject dictionary, with 8 bits per
+    /// component; None for JPEG 2000 data, which states both itself.
+    pub color_space: Option<&'static str>,
+    /// Filter name: DCTDecode and JPXDecode pass JPEG and JPEG 2000 data
+    /// through; FlateDecode compresses samples.
     pub filter: &'static str,
     /// Stream data after applying the filter.
     pub data: Vec<u8>,
     /// Raw grayscale alpha for an SMask, before Flate compression.
     pub alpha: Option<Vec<u8>>,
+    /// Whether JPEG 2000 data carries its own alpha channel (`/SMaskInData 1`).
+    pub alpha_in_data: bool,
+}
+
+/// Return the pixel count that a PNG IHDR or a JPEG 2000 header states,
+/// with the format's name, without decoding any sample.
+pub fn decoded_pixel_count(data: &[u8]) -> Option<(&'static str, u64)> {
+    if let Some(pixels) = png_pixel_count(data) {
+        return Some(("PNG", pixels));
+    }
+    if crate::jpx::is_jpx(data) {
+        let header = crate::jpx::header(data).ok()?;
+        return Some((
+            "JPEG 2000",
+            u64::from(header.width) * u64::from(header.height),
+        ));
+    }
+    None
 }
 
 /// Return the PNG IHDR pixel count without allocating decoded storage.
@@ -60,8 +80,9 @@ pub fn png_pixel_count(data: &[u8]) -> Option<u64> {
 
 /// Detect image format from magic bytes and convert it to XObject data.
 ///
-/// JPEG passes through with DCTDecode; PNG is decoded and Flate-compressed.
-/// Return None for unsupported formats so the caller can report an error.
+/// JPEG and JPEG 2000 pass through with DCTDecode and JPXDecode; PNG is
+/// decoded and Flate-compressed. Return None for unsupported formats so the
+/// caller can report an error.
 pub fn parse_image(data: Vec<u8>) -> Result<Option<ImageParts>, String> {
     if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
         return jpeg_parts(data).map(Some);
@@ -69,7 +90,38 @@ pub fn parse_image(data: Vec<u8>) -> Result<Option<ImageParts>, String> {
     if data.starts_with(b"\x89PNG\r\n\x1a\n") {
         return png_parts(&data).map(Some);
     }
+    if crate::jpx::is_jpx(&data) {
+        return jpx_parts(data).map(Some);
+    }
     Ok(None)
+}
+
+/// Pass JPEG 2000 data through with JPXDecode, which keeps its own colour
+/// space, depth, and alpha. Data whose palette maps its samples is decoded
+/// and Flate-compressed instead, because hayro reads the indices as gray
+/// unless the PDF names the palette as an Indexed colour space.
+fn jpx_parts(data: Vec<u8>) -> Result<ImageParts, String> {
+    let header = crate::jpx::header(&data)?;
+    if header.width == 0 || header.height == 0 {
+        return Err("JPEG 2000 dimensions are zero".to_owned());
+    }
+    if header.palette {
+        let samples = crate::jpx::decode(&data)?;
+        let layout = crate::pixmap::Layout {
+            gray: samples.gray,
+            alpha: samples.alpha,
+        };
+        return pixmap_parts(samples.width, samples.height, layout, &samples.data);
+    }
+    Ok(ImageParts {
+        width: header.width,
+        height: header.height,
+        color_space: None,
+        filter: "JPXDecode",
+        data,
+        alpha: None,
+        alpha_in_data: header.alpha,
+    })
 }
 
 fn reserve_bytes(capacity: usize, label: &str) -> Result<Vec<u8>, String> {
@@ -116,10 +168,11 @@ pub fn pixmap_parts(
         return Ok(ImageParts {
             width,
             height,
-            color_space,
+            color_space: Some(color_space),
             filter: "FlateDecode",
             data: flate_compress(data)?,
             alpha: None,
+            alpha_in_data: false,
         });
     }
 
@@ -145,10 +198,11 @@ pub fn pixmap_parts(
     Ok(ImageParts {
         width,
         height,
-        color_space,
+        color_space: Some(color_space),
         filter: "FlateDecode",
         data: flate_compress(&color)?,
         alpha,
+        alpha_in_data: false,
     })
 }
 
@@ -195,10 +249,11 @@ fn jpeg_parts(data: Vec<u8>) -> Result<ImageParts, String> {
             return Ok(ImageParts {
                 width,
                 height,
-                color_space,
+                color_space: Some(color_space),
                 filter: "DCTDecode",
                 data,
                 alpha: None,
+                alpha_in_data: false,
             });
         }
         pos += 2 + length;
@@ -266,10 +321,11 @@ fn png_parts(data: &[u8]) -> Result<ImageParts, String> {
     Ok(ImageParts {
         width,
         height,
-        color_space,
+        color_space: Some(color_space),
         filter: "FlateDecode",
         data: flate_compress(&samples)?,
         alpha,
+        alpha_in_data: false,
     })
 }
 
@@ -331,15 +387,20 @@ pub fn image_streams(parts: ImageParts) -> Result<ImageStreams, String> {
         }
         None => None,
     };
-    let dict = dictionary! {
+    let mut dict = dictionary! {
         "Type" => "XObject",
         "Subtype" => "Image",
         "Width" => i64::from(parts.width),
         "Height" => i64::from(parts.height),
-        "ColorSpace" => parts.color_space,
-        "BitsPerComponent" => 8,
         "Filter" => parts.filter,
     };
+    if let Some(color_space) = parts.color_space {
+        dict.set("ColorSpace", color_space);
+        dict.set("BitsPerComponent", 8);
+    }
+    if parts.alpha_in_data {
+        dict.set("SMaskInData", 1);
+    }
     Ok(ImageStreams {
         image: Stream::new(dict, parts.data).with_compression(false),
         smask,

@@ -434,7 +434,7 @@ fn extract_max_pixels(value: &Bound<'_, PyAny>) -> PyResult<Option<u64>> {
 }
 
 /// A whole number of dots per inch from 1 through [`MAX_RESOLUTION`].
-fn whole_resolution(dpi: f64) -> u32 {
+pub(crate) fn whole_resolution(dpi: f64) -> u32 {
     dpi.round().clamp(1.0, f64::from(MAX_RESOLUTION)) as u32
 }
 
@@ -573,15 +573,45 @@ fn decode_jpeg(data: &[u8], max_pixels: Option<u64>) -> PyResult<Pixmap> {
     })
 }
 
-/// Decode PNG or JPEG bytes, told apart by their signatures.
+/// Decode a JP2 file or a raw JPEG 2000 codestream into gray or RGB
+/// samples, with alpha when it has an alpha channel; palettes are applied
+/// and CMYK converts to RGB. A JP2 file's capture or display resolution
+/// box gives the resolution.
+fn decode_jpx(data: &[u8], max_pixels: Option<u64>) -> PyResult<Pixmap> {
+    let header = crate::jpx::header(data).map_err(PdfError::new_err)?;
+    check_decoded_size(
+        "JPEG 2000",
+        header.width as usize,
+        header.height as usize,
+        max_pixels,
+    )?;
+    let samples = crate::jpx::decode(data).map_err(PdfError::new_err)?;
+    let resolution = crate::jpx::resolution(data).map_or(DEFAULT_RESOLUTION, |(x, y)| {
+        (whole_resolution(x), whole_resolution(y))
+    });
+    Ok(Pixmap {
+        width: samples.width,
+        height: samples.height,
+        layout: Layout {
+            gray: samples.gray,
+            alpha: samples.alpha,
+        },
+        data: Arc::new(samples.data),
+        resolution,
+    })
+}
+
+/// Decode PNG, JPEG, or JPEG 2000 bytes, told apart by their signatures.
 fn decode_image(data: &[u8], max_pixels: Option<u64>) -> PyResult<Pixmap> {
     if data.starts_with(b"\x89PNG\r\n\x1a\n") {
         decode_png(data, max_pixels)
     } else if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
         decode_jpeg(data, max_pixels)
+    } else if crate::jpx::is_jpx(data) {
+        decode_jpx(data, max_pixels)
     } else {
         Err(PdfError::new_err(
-            "unsupported image format (pass PNG or JPEG; decode other formats with Pillow)",
+            "unsupported image format (pass PNG, JPEG, or JPEG 2000; decode other formats with Pillow)",
         ))
     }
 }
@@ -751,12 +781,14 @@ impl Pixmap {
         })
     }
 
-    /// Decode a PNG or JPEG file into a Pixmap.
+    /// Decode a PNG, JPEG, or JPEG 2000 file into a Pixmap.
     ///
     /// PNG keeps its gray or RGB samples and its alpha, with palettes,
     /// transparency, and other bit depths converted to 8-bit samples; JPEG
-    /// decodes to gray or RGB, converting CMYK. The resolution comes from
-    /// PNG's `pHYs` chunk or JPEG's JFIF density, else 96. `max_size` caps
+    /// decodes to gray or RGB, converting CMYK; JPEG 2000 decodes to gray or
+    /// RGB with its alpha, applying palettes and converting CMYK. The
+    /// resolution comes from PNG's `pHYs` chunk, JPEG's JFIF density, or a
+    /// JP2 resolution box, else 96. `max_size` caps
     /// the file at 64 MiB and `max_pixels` the image at 64,000,000 pixels by
     /// default; `None` opts out.
     #[staticmethod]
@@ -778,7 +810,7 @@ impl Pixmap {
         })
     }
 
-    /// Decode PNG or JPEG bytes into a Pixmap, as [`Pixmap::from_file`]
+    /// Decode PNG, JPEG, or JPEG 2000 bytes into a Pixmap, as [`Pixmap::from_file`]
     /// decodes a file.
     ///
     /// `data` is `bytes` or another buffer of unsigned bytes, measured

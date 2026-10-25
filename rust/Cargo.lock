@@ -971,6 +971,7 @@ dependencies = [
  "getrandom",
  "harfrust",
  "hayro",
+ "hayro-jpeg2000",
  "hayro-svg",
  "jpeg-encoder",
  "krilla",
