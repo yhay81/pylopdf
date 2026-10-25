@@ -686,7 +686,7 @@ class Page:
             self._page_number(), (text_runs, paths, images), annotations, clip_rect, max_elements
         )
         self._document._emit_warnings()
-        return _content_from_core(raw)
+        return _content_from_core(raw, (self._document, self._document._object_epoch))
 
     def draw(self, *, underlay: bool = False) -> Canvas:
         """Return a :class:`Canvas` that draws on this page.

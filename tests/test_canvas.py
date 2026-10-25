@@ -1046,8 +1046,158 @@ def test_draw_repaints_path_items_with_their_context() -> None:
         assert after.context.opacity == pytest.approx(before.context.opacity, abs=1 / 255)
         assert len(after.context.clips) == len(before.context.clips)
         _assert_color(after.fill, before.fill)
-    with page.draw() as canvas, pytest.raises(TypeError, match="Path items"):
+    with page.draw() as canvas, pytest.raises(TypeError, match="Path and Image items"):
         canvas.draw(page.content().paths[0].context)  # ty: ignore[invalid-argument-type]
+
+
+def _image_source() -> tuple[pylopdf.Document, pylopdf.Page]:
+    """Return a page that draws a JPEG turned a quarter and a translucent Pixmap."""
+    doc, page = _new_page()
+    half = bytes([0, 0, 255, 128] * 8 + [0, 255, 0, 255] * 8)
+    with page.draw() as canvas:
+        canvas.rect((0, 0, 300, 200), fill=RED)
+        canvas.image((20, 20, 120, 120), PHOTO_JPEG, rotate=90)
+        canvas.image((150, 20, 250, 120), pylopdf.Pixmap.from_array(memoryview(half).cast("B", (4, 4, 4))))
+    return doc, page
+
+
+def _pixels(page: pylopdf.Page) -> bytes:
+    return bytes(page.pixmap())
+
+
+def test_draw_copies_image_items_of_another_document() -> None:
+    source_doc, source = _image_source()
+    items = source.content().images
+    assert len(items) == 2
+    doc, page = _new_page()
+    with page.draw() as canvas:
+        canvas.rect((0, 0, 300, 200), fill=RED)
+        for item in items:
+            canvas.draw(item)
+        # The images were copied when they were drawn.
+        source_doc.close()
+    assert _pixels(page) == _pixels(_image_source()[1])
+    copied = page.content().images
+    assert [image.mask for image in copied] == [None, pylopdf.ImageMask.SOFT]
+    for before, after in zip(items, copied, strict=True):
+        assert tuple(after.matrix) == pytest.approx(tuple(before.matrix), abs=1e-3)
+        assert (after.width, after.height, after.colorspace) == (before.width, before.height, before.colorspace)
+    reopened = pylopdf.open(doc.to_bytes())
+    assert _pixels(reopened.pages[0]) == _pixels(page)
+    # One canvas copies each image, and the soft mask it reaches, once.
+    _source_doc, source = _image_source()
+    doc, page = _new_page()
+    with page.draw() as canvas:
+        for item in source.content().images * 3:
+            canvas.draw(item)
+    assert len(pylopdf.open(doc.to_bytes()).images) == 3
+
+
+def test_draw_repaints_image_items_of_the_same_document_without_copying_them() -> None:
+    doc, source = _image_source()
+    items = source.content().images
+    page = doc.pages.new((300, 200))
+    with page.draw() as canvas:
+        canvas.rect((0, 0, 300, 200), fill=RED)
+        for item in items:
+            canvas.draw(item)
+    assert _pixels(page) == _pixels(doc.pages[0])
+    assert [image.xref for image in page.content().images] == [item.xref for item in items]
+    assert len(pylopdf.open(doc.to_bytes()).images) == 3
+
+
+def test_draw_keeps_the_context_of_image_items() -> None:
+    source_doc, source = _new_page()
+    with source.draw() as canvas, canvas.clip(PathBuilder().rect((0, 0, 50, 200))), canvas.opacity(0.5):
+        canvas.image((0, 0, 100, 100), PHOTO_JPEG)
+    (item,) = source.content().images
+    _doc, page = _new_page()
+    with page.draw() as canvas:
+        canvas.draw(item)
+    (copied,) = page.content().images
+    assert len(copied.context.clips) == len(item.context.clips)
+    assert copied.context.opacity == pytest.approx(0.5, abs=1 / 255)
+    assert _pixels(page) == _pixels(source)
+    assert source_doc.pages[0] == source
+
+
+def test_draw_refuses_image_items_it_cannot_draw() -> None:
+    import dataclasses  # noqa: PLC0415 - only this test replaces fields.
+
+    source_doc, source = _image_source()
+    item = source.content().images[0]
+    _doc, page = _new_page()
+    with page.draw() as canvas:
+        with pytest.raises(ValueError, match="inline image or an image mask"):
+            canvas.draw(dataclasses.replace(item, xref=0))
+        with pytest.raises(ValueError, match="does not name its document"):
+            canvas.draw(dataclasses.replace(item, _source=None))
+    builder = pylopdf.create()
+    with builder.page((300, 200)) as canvas, pytest.raises(ValueError, match="new document's canvas"):
+        canvas.draw(item)
+    # An image whose object is no image any more, or whose numbers changed,
+    # is stale, and so is a closed source.
+    second = source.content().images[1]
+    source_doc.objects[second.xref] = 1
+    with page.draw() as canvas, pytest.raises(pylopdf.StaleObjectError, match="no longer an image"):
+        canvas.draw(second)
+    source_doc.to_bytes(renumber=True)
+    with page.draw() as canvas, pytest.raises(pylopdf.StaleObjectError, match="renumbered"):
+        canvas.draw(item)
+    source_doc.close()
+    with page.draw() as canvas, pytest.raises(pylopdf.DocumentClosedError):
+        canvas.draw(item)
+    assert page.content().images == ()
+
+
+def test_renumbering_the_document_invalidates_its_drawn_image_items() -> None:
+    doc, source = _image_source()
+    item = source.content().images[0]
+    page = doc.pages.new((300, 200))
+    canvas = page.draw()
+    canvas.draw(item)
+    doc.to_bytes(renumber=True)
+    with pytest.raises(pylopdf.StaleObjectError, match="layers and images"), canvas:
+        pass
+    assert page.content().images == ()
+    # Naming the document's objects again after renumbering refuses too.
+    canvas = page.draw()
+    canvas.draw(doc.pages[0].content().images[0])
+    doc.to_bytes(renumber=True)
+    with pytest.raises(pylopdf.StaleObjectError, match="layers and images"):
+        canvas.draw(doc.pages[0].content().images[0])
+    with pytest.raises(pylopdf.StaleObjectError, match="layers and images"), canvas:
+        pass
+    assert page.content().images == ()
+
+
+def test_new_images_and_placed_pages_of_one_canvas_keep_their_objects() -> None:
+    # The page imports were numbered when they were prepared, after the
+    # objects that the canvas had, and new images used to take the same
+    # numbers when they were added before the imports.
+    source_doc, source = _new_page(200, 200)
+    with source.draw() as canvas:
+        canvas.rect((20, 20, 180, 180), fill=BLUE)
+    _doc, page = _new_page(800, 200)
+    colors = [(255, 0, 0), (0, 255, 0), (255, 255, 0), (0, 255, 255), (255, 0, 255), (128, 0, 0)]
+    with page.draw() as canvas:
+        for index, color in enumerate(colors):
+            pixmap = pylopdf.Pixmap.from_array(memoryview(bytes(list(color) * 16)).cast("B", (4, 4, 3)))
+            canvas.image((index * 100, 0, index * 100 + 100, 100), pixmap)
+        canvas.page((600, 0, 800, 200), source)
+    assert [_pixel(page, index * 100 + 50, 50) for index in range(6)] == colors
+    assert _pixel(page, 700, 100) == (0, 0, 255)
+    assert source_doc.pages[0] == source
+
+
+def test_a_zero_width_stroke_draws_the_thinnest_line() -> None:
+    _doc, page = _new_page()
+    with page.draw() as canvas:
+        canvas.line((10, 100), (290, 100), stroke=Stroke(paint=BLACK, width=0))
+    (line,) = page.content().paths
+    assert line.stroke is not None
+    assert line.stroke.width == 0
+    assert min(_pixel(page, 150, y)[0] for y in (99, 100)) < 128
 
 
 def test_the_page_must_keep_its_size_while_the_canvas_is_open() -> None:
@@ -1103,8 +1253,8 @@ def test_invalid_arguments() -> None:
             canvas.path([])
         with pytest.raises(ValueError, match="MoveTo"):
             canvas.path([LineTo(pylopdf.Point(1, 1))])
-        with pytest.raises(ValueError, match="positive"):
-            canvas.line((0, 0), (1, 1), stroke=Stroke(paint=RED, width=0))
+        with pytest.raises(ValueError, match="non-negative"):
+            canvas.line((0, 0), (1, 1), stroke=Stroke(paint=RED, width=-1))
         with pytest.raises(ValueError, match="from 0 to 1"):
             canvas.opacity(1.5)
         with pytest.raises(ValueError, match="matrix"):

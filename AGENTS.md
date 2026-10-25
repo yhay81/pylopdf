@@ -2407,7 +2407,12 @@ the concept and API overview.
   `placement_matrix`, all for an unrotated `W` by `H` page, and each such
   y-up piece is wrapped in the flip again. Every Form of a commit shares one
   resource dictionary, inserted with the groups through
-  `insert_new_objects` so the page index survives. Recording validates the
+  `insert_new_objects` so the page index survives. Text and page imports
+  and objects copied for image items take the numbers that preparation
+  assigned after the document's `max_id`, so `commit_canvas_form` inserts
+  them, in that order, before new image streams, fonts, and groups take the
+  next numbers with `add_object`; new images added before the page imports
+  took numbers that an import then overwrote. Recording validates the
   input and parses each image once per canvas, unless the document has
   placed it already; `add_page` copies the source document once per canvas
   and revision unless the document has placed that page, and the page is
@@ -2416,9 +2421,22 @@ the concept and API overview.
   refuses a page whose display size changed while the canvas was open and a
   scope left open. New images and pages are remembered for placement reuse,
   a page of the target's own pre-commit revision under the new revision
-  unless the canvas drew on that page. `draw(item)` takes `Path` items only
-  and repeats their clips, group opacities, and blend modes, not soft
-  masks. Text with `rotate` is recorded inside a transform of its own, a
+  unless the canvas drew on that page. `draw(item)` takes `Path` and
+  `Image` items and repeats their clips, group opacities, and blend modes,
+  not soft masks. An `Image` item keeps the document and object epoch that
+  `Page.content()` read in its private `_source` field, which neither
+  equality nor the repr reads; its matrix puts the image's first row at
+  `y = 0`, so `draw` flips the unit square before it. `add_image_item`
+  records an image of the target document by ID (`CanvasImageItem::Own`,
+  checked again when the commit prepares, and the canvas refuses to commit
+  after its document was renumbered) and copies an image of another
+  document when it is drawn, without `/OC` and `/StructParent`, with every
+  object it reaches but the catalog and page tree, into one
+  `CopiedObjects` group per source revision, at most 65,536 objects per
+  canvas; preparation numbers each group after the imports, and a reference
+  to an object that was not copied becomes null. Inline images and image
+  masks, which report xref 0, and a new document's canvas refuse image
+  items. A width of 0 strokes the thinnest line, as in PDF. Text with `rotate` is recorded inside a transform of its own, a
   `Push`/`Pop` pair that is no scope of the caller's and does not count
   toward the scope depth, turning clockwise about the first baseline's start,
   or, for a textbox, mapping a box at the origin whose sides follow the

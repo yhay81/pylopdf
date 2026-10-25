@@ -390,9 +390,9 @@ with page.draw() as canvas:
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` | `rect`の中で折り返したテキスト。`TextFit`を返します |
 | `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEGまたはPNGのパス、エンコード済みのbytes、`Pixmap`のいずれか。`rotate`で時計回りに回します |
 | `page(rect, source, *, keep_aspect=True)` | 開いている任意の文書（この文書も含む）のページをベクタのまま |
-| `draw(item)` | [`page.content()`](#content)が返した`Path`項目 |
+| `draw(item)` | [`page.content()`](#content)が返した`Path`項目または`Image`項目 |
 
-パスは`Color`の塗りと線を取ります。線は、幅、線端、角の形、マイター限界、破線を持つ`Stroke`か、1ポイントの線を表す`Color`です。どちらも指定しないパスは1ポイントの黒い線で描かれます。色の`alpha`は、その塗りや線を半透明にします。`PathBuilder`は`move_to`、`line_to`、`curve_to`、`quad_to`、`close`で形状を組み立て、`rect`、`ellipse`、`circle`、`polygon`、`sector`、`zigzag`、`wave`で図形をまるごと追加します。どのメソッドもビルダー自身を返すので、呼び出しを連鎖できます。
+パスは`Color`の塗りと線を取ります。線は、幅、線端、角の形、マイター限界、破線を持つ`Stroke`か、1ポイントの線を表す`Color`です。幅0の線は、出力装置で表示できる最も細い線になります。どちらも指定しないパスは1ポイントの黒い線で描かれます。色の`alpha`は、その塗りや線を半透明にします。`PathBuilder`は`move_to`、`line_to`、`curve_to`、`quad_to`、`close`で形状を組み立て、`rect`、`ellipse`、`circle`、`polygon`、`sector`、`zigzag`、`wave`で図形をまるごと追加します。どのメソッドもビルダー自身を返すので、呼び出しを連鎖できます。
 
 テキストは[`Font`](#font)で描きます。OpenTypeフォントはHarfRustで字形処理し、何回の呼び出しで使ってもキャンバスごとに1回だけサブセットとして埋め込みます。`font`を指定しない場合、西欧のテキストはHelveticaで、それ以外のテキストはその文字体系に対応するインストール済みの[フォントのextra](getting-started.md#installation)で描きます。テキストは塗り、線、またはその両方で描けます。`text`は各行を前の行から`line_height × size`下に置き、既定ではフォント自身の行の高さ（アセンダーからディセンダーを引いた値）を使います。`textbox`はUnicodeが改行を許す位置で行を折り返し、同じ間隔で行を置きます。最初のベースラインは`rect`の上端からアセンダー1つ分下です。テキストが収まらないときは何も描かず、`TextFit.spare_height`は不足分を表す負の値になるので、`fit.fits`は偽になります。[`Font.text_height`](#font)を使うと、textboxが必要とする高さを描く前に測れるので、テキストを囲む枠の大きさや改ページを決められます。
 
@@ -416,7 +416,7 @@ with page.draw() as canvas:
 | `opacity(alpha)` | 描画を1つのグループとして合成し、それを不透明度`alpha`で描きます |
 | `blend(mode)` | `BlendMode`を使って、描画をその下にあるものとブレンドします |
 
-`page.draw(underlay=True)`は、ページの既存の内容の下に書き込みます。1つのキャンバスで何度も描いた画像やページ、または文書が以前に配置した画像やページは、1回だけ格納されます。ページは`canvas.page()`を呼び出した時点の状態で描かれます。`draw(item)`は項目のクリップ、グループの不透明度、ブレンドモードを再現しますが、ソフトマスクは再現しません。テキストラン、画像、パターンのペイントはまだ描けません。1つのキャンバスが保持できるパスの点は1,048,576個まで、スコープの入れ子は16段までです。それを超えると`LimitError`を送出し、そのコードは`path_point_count`または`canvas_scope_depth`です。
+`page.draw(underlay=True)`は、ページの既存の内容の下に書き込みます。1つのキャンバスで何度も描いた画像やページ、または文書が以前に配置した画像やページは、1回だけ格納されます。ページは`canvas.page()`を呼び出した時点の状態で描かれます。`draw(item)`は項目のクリップ、グループの不透明度、ブレンドモードを再現しますが、ソフトマスクは再現しません。画像は、画像自身のマスクとともにそのオブジェクトから描きます。項目と同じ文書のページのキャンバスはそのオブジェクトをもう一度描き、別の文書のキャンバスは`draw`を呼び出した時点で、そのオブジェクトが参照するオブジェクトとともにコピーします。テキストラン、パターンのペイント、インライン画像、画像マスクはまだ描けません。テストコーパスの全ページのパスと画像を白紙のページに描き直すと、まだ描けない項目の外側では、72 dpiで元のレンダリングとの差がチャンネルごとに16階調以内に収まります。1つのキャンバスが保持できるパスの点は1,048,576個まで、スコープの入れ子は16段までです。それを超えると`LimitError`を送出し、そのコードは`path_point_count`または`canvas_scope_depth`です。
 
 ## 新しい文書 { #create }
 

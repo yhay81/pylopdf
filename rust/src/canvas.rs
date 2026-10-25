@@ -17,13 +17,16 @@
 //! text is written as text operators, images as Image XObjects, and placed
 //! pages as imported Form XObjects, each through its placement matrix. Those
 //! pieces describe PDF space, so each is wrapped in the flip again, which
-//! returns to it.
+//! returns to it. An image that `Canvas.draw` paints from a content item is
+//! an Image XObject of the target document, or a copy of another document's
+//! with the objects it reaches, drawn through the item's matrix.
 //!
 //! A canvas on a page of a new document (`pylopdf.create()`) is replayed
 //! onto a krilla surface, which shares display space, so krilla writes the
 //! whole document: its fonts, images, transparency groups, and, for tagged
 //! documents, the structure tree that tag scopes describe.
 
+use std::collections::BTreeMap;
 use std::num::NonZeroU16;
 use std::sync::Arc;
 
@@ -40,7 +43,7 @@ use krilla::tagging::{
     Artifact, ArtifactType, ContentTag, Identifier, ListNumbering, Node, SpanTag, TableHeaderScope,
     Tag, TagGroup, TagKind,
 };
-use lopdf::Document;
+use lopdf::{Document, Object, ObjectId};
 use pyo3::prelude::*;
 
 use crate::document::{
@@ -64,6 +67,10 @@ const MAX_CANVAS_SCOPE_DEPTH: usize = 16;
 
 /// UTF-8 bytes of the texts of one tag scope's attributes together.
 const MAX_TAG_TEXT_SIZE: usize = 64 * 1024;
+
+/// Objects that one canvas may copy from other documents for the images it
+/// draws again, as many as one Form import admits.
+const MAX_CANVAS_COPIED_OBJECTS: usize = 65_536;
 
 /// The PDF names of the blend modes, in the order of `BlendMode`.
 pub(crate) const BLEND_MODES: [&str; 16] = [
@@ -199,8 +206,12 @@ impl StrokeStyle {
     fn new(
         (color, width, cap, join, miter_limit, dashes, dash_offset): StrokeArgs,
     ) -> PyResult<Self> {
-        if !(width.is_finite() && width > 0.0 && width <= f64::from(f32::MAX)) {
-            return Err(PdfError::new_err("stroke width must be a positive number"));
+        // A width of 0 draws the thinnest line that the device can show
+        // (ISO 32000-2 §8.4.3.2).
+        if !(width.is_finite() && (0.0..=f64::from(f32::MAX)).contains(&width)) {
+            return Err(PdfError::new_err(
+                "stroke width must be a non-negative number",
+            ));
         }
         if cap > 2 || join > 2 {
             return Err(PdfError::new_err("unknown line cap or line join"));
@@ -585,6 +596,24 @@ pub(crate) struct CanvasPage {
     pub(crate) snapshot: Option<usize>,
 }
 
+/// An Image XObject that `Canvas.draw` paints again from a content item,
+/// once however often it is drawn.
+pub(crate) enum CanvasImageItem {
+    /// An image of the document that the canvas draws on.
+    Own(ObjectId),
+    /// An image of another document, under its ID there, among the objects
+    /// copied into `CanvasRecording::copies[group]`.
+    Copied { group: usize, id: ObjectId },
+}
+
+/// Objects copied from one revision of another document for the images that
+/// a canvas draws again, under their IDs in that document: the images and
+/// every object they reach.
+pub(crate) struct CopiedObjects {
+    pub(crate) revision: u64,
+    pub(crate) objects: BTreeMap<ObjectId, Object>,
+}
+
 /// A scope that applies to the operations up to its matching `Pop`.
 enum Scope {
     Transform([f64; 6]),
@@ -628,6 +657,13 @@ enum Op {
         /// `None` for the whole page.
         clip: Option<[f64; 4]>,
         rotation: i64,
+    },
+    /// An image that a content item names, by index into
+    /// `CanvasRecording::image_items`, drawn through `matrix`, which maps
+    /// PDF's unit square into the current user space.
+    ImageItem {
+        item: usize,
+        matrix: [f64; 6],
     },
     /// A link annotation of a new document's page, by index into
     /// `CanvasRecording::links`; its place among the operations is its
@@ -679,6 +715,10 @@ pub(crate) struct CanvasRecording {
     pub(crate) pages: Vec<CanvasPage>,
     /// Source documents of placed pages, by revision.
     pub(crate) snapshots: Vec<(u64, Arc<Document>)>,
+    /// Images that content items name, in the order of their first draw.
+    pub(crate) image_items: Vec<CanvasImageItem>,
+    /// Objects copied from other documents for `image_items`.
+    pub(crate) copies: Vec<CopiedObjects>,
     /// Outline entries of a new document's page, in the order of the calls.
     pub(crate) bookmarks: Vec<Bookmark>,
     /// Link annotations of a new document's page, in the order of the calls.
@@ -950,6 +990,14 @@ fn grow<T>(items: &mut Vec<T>, label: &str) -> PyResult<()> {
     items
         .try_reserve(1)
         .map_err(|error| PdfError::new_err(format!("failed to grow the canvas's {label}: {error}")))
+}
+
+/// The refusal of a canvas that would copy more objects of other documents
+/// than `MAX_CANVAS_COPIED_OBJECTS`.
+pub(crate) fn copy_limit_error() -> PyErr {
+    PdfError::new_err(format!(
+        "a canvas copies at most {MAX_CANVAS_COPIED_OBJECTS} objects of other documents"
+    ))
 }
 
 fn coordinate(value: f64) -> PyResult<f32> {
@@ -1577,6 +1625,12 @@ impl CanvasRecording {
                         matrix.map(matrix_number).join(" ")
                     ));
                 }
+                Op::ImageItem { item, matrix } => {
+                    ops.push_str(&format!(
+                        "q\n{} cm\n/PyloX{item} Do\nQ\n",
+                        matrix.map(matrix_number).join(" ")
+                    ));
+                }
                 Op::Link(_) => {
                     return Err(PdfError::new_err(
                         "links belong to a new document's canvas; add them with page.links.add",
@@ -1842,6 +1896,9 @@ impl CanvasRecording {
                 }
                 Op::Page { .. } => {
                     return Err("a new document cannot place other pages yet".into());
+                }
+                Op::ImageItem { .. } => {
+                    return Err("a new document cannot draw image items yet".into());
                 }
                 Op::Link(index) => {
                     if tagged {
@@ -2976,5 +3033,111 @@ impl _Canvas {
             clip,
             rotation,
         })
+    }
+
+    /// Record the Image XObject `xref` of `source` drawn through `matrix`,
+    /// which maps PDF's unit square into the current user space, on a page
+    /// of `target`. An image of another document is copied now, with the
+    /// objects it reaches, so later edits of that document do not change it.
+    fn add_image_item(
+        &mut self,
+        target: &Bound<'_, _Document>,
+        source: &Bound<'_, _Document>,
+        xref: u32,
+        matrix: (f64, f64, f64, f64, f64, f64),
+    ) -> PyResult<()> {
+        if self.new_document {
+            return Err(PdfError::new_err(
+                "a new document cannot draw image items yet; draw them on the finished document's pages",
+            ));
+        }
+        let matrix = [matrix.0, matrix.1, matrix.2, matrix.3, matrix.4, matrix.5];
+        for value in matrix {
+            coordinate(value)?;
+        }
+        let item = if target.is(source) {
+            let id = source.borrow().image_object_id(xref)?;
+            match self
+                .recording
+                .image_items
+                .iter()
+                .position(|known| matches!(known, CanvasImageItem::Own(own) if *own == id))
+            {
+                Some(item) => item,
+                None => {
+                    grow(&mut self.recording.image_items, "images")?;
+                    self.recording.image_items.push(CanvasImageItem::Own(id));
+                    self.recording.image_items.len() - 1
+                }
+            }
+        } else {
+            let borrowed = source.borrow();
+            let source: &_Document = &borrowed;
+            let revision = source.revision();
+            let group = self
+                .recording
+                .copies
+                .iter()
+                .position(|copies| copies.revision == revision);
+            let known = group.and_then(|group| {
+                self.recording.image_items.iter().position(|known| {
+                    matches!(known, CanvasImageItem::Copied { group: known_group, id }
+                        if *known_group == group && id.0 == xref)
+                })
+            });
+            match known {
+                Some(item) => item,
+                None => {
+                    let copied: usize = self
+                        .recording
+                        .copies
+                        .iter()
+                        .map(|copies| copies.objects.len())
+                        .sum();
+                    let room = MAX_CANVAS_COPIED_OBJECTS.saturating_sub(copied);
+                    let (id, objects) = target
+                        .py()
+                        .detach(|| source.copy_image_objects(xref, MAX_CANVAS_COPIED_OBJECTS))?;
+                    let added = match group {
+                        Some(group) => {
+                            let copies = &self.recording.copies[group].objects;
+                            objects
+                                .iter()
+                                .filter(|(object_id, _)| !copies.contains_key(object_id))
+                                .count()
+                        }
+                        None => objects.len(),
+                    };
+                    if added > room {
+                        return Err(copy_limit_error());
+                    }
+                    grow(&mut self.recording.image_items, "images")?;
+                    let group = match group {
+                        Some(group) => group,
+                        None => {
+                            grow(&mut self.recording.copies, "copied images")?;
+                            self.recording.copies.push(CopiedObjects {
+                                revision,
+                                objects: BTreeMap::new(),
+                            });
+                            self.recording.copies.len() - 1
+                        }
+                    };
+                    let copies = &mut self.recording.copies[group].objects;
+                    for (object_id, object) in objects {
+                        // The image itself replaces a copy that another
+                        // image reached with its `/OC` and `/StructParent`.
+                        if object_id == id || !copies.contains_key(&object_id) {
+                            copies.insert(object_id, object);
+                        }
+                    }
+                    self.recording
+                        .image_items
+                        .push(CanvasImageItem::Copied { group, id });
+                    self.recording.image_items.len() - 1
+                }
+            }
+        };
+        self.push_op(Op::ImageItem { item, matrix })
     }
 }

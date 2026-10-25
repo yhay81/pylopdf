@@ -101,7 +101,7 @@ fn renumbered_ids(
 }
 
 /// Rewrite the references in one value, with `pending` as the container stack.
-fn rewrite_references<'a>(
+pub(crate) fn rewrite_references<'a>(
     object: &'a mut Object,
     renumbered: &HashMap<ObjectId, ObjectId>,
     pending: &mut Vec<&'a mut Object>,

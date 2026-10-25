@@ -2,6 +2,8 @@
 //! and canvases.
 
 use super::*;
+use crate::canvas::{CanvasImageItem, copy_limit_error};
+use crate::renumber::rewrite_references;
 
 /// Bound and materialize page drawing resources before dependent objects exist.
 pub(super) const MAX_PAGE_RESOURCE_ENTRIES: usize = 4_096;
@@ -755,6 +757,52 @@ impl _Document {
         (*self.doc).clone()
     }
 
+    /// The Image XObject that the object number `xref` names, at its newest
+    /// generation, as a canvas draws it again.
+    pub(crate) fn image_object_id(&self, xref: u32) -> PyResult<ObjectId> {
+        image_stream(&self.doc, xref)
+            .map(|(id, _)| id)
+            .ok_or_else(|| no_longer_an_image(xref))
+    }
+
+    /// Copy the Image XObject that `xref` names, and every object that it
+    /// reaches but the catalog and the page tree, under their IDs in this
+    /// document, for a canvas of another document; refused above `limit`
+    /// objects. The image's copy leaves out `/OC` and `/StructParent`, which
+    /// name this document's layers and structure tree.
+    pub(crate) fn copy_image_objects(
+        &self,
+        xref: u32,
+        limit: usize,
+    ) -> PyResult<(ObjectId, Vec<(ObjectId, Object)>)> {
+        let doc: &Document = &self.doc;
+        let (id, stream) = image_stream(doc, xref).ok_or_else(|| no_longer_an_image(xref))?;
+        let mut image = stream.clone();
+        image.dict.remove(b"OC");
+        image.dict.remove(b"StructParent");
+        let reachable =
+            reachable_object_ids(doc, image.dict.iter().map(|(_, value)| value), |object| {
+                !matches!(object.type_name(), Ok(b"Catalog" | b"Pages" | b"Page"))
+            })?;
+        let count = reachable.len() + usize::from(!reachable.contains(&id));
+        if count > limit {
+            return Err(copy_limit_error());
+        }
+        let mut objects = Vec::new();
+        objects.try_reserve_exact(count).map_err(|error| {
+            PdfError::new_err(format!("failed to allocate copied image objects: {error}"))
+        })?;
+        objects.push((id, Object::Stream(image)));
+        for reached in reachable {
+            if reached != id
+                && let Some(object) = doc.objects.get(&reached)
+            {
+                objects.push((reached, object.clone()));
+            }
+        }
+        Ok((id, objects))
+    }
+
     /// Generate, import, and place a recorded canvas; see `commit_canvas`.
     pub(super) fn place_canvas(
         &mut self,
@@ -936,6 +984,70 @@ impl _Document {
             })?;
             page_imports.push((import, pending));
         }
+
+        // Images that content items name: objects of this document, still
+        // images, or the objects copied from other documents, numbered after
+        // the imports. A reference to an object that was not copied, such
+        // as a page, becomes null.
+        let mut copies = Vec::new();
+        copies
+            .try_reserve_exact(recording.copies.len())
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate copied images: {error}"))
+            })?;
+        let mut copied_ids = Vec::new();
+        copied_ids
+            .try_reserve_exact(recording.copies.len())
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate copied images: {error}"))
+            })?;
+        for group in recording.copies.drain(..) {
+            let mut renumbered = HashMap::new();
+            renumbered
+                .try_reserve(group.objects.len())
+                .map_err(|error| {
+                    PdfError::new_err(format!("failed to allocate copied images: {error}"))
+                })?;
+            let mut objects = Vec::new();
+            objects
+                .try_reserve_exact(group.objects.len())
+                .map_err(|error| {
+                    PdfError::new_err(format!("failed to allocate copied images: {error}"))
+                })?;
+            for (id, object) in group.objects {
+                target_max_id = target_max_id
+                    .checked_add(1)
+                    .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
+                renumbered.insert(id, (target_max_id, 0));
+                objects.push(((target_max_id, 0), object));
+            }
+            {
+                let mut pending = Vec::new();
+                for (_, object) in &mut objects {
+                    rewrite_references(object, &renumbered, &mut pending)?;
+                }
+            }
+            copies.push((objects, target_max_id));
+            copied_ids.push(renumbered);
+        }
+        let mut image_items = Vec::new();
+        image_items
+            .try_reserve_exact(recording.image_items.len())
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate canvas images: {error}"))
+            })?;
+        for item in &recording.image_items {
+            image_items.push(match item {
+                CanvasImageItem::Own(id) => {
+                    if image_stream(&self.doc, id.0).map(|(found, _)| found) != Some(*id) {
+                        return Err(no_longer_an_image(id.0));
+                    }
+                    *id
+                }
+                CanvasImageItem::Copied { group, id } => copied_ids[*group][id],
+            });
+        }
+
         let mut page_geometry = Vec::new();
         page_geometry
             .try_reserve_exact(pages.len())
@@ -990,6 +1102,8 @@ impl _Document {
             images,
             pages,
             page_imports,
+            image_items,
+            copies,
             composed,
             layers,
             reused_forms,
@@ -1059,6 +1173,8 @@ pub(super) fn commit_canvas_form(
         images,
         pages,
         page_imports,
+        image_items,
+        copies,
         composed:
             canvas::Composed {
                 root: content,
@@ -1072,6 +1188,9 @@ pub(super) fn commit_canvas_form(
     } = form;
     let form_crop = [0.0, 0.0, size.0, size.1];
     let mut xobjects = Dictionary::new();
+    // The imports and the copied objects take the numbers that preparing
+    // them assigned, in that order, so they are inserted before anything
+    // else takes a new number.
     for (document, import) in text_imports.into_iter().enumerate() {
         for (page, (form_id, _)) in commit_pages_form_import(target, import)
             .into_iter()
@@ -1082,18 +1201,6 @@ pub(super) fn commit_canvas_form(
                 Object::Reference(form_id),
             );
         }
-    }
-    let mut new_images = Vec::new();
-    for (index, image) in images.into_iter().enumerate() {
-        let id = match image {
-            CanvasImageObject::Placed(placed) => placed.id(),
-            CanvasImageObject::New(streams) => {
-                let id = draw::add_image_streams(target, streams);
-                new_images.push((index, id));
-                id
-            }
-        };
-        xobjects.set(format!("PyloI{index}"), Object::Reference(id));
     }
     for (index, placed) in pages.iter().enumerate() {
         if let Some(placed) = placed {
@@ -1116,6 +1223,24 @@ pub(super) fn commit_canvas_form(
             xobjects.set(format!("PyloP{index}"), Object::Reference(form_id));
             new_forms.push((*index, PlacedForm::new(form_id, len, crop, rotation)));
         }
+    }
+    for (objects, max_id) in copies {
+        target.insert_new_objects(objects, max_id);
+    }
+    for (index, id) in image_items.into_iter().enumerate() {
+        xobjects.set(format!("PyloX{index}"), Object::Reference(id));
+    }
+    let mut new_images = Vec::new();
+    for (index, image) in images.into_iter().enumerate() {
+        let id = match image {
+            CanvasImageObject::Placed(placed) => placed.id(),
+            CanvasImageObject::New(streams) => {
+                let id = draw::add_image_streams(target, streams);
+                new_images.push((index, id));
+                id
+            }
+        };
+        xobjects.set(format!("PyloI{index}"), Object::Reference(id));
     }
     let mut fonts = Dictionary::new();
     for (slot, font) in recording.standard_fonts.iter().enumerate() {
@@ -1258,7 +1383,11 @@ pub(super) fn commit_canvas_form(
 /// no document to prepare, as a Form XObject.
 pub(super) fn prepare_vector_canvas_form(recording: CanvasRecording) -> PyResult<CanvasForm> {
     let plan = recording.plan_embedded()?;
-    if !plan.is_empty() || !recording.images.is_empty() || !recording.pages.is_empty() {
+    if !plan.is_empty()
+        || !recording.images.is_empty()
+        || !recording.pages.is_empty()
+        || !recording.image_items.is_empty()
+    {
         return Err(PdfError::new_err(
             "a vector canvas draws no embedded text, images, or pages",
         ));
@@ -1278,6 +1407,8 @@ pub(super) fn prepare_vector_canvas_form(recording: CanvasRecording) -> PyResult
         images: Vec::new(),
         pages: Vec::new(),
         page_imports: Vec::new(),
+        image_items: Vec::new(),
+        copies: Vec::new(),
         composed,
         layers: Vec::new(),
         reused_forms: Vec::new(),
@@ -1294,6 +1425,11 @@ pub(super) struct CanvasForm {
     images: Vec<CanvasImageObject>,
     pages: Vec<Option<PlacedForm>>,
     page_imports: Vec<(PagesFormImportPlan, Vec<(usize, u32)>)>,
+    /// The image that each `PyloX` resource slot names.
+    image_items: Vec<ObjectId>,
+    /// Objects copied from other documents for image items, under their
+    /// new numbers, and the highest number of each group.
+    copies: Vec<(Vec<(ObjectId, Object)>, u32)>,
     composed: canvas::Composed,
     /// The `/OC` values of the layer scopes, by `PyloL` resource slot.
     layers: Vec<PreparedLayer>,
@@ -1320,6 +1456,11 @@ pub(super) struct CommittedCanvas {
 enum CanvasImageObject {
     Placed(PlacedImage),
     New(draw::ImageStreams),
+}
+
+/// The refusal of an image item whose object is no image any more.
+fn no_longer_an_image(xref: u32) -> PyErr {
+    StaleObjectError::new_err(format!("object {xref} is no longer an image"))
 }
 
 /// The highest object number after a prepared import and the Forms it adds.
