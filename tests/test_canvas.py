@@ -1132,9 +1132,11 @@ def test_draw_refuses_image_items_it_cannot_draw() -> None:
             canvas.draw(dataclasses.replace(item, xref=0))
         with pytest.raises(ValueError, match="does not name its document"):
             canvas.draw(dataclasses.replace(item, _source=None))
+    # A new document's canvas draws the image's pixels instead.
     builder = pylopdf.create()
-    with builder.page((300, 200)) as canvas, pytest.raises(ValueError, match="new document's canvas"):
+    with builder.page((300, 200)) as canvas:
         canvas.draw(item)
+    assert len(builder.finish().pages[0].content().images) == 1
     # An image whose object is no image any more, or whose numbers changed,
     # is stale, and so is a closed source.
     second = source.content().images[1]

@@ -31,6 +31,7 @@ from pylopdf._content import (
 from pylopdf._fonts import Font, _regular_instance, _require_winansi, _resolve_generation_font, _textbox_text
 from pylopdf._geometry import Matrix, Point, Rect
 from pylopdf._hints import hinted_getattr
+from pylopdf._images import ImageObject
 from pylopdf._layers import Layer, LayerMembership, _layer_to_core
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
@@ -975,19 +976,23 @@ class Canvas:
     def image(  # noqa: PLR0913 - the image source and placement options.
         self,
         rect: Sequence[float],
-        source: str | os.PathLike[str] | bytes | bytearray | memoryview | Pixmap,
+        source: str | os.PathLike[str] | bytes | bytearray | memoryview | Pixmap | ImageObject,
         *,
         keep_aspect: bool = True,
         rotate: int = 0,
         max_size: int | None = _DEFAULT_MAX_IMAGE_INPUT_SIZE,
         max_pixels: int | None = _DEFAULT_MAX_IMAGE_PIXELS,
     ) -> None:
-        """Draw a JPEG or PNG file, encoded bytes, or a :class:`Pixmap` into ``rect``.
+        """Draw a JPEG or PNG file, encoded bytes, a :class:`Pixmap`, or an :class:`ImageObject` into ``rect``.
 
         ``rotate`` turns the image clockwise by 0, 90, 180, or 270 degrees,
         and ``keep_aspect`` centres it in ``rect`` at its aspect ratio. An
         image drawn several times, or placed in this document before, is
-        stored once. Encoded input is limited to 64 MiB and PNG input to
+        stored once. An :class:`ImageObject` of this document is drawn
+        again, with its masks; one of another document is copied, with the
+        objects it reaches, when this call is made; a new document's canvas
+        draws its pixels as :meth:`ImageObject.to_pixmap` renders them with
+        ``alpha=True``. Encoded input is limited to 64 MiB and PNG input to
         64,000,000 pixels by default (``None`` for trusted input), refused
         with :class:`LimitError` code ``image_input_size`` or
         ``image_pixel_count``.
@@ -999,7 +1004,9 @@ class Canvas:
         _validate_optional_positive_int("max_pixels", max_pixels)
         target = self._target()
         keep = bool(keep_aspect)
-        if isinstance(source, Pixmap):
+        if isinstance(source, ImageObject):
+            self._image_object(box, source, keep=keep, rotation=rotation)
+        elif isinstance(source, Pixmap):
             self._record.add_pixmap(target, source, box, keep, rotation)
         elif isinstance(source, (bytes, bytearray, memoryview)):
             # Refuse oversized input before copying it for the core, which checks again.
@@ -1010,8 +1017,21 @@ class Canvas:
         elif isinstance(source, (str, os.PathLike)):
             self._record.add_image_file(target, os.fspath(source), box, keep, rotation, max_size, max_pixels)
         else:
-            msg = f"source must be a path, bytes, or a Pixmap, not {type(source).__name__}"
+            msg = f"source must be a path, bytes, a Pixmap, or an ImageObject, not {type(source).__name__}"
             raise TypeError(msg)
+
+    def _image_object(
+        self, box: tuple[float, float, float, float], image: ImageObject, *, keep: bool, rotation: int
+    ) -> None:
+        """Draw an image object of any document into ``box``."""
+        image._facts()
+        if self._page is None:
+            self._record.add_pixmap(None, image.to_pixmap(alpha=True), box, keep, rotation)
+            return
+        target = self._page.document
+        if image._document is target:
+            self._pin_objects()
+        self._record.add_image_object(target._doc, image._document._doc, image._xref, box, keep, rotation)
 
     def page(
         self,
@@ -1269,9 +1289,10 @@ class Canvas:
         be drawn yet. An image is drawn from its object, with the image's own
         masks: a canvas on a page of the item's document draws that object
         again, and one of another document copies it, with the objects it
-        reaches but pages, when this call is made. Images without an object
-        number, inline images and image masks, cannot be drawn yet, nor can
-        a new document's canvas draw images. Text runs follow in a later
+        reaches but pages, when this call is made; a new document's canvas
+        draws its pixels as :meth:`ImageObject.to_pixmap` renders them with
+        ``alpha=True``. Images without an object number, inline images and
+        image masks, cannot be drawn yet. Text runs follow in a later
         release.
         """
         self._check_open()
@@ -1295,14 +1316,17 @@ class Canvas:
         if item._source is None:
             msg = "the image does not name its document; draw an Image that Page.content() returned"
             raise ValueError(msg)
-        if self._page is None:
-            msg = "a new document's canvas cannot draw image items yet; draw them on the finished document's pages"
-            raise ValueError(msg)
         source, epoch = item._source
         source._ensure_open()
         if epoch != source._object_epoch:
             msg = f"image {item.xref} was invalidated when the document's objects were renumbered or reloaded"
             raise StaleObjectError(msg)
+        if self._page is None:
+            # krilla embeds pixels, not objects: draw the unit square through the item's matrix.
+            pixmap = source.images[item.xref].to_pixmap(alpha=True)
+            with self._item_context(item), self.transform(item.matrix):
+                self._record.add_pixmap(None, pixmap, (0.0, 0.0, 1.0, 1.0), keep_aspect=False, rotation=0)
+            return
         target = self._page.document
         if source is target:
             self._pin_objects()

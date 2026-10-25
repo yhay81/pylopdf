@@ -41,4 +41,8 @@ with tempfile.TemporaryDirectory() as folder:
     assert [image.xref for image in page.resources.images] == [xref]
     assert (doc.images[xref].width, doc.images[xref].height) == (100, 100)
     assert doc.images[xref].extract().format == "png"
+    with page.draw() as canvas:
+        canvas.image(pylopdf.Rect(120, 120, 170, 170), page.document.images[xref])
+    page.document.images[xref].replace(doc.pages[0].pixmap(dpi=18))
+    assert doc.images[xref].width == 50
 print("pages ok")

@@ -352,6 +352,7 @@ hayro尚未报告的信息不在模型中：颜色的色彩空间和分量、图
 | `soft_mask`、`mask`、`is_stencil` | 作为图像对象的软蒙版和模板蒙版，以及图像本身是否为模板蒙版 |
 | `extract()` | 以带有`format`、`data`和`resolution`的`EncodedImage`返回图像数据：JPEG数据按存储原样返回，其他图像以PNG返回，不含蒙版 |
 | `to_pixmap(*, alpha=False)` | 以[`Pixmap`](#pixmap)返回图像的像素：不含蒙版的RGB，或由蒙版决定透明度的RGBA |
+| `replace(source, *, max_size=64 MiB, max_pixels=64,000,000)` | 用JPEG或PNG文件路径、已编码的bytes或`Pixmap`替换图像，保留其对象编号，因此每个放置都绘制新图像；图像保留其图层和结构父项，输入的限制与[`canvas.image`](#canvas)相同 |
 
 ```python
 from pathlib import Path
@@ -362,7 +363,16 @@ with pylopdf.open("scan.pdf") as doc:
         Path(f"image-{image.xref}.{encoded.format}").write_bytes(encoded.data)
 ```
 
-图像画在何处属于页面内容：`page.content(text_runs=False, paths=False).images`列出每个放置及其框和矩阵。
+图像画在何处属于页面内容：`page.content(text_runs=False, paths=False).images`列出每个放置及其框和矩阵，`canvas.image(rect, image)`则在任意页面上再次绘制图像对象。
+
+```python
+with pylopdf.open("brochure.pdf") as doc:
+    logo = doc.images[12]
+    logo.replace("new-logo.png")            # 显示它的每一页都会改变
+    with doc.pages[-1].draw() as canvas:
+        canvas.image((40, 40, 140, 90), logo)
+    doc.save("brochure-new.pdf")
+```
 
 ## 画布 { #canvas }
 
@@ -388,7 +398,7 @@ with page.draw() as canvas:
 | `line`、`rect(rect, *, radius=0)`、`circle`、`ellipse`、`polygon`、`bezier` | 各绘制一条路径，选项与`path`相同 |
 | `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None)` | 第一条基线从`at`开始的若干行文本 |
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` | 在`rect`内自动换行的文本；返回`TextFit` |
-| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEG或PNG文件路径、已编码的bytes，或`Pixmap`；`rotate`按顺时针旋转 |
+| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEG或PNG文件路径、已编码的bytes、`Pixmap`，或[`ImageObject`](#images)；`rotate`按顺时针旋转 |
 | `page(rect, source, *, keep_aspect=True)` | 以矢量形式绘制任意已打开文档（包括本文档）的某一页 |
 | `draw(item)` | [`page.content()`](#content)返回的`Path`项或`Image`项 |
 
@@ -416,7 +426,7 @@ with page.draw() as canvas:
 | `opacity(alpha)` | 先把绘制内容合成为一个组，再以不透明度`alpha`绘制 |
 | `blend(mode)` | 用`BlendMode`将绘制内容与其下方的内容混合 |
 
-`page.draw(underlay=True)`写入到页面现有内容的下方。画布多次绘制的图像或页面，或文档之前已放置过的图像或页面，只存储一份。页面按调用`canvas.page()`时的状态绘制。`draw(item)`会重现项的裁剪、组不透明度和混合模式，但不重现其软蒙版。图像从其对象绘制，并带有图像自身的蒙版：在该项所属文档的页面上，画布再次绘制该对象；其他文档的画布则在调用`draw`时复制该对象及其引用的对象。文本段、图案颜料、内联图像和图像蒙版暂时还无法绘制。把测试语料库每一页的路径和图像重新绘制到空白页面上，在尚无法绘制的项之外，以72 dpi渲染时与原页面每个通道的差异不超过16级。一个画布最多容纳1,048,576个路径点，最多嵌套16层作用域；超出时会抛出`LimitError`，其代码为`path_point_count`或`canvas_scope_depth`。
+`page.draw(underlay=True)`写入到页面现有内容的下方。画布多次绘制的图像或页面，或文档之前已放置过的图像或页面，只存储一份。页面按调用`canvas.page()`时的状态绘制。`draw(item)`会重现项的裁剪、组不透明度和混合模式，但不重现其软蒙版。图像项与`image()`绘制`ImageObject`的方式相同，从其对象绘制，并带有图像自身的蒙版：在该对象所属文档的页面上，画布再次绘制该对象；其他文档的画布在调用时复制该对象及其引用的对象；新文档的画布则绘制`to_pixmap(alpha=True)`渲染出的像素。文本段、图案颜料、内联图像和图像蒙版暂时还无法绘制。把测试语料库每一页的路径和图像重新绘制到空白页面上，在尚无法绘制的项之外，以72 dpi渲染时与原页面每个通道的差异不超过16级。一个画布最多容纳1,048,576个路径点，最多嵌套16层作用域；超出时会抛出`LimitError`，其代码为`path_point_count`或`canvas_scope_depth`。
 
 ## 新文档 { #create }
 

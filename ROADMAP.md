@@ -823,7 +823,9 @@ Workstream Writing. Depends on the canvas.
   `char_bbox()`, and `program()`, and the glyph names of the Adobe Glyph List
   through `glyph_name()` and `glyph_text()`).
 - Images: JPEG 2000 passthrough, masks and alpha, and replacing or removing an
-  image object.
+  image object (done: soft masks from PNG and Pixmap alpha,
+  `ImageObject.replace()`, and image objects drawn again with
+  `canvas.image()`, on any canvas).
 - Placement of pages with a clip and rotation (done), and optional-content
   layers on everything the canvas draws.
 - Conversion of images (JPEG, PNG, and JPEG 2000 directly, other formats

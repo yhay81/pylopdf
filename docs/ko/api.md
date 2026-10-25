@@ -353,6 +353,7 @@ hayro가 아직 알려 주지 않는 정보는 모델에 없습니다. 색의 �
 | `soft_mask`, `mask`, `is_stencil` | 이미지 객체로서의 소프트 마스크와 스텐실 마스크, 이미지 자체가 스텐실 마스크인지 여부 |
 | `extract()` | 이미지 데이터를 `format`, `data`, `resolution`이 있는 `EncodedImage`로. JPEG 데이터는 저장된 그대로, 다른 이미지는 PNG로, 마스크는 포함하지 않음 |
 | `to_pixmap(*, alpha=False)` | 이미지의 픽셀을 [`Pixmap`](#pixmap)으로. 마스크가 없는 RGB, 또는 마스크가 투명도를 정하는 RGBA |
+| `replace(source, *, max_size=64 MiB, max_pixels=64,000,000)` | JPEG나 PNG 경로, 인코딩된 bytes, 또는 `Pixmap`을 이미지의 객체 번호 그대로 이미지 자리에 둠. 모든 배치가 새 이미지를 그리고, 이미지의 레이어와 구조상 부모는 유지되며, 입력은 [`canvas.image`](#canvas)와 같이 제한됨 |
 
 ```python
 from pathlib import Path
@@ -363,7 +364,16 @@ with pylopdf.open("scan.pdf") as doc:
         Path(f"image-{image.xref}.{encoded.format}").write_bytes(encoded.data)
 ```
 
-이미지가 그려지는 위치는 페이지 내용에 속합니다. `page.content(text_runs=False, paths=False).images`가 모든 배치를 상자, 행렬과 함께 나열합니다.
+이미지가 그려지는 위치는 페이지 내용에 속합니다. `page.content(text_runs=False, paths=False).images`가 모든 배치를 상자, 행렬과 함께 나열하고, `canvas.image(rect, image)`는 이미지 객체를 어느 페이지에든 다시 그립니다.
+
+```python
+with pylopdf.open("brochure.pdf") as doc:
+    logo = doc.images[12]
+    logo.replace("new-logo.png")            # 그것을 보여 주는 모든 페이지가 바뀜
+    with doc.pages[-1].draw() as canvas:
+        canvas.image((40, 40, 140, 90), logo)
+    doc.save("brochure-new.pdf")
+```
 
 ## 캔버스 { #canvas }
 
@@ -389,7 +399,7 @@ with page.draw() as canvas:
 | `line`, `rect(rect, *, radius=0)`, `circle`, `ellipse`, `polygon`, `bezier` | 각각 경로 하나. 옵션은 `path`와 같음 |
 | `text(text, at, *, font=None, size=11, fill=..., stroke=None, line_height=None)` | 첫 기준선이 `at`에서 시작하는 줄 |
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` | `rect` 안에서 줄바꿈한 텍스트. `TextFit`을 반환 |
-| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEG나 PNG 경로, 인코딩된 bytes, 또는 `Pixmap`. `rotate`는 시계 방향으로 돌림 |
+| `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEG나 PNG 경로, 인코딩된 bytes, `Pixmap`, 또는 [`ImageObject`](#images). `rotate`는 시계 방향으로 돌림 |
 | `page(rect, source, *, keep_aspect=True)` | 열려 있는 아무 문서(이 문서 포함)의 페이지를 벡터로 그림 |
 | `draw(item)` | [`page.content()`](#content)가 반환한 `Path` 또는 `Image` 항목 |
 
@@ -417,7 +427,7 @@ with page.draw() as canvas:
 | `opacity(alpha)` | 그림을 하나의 그룹으로 합성한 뒤 불투명도 `alpha`로 그림 |
 | `blend(mode)` | `BlendMode`로 그림을 그 아래에 있는 것과 혼합 |
 
-`page.draw(underlay=True)`는 페이지의 기존 내용 아래에 씁니다. 캔버스가 여러 번 그리는 이미지나 페이지, 또는 문서가 이전에 배치한 이미지나 페이지는 한 번만 저장됩니다. 페이지는 `canvas.page()`를 호출한 시점의 상태로 그려집니다. `draw(item)`은 항목의 클립, 그룹 불투명도, 블렌드 모드를 재현하지만 소프트 마스크는 재현하지 않습니다. 이미지는 이미지 자체의 마스크와 함께 그 객체에서 그립니다. 항목이 속한 문서의 페이지에 있는 캔버스는 그 객체를 다시 그리고, 다른 문서의 캔버스는 `draw`를 호출한 시점에 그 객체를 그것이 참조하는 객체와 함께 복사합니다. 텍스트 런, 패턴 페인트, 인라인 이미지, 이미지 마스크는 아직 그릴 수 없습니다. 테스트 코퍼스의 모든 페이지에 있는 경로와 이미지를 빈 페이지에 다시 그리면, 아직 그릴 수 없는 항목 바깥에서는 72 dpi로 렌더링했을 때 원본과의 차이가 채널마다 16단계 이내입니다. 캔버스 하나에는 경로 점이 최대 1,048,576개까지 들어가고 범위는 최대 16단계까지 중첩할 수 있으며, 이를 넘으면 `LimitError`가 발생하고 그 코드는 `path_point_count` 또는 `canvas_scope_depth`입니다.
+`page.draw(underlay=True)`는 페이지의 기존 내용 아래에 씁니다. 캔버스가 여러 번 그리는 이미지나 페이지, 또는 문서가 이전에 배치한 이미지나 페이지는 한 번만 저장됩니다. 페이지는 `canvas.page()`를 호출한 시점의 상태로 그려집니다. `draw(item)`은 항목의 클립, 그룹 불투명도, 블렌드 모드를 재현하지만 소프트 마스크는 재현하지 않습니다. 이미지 항목은 `image()`가 `ImageObject`를 그리는 것과 같이 이미지 자체의 마스크와 함께 그 객체에서 그립니다. 객체가 속한 문서의 페이지에 있는 캔버스는 그 객체를 다시 그리고, 다른 문서의 캔버스는 호출한 시점에 그 객체를 그것이 참조하는 객체와 함께 복사하며, 새 문서의 캔버스는 `to_pixmap(alpha=True)`가 렌더링하는 픽셀을 그립니다. 텍스트 런, 패턴 페인트, 인라인 이미지, 이미지 마스크는 아직 그릴 수 없습니다. 테스트 코퍼스의 모든 페이지에 있는 경로와 이미지를 빈 페이지에 다시 그리면, 아직 그릴 수 없는 항목 바깥에서는 72 dpi로 렌더링했을 때 원본과의 차이가 채널마다 16단계 이내입니다. 캔버스 하나에는 경로 점이 최대 1,048,576개까지 들어가고 범위는 최대 16단계까지 중첩할 수 있으며, 이를 넘으면 `LimitError`가 발생하고 그 코드는 `path_point_count` 또는 `canvas_scope_depth`입니다.
 
 ## 새 문서 { #create }
 

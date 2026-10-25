@@ -705,7 +705,10 @@ def test_image_rejects_bad_input() -> None:
     doc = _new_page_doc()
     page = doc.pages[0]
     before = bytes(page.pixmap(background=WHITE, alpha=True))
-    with pytest.raises(TypeError, match="source must be a path, bytes, or a Pixmap"), page.draw() as canvas:
+    with (
+        pytest.raises(TypeError, match="source must be a path, bytes, a Pixmap, or an ImageObject"),
+        page.draw() as canvas,
+    ):
         canvas.image((0, 0, 10, 10), 42)  # ty: ignore[invalid-argument-type]
     with pytest.raises(ValueError, match="rotate must be a multiple of 90"), page.draw() as canvas:
         canvas.image((0, 0, 10, 10), _solid_png(1, 1, RED), rotate=True)

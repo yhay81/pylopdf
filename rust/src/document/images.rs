@@ -47,6 +47,75 @@ impl ImageInput {
     }
 }
 
+/// Implements [`_Document::replace_image`]: the new image takes the object
+/// number of the old one, so every placement draws it, stretched into the
+/// placement's unit square. Its dictionary keeps the old one's `/OC` and
+/// `/StructParent`, which belong to its placements rather than to its
+/// samples; masks and other image entries go with the old samples.
+pub(super) fn replace_image(
+    this: &mut _Document,
+    py: Python<'_>,
+    xref: u32,
+    (data, path, pixmap): (
+        Option<Vec<u8>>,
+        Option<String>,
+        Option<PyRef<'_, crate::pixmap::Pixmap>>,
+    ),
+    (max_size, max_pixels): (Option<usize>, Option<u64>),
+) -> PyResult<()> {
+    let (id, kept) = {
+        let (id, stream) = image_stream(&this.doc, xref).ok_or_else(|| {
+            StaleObjectError::new_err(format!("object {xref} is no longer an image"))
+        })?;
+        let mut kept = Dictionary::new();
+        for key in [b"OC".as_slice(), b"StructParent".as_slice()] {
+            if let Ok(value) = stream.dict.get(key) {
+                kept.set(key, value.clone());
+            }
+        }
+        (id, kept)
+    };
+    let input = match (data, path, pixmap) {
+        (Some(data), None, None) => {
+            validate_image_input(&data, max_size, max_pixels)?;
+            ImageInput::Encoded(data)
+        }
+        (None, Some(path), None) => {
+            let data = py.detach(|| read_image_input(&path, max_size))?;
+            validate_image_input(&data, max_size, max_pixels)?;
+            ImageInput::Encoded(data)
+        }
+        (None, None, Some(pixmap)) => ImageInput::Pixmap {
+            width: pixmap.width,
+            height: pixmap.height,
+            layout: pixmap.layout,
+            data: Arc::clone(&pixmap.data),
+        },
+        _ => {
+            return Err(PdfError::new_err(
+                "replace_image takes exactly one of data, path, and pixmap",
+            ));
+        }
+    };
+    let streams = py.detach(|| -> PyResult<_> {
+        let parts = input.parse()?;
+        draw::image_streams(parts).map_err(PdfError::new_err)
+    })?;
+
+    // Every fallible step on the input is done; change the document.
+    this.invalidate_hayro_pdf();
+    let (mut image, smask) = streams.into_parts();
+    if let Some(smask) = smask {
+        let smask_id = this.doc.add_object(smask);
+        image.dict.set("SMask", Object::Reference(smask_id));
+    }
+    for (key, value) in kept {
+        image.dict.set(key, value);
+    }
+    this.doc.objects.insert(id, Object::Stream(image));
+    Ok(())
+}
+
 /// Read encoded image input without admitting more than one byte beyond its budget.
 pub(crate) fn read_image_input(path: &str, max_size: Option<usize>) -> PyResult<Vec<u8>> {
     read_bounded_input(
