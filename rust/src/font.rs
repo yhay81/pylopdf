@@ -8,13 +8,22 @@
 //! generation draws, and `text_height` wraps text with the layout and line
 //! placement of the canvas's `textbox`. A Standard 14 font is not embedded;
 //! it measures with the Adobe AFM widths that Standard 14 text layout uses.
+//!
+//! The metrics of single characters come from the same sources: read-fonts'
+//! glyph metrics of an OpenType face, at the instance HarfRust shapes, and
+//! the AFM metrics of a Standard 14 font, whose font box is the URW box that
+//! its ascender and descender come from. `glyph_name` and `glyph_text` read
+//! the Adobe Glyph List through read-fonts' `agl` module.
 
 use std::sync::Arc;
 
-use pdf_base14_metrics::Base14Font;
+use harfrust::ShaperFont;
+use pdf_base14_metrics::{Base14Font, CharacterMetric};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 use read_fonts::TableProvider;
+use read_fonts::ps::agl;
 use read_fonts::tables::head::MacStyle;
 use read_fonts::tables::os2::SelectionFlags;
 use read_fonts::types::NameId;
@@ -62,6 +71,11 @@ enum Face {
 pub struct _Font {
     face: Face,
 }
+
+/// The code points below which a Microsoft symbol or Mac Roman `cmap`
+/// subtable maps characters through a conversion that `Charmap::unicodes`
+/// does not list, so `chars` tests each of them.
+const CONVERTED_CODE_POINTS: u32 = 0x1_0000;
 
 /// The PostScript names of the Standard 14 fonts.
 const STANDARD_NAMES: [&str; 14] = [
@@ -211,6 +225,87 @@ impl _Font {
         match &self.face {
             Face::OpenType(face) => DrawFace::Embedded(&face.generation),
             Face::Standard(_, name) => DrawFace::Standard(name),
+        }
+    }
+
+    /// The glyph that an OpenType face draws for `character` alone, or the
+    /// AFM metrics of a Standard 14 font's glyph, refused when the face has
+    /// no glyph for it, as `has_glyph` decides.
+    fn char_glyph(&self, character: char) -> PyResult<CharGlyph<'_>> {
+        let missing = || {
+            PdfError::new_err(format!(
+                "the font has no glyph for {character:?} (U+{:04X})",
+                u32::from(character)
+            ))
+        };
+        match &self.face {
+            Face::OpenType(face) => {
+                let font = face.generation.shaping_font();
+                font.charmap()
+                    .map_unicode(character)
+                    .map(|glyph| CharGlyph::OpenType(font, glyph))
+                    .ok_or_else(missing)
+            }
+            Face::Standard(font, _) => draw::standard_char_metric(*font, character)
+                .map(CharGlyph::Standard)
+                .ok_or_else(missing),
+        }
+    }
+}
+
+/// The glyph of one character: an OpenType glyph of a face at its instance,
+/// or the AFM metrics of a Standard 14 glyph.
+enum CharGlyph<'a> {
+    OpenType(&'a ShapingFont, read_fonts::types::GlyphId),
+    Standard(&'static CharacterMetric<'static>),
+}
+
+impl CharGlyph<'_> {
+    /// The advance in fractions of the em. An OpenType glyph takes the
+    /// advance that HarfRust gives it, which rounds the variation deltas of
+    /// an instance as shaping and drawing do; `shaper` is a `ShaperFont` of
+    /// the glyph's font, made once per call.
+    fn advance(&self, shaper: Option<&ShaperFont<'_, '_>>) -> f64 {
+        match self {
+            Self::OpenType(font, glyph) => {
+                let advance = match shaper {
+                    Some(shaper) => shaper.glyph_h_advance(*glyph),
+                    None => ShaperFont::new(font).glyph_h_advance(*glyph),
+                };
+                f64::from(advance) / f64::from(font.units_per_em())
+            }
+            Self::Standard(metric) => f64::from(metric.width_x) / 1000.0,
+        }
+    }
+
+    /// The ink box as `(x0, y0, x1, y1)` in fractions of the em, y upward,
+    /// empty at the origin for a glyph without ink.
+    fn bbox(&self) -> (f64, f64, f64, f64) {
+        match self {
+            Self::OpenType(font, glyph) => {
+                let em = f64::from(font.units_per_em());
+                font.glyph_metrics()
+                    .extents(*glyph)
+                    .filter(|extents| extents.width > 0.0 || extents.height > 0.0)
+                    .map_or((0.0, 0.0, 0.0, 0.0), |extents| {
+                        let left = f64::from(extents.x_bearing);
+                        let top = f64::from(extents.y_bearing);
+                        (
+                            left / em,
+                            (top - f64::from(extents.height)) / em,
+                            (left + f64::from(extents.width)) / em,
+                            top / em,
+                        )
+                    })
+            }
+            Self::Standard(metric) => metric.bbox.as_ref().map_or((0.0, 0.0, 0.0, 0.0), |bbox| {
+                (
+                    f64::from(bbox.llx) / 1000.0,
+                    f64::from(bbox.lly) / 1000.0,
+                    f64::from(bbox.urx) / 1000.0,
+                    f64::from(bbox.ury) / 1000.0,
+                )
+            }),
         }
     }
 }
@@ -480,6 +575,149 @@ impl _Font {
         Ok(layout.height)
     }
 
+    /// The font bounding box as `(x0, y0, x1, y1)` in fractions of the em, y
+    /// upward: the `head` box of an OpenType face, and the URW box that a
+    /// Standard 14 font's ascender and descender come from.
+    #[getter]
+    fn bbox(&self) -> (f64, f64, f64, f64) {
+        match &self.face {
+            Face::OpenType(face) => {
+                let metrics = face.generation.shaping_font().metrics();
+                let em = f64::from(metrics.units_per_em);
+                let bounds = metrics.bounds;
+                (
+                    bounds.x_min.to_f64() / em,
+                    bounds.y_min.to_f64() / em,
+                    bounds.x_max.to_f64() / em,
+                    bounds.y_max.to_f64() / em,
+                )
+            }
+            Face::Standard(font, _) => {
+                let [x0, y0, x1, y1] = draw::standard_font_bbox(*font);
+                (x0, y0, x1, y1)
+            }
+        }
+    }
+
+    /// The number of glyphs: the face's `maxp` count, or the glyphs of a
+    /// Standard 14 font's AFM metrics.
+    #[getter]
+    fn glyph_count(&self) -> u32 {
+        match &self.face {
+            Face::OpenType(face) => face.generation.shaping_font().metrics().num_glyphs,
+            Face::Standard(font, _) => {
+                u32::try_from(font.metrics().character_metrics.len()).unwrap_or(u32::MAX)
+            }
+        }
+    }
+
+    /// Whether every glyph has the same advance: the `post` table's
+    /// `isFixedPitch`, or the AFM `IsFixedPitch` of a Standard 14 font.
+    #[getter]
+    fn monospaced(&self) -> bool {
+        match &self.face {
+            Face::OpenType(face) => face
+                .generation
+                .shaping_font()
+                .tables()
+                .post()
+                .is_ok_and(|post| post.is_fixed_pitch() != 0),
+            Face::Standard(font, _) => font.metrics().is_fixed_pitch,
+        }
+    }
+
+    /// Every character that `has_glyph` accepts, in code point order.
+    fn chars(&self, py: Python<'_>) -> PyResult<String> {
+        py.detach(|| match &self.face {
+            Face::OpenType(face) => {
+                let charmap = face.generation.shaping_font().charmap();
+                let mut codes: Vec<u32> = Vec::new();
+                for (code, _) in charmap.unicodes() {
+                    codes.try_reserve(1).map_err(|error| {
+                        PdfError::new_err(format!("failed to list the font's characters: {error}"))
+                    })?;
+                    codes.push(code);
+                }
+                // A symbol or Mac Roman subtable maps characters through a
+                // conversion that `unicodes` leaves out.
+                if charmap.unicode_is_symbol() || charmap.unicode_is_mac_roman() {
+                    for code in 0..CONVERTED_CODE_POINTS {
+                        if charmap.map_unicode(code).is_some() {
+                            codes.try_reserve(1).map_err(|error| {
+                                PdfError::new_err(format!(
+                                    "failed to list the font's characters: {error}"
+                                ))
+                            })?;
+                            codes.push(code);
+                        }
+                    }
+                }
+                codes.sort_unstable();
+                codes.dedup();
+                let mut text = String::new();
+                text.try_reserve(codes.len()).map_err(|error| {
+                    PdfError::new_err(format!("failed to list the font's characters: {error}"))
+                })?;
+                text.extend(
+                    codes
+                        .into_iter()
+                        .filter(|code| charmap.map_unicode(*code).is_some())
+                        .filter_map(char::from_u32),
+                );
+                Ok(text)
+            }
+            Face::Standard(font, _) => Ok((0..=u8::MAX)
+                .filter_map(|byte| pdf_base14_metrics::__WINANSI_CHAR_MAP[usize::from(byte)])
+                .filter(|character| draw::standard_glyph_code(*font, *character).is_some())
+                .collect::<std::collections::BTreeSet<char>>()
+                .into_iter()
+                .collect()),
+        })
+    }
+
+    /// The advance of each character of `text` drawn alone, unshaped, at
+    /// `size`, in PDF units.
+    #[pyo3(signature = (text, size, max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)))]
+    fn char_widths(
+        &self,
+        text: &str,
+        size: f64,
+        max_text_size: Option<usize>,
+    ) -> PyResult<Vec<f64>> {
+        validate_generated_text_input(std::iter::once(text.as_bytes()), max_text_size)?;
+        positive("size", size)?;
+        let mut widths = Vec::new();
+        widths
+            .try_reserve_exact(text.chars().count())
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate character widths: {error}"))
+            })?;
+        let shaper = match &self.face {
+            Face::OpenType(face) => Some(ShaperFont::new(face.generation.shaping_font())),
+            Face::Standard(..) => None,
+        };
+        for character in text.chars() {
+            widths.push(self.char_glyph(character)?.advance(shaper.as_ref()) * size);
+        }
+        Ok(widths)
+    }
+
+    /// The ink box of the glyph for `codepoint` drawn alone, as
+    /// `(x0, y0, x1, y1)` in fractions of the em, y upward.
+    fn char_bbox(&self, codepoint: u32) -> PyResult<(f64, f64, f64, f64)> {
+        let character = char::from_u32(codepoint)
+            .ok_or_else(|| PdfError::new_err(format!("U+{codepoint:04X} is no character")))?;
+        Ok(self.char_glyph(character)?.bbox())
+    }
+
+    /// The bytes an OpenType face was loaded from, a whole collection for a
+    /// face of one, or `None` for a Standard 14 font.
+    #[pyo3(name = "program")]
+    fn program_bytes<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyBytes>> {
+        self.program()
+            .map(|(data, _)| PyBytes::new(py, data.as_slice()))
+    }
+
     /// Return whether the face has a glyph for `codepoint`.
     ///
     /// A Standard 14 font has one when its encoding, WinAnsi for the text
@@ -497,6 +735,50 @@ impl _Font {
                 .is_some(),
         }
     }
+}
+
+/// Return the glyph name of a character: its name in the Adobe Glyph List,
+/// a name of the AGL rather than of the ITC Zapf Dingbats list where both
+/// name it, else `uniXXXX`, or `uXXXXX` beyond the Basic Multilingual Plane,
+/// as the AGL specification composes names.
+#[pyfunction]
+pub(crate) fn glyph_name(codepoint: u32) -> PyResult<String> {
+    if char::from_u32(codepoint).is_none() {
+        return Err(PdfError::new_err(format!(
+            "U+{codepoint:04X} is no character"
+        )));
+    }
+    let mut buffer = [0_u8; agl::MAX_NAME_LEN];
+    let mut fallback = None;
+    for index in 0.. {
+        let Some(name) = agl::char_to_nth_name(codepoint, index, &mut buffer) else {
+            break;
+        };
+        // The ITC Zapf Dingbats list names its glyphs `a1` through `a191`.
+        let dingbat = name.len() > 1
+            && name.starts_with('a')
+            && name[1..].bytes().all(|byte| byte.is_ascii_digit());
+        if !dingbat {
+            return Ok(name.to_owned());
+        }
+        fallback.get_or_insert_with(|| name.to_owned());
+    }
+    Ok(fallback.unwrap_or_else(|| {
+        if codepoint <= 0xFFFF {
+            format!("uni{codepoint:04X}")
+        } else {
+            format!("u{codepoint:05X}")
+        }
+    }))
+}
+
+/// Return the text that a glyph name stands for by the Adobe Glyph List
+/// specification: AGL and ITC Zapf Dingbats names, `uniXXXX` and `uXXXX`
+/// sequences, and components joined by underscores, with a suffix after a
+/// period ignored; empty for a name that stands for no character.
+#[pyfunction]
+pub(crate) fn glyph_text(name: &str) -> String {
+    agl::name_to_chars(name).collect()
 }
 
 /// Refuse a measure that is not a positive finite number.

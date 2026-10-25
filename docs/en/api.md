@@ -1380,11 +1380,24 @@ size)` is the width of one line, kerning and ligatures included.
 `text_height(text, size, *, width, line_height=None)` is the height that
 `canvas.textbox` needs for the text wrapped `width` points wide, so a textbox
 of that height fits the text exactly. Properties: `name`, `family`, `weight`,
-`is_bold`, `is_italic`, `is_serif`, `units_per_em`, `ascender`, and
-`descender`; `has_glyph(char)` tells whether the face has a glyph for a
-character. `typing.get_args(pylopdf.StandardFontName)` lists the 14 names that
-`Font.standard()` takes. Standard 14 fonts are not embedded and cover Western
-European (WinAnsi) characters only.
+`is_bold`, `is_italic`, `is_serif`, `is_monospaced`, `units_per_em`,
+`ascender`, `descender`, `bbox` (the font box in fractions of the em, y upward
+from the baseline), and `glyph_count`. `has_glyph(char)` tells whether the
+face has a glyph for a character, and `chars()` returns every such character
+as one string. `char_widths(text, size)` gives the advance of each character
+drawn alone, without kerning or ligatures, and `char_bbox(char)` the ink box
+of its glyph in fractions of the em, y upward; `program()` returns the bytes
+an OpenType font was loaded from. `typing.get_args(pylopdf.StandardFontName)`
+lists the 14 names that `Font.standard()` takes. Standard 14 fonts are not
+embedded and cover Western European (WinAnsi) characters only; they report
+Adobe's metrics, and their `bbox` is the box of the URW font that renderers
+commonly draw them with, whose top and bottom are their ascender and
+descender.
+
+`pylopdf.glyph_name(char)` and `pylopdf.glyph_text(name)` translate between
+characters and glyph names by the Adobe Glyph List, whatever the font:
+`glyph_name("é")` is `"eacute"`, a character that the list does not name
+takes a name such as `"uni4E00"`, and `glyph_text("f_f_i")` is `"ffi"`.
 
 A variable font loaded without `weight` uses its default instance, which is
 not always the regular weight: the variable Noto Sans CJK JP defaults to Thin.

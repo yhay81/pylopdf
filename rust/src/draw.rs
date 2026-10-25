@@ -13,7 +13,7 @@ use std::panic::catch_unwind;
 use hayro::hayro_syntax::content::TypedIter;
 use hayro::hayro_syntax::content::ops::TypedInstruction;
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream, dictionary};
-use pdf_base14_metrics::Base14Font;
+use pdf_base14_metrics::{Base14Font, CharacterMetric};
 
 use crate::layout::{LineMetrics, LinePlacement, TextBoxLayout, layout_textbox};
 
@@ -819,30 +819,42 @@ pub fn textbox_text_ops(
     Ok(out)
 }
 
+/// Return the font bounding box of a Standard 14 font as `[x0, y0, x1, y1]`
+/// in thousandths of the em, y upward: the box of the URW base-35 font that
+/// MuPDF and other renderers draw it with, not Adobe's AFM `FontBBox`, as
+/// pymupdf 1.28.2 and 2.0 report it.
+fn standard_font_box(font: Base14Font) -> [i16; 4] {
+    match font {
+        Base14Font::Courier => [-31, -317, 683, 932],
+        Base14Font::CourierOblique => [-62, -317, 792, 920],
+        Base14Font::CourierBold => [-82, -393, 698, 1007],
+        Base14Font::CourierBoldOblique => [-93, -393, 844, 997],
+        Base14Font::Helvetica => [-210, -299, 1032, 1075],
+        Base14Font::HelveticaOblique => [-123, -284, 1154, 1070],
+        Base14Font::HelveticaBold => [-188, -307, 1069, 1070],
+        Base14Font::HelveticaBoldOblique => [-122, -309, 1196, 1073],
+        Base14Font::TimesRoman => [-168, -281, 1000, 1053],
+        Base14Font::TimesItalic => [-169, -270, 1085, 951],
+        Base14Font::TimesBold => [-168, -341, 1079, 1044],
+        Base14Font::TimesBoldItalic => [-200, -324, 1154, 972],
+        Base14Font::Symbol => [-180, -293, 1090, 1010],
+        Base14Font::ZapfDingbats => [-1, -144, 981, 819],
+    }
+}
+
+/// Return the font bounding box of a Standard 14 font in fractions of the
+/// em, y upward; see `standard_font_box`.
+pub(crate) fn standard_font_bbox(font: Base14Font) -> [f64; 4] {
+    standard_font_box(font).map(|value| f64::from(value) / 1000.0)
+}
+
 /// Return the ascender and descender of a Standard 14 font, which canvas
-/// text places lines with: the font bounding boxes of the URW base-35 fonts
-/// that MuPDF and other renderers draw these fonts with, not Adobe's AFM
-/// metrics, as pymupdf 1.28.2 reports them, in thousandths of the em.
+/// text places lines with: the top and bottom of its URW font box.
 pub(crate) fn standard_line_metrics(font: Base14Font) -> LineMetrics {
-    let (ascender, descender) = match font {
-        Base14Font::Courier => (932, -317),
-        Base14Font::CourierOblique => (920, -317),
-        Base14Font::CourierBold => (1007, -393),
-        Base14Font::CourierBoldOblique => (997, -393),
-        Base14Font::Helvetica => (1075, -299),
-        Base14Font::HelveticaOblique => (1070, -284),
-        Base14Font::HelveticaBold => (1070, -307),
-        Base14Font::HelveticaBoldOblique => (1073, -309),
-        Base14Font::TimesRoman => (1053, -281),
-        Base14Font::TimesItalic => (951, -270),
-        Base14Font::TimesBold => (1044, -341),
-        Base14Font::TimesBoldItalic => (972, -324),
-        Base14Font::Symbol => (1010, -293),
-        Base14Font::ZapfDingbats => (819, -144),
-    };
+    let [_, descender, _, ascender] = standard_font_bbox(font);
     LineMetrics {
-        ascender: f64::from(ascender) / 1000.0,
-        descender: f64::from(descender) / 1000.0,
+        ascender,
+        descender,
     }
 }
 
@@ -878,6 +890,31 @@ pub(crate) fn standard_glyph_code(font: Base14Font, character: char) -> Option<u
         font.winansi_width(byte).is_some()
     };
     present.then_some(byte)
+}
+
+/// Return the AFM metrics of the glyph that a Standard 14 font draws for a
+/// character: by its WinAnsi glyph name in a text font, and by its code in
+/// the built-in encoding, addressed through WinAnsi bytes, in Symbol and
+/// ZapfDingbats. `None` when the font has no glyph for the character, as
+/// `standard_glyph_code` decides.
+pub(crate) fn standard_char_metric(
+    font: Base14Font,
+    character: char,
+) -> Option<&'static CharacterMetric<'static>> {
+    let byte = standard_glyph_code(font, character)?;
+    let metrics = font.metrics();
+    if matches!(font, Base14Font::Symbol | Base14Font::ZapfDingbats) {
+        metrics
+            .character_metrics
+            .iter()
+            .find(|metric| metric.code == i32::from(byte))
+    } else {
+        let name = pdf_base14_metrics::winansi_glyph_name(byte)?;
+        metrics
+            .character_metrics
+            .iter()
+            .find(|metric| metric.name == name)
+    }
 }
 
 pub(crate) fn standard_text_width(

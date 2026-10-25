@@ -90,7 +90,7 @@ from pylopdf._errors import (
 )
 from pylopdf._fallback_fonts import FallbackFont, FallbackFonts
 from pylopdf._font_objects import FontFormat, FontObject, FontProgram, Fonts, FormObject
-from pylopdf._fonts import Font
+from pylopdf._fonts import Font, glyph_name, glyph_text
 from pylopdf._form import (
     CheckBox,
     ComboBox,
@@ -351,6 +351,8 @@ __all__ = [
     "Widgets",
     "Word",
     "create",
+    "glyph_name",
+    "glyph_text",
     "open",
     "parse_pdf_date",
     "pdf_date",

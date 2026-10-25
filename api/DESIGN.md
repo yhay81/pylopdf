@@ -349,12 +349,17 @@ weight=None)` and `Font.from_bytes(data, /, *, index=0, weight=None)`, both
 bounded by `max_size`, and `Font.installed(*, language=None, family=None,
 serif=False, weight=None, italic=False)` for the faces of installed font
 extras. A `Font` reports `name`, `family`, `weight`, `is_bold`, `is_italic`,
-`is_serif`, `ascender`, `descender`, and `units_per_em`, tells with
-`has_glyph(char)` whether it has a glyph for a character, and measures text
-as the canvas draws it: `text_width(text, size)` for one line, and
-`text_height(text, size, *, width, line_height=None)` for the height that
-`textbox` needs for the text wrapped `width` points wide, so a page can be
-planned before anything is drawn.
+`is_serif`, `is_monospaced`, `ascender`, `descender`, `units_per_em`, `bbox`
+(in fractions of the em, y upward), and `glyph_count`; tells with
+`has_glyph(char)` whether it has a glyph for a character and lists them with
+`chars()`; gives the metrics of a character drawn alone with
+`char_widths(text, size)` and `char_bbox(char)`; returns the bytes it was
+loaded from with `program()`; and measures text as the canvas draws it:
+`text_width(text, size)` for one line, and `text_height(text, size, *, width,
+line_height=None)` for the height that `textbox` needs for the text wrapped
+`width` points wide, so a page can be planned before anything is drawn.
+`glyph_name(char)` and `glyph_text(name)` translate between characters and
+glyph names by the Adobe Glyph List, independently of any font.
 
 `pylopdf.create(*, standard=None, tagged=False, language=None, title=None,
 author=None, subject=None, keywords=(), created=None)` returns a `Builder`

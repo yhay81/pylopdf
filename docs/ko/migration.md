@@ -104,6 +104,9 @@ python -m pylopdf.migrate src/
 | `pymupdf.Font(...)` | `Font.standard(name)`, `Font.from_file(path)`, `Font.from_bytes(data)`, `Font.installed(language=...)` | PostScript 이름으로 지정하는 Standard 14 글꼴(`"helv"`는 `"Helvetica"`), OpenType 파일, 설치된 글꼴 extra. pymupdf의 다른 내장 글꼴과 `script=`, `ordering=`, `embed=`는 사용할 수 없음 |
 | `font.text_length(text, fontsize)`, `pymupdf.get_text_length(text, fontname, fontsize)` | `font.text_width(text, size)` | `size`에는 기본값이 없음. `font.text_height(text, size, width=...)`는 줄바꿈한 텍스트를 `canvas.textbox`가 그리는 대로 잼 |
 | `font.has_glyph(ord(c))` | `font.has_glyph(c)` | 문자 자체를 받고, 글리프 번호가 아니라 불리언을 반환 |
+| `font.glyph_advance(ord(c))`, `font.char_lengths(text, fontsize)` | `font.char_widths(c, 1)[0]`, `font.char_widths(text, size)` | 각 문자를 단독으로 그릴 때의 전진 폭이며, `size`에는 기본값이 없음 |
+| `font.glyph_bbox(ord(c))`, `font.valid_codepoints()`, `font.buffer`, `font.flags` | `font.char_bbox(c)`, `font.chars()`, `font.program()`, `font.is_monospaced` | `chars()`는 문자를 하나의 문자열로 반환하며, 다른 플래그는 `is_bold`, `is_italic`, `is_serif` |
+| `pymupdf.unicode_to_glyph_name(code)`, `glyph_name_to_unicode(name)` | `pylopdf.glyph_name(char)`, `pylopdf.glyph_text(name)` | 코드 포인트가 아니라 문자와 문자열을 받고 반환하며, 문자를 나타내지 않는 이름에는 `glyph_text`가 `""`를 반환 |
 | `pymupdf.Base14_fontnames`, `Base14_fontdict` | `typing.get_args(pylopdf.StandardFontName)` | `Font.standard()`가 받는 14개의 PostScript 이름 |
 | `page.insert_image(rect, filename=/stream=/pixmap=)` | `canvas.image(rect, source)` | `with page.draw() as canvas:` 안에서 호출함. source는 경로, JPEG나 PNG bytes, 또는 `Pixmap`이고, `keep_proportion=`은 `keep_aspect=`가 됨. `rotate=`는 시계 방향이며 pymupdf는 반시계 방향임. 같은 이미지를 두 번 그려도 한 번만 저장되므로 `xref=`가 필요 없고, 각 배치의 `xref`는 `page.content().images`로 알 수 있음 |
 | `page.show_pdf_page(rect, docsrc, pno)` | `canvas.page(rect, docsrc.pages[pno])` | 같은 문서의 페이지여도 됨. `clip=`과 `rotate=`는 아직 없음 |

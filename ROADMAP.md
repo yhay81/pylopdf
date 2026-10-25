@@ -818,7 +818,10 @@ Workstream Writing. Depends on the canvas.
   justification, with parley evaluated for the layout; and an HTML and CSS
   subset for text boxes.
 - Fonts: metrics, glyph coverage, advances, bounding boxes, and style
-  information for the Standard 14 fonts and OpenType faces.
+  information for the Standard 14 fonts and OpenType faces (done:
+  `Font.bbox`, `glyph_count`, `is_monospaced`, `chars()`, `char_widths()`,
+  `char_bbox()`, and `program()`, and the glyph names of the Adobe Glyph List
+  through `glyph_name()` and `glyph_text()`).
 - Images: JPEG 2000 passthrough, masks and alpha, and replacing or removing an
   image object.
 - Placement of pages with a clip and rotation (done), and optional-content

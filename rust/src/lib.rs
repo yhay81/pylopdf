@@ -60,6 +60,8 @@ fn pylopdf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<_Document>()?;
     m.add_class::<document::_DocumentSnapshot>()?;
     m.add_class::<_Font>()?;
+    m.add_function(wrap_pyfunction!(font::glyph_name, m)?)?;
+    m.add_function(wrap_pyfunction!(font::glyph_text, m)?)?;
     m.add_class::<_OcrEngine>()?;
     m.add_class::<Pixmap>()?;
     m.add("PdfError", m.py().get_type::<PdfError>())?;

@@ -516,7 +516,9 @@ pylopdf.Font.installed(*, language=None, family=None, serif=False, weight=None, 
 | `Font.installed(language="ja")`、`Font.installed(family="Noto Sans JP")` | 已安装extra中的字体；`serif=True`选择该语言的衬线体 |
 | `Font.installed(language="he", weight=700)` | 已安装可变字体的粗体字重 |
 
-字体按[画布](#canvas)的绘制方式测量文本。`text_width(text, size)`是一行的宽度，含字距调整和连字。`text_height(text, size, *, width, line_height=None)`是文本按`width`点宽度换行时`canvas.textbox`所需的高度，因此这个高度的textbox正好容纳该文本。属性有`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`、`units_per_em`、`ascender`和`descender`；`has_glyph(char)`返回字体是否有该字符的字形。`typing.get_args(pylopdf.StandardFontName)`列出`Font.standard()`接受的14个名称。Standard 14字体不嵌入，只能书写西欧（WinAnsi）字符。
+字体按[画布](#canvas)的绘制方式测量文本。`text_width(text, size)`是一行的宽度，含字距调整和连字。`text_height(text, size, *, width, line_height=None)`是文本按`width`点宽度换行时`canvas.textbox`所需的高度，因此这个高度的textbox正好容纳该文本。属性有`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`、`is_monospaced`、`units_per_em`、`ascender`、`descender`、`bbox`（以em的比例表示的字体边界框，y从基线向上）和`glyph_count`。`has_glyph(char)`返回字体是否有该字符的字形，`chars()`把所有这样的字符作为一个字符串返回。`char_widths(text, size)`给出每个字符单独绘制时的步进宽度，不含字距调整和连字；`char_bbox(char)`给出其字形的墨迹边界框，以em的比例表示，y向上；`program()`返回加载OpenType字体时的字节。`typing.get_args(pylopdf.StandardFontName)`列出`Font.standard()`接受的14个名称。Standard 14字体不嵌入，只能书写西欧（WinAnsi）字符；它们报告Adobe的度量，其`bbox`是渲染器通常用来代替它们绘制的URW字体的边界框，其上下边即其上伸部和下伸部。
+
+`pylopdf.glyph_name(char)`和`pylopdf.glyph_text(name)`按照Adobe Glyph List在字符和字形名之间转换，与字体无关：`glyph_name("é")`是`"eacute"`，该列表未命名的字符得到`"uni4E00"`这样的名称，`glyph_text("f_f_i")`是`"ffi"`。
 
 不指定`weight`加载的可变字体使用其默认实例，而默认实例不一定是常规字重：可变字体Noto Sans CJK JP的默认实例是Thin。要使用常规字重，请传入`weight=400`。填写表单所用的字体（`doc.form.font`）也是如此。
 
