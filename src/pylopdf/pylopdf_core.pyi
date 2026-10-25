@@ -292,6 +292,13 @@ class _Canvas:
         clip: tuple[float, float, float, float] | None = None,
         rotation: int = 0,
     ) -> None: ...
+    def add_image_item(
+        self,
+        target: _Document,
+        source: _Document,
+        xref: int,
+        matrix: tuple[float, float, float, float, float, float],
+    ) -> None: ...
 
 class Pixmap:
     @property

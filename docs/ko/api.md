@@ -391,9 +391,9 @@ with page.draw() as canvas:
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` | `rect` 안에서 줄바꿈한 텍스트. `TextFit`을 반환 |
 | `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEG나 PNG 경로, 인코딩된 bytes, 또는 `Pixmap`. `rotate`는 시계 방향으로 돌림 |
 | `page(rect, source, *, keep_aspect=True)` | 열려 있는 아무 문서(이 문서 포함)의 페이지를 벡터로 그림 |
-| `draw(item)` | [`page.content()`](#content)가 반환한 `Path` 항목 |
+| `draw(item)` | [`page.content()`](#content)가 반환한 `Path` 또는 `Image` 항목 |
 
-경로는 `Color` 채우기와 선을 받습니다. 선은 너비, 끝 모양, 연결 모양, 마이터 한계, 대시를 가진 `Stroke`이거나, 1포인트 선을 뜻하는 `Color`입니다. 둘 다 없는 경로는 1포인트 검은 선으로 그립니다. 색의 `alpha`는 그 채우기나 선을 반투명하게 만듭니다. `PathBuilder`는 `move_to`, `line_to`, `curve_to`, `quad_to`, `close`로 기하 형태를 만들고, `rect`, `ellipse`, `circle`, `polygon`, `sector`, `zigzag`, `wave`로 완성된 도형을 추가합니다. 모든 메서드가 빌더 자신을 반환하므로 호출을 이어서 쓸 수 있습니다.
+경로는 `Color` 채우기와 선을 받습니다. 선은 너비, 끝 모양, 연결 모양, 마이터 한계, 대시를 가진 `Stroke`이거나, 1포인트 선을 뜻하는 `Color`입니다. 너비가 0인 선은 출력 장치가 표시할 수 있는 가장 가는 선으로 그려집니다. 둘 다 없는 경로는 1포인트 검은 선으로 그립니다. 색의 `alpha`는 그 채우기나 선을 반투명하게 만듭니다. `PathBuilder`는 `move_to`, `line_to`, `curve_to`, `quad_to`, `close`로 기하 형태를 만들고, `rect`, `ellipse`, `circle`, `polygon`, `sector`, `zigzag`, `wave`로 완성된 도형을 추가합니다. 모든 메서드가 빌더 자신을 반환하므로 호출을 이어서 쓸 수 있습니다.
 
 텍스트는 [`Font`](#font)로 그립니다. OpenType 글꼴은 HarfRust로 셰이핑되며, 몇 번의 호출에서 쓰이든 캔버스마다 한 번만 서브셋으로 포함됩니다. `font`가 없으면 서유럽 텍스트는 Helvetica로, 그 밖의 텍스트는 해당 문자 체계를 위한 설치된 [글꼴 extra](getting-started.md#installation)로 그립니다. 텍스트는 채우거나, 선으로 그리거나, 둘 다 할 수 있습니다. `text`는 각 줄을 앞 줄보다 `line_height × size`만큼 아래에 놓으며, 기본값은 글꼴 자체의 줄 높이, 즉 어센더에서 디센더를 뺀 값입니다. `textbox`는 Unicode가 줄바꿈을 허용하는 위치에서 줄을 나누고 같은 간격으로 줄을 놓으며, 첫 기준선은 `rect` 위쪽에서 어센더 하나만큼 아래에 있습니다. 텍스트가 들어가지 않으면 아무것도 그리지 않으며, `TextFit.spare_height`는 부족한 만큼을 나타내는 음수가 되므로 `fit.fits`는 거짓입니다. [`Font.text_height`](#font)는 그리기 전에 textbox에 필요한 높이를 재므로, 텍스트를 둘러싸는 틀의 크기나 페이지 나누기를 정할 수 있습니다.
 
@@ -417,7 +417,7 @@ with page.draw() as canvas:
 | `opacity(alpha)` | 그림을 하나의 그룹으로 합성한 뒤 불투명도 `alpha`로 그림 |
 | `blend(mode)` | `BlendMode`로 그림을 그 아래에 있는 것과 혼합 |
 
-`page.draw(underlay=True)`는 페이지의 기존 내용 아래에 씁니다. 캔버스가 여러 번 그리는 이미지나 페이지, 또는 문서가 이전에 배치한 이미지나 페이지는 한 번만 저장됩니다. 페이지는 `canvas.page()`를 호출한 시점의 상태로 그려집니다. `draw(item)`은 항목의 클립, 그룹 불투명도, 블렌드 모드를 재현하지만 소프트 마스크는 재현하지 않습니다. 텍스트 런, 이미지, 패턴 페인트는 아직 그릴 수 없습니다. 캔버스 하나에는 경로 점이 최대 1,048,576개까지 들어가고 범위는 최대 16단계까지 중첩할 수 있으며, 이를 넘으면 `LimitError`가 발생하고 그 코드는 `path_point_count` 또는 `canvas_scope_depth`입니다.
+`page.draw(underlay=True)`는 페이지의 기존 내용 아래에 씁니다. 캔버스가 여러 번 그리는 이미지나 페이지, 또는 문서가 이전에 배치한 이미지나 페이지는 한 번만 저장됩니다. 페이지는 `canvas.page()`를 호출한 시점의 상태로 그려집니다. `draw(item)`은 항목의 클립, 그룹 불투명도, 블렌드 모드를 재현하지만 소프트 마스크는 재현하지 않습니다. 이미지는 이미지 자체의 마스크와 함께 그 객체에서 그립니다. 항목이 속한 문서의 페이지에 있는 캔버스는 그 객체를 다시 그리고, 다른 문서의 캔버스는 `draw`를 호출한 시점에 그 객체를 그것이 참조하는 객체와 함께 복사합니다. 텍스트 런, 패턴 페인트, 인라인 이미지, 이미지 마스크는 아직 그릴 수 없습니다. 테스트 코퍼스의 모든 페이지에 있는 경로와 이미지를 빈 페이지에 다시 그리면, 아직 그릴 수 없는 항목 바깥에서는 72 dpi로 렌더링했을 때 원본과의 차이가 채널마다 16단계 이내입니다. 캔버스 하나에는 경로 점이 최대 1,048,576개까지 들어가고 범위는 최대 16단계까지 중첩할 수 있으며, 이를 넘으면 `LimitError`가 발생하고 그 코드는 `path_point_count` 또는 `canvas_scope_depth`입니다.
 
 ## 새 문서 { #create }
 

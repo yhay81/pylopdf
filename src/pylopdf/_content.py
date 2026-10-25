@@ -12,13 +12,15 @@ from __future__ import annotations
 import enum
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypeAlias, overload
 
 from pylopdf._geometry import Matrix, Point, Rect
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from pylopdf._document import Document
 
 
 class BlendMode(enum.StrEnum):
@@ -194,7 +196,8 @@ class Stroke:
     """How a path or text run is stroked, in display space.
 
     ``width`` and the dash lengths are scaled by the largest scale of the
-    transform in force when the stroke was painted.
+    transform in force when the stroke was painted. A width of 0 is the
+    thinnest line that the device can show.
     """
 
     paint: Paint
@@ -380,11 +383,15 @@ class Image:
     resolution: tuple[int, int]
     """The resolution that a JPEG's JFIF header states, else 96 by 96."""
     matrix: Matrix
-    """The transform from the unit square to display space."""
+    """The transform from the unit square to display space; the square's
+    edge at ``y = 0`` holds the image's first row."""
     bbox: Rect
     context: GraphicsContext
     blend_mode: BlendMode
     soft_mask: SoftMask | None
+    _source: tuple[Document, int] | None = field(default=None, repr=False, compare=False)
+    """The document that :meth:`Page.content` read, and its object epoch,
+    which :meth:`Canvas.draw` copies the image from."""
 
 
 ContentItem: TypeAlias = TextRun | Path | Image
@@ -600,7 +607,7 @@ def _soft_mask(raw: tuple[int, bool] | None) -> SoftMask | None:
 class _Converter:
     """Turn the core's tuples into values, sharing equal paints."""
 
-    def __init__(self, fonts: list[Any], states: _Contexts) -> None:
+    def __init__(self, fonts: list[Any], states: _Contexts, source: tuple[Document, int] | None) -> None:
         self.fonts = [
             FontRef(
                 name=name,
@@ -613,6 +620,7 @@ class _Converter:
             for name, is_type3, weight, is_italic, is_serif, is_monospace in fonts
         ]
         self.states = states
+        self.source = source
         self.paints: dict[tuple[int, tuple[float, ...]], Paint] = {}
 
     def paint(self, raw: tuple[int, list[float]]) -> Paint:
@@ -719,6 +727,7 @@ class _Converter:
             context=self.states[state],
             blend_mode=_BLEND_MODES[blend],
             soft_mask=_soft_mask(soft_mask),
+            _source=self.source,
         )
 
 
@@ -774,10 +783,10 @@ class _Contexts:
         return value
 
 
-def _content_from_core(raw: Any) -> Content:  # noqa: ANN401 - the core's nested tuples.
-    """Build a :class:`Content` from ``_Document.page_content``."""
+def _content_from_core(raw: Any, source: tuple[Document, int] | None = None) -> Content:  # noqa: ANN401 - the core's nested tuples.
+    """Build a :class:`Content` from ``_Document.page_content`` of ``source``, a document and its object epoch."""
     items, fonts, clips, groups, marks, states = raw
-    converter = _Converter(fonts, _Contexts(clips, groups, marks, states))
+    converter = _Converter(fonts, _Contexts(clips, groups, marks, states), source)
     converted: list[ContentItem] = []
     for kind, item in items:
         if kind == _TEXT_RUN:

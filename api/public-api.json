@@ -1298,7 +1298,7 @@
                 "name": "self"
               },
               {
-                "annotation": "Path",
+                "annotation": "Path | Image",
                 "kind": "positional_or_keyword",
                 "name": "item"
               }
@@ -5840,6 +5840,7 @@
     },
     "Image": {
       "annotations": {
+        "_source": "tuple[Document, int] | None",
         "bbox": "Rect",
         "bits": "int",
         "blend_mode": "BlendMode",
@@ -5871,7 +5872,8 @@
         "bbox",
         "context",
         "blend_mode",
-        "soft_mask"
+        "soft_mask",
+        "_source"
       ],
       "kind": "class",
       "members": {
@@ -5997,6 +5999,12 @@
             "annotation": "SoftMask | None",
             "kind": "keyword_only",
             "name": "soft_mask"
+          },
+          {
+            "annotation": "tuple[Document, int] | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "_source"
           }
         ],
         "returns": "None"

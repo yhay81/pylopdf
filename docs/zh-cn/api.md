@@ -390,9 +390,9 @@ with page.draw() as canvas:
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, ...)` | 在`rect`内自动换行的文本；返回`TextFit` |
 | `image(rect, source, *, keep_aspect=True, rotate=0)` | JPEG或PNG文件路径、已编码的bytes，或`Pixmap`；`rotate`按顺时针旋转 |
 | `page(rect, source, *, keep_aspect=True)` | 以矢量形式绘制任意已打开文档（包括本文档）的某一页 |
-| `draw(item)` | [`page.content()`](#content)返回的`Path`项 |
+| `draw(item)` | [`page.content()`](#content)返回的`Path`项或`Image`项 |
 
-路径接受`Color`填充和描边：描边可以是带有宽度、线帽、连接方式、斜接限制和虚线的`Stroke`，也可以是表示1点宽线条的`Color`。两者都未指定的路径以1点宽的黑线描边。颜色的`alpha`使相应的填充或描边半透明。`PathBuilder`用`move_to`、`line_to`、`curve_to`、`quad_to`和`close`构建几何形状，并用`rect`、`ellipse`、`circle`、`polygon`、`sector`、`zigzag`和`wave`添加完整的图形；每个方法都返回构建器本身，因此可以链式调用。
+路径接受`Color`填充和描边：描边可以是带有宽度、线帽、连接方式、斜接限制和虚线的`Stroke`，也可以是表示1点宽线条的`Color`；宽度为0时绘制输出设备能显示的最细线条。两者都未指定的路径以1点宽的黑线描边。颜色的`alpha`使相应的填充或描边半透明。`PathBuilder`用`move_to`、`line_to`、`curve_to`、`quad_to`和`close`构建几何形状，并用`rect`、`ellipse`、`circle`、`polygon`、`sector`、`zigzag`和`wave`添加完整的图形；每个方法都返回构建器本身，因此可以链式调用。
 
 文本用[`Font`](#font)绘制。OpenType字体用HarfRust进行字形整形（shaping），并以子集形式嵌入；无论有多少次调用用到它，每个画布只嵌入一次。不指定`font`时，西欧文本用Helvetica绘制，其他文本用该文字对应的已安装[字体extra](getting-started.md#installation)绘制。文本可以填充、描边或两者兼有。`text`把每一行放在上一行下方`line_height × size`处，默认使用字体自身的行高，即上伸部减去下伸部。`textbox`在Unicode允许换行的位置断行，并以相同的间距排列各行，第一条基线位于`rect`顶边下方一个上伸部处；文本放不下时不绘制任何内容，`TextFit.spare_height`为表示不足量的负值，因此`fit.fits`为假。[`Font.text_height`](#font)在绘制之前测出textbox所需的高度，可据此确定文本外框的大小或决定分页：
 
@@ -416,7 +416,7 @@ with page.draw() as canvas:
 | `opacity(alpha)` | 先把绘制内容合成为一个组，再以不透明度`alpha`绘制 |
 | `blend(mode)` | 用`BlendMode`将绘制内容与其下方的内容混合 |
 
-`page.draw(underlay=True)`写入到页面现有内容的下方。画布多次绘制的图像或页面，或文档之前已放置过的图像或页面，只存储一份。页面按调用`canvas.page()`时的状态绘制。`draw(item)`会重现项的裁剪、组不透明度和混合模式，但不重现其软蒙版；文本段、图像和图案颜料暂时还无法绘制。一个画布最多容纳1,048,576个路径点，最多嵌套16层作用域；超出时会抛出`LimitError`，其代码为`path_point_count`或`canvas_scope_depth`。
+`page.draw(underlay=True)`写入到页面现有内容的下方。画布多次绘制的图像或页面，或文档之前已放置过的图像或页面，只存储一份。页面按调用`canvas.page()`时的状态绘制。`draw(item)`会重现项的裁剪、组不透明度和混合模式，但不重现其软蒙版。图像从其对象绘制，并带有图像自身的蒙版：在该项所属文档的页面上，画布再次绘制该对象；其他文档的画布则在调用`draw`时复制该对象及其引用的对象。文本段、图案颜料、内联图像和图像蒙版暂时还无法绘制。把测试语料库每一页的路径和图像重新绘制到空白页面上，在尚无法绘制的项之外，以72 dpi渲染时与原页面每个通道的差异不超过16级。一个画布最多容纳1,048,576个路径点，最多嵌套16层作用域；超出时会抛出`LimitError`，其代码为`path_point_count`或`canvas_scope_depth`。
 
 ## 新文档 { #create }
 

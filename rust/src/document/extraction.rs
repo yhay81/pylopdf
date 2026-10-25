@@ -825,7 +825,7 @@ fn image_color_space_names(doc: &Document, dict: &Dictionary) -> (String, String
 
 /// Return the image XObject that an object number names, at its newest
 /// generation, or `None` when the object is no image stream.
-fn image_stream(doc: &Document, xref: u32) -> Option<(ObjectId, &Stream)> {
+pub(super) fn image_stream(doc: &Document, xref: u32) -> Option<(ObjectId, &Stream)> {
     let id = doc
         .objects
         .range((xref, 0)..=(xref, u16::MAX))

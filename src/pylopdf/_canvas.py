@@ -18,6 +18,7 @@ from pylopdf._content import (
     Color,
     CurveTo,
     FillRule,
+    Image,
     LineCap,
     LineJoin,
     LineTo,
@@ -140,9 +141,10 @@ def _stroke(value: Stroke | Color | None) -> _CoreStroke | None:
     if not isinstance(stroke.paint, Color):
         msg = "a canvas strokes with a Color; pattern paints cannot be drawn yet"
         raise TypeError(msg)
+    # A width of 0 draws the thinnest line that the device can show.
     width = _number(stroke.width, "stroke.width")
-    if not width > 0:
-        msg = f"stroke.width must be positive: {stroke.width!r}"
+    if width < 0:
+        msg = f"stroke.width must be non-negative: {stroke.width!r}"
         raise ValueError(msg)
     miter_limit = _number(stroke.miter_limit, "stroke.miter_limit")
     if miter_limit < 1:
@@ -680,7 +682,7 @@ class Canvas:
         self._core = _Canvas(width, height)
         self._target_id = 0
         self._closed = False
-        self._layer_epoch: int | None = None
+        self._epoch: int | None = None
 
     @classmethod
     def _new_page(cls, builder: Builder, width: float, height: float) -> Canvas:
@@ -692,7 +694,7 @@ class Canvas:
         canvas._core = _Canvas(width, height, new_document=True)
         canvas._target_id = 0
         canvas._closed = False
-        canvas._layer_epoch = None
+        canvas._epoch = None
         return canvas
 
     @property
@@ -731,9 +733,9 @@ class Canvas:
             return
         page = cast("Page", self._page)
         document = page.document
-        if self._layer_epoch is not None and self._layer_epoch != document._object_epoch:
+        if self._epoch is not None and self._epoch != document._object_epoch:
             self._core.clear()
-            msg = "the canvas's layers were invalidated when the document's objects were renumbered"
+            msg = "the canvas's layers and images were invalidated when the document's objects were renumbered"
             raise StaleObjectError(msg)
         try:
             document._doc.commit_canvas(page._page_number(), self._core, self._overlay)
@@ -760,6 +762,20 @@ class Canvas:
         if self._closed:
             msg = "the canvas was already written; start another one"
             raise ValueError(msg)
+
+    def _pin_objects(self) -> None:
+        """Record that the canvas names objects of its page's document by number.
+
+        Renumbering would give those numbers to other objects before the
+        canvas commits, so committing refuses after it, and so does naming
+        objects again after it.
+        """
+        document = cast("Page", self._page).document
+        root: Canvas = self._parent if isinstance(self, _MaskCanvas) else self
+        if root._epoch is not None and root._epoch != document._object_epoch:
+            msg = "the canvas's layers and images were invalidated when the document's objects were renumbered"
+            raise StaleObjectError(msg)
+        root._epoch = document._object_epoch
 
     def path(
         self,
@@ -1097,10 +1113,8 @@ class Canvas:
             raise TypeError(msg)
         document = self._page.document
         value = _layer_to_core(document, layer)
-        # The scope names the group by object number, which renumbering
-        # would give to another object before the canvas commits.
-        root: Canvas = self._parent if isinstance(self, _MaskCanvas) else self
-        root._layer_epoch = document._object_epoch
+        # The scope names the group by object number.
+        self._pin_objects()
         return _CanvasScope(self._record, lambda: self._record.push_layer(value))
 
     def mask(self, *, subtype: SoftMaskType = SoftMaskType.LUMINOSITY) -> AbstractContextManager[Canvas]:
@@ -1247,16 +1261,25 @@ class Canvas:
             lambda: self._record.push_tag(value, alt, lang, title, actual_text, header_scope, list_numbering),
         )
 
-    def draw(self, item: Path) -> None:
-        """Paint a :class:`Path` item that :meth:`Page.content` returned.
+    def draw(self, item: Path | Image) -> None:
+        """Paint a :class:`Path` or :class:`Image` item that :meth:`Page.content` returned.
 
         The item's clips, its groups' opacity and blend modes, and its own
         blend mode are applied; soft masks are not, and pattern paints cannot
-        be drawn yet. Text runs and images follow in a later release.
+        be drawn yet. An image is drawn from its object, with the image's own
+        masks: a canvas on a page of the item's document draws that object
+        again, and one of another document copies it, with the objects it
+        reaches but pages, when this call is made. Images without an object
+        number, inline images and image masks, cannot be drawn yet, nor can
+        a new document's canvas draw images. Text runs follow in a later
+        release.
         """
         self._check_open()
+        if isinstance(item, Image):
+            self._draw_image(item)
+            return
         if not isinstance(item, Path):
-            msg = f"draw() paints Path items, not {type(item).__name__}"
+            msg = f"draw() paints Path and Image items, not {type(item).__name__}"
             raise TypeError(msg)
         if item.fill is not None and not isinstance(item.fill, Color):
             msg = "a canvas fills with a Color; pattern paints cannot be drawn yet"
@@ -1264,8 +1287,32 @@ class Canvas:
         with self._item_context(item):
             self.path(item.segments, fill=item.fill, stroke=item.stroke, fill_rule=item.fill_rule)
 
+    def _draw_image(self, item: Image) -> None:
+        """Paint an :class:`Image` item from the object it names."""
+        if item.xref == 0:
+            msg = "an image without an object number, an inline image or an image mask, cannot be drawn yet"
+            raise ValueError(msg)
+        if item._source is None:
+            msg = "the image does not name its document; draw an Image that Page.content() returned"
+            raise ValueError(msg)
+        if self._page is None:
+            msg = "a new document's canvas cannot draw image items yet; draw them on the finished document's pages"
+            raise ValueError(msg)
+        source, epoch = item._source
+        source._ensure_open()
+        if epoch != source._object_epoch:
+            msg = f"image {item.xref} was invalidated when the document's objects were renumbered or reloaded"
+            raise StaleObjectError(msg)
+        target = self._page.document
+        if source is target:
+            self._pin_objects()
+        # The item's square holds the first row at y = 0, PDF's at y = 1.
+        matrix = tuple(Matrix(1, 0, 0, -1, 0, 1) * item.matrix)
+        with self._item_context(item):
+            self._record.add_image_item(target._doc, source._doc, item.xref, matrix)
+
     @contextmanager
-    def _item_context(self, item: Path) -> Generator[None]:
+    def _item_context(self, item: Path | Image) -> Generator[None]:
         """Apply an item's clips, groups, and blend mode around its painting."""
         scopes: list[AbstractContextManager[None]] = [
             self.clip(clip.segments, fill_rule=clip.fill_rule) for clip in item.context.clips
@@ -1329,7 +1376,7 @@ class _MaskCanvas(Canvas):
         canvas._core = parent._core
         canvas._target_id = target
         canvas._closed = False
-        canvas._layer_epoch = None
+        canvas._epoch = None
         canvas._parent = parent
         return canvas
 

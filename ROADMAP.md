@@ -498,7 +498,7 @@ Workstream Writing.
   `layer`, and `tag` on pages of open documents, which need the
   optional-content groups and the structure-tree maintenance of
   [Structure](#structure); and `draw(item)`, which paints a content item
-  again (done for paths). `textbox` places lines as `text` does,
+  again (done for paths and images). `textbox` places lines as `text` does,
   `Font.text_height` measures the height it needs before drawing, `rotate`
   turns text clockwise in right angles, and `page` takes a `clip` and a
   `rotate` (all done).
@@ -511,9 +511,12 @@ Workstream Writing.
   placement matrices. Scopes must
   enclose images and pages that already live in the target document, which a
   krilla page cannot reference, so the scopes are pylopdf's operators.
-- `draw(item)` for text runs and images needs the font and image identity
-  listed under [Content model](#content-model): a run must name the font
-  program to embed again, and an image the document it comes from.
+- `draw(item)` for images (done): an `Image` item names the document that
+  `Page.content()` read, a canvas on a page of that document draws the image
+  object again, and a canvas of another document copies it, with the objects
+  it reaches but pages, when `draw` is called. Text runs need the font
+  identity listed under [Content model](#content-model): a run must name the
+  font program to embed again.
 - New documents (done): `pylopdf.create()` returns a builder whose pages
   draw through the same canvas and which krilla writes as a whole, with
   metadata, an outline from `bookmark`, a structure tree from `tag` scopes,
@@ -537,6 +540,11 @@ Acceptance: drawing every item of `page.content()` onto a blank page of the
 same size renders, for every page of the bundled corpus, within a published
 pixel tolerance of the original page, and a documented list names what does
 not round-trip yet. Every existing drawing test passes through the canvas.
+Paths and images (done): `tests/test_canvas_round_trip.py` redraws them for
+every page of the bundled corpus within 16 levels per channel at 72 dpi
+outside the items that cannot be drawn yet, which the canvas section of the
+API reference lists: text runs, items under a soft mask, pattern paints,
+inline images, and image masks.
 
 ### API reset
 
@@ -820,8 +828,8 @@ Workstream Writing. Depends on the canvas.
   OCR.
 - The complete round trip: `draw(item)` paints every item kind that
   `Page.content()` reads, so the documented list of what does not round-trip
-  under [Canvas](#canvas) becomes empty. Beyond the text runs and images of
-  Canvas, that means shading and tiling patterns, soft masks, inline images,
+  under [Canvas](#canvas) becomes empty. Beyond the text runs of Canvas,
+  that means shading and tiling patterns, soft masks, inline images,
   and image masks, each drawn from the objects of the source document where
   the canvas cannot rebuild them.
 

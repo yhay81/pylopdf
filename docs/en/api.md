@@ -1119,11 +1119,12 @@ with page.draw() as canvas:
 | `textbox(rect, text, *, font=None, size=11, align="left", line_height=None, rotate=0, ...)` | Text wrapped inside `rect`, turned clockwise by `rotate`; returns a `TextFit` |
 | `image(rect, source, *, keep_aspect=True, rotate=0)` | A JPEG or PNG path, encoded bytes, or a `Pixmap`, turned clockwise by `rotate` |
 | `page(rect, source, *, clip=None, keep_aspect=True, rotate=0)` | A page of any open document, this one included, as vectors: the part inside `clip`, a rectangle of the source page's display coordinates, turned clockwise by `rotate` |
-| `draw(item)` | A `Path` item that [`page.content()`](#content) returned |
+| `draw(item)` | A `Path` or `Image` item that [`page.content()`](#content) returned |
 
 Paths take a `Color` fill and a stroke: a `Stroke` with width, cap, join,
-miter limit, and dashes, or a `Color` for a 1-point line. A path with neither
-is stroked with a 1-point black line. A color's `alpha` makes that fill or
+miter limit, and dashes, or a `Color` for a 1-point line; a width of 0 draws
+the thinnest line that the device can show. A path with neither is stroked
+with a 1-point black line. A color's `alpha` makes that fill or
 stroke translucent. `PathBuilder` builds geometry with `move_to`, `line_to`,
 `curve_to`, `quad_to`, and `close`, and adds complete shapes with `rect`,
 `ellipse`, `circle`, `polygon`, `sector`, `zigzag`, and `wave`; every method
@@ -1208,8 +1209,14 @@ before, is stored once, whatever its rotation or clip. A page is drawn as it
 was when `canvas.page()` was called; a `clip` fills `rect` in place of the
 whole page, at its own aspect ratio unless `keep_aspect=False`, and nothing
 outside it is painted. `draw(item)` repeats an item's clips, group
-opacities, and blend modes, but not its soft masks; text runs, images, and pattern paints cannot
-be drawn yet. A canvas holds at most 1,048,576 path points and nests at most
+opacities, and blend modes, but not its soft masks. An image is drawn from its
+object, with the image's own masks: a canvas on a page of the item's document
+draws that object again, and a canvas of another document copies it, with the
+objects it reaches, when `draw` is called. Text runs, pattern paints, inline
+images, and image masks cannot be drawn yet. Redrawn on a blank page, the
+paths and images of every page of the test corpus render within 16 levels per
+channel of the original at 72 dpi, outside the items that cannot be drawn
+yet. A canvas holds at most 1,048,576 path points and nests at most
 16 scopes; beyond that, `LimitError` has the code `path_point_count` or
 `canvas_scope_depth`.
 
