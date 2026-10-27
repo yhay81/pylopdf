@@ -8,6 +8,914 @@ Changes that are not released yet may also wait as fragments in
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-27
+
+### Added
+- `Encryption(method="aes-128")` writes AES-128 encryption (revision 4), and
+  `Encryption.KEEP` writes the encryption a document was opened with, keeping
+  its file key, passwords, and permissions, for AES-128 and AES-256 inputs.
+  Writing RC4 raises `ValueError`, and keeping RC4 or the deprecated revision 5
+  of AES-256 raises `PdfError`. Every standard security handler, RC4 40 and
+  128 bits, revision 4 with RC4 and AES crypt filters, metadata left
+  unencrypted, and both AES-256 revisions, now has a fixture that opens with
+  the user and the owner password. The codemod rewrites pymupdf's
+  `PDF_ENCRYPT_KEEP` and `PDF_ENCRYPT_AES_128`.
+- Annotation properties are assignable: `rect`, `contents`, `author`,
+  `subject`, `name`, `language` (new), `icon`, `color`, `interior_color`,
+  `opacity`, `flags`, `border`, `blend_mode`, `rotation`, `vertices`,
+  `strokes`, and `line_endings`, and `del` removes the optional ones. Each
+  assignment records the modification time and draws the appearance again,
+  replacing pymupdf's setter methods and `update()`; the codemod rewrites
+  `set_rect()`, `set_opacity()`, `set_flags()`, `set_blendmode()`,
+  `set_colors()`, `set_line_ends()`, `set_info()`, and `set_border()` in
+  pymupdf code.
+- `page.annotations.add(FileAttachment(at, data, filename=..., ...))` embeds a
+  file behind one of four `AttachmentIcon` pictures, and `Annotation.file`
+  returns an `AnnotationFile` whose `filename`, `description`, `size`,
+  `read()`, and `write(data)` work as those of `Attachment` do. The codemod
+  rewrites `add_file_annot()`.
+- `page.annotations.add(FreeText(rect, text, ...))` writes text in a box with
+  its appearance: `font`, `size`, `text_color`, a fill `color`, a `border`,
+  `align`, `rotate` (clockwise as the page is displayed), and a `callout` line
+  with a `callout_ending`. Without `font`, non-Latin text uses an installed
+  font extra, as on a canvas. `Annotation.rotation` reads how far an
+  annotation's content is turned as displayed. The codemod rewrites
+  `add_freetext_annot()`.
+- `page.annotations.add()` takes `LineAnnotation(start, end, ...)`,
+  `Polygon(vertices, ...)`, `PolyLine(vertices, ...)`, and `Ink(strokes, ...)`,
+  drawn with their appearances; lines and polylines take `line_endings`, a
+  pair of `LineEnding` members such as `CLOSED_ARROW`. `Annotation.vertices`,
+  `strokes`, and `line_endings` read them back in display coordinates, and
+  rendering draws such annotations that other producers wrote without an
+  appearance. One annotation holds at most 65,536 points (`LimitError` code
+  `annotation_point_count`). The codemod rewrites `add_line_annot()`,
+  `add_polygon_annot()`, `add_polyline_annot()`, and `add_ink_annot()`.
+- `page.annotations.add(Note(at, contents=..., icon=NoteIcon.NOTE))` adds a
+  note drawn as one of seven `NoteIcon` pictures. Annotations gain
+  `popup_rect`, assignable to add or move a popup and deletable to remove it,
+  `is_open`, `in_reply_to`, assignable to make an annotation answer another of
+  its page, and `replies`. The codemod rewrites `add_text_annot()`.
+- `page.annotations.add(Redaction(rects, fill=..., overlay_text=..., ...))`
+  marks areas for removal with an appearance that outlines and crosses them
+  out; applying redactions comes with `page.redact`. `Redaction` fills with
+  black unless `fill=` says otherwise. The codemod rewrites
+  `add_redact_annot()`.
+- `page.annotations.add(Square(rect, ...))` and `Circle(rect, ...)` add a
+  rectangle or an ellipse with `color`, `interior_color`, a `Border(width,
+  style=, dashes=)`, `opacity`, `blend_mode`, and `contents`, written with an
+  appearance that pylopdf draws through the canvas, so every viewer shows it
+  alike. `Annotation.border` and `Annotation.blend_mode` read any annotation's
+  border and blend mode, and rendering draws squares and circles that other
+  producers wrote without an appearance, without changing the document. The
+  codemod rewrites `add_rect_annot()` and `add_circle_annot()`.
+- `page.annotations.add()` takes `Stamp(rect, icon=StampIcon.APPROVED, ...)`,
+  drawing one of the fourteen standard stamps with `color`, `opacity`, and a
+  clockwise `rotate`, and `Caret(at, ...)`; both read upright on a turned
+  page, and rendering draws them without an appearance. The codemod rewrites
+  `add_stamp_annot()`, `add_caret_annot()`, and the `STAMP_*`,
+  `PDF_ANNOT_LE_*`, and `PDF_BM_*` constants.
+- `page.annotations.add()` takes `Underline(rects, ...)`, `StrikeOut(rects,
+  ...)`, and `Squiggly(rects, ...)` with the fields of `Highlight`, and every
+  created annotation records its creation time in `created` and `modified`.
+  Highlights and the new text markup are drawn by the same appearance engine
+  as the other annotation types, which also draws them for rendering when
+  another producer wrote them without an appearance. The codemod rewrites
+  `add_underline_annot()`, `add_strikeout_annot()`, and
+  `add_squiggly_annot()`.
+- `Canvas.draw(item)` paints the `Image` items that `Page.content()` reads:
+  on a page of the item's own document it draws the image object again, and on
+  another document's page it copies the object, with its masks and the objects
+  it reaches, when `draw` is called. Redrawn on a blank page, the paths and
+  images of every page of the test corpus render within 16 levels per channel
+  of the original. A stroke width of 0 now draws the thinnest line, as in PDF,
+  so hairlines that `Page.content()` reads can be drawn again.
+- `canvas.image(rect, image)` draws an `ImageObject` of any open document: an
+  image of the page's document is drawn again, with its masks, one of another
+  document is copied with the objects it reaches, and a new document's canvas
+  draws the pixels that `image.to_pixmap(alpha=True)` renders. A new
+  document's canvas now also draws the `Image` items of `Page.content()` with
+  `canvas.draw(item)`. The migration codemod rewrites pymupdf's
+  `insert_image(rect, xref=...)` to `canvas.image(rect, doc.images[xref])`.
+- `Canvas.layer(layer)` draws its block as optional content of a `Layer` or a
+  `LayerMembership`, so rendering and extraction show it only while the layer
+  is visible.
+- `Canvas.mask(subtype=SoftMaskType.LUMINOSITY)` is a scope that returns a
+  second canvas: what the block draws on it is the soft mask, by luminosity or
+  by alpha, of what the block draws on the page's canvas, on pages of open and
+  of new documents.
+- `Canvas.page` takes `clip`, a rectangle of the source page's display
+  coordinates whose part of the page fills the target rectangle, and `rotate`,
+  which turns the placed page clockwise by 0, 90, 180, or 270 degrees; a page
+  placed with several clips and rotations is stored once. The migration
+  codemod now rewrites pymupdf's `show_pdf_page` `clip=` and anticlockwise
+  `rotate=`.
+- `Canvas.tag()` works on pages of open documents: its elements join the
+  document's structure tree, created when the document has none, under a
+  single `Document` element when the tree has one, and drawing outside every
+  tag scope of a tagged document is marked as an artifact.
+- `Canvas.text` and `Canvas.textbox` take `rotate`, which turns text clockwise
+  by 0, 90, 180, or 270 degrees in display space: `text` about its starting
+  point, and `textbox` inside its rectangle, whose height the lines then wrap
+  at for 90 and 270. The migration codemod rewrites pymupdf's anticlockwise
+  `insert_text` and `insert_textbox` `rotate=` to the canvas's angle.
+- Add `Page.draw()`, which returns a `Canvas` that draws paths, text, images,
+  and other pages in the order of the calls and writes them as one Form XObject
+  when its `with` block ends, or nothing after an exception. Paths take a
+  `Color` fill and a `Stroke`, from a `PathBuilder` or the shortcuts `rect`
+  (with rounded corners), `line`, `circle`, `ellipse`, `polygon`, and `bezier`;
+  `text` and `textbox` shape and embed OpenType faces once per canvas, fill or
+  stroke the glyphs, and place lines alike, the first of a textbox one ascender
+  below its top, and a textbox reports how it fits with `TextFit`; `image` and
+  `page` store each image and page once. The scopes `clip`, `transform`,
+  `opacity` (a transparency group), and `blend` apply to everything drawn
+  inside them, `draw(item)` paints a `Path` item from `Page.content()` again,
+  and `underlay=True` writes below the page's content.
+- `Page.clean_contents()` and `Annotation.clean_contents()` write content as
+  normalized, balanced operations, the page's streams joined into one, and
+  remove the resources that nothing uses, and `Page.clip_to_rect(rect)`
+  removes what lies outside a rectangle through redaction and clips the
+  content to it.
+- Squares, circles, and polygons take `clouds=`, a cloudy border (`/BE`) from 0
+  to 2 that `annotation.clouds` reads and sets; the codemod rewrites
+  `set_border(clouds=)` and the `PDF_BORDER_STYLE_*` constants.
+- Add `Page.content()`, the content model: every text run, path, and image a
+  page paints, in paint order and display coordinates, as immutable values.
+  Text runs carry their glyphs with glyph IDs, Unicode, matrices, advances, and
+  exact boxes from the glyph outlines; paths carry their segments, fill, and
+  stroke; images carry their object number, format, mask, and placement. Each
+  item has its blend mode, soft mask, and the clips, transparency groups, and
+  marked content around it. `clip=` keeps the items in a rectangle,
+  `annotations=False` leaves out annotation appearances, and `max_elements`
+  bounds one call. It replaces pymupdf's `get_drawings`, `get_image_info`,
+  `get_texttrace`, `get_bboxlog`, `get_cdrawings`, `get_displaylist`, `run`,
+  `get_image_rects`, and `get_image_bbox`.
+- Add `pylopdf.create()`, which starts a new document that krilla writes as a
+  whole. `builder.page(size)` returns the same `Canvas` as `Page.draw()`, so
+  paths, OpenType text, images, and scopes draw the same way; `canvas.tag(role,
+  ...)` scopes build the structure tree of a tagged document, and
+  `canvas.bookmark(title, level=...)` its outline. `standard="pdf/a-2b"`,
+  `"pdf/ua-1"`, or several standards together validate the document with
+  krilla's validators and raise `PdfError` listing every violation instead of
+  writing a non-conforming file. `builder.to_bytes()` returns the file and
+  `builder.finish()` opens it as a `Document`. pymupdf's `DocumentWriter` maps
+  onto it.
+- `Document` gains the catalog and XMP properties, each read and assigned as
+  an attribute and removed with `del`: `xmp`, the XMP packet as text or
+  `None` (1 MiB limits; a written packet stays unfiltered, so compressing saves
+  keep it readable); `page_mode` and `page_layout`, with the new `PageMode` and
+  `PageLayout` enums; `mark_info`, with the new `MarkInfo` record; and
+  `language`, the catalog's complete BCP 47 `/Lang` tag, such as `zh-TW` or
+  `sr-Latn-RS`, where pymupdf keeps at most three letters so that `zh-TW` and
+  `zh-HK` both read as `zh-Hant`. `is_closed` follows pymupdf. The codemod rewrites pymupdf's getters and
+  setters of these properties.
+- `Document.sanitize()` removes JavaScript, automatic and non-navigation
+  actions, embedded files, metadata, hidden text (through the redaction
+  engine, so the text around it stays in place), comments, page thumbnails,
+  and optionally links and form values, prunes the objects that nothing
+  reaches any more, and returns a `SanitizationReport`. The document is saved
+  in full afterwards. It replaces pymupdf's `Document.scrub`.
+- `Document.is_dirty` and `Document.permissions`: whether the document was
+  edited since it was opened, and the permission flags of the password that
+  unlocked it.
+- An unlocked document with AES-128 or AES-256 (revision 6) encryption can be
+  saved incrementally: the update is encrypted with the document's own
+  encryption, so its passwords and permissions still apply. The document keeps
+  its original bytes and the password that unlocked it while it is open. RC4
+  and revision 5 inputs cannot, since pylopdf writes neither.
+- Add migration tooling for pymupdf programs and pylopdf 0.15 programs:
+  `python -m pylopdf.migrate PATH...`, from the new `migrate` extra, renames the
+  `fitz` and `pymupdf` imports, rewrites opening documents, the page operations
+  that `doc.pages` replaces (indexing, measuring, and iterating a variable bound
+  to a document through `.pages`), `peek_metadata`, `get_toc`/`set_toc` with
+  their page shift, `embfile_*`, the `xref_*` stream readers, and pymupdf's
+  in-place `Rect`, `Point`, and `Matrix` methods, and marks every remaining
+  manual step with a `# TODO(pylopdf): <hint>` comment that it also lists.
+  Looking up a pymupdf name, or a pylopdf 0.15 name, that pylopdf does not
+  provide now raises an `AttributeError` naming its replacement or the roadmap
+  milestone that adds the capability, and `llms.txt` carries both name maps.
+- `page.widgets.add()` creates form fields from `TextField`, `CheckBox`,
+  `RadioButton`, `ComboBox`, `ListBox`, `PushButton`, and `SignatureField`
+  specifications, or adds a widget to an existing field of the same name;
+  `del page.widgets[i]` and `del doc.form[name]` remove widgets and fields.
+  Fields that pylopdf creates can be filled by pylopdf and by pymupdf.
+  Button creation keeps the field and all widget states synchronized. Removal
+  restores the document on failure, refuses cyclic parent chains, and keeps
+  calculation-order references consistent for nested fields.
+- Form fields gain `label`, `max_length`, and `default_value`, assignable and
+  deletable, assignable `flags` and `choices`, and `reset()`, which restores
+  the default value and draws the widgets again; `doc.form.need_appearances`
+  reads and sets `/NeedAppearances`.
+- `doc.flatten()` draws annotation and widget appearances into page content
+  and removes them, keeping links, as pymupdf's `bake()` does; the codemod
+  rewrites `bake()` calls.
+- `Font` reports its `bbox`, `glyph_count`, and `is_monospaced`, lists the
+  characters it has glyphs for with `chars()`, gives the advance and ink box of
+  characters drawn alone with `char_widths(text, size)` and `char_bbox(char)`,
+  and returns the bytes an OpenType face was loaded from with `program()`.
+  `pylopdf.glyph_name(char)` and `pylopdf.glyph_text(name)` translate between
+  characters and glyph names by the Adobe Glyph List.
+- `doc.fonts` maps object numbers to `FontObject` handles with `name`,
+  `subtype`, `encoding`, `is_embedded`, `widths` (the advance of every
+  character code in em), and `extract()` for the embedded program as a
+  `FontProgram`; `page.resources.fonts` lists the fonts and
+  `page.resources.forms` the Form XObjects (`FormObject` handles with `bbox`
+  and `matrix`) that a page's resources reach. They replace pymupdf's
+  `get_fonts`, `get_page_fonts`, `extract_font`, `get_char_widths`,
+  `get_xobjects`, and `get_page_xobjects`.
+- `field.scripts` and `widget.scripts` read, set, and remove the JavaScript
+  actions of form fields and widgets by `ScriptTrigger`, keeping the form's
+  calculation order; pylopdf stores scripts and never runs them.
+  Replacing a calculation preserves its order, and splitting a merged field
+  keeps widget actions on their widget. Unicode scripts round-trip at the
+  UTF-8 input limit, including UTF-16 streams. Writes preserve the aggregate
+  read limit, and saved mappings reject closed documents and stale fields.
+- `pylopdf.image_info(source)` reads a JPEG, PNG, or JPEG 2000 file's header
+  without decoding it and returns an `ImageInfo` record with the format, size,
+  color components, alpha, bits per component, resolution, and EXIF
+  orientation; it replaces pymupdf's `image_profile`. The ecosystem guide gains
+  tested recipes that turn images, CBZ archives, and other formats through
+  Pillow into PDF pages of the images' own size, which replace pymupdf's
+  `convert_to_pdf()` and `insert_file()` of images, and `pdfocr_save()` with
+  `apply_ocr()`.
+- `ImageObject.replace(source)` puts a JPEG or PNG file, encoded bytes, or a
+  `Pixmap` in an image's place under its object number, so every placement of
+  the image, on any page and in any Form XObject, draws the new one; the image
+  keeps its layer and structure parent, and input is limited as
+  `canvas.image` limits it. This replaces pymupdf's `Page.replace_image`, and
+  the migration codemod rewrites it.
+- `Document.save(..., incremental=True)` and `Document.to_bytes(...,
+  incremental=True)` write the bytes that a document was opened from unchanged
+  and append one update with the objects that differ from them, so signatures
+  over the original bytes stay valid; pyHanko validates a signature after an
+  incremental form fill or metadata edit. `Document.can_save_incrementally`
+  reports whether a document can be saved this way: it must have been opened
+  from unencrypted bytes that loaded without repair. Incremental saves refuse
+  `dedupe`, `renumber`, `object_streams`, and `encryption`, and compress only
+  the streams that the update writes. Such a document keeps its original bytes
+  in memory while it is open. The codemod rewrites pymupdf's `saveIncr()`,
+  `save(..., incremental=True)`, `can_save_incrementally()`, and `ez_save()`.
+- JPEG 2000 images, JP2 files and raw codestreams, work wherever JPEG does:
+  `canvas.image` and `ImageObject.replace` store them as they are with
+  `JPXDecode`, their alpha channel included through `/SMaskInData`, and a new
+  document's canvas decodes them; `Pixmap.from_file` and `Pixmap.from_bytes`
+  decode them to gray or RGB with alpha, applying palettes and converting
+  CMYK, with the resolution of a JP2 resolution box; and `ImageObject.extract`
+  returns an image whose only filter is `JPXDecode` as its stored data, with
+  the format `"jpx"`. A palette image is drawn decoded, because hayro would
+  show its indices as gray.
+- `Layout.to_html()` and `Layout.to_xml()` serialize a page's layout as
+  positioned HTML and as XML of blocks, lines, fonts, and characters, as
+  pymupdf's `"html"` and `"xml"` text outputs do; `json.dumps(layout.to_dict())`
+  gives the JSON output.
+- `doc.destinations` is a read-only mapping from the names of a document's
+  named destinations to the `Destination` each leads to, replacing pymupdf's
+  `resolve_names()`.
+- `Canvas.link(rect, target, *, alt=None)` adds a link to a URI or to a
+  `Destination` of a new document's page from `pylopdf.create()`; in a tagged
+  document the link joins the tag scope it is drawn in, and the new
+  `TagRole.LINK` is the scope that PDF/UA expects around it.
+  Link rectangles follow canvas transforms, and URI and description input is
+  bounded together before copying it into Rust.
+- `doc.layers.configurations` lists the optional-content configurations as
+  `LayerConfiguration` handles with assignable `name`, `creator`, `base_state`,
+  `on`, `off`, `locked`, `radio_groups`, and `order` (a tree of `Layer` handles
+  and `LayerOrder` values); `apply()` makes one the default that rendering and
+  extraction use, and `configurations.add()` adds one.
+- `Document.layers` lists the optional-content groups as `Layer` handles with
+  `name`, `intent`, `is_visible`, `xref`, and `obj`, and `doc.layers.add()`
+  adds one. Assigning `is_visible` edits the default configuration, so
+  rendering and extraction show or hide the group's content.
+- `doc.pages.insert()` and `extend()` carry the optional-content groups that
+  imported pages use into the receiving document's layers, with the visibility
+  that the source document gave them.
+- `LayerMembership` and `LayerExpression` describe optional-content membership
+  dictionaries and their visibility expressions. `Annotation.layer`,
+  `Link.layer`, `Widget.layer`, and `ImageObject.layer` read and assign the
+  `/OC` entry, and `page.resources.layers` maps the page's `/Properties` names
+  to their layers and memberships.
+- `doc.outline` is a tree of `OutlineItem` handles: iterate over the top-level
+  items, follow `children`, or visit every item with `doc.outline.walk()`, and
+  assign an item's `title`, `destination`, `color`, `bold`, `italic`, or
+  `is_open` to edit it in place, with the outline's `/Count` entries recounted
+  for `is_open`. Destinations can be a `Destination(page, point, zoom)` in this
+  document, a `RemoteDestination` in another file, a `Launch`, a
+  `NamedAction`, or a URI string, and named destinations read as the
+  `Destination` they name.
+- `Page.operations` reads a page's content as an `Operations` sequence of
+  `Operation` and `InlineImage` values, tokenized as the renderer tokenizes it,
+  and assigning it writes them back; `Operations.parse(data)` and `to_bytes()`
+  do the same for any content stream. Unchanged operations keep their bytes, so
+  reading and writing back changes nothing. They replace pymupdf's
+  `read_contents`, `set_contents`, `get_contents`, and `wrap_contents`.
+- `Page.redact()` applies the page's `Redaction` annotations, or areas given
+  directly, and returns a `RedactionReport`. It removes the glyphs whose boxes
+  meet an area in every font and writing mode, invisible OCR text included,
+  with `TJ` adjustments that keep the following text in place; blanks the
+  covered pixels of images in a copy of each, or removes their placements;
+  removes the paths and shadings that an area touches or covers; copies a Form
+  XObject placement that loses something; removes overlapping annotations and
+  widgets; draws the fills and overlay text; and verifies the page with hayro.
+  It replaces pymupdf's `Page.apply_redactions` and the `PDF_REDACT_*`
+  constants.
+- `PaperSize` lists standard paper sizes as `(width, height)` pairs of points
+  that `doc.pages.new()` takes, and `pdf_date()` and `parse_pdf_date()` convert
+  between `datetime` values and PDF date strings. The codemod rewrites
+  pymupdf's `get_pdf_now()` and `paper_size()` and `paper_rect()` with a
+  literal name.
+- `Content.path_clusters(*, x_tolerance=3, y_tolerance=3)` returns the box of
+  each group of nearby paths, as pymupdf's `cluster_drawings` does.
+- `Pixmap.from_file(path)` and `Pixmap.from_bytes(data)` decode PNG and JPEG
+  into a `Pixmap`: PNG keeps gray, RGB, and alpha as 8-bit samples, JPEG decodes
+  to gray or RGB with CMYK converted, and the resolution comes from the file.
+  Input above 64 MiB or 64,000,000 pixels raises `LimitError` by default, as for
+  `canvas.image`.
+- `Pixmap.resolution` gives a pixmap's dots per inch: the resolution that
+  `Page.pixmap()` rendered at, else 96. PNG output states it in a `pHYs` chunk
+  and JPEG output in its JFIF density, `Document.render()` included, and
+  `Pixmap.from_array(array, resolution=(x, y))` sets it, sharing the pixels of a
+  `Pixmap` passed as `array`.
+- `doc.form.repair_radio_groups()` gathers top-level radio buttons that share a
+  name under one radio field, replacing pymupdf's `Page.repair_flat_rbgs()`.
+- `Page.remove_rotation()` sets a page's rotation to 0 while it shows what it
+  showed: the content, boxes, annotations, beads, viewports, and every explicit
+  destination of the page are mapped by the matrix it returns.
+- `Page.pixmap(matrix=)` and `Document.render(matrix=)` render any invertible
+  matrix, including rotations, shears, and flips, which used to raise
+  `PdfError`. The pixmap covers the transformed page with its top-left corner on
+  a pixel corner, so a diagonal matrix renders exactly what the equivalent `dpi`
+  renders and a quarter turn of a scanned page turns its pixels; a translation
+  still moves no pixels. A singular matrix raises `ValueError`.
+- `Document.save` and `Document.to_bytes` take `compression_level` (zlib's 0
+  through 9 for the streams that `compress` and `object_streams` compress),
+  `cross_reference="table"` or `"stream"` to choose the form of the
+  cross-reference data, `decompress=True` to remove every filter that pylopdf
+  can decode, and `keep_id=True` to write the file identifier as read. The
+  codemod rewrites pymupdf's `no_new_id`, `expand=255`, and
+  `compression_effort`.
+- `field.is_signed` tells whether a signature field holds a signature, and
+  `doc.form.signature_flags` reads the form's `SignatureFlags`; pyHanko signs
+  signature fields that pylopdf creates.
+- `Span` records of `page.layout()` carry `color` (the paint as an sRGB `Color`
+  whose `alpha` is the opacity, or `None` for a pattern paint and for invisible
+  text), `render_mode`, `is_clipped`, and the font's `ascender` and `descender`,
+  and `Layout.to_dict()` adds pymupdf's `color`, `alpha`, `ascender`,
+  `descender`, and `char_flags` to each span. Spans split where the paint, the
+  render mode, or the clipping changes.
+- `doc.pages.insert()` and `extend()` import the tagged-PDF structure of pages
+  from another document: their elements join the receiving structure tree,
+  with parent-tree keys moved past the receiving ones and clashing roles,
+  classes, and element IDs resolved.
+- `python -m pylopdf.migrate` rewrites pymupdf's `PDF_PAGE_LABEL_*` constants
+  to `PageLabelStyle` members, and `del doc[i]` raises a `TypeError` that points
+  at `del doc.pages[i]`. Hints cover `get_outline_xrefs`, `insert_page`,
+  `page_cropbox`, and `Document.stream`.
+- `Document.subset_fonts()` cuts the embedded TrueType programs of CID fonts
+  with the `Identity-H` or `Identity-V` encoding down to the glyphs that the
+  document can draw, found by following the text state through page content,
+  annotation appearances, Form XObjects, tiling patterns, Type 3 glyph
+  procedures, and soft masks, and returns a `FontSubsetResult`. Content,
+  widths, and `ToUnicode` stay as they are, so extracted text and rendering do
+  not change: with its simple font given a copy of the program, the fully
+  embedded YuMincho of `mhlw-doc.pdf` shrinks from 733,908 to 99,504 bytes and
+  the saved file from 666 KB to 413 KB. The codemod drops pymupdf's `verbose`.
+- `Document.subset_fonts()` also subsets the TrueType programs of simple
+  TrueType fonts: hayro resolves the codes that the document shows, and the
+  subset keeps a `cmap` with every original mapping to a kept glyph, so text
+  and rendering stay the same in hayro and in MuPDF. `mhlw-doc.pdf`, whose
+  fully embedded YuMincho serves a CID font and a WinAnsi TrueType font,
+  shrinks from 345 KB to 92 KB.
+- `Canvas.tag` takes `scope`, the `TableHeaderScope` that a `TABLE_HEADER`
+  cell heads, and `numbering`, the `ListNumbering` of a `LIST`'s items, in
+  tagged new documents; both enums are new.
+- `Font.text_height(text, size, *, width, line_height=None)` returns the height
+  that `Canvas.textbox` needs for text wrapped `width` points wide, so a frame
+  can be sized around the text, or a page break decided, before anything is
+  drawn; a textbox of that height fits the text exactly.
+- `page.text()`, `words()`, `layout()`, `search()`, and `doc.text()` take
+  keyword-only text options: `clip` (the text in a rectangle, which replaces
+  pymupdf's `get_textbox`), `clipped`, `ligatures`, `whitespace`,
+  `dehyphenate`, `unmapped` (skip a glyph without Unicode, or stand U+FFFD or
+  its glyph ID in for it), and, except on `text()`, `exact_bboxes` (glyph boxes
+  from outlines).
+- `page.search(text, quads=True)` returns one `Quad` per line of each match, and
+  `Line` and `Span` records carry a `quad` along their baseline, which replaces
+  pymupdf's `recover_*` functions.
+- `page.selection(start, end, *, clip=None)` returns the text that a viewer
+  selects by dragging between two display-space points, in reading order, as
+  pymupdf's `get_text_selection` does.
+- `Span` records carry `is_superscript`, and with `page.layout(styles=True)`
+  `is_underlined` and `is_struck` for text that a horizontal vector rule
+  underlines or strikes out, as pymupdf's `TEXT_COLLECT_STYLES` finds them;
+  `Layout.to_dict()` reports them as pymupdf's flag bits.
+- `with doc.transaction(name):` makes a group of edits atomic: when the block
+  raises, the document returns to its state before it. Each transaction that
+  changed the document becomes one step of `doc.history`, a `History` with
+  `undo()`, `redo()`, `can_undo`, `can_redo`, `steps`, `position`, `clear()`,
+  and a `max_size` memory budget, 256 MiB by default, that drops the oldest
+  steps first. An edit outside a transaction ends the history. The codemod
+  rewrites pymupdf's `journal_undo`, `journal_redo`, `journal_can_do`,
+  `journal_position`, and `journal_op_name`.
+- `Document.viewer_preferences` reads and writes the catalog's
+  `/ViewerPreferences` as a `ViewerPreferences` record, with the
+  `ReadingDirection`, `PageBoundary`, `PrintScaling`, and `Duplex` enums.
+- `page.widgets` lists the form widgets of a page and `field.widgets` those of
+  a field, as `Widget` handles with `field`, `rect`, `flags`, `border`,
+  `border_color`, `background_color`, `caption`, `text_color`, `font`,
+  `font_size`, `button_states`, and `on_state`; assigning a property draws the
+  widget again for its field's value. The codemod rewrites `page.widgets()`.
+
+### Changed
+- Codes and flags are enum members only: pylopdf has no `PDF_ANNOT_*`,
+  `PDF_ANNOT_IS_*`, or `PDF_PERM_*` module constants, and the codemod rewrites
+  pymupdf's, including names imported with `from fitz import ...`, into
+  `AnnotationType`, `AnnotationFlags`, and `Permissions` members, so that
+  `PDF_ANNOT_3D` becomes `AnnotationType.THREE_D`. A missing pymupdf constant's
+  `AttributeError` names the hint of its own group.
+- Rendering synthesizes missing annotation appearances under one budget for
+  every type it draws: it draws none of them when they would draw more than
+  262,144 path points in all, or when one annotation holds more than 65,536
+  points or 4,096 quadrilaterals, in place of the former budget of 4,096
+  text-markup quadrilaterals and 65,536 segments. An authored `/CA` that is no
+  number from 0 to 1 still leaves an annotation undrawn.
+- Replace `Page.annots()`, `Page.add_highlight_annot()`, and
+  `Document.has_annots()` with `page.annotations`, a sequence of `Annotation`
+  handles for every annotation but links, widgets, and popups, and replace the
+  `AnnotationInfo` dictionaries with typed properties: `type`, an
+  `AnnotationType` member, `rect`, `contents`, `author`, `subject`, `name`,
+  `icon`, `intent`, `created`, `modified`, `color` and `interior_color` as
+  `Color` records, `opacity`, `flags`, an `AnnotationFlags` value, `xref`,
+  `obj`, and `page`. `page.annotations.add(Highlight(rects, color=,
+  opacity=, contents=))` adds a highlight and returns its handle, and `del
+  page.annotations[i]` removes an annotation with its popup, which pylopdf
+  could not do before. The codemod rewrites `annots()`, `add_highlight_annot()`,
+  `has_annots()`, `first_annot`, `delete_annot()`, and `fitz.Annot`, and marks
+  the rest.
+- Glyph, span, word, and line boxes span the font's ascender and descender,
+  scaled to one em together when they span less, as pymupdf's boxes do, instead
+  of a fixed 0.8 and 0.2 em; fonts whose program hayro does not hand out, such
+  as Type 1 fonts, keep 0.8 and -0.2. `bench/reading.py` publishes their IoU
+  against pymupdf's boxes on the bundled corpus.
+- `Attachment` and `Annotation.file` share assignable `filename`,
+  `description`, `created`, and `modified` fields; `del` removes the last
+  three, and `write()` sets `modified` to the current time. `creation_date` and
+  `mod_date` are now `created` and `modified`, and an absent description or
+  date reads as `None` rather than `""`.
+- `Document.complexity` and `Document.rewrite_images()` return the frozen
+  dataclasses `DocumentComplexity` and `ImageCompressionResult` instead of
+  dictionaries: read `doc.complexity.page_count` and `result.rewritten` where
+  0.15 read `["page_count"]` and `["rewritten"]`. Indexing a record raises a
+  `TypeError` that says so, and the codemod rewrites such reads of
+  `complexity`, `rewrite_images()`, and the names bound to them.
+- `page.content(text_runs=False, images=False).paths` replaces
+  `Page.get_drawings()`, and `page.content(text_runs=False, paths=False).images`
+  replaces `Page.get_image_info()`. The new `text_runs`, `paths`, and `images`
+  options of `Page.content()` leave out a kind of item without building it, so
+  reading only the paths or the images of a page costs about what
+  `get_drawings` and `get_image_info` cost, and reading both takes one
+  interpretation instead of two. A `Path` record holds the segments (`MoveTo`,
+  `LineTo`, `CurveTo`, and `ClosePath`), `fill`, `fill_rule`, `stroke`, and
+  `bbox` that a `DrawingInfo` dictionary held as `items`, `fill`, `even_odd`,
+  `color`, `width`, `lineCap`, `lineJoin`, `dashes`, and `rect`, and an `Image`
+  record holds the object number, box, matrix, size, color space, mask, encoded
+  size, and resolution that `get_image_info` returned. The `DrawingInfo`,
+  `DrawingItem`, and `ImageInfo` types leave the public surface. A stroke joins
+  the fill before it only when it directly follows a fill of the same segments,
+  where `get_drawings` also joined a later stroke of the same geometry.
+  `Page.content(max_elements=...)` now also counts stroke dash lengths, so one
+  long dash array that many strokes repeat cannot multiply memory, and building
+  the records of a page full of text takes about half as long as before. The
+  codemod rewrites `get_drawings`, `get_cdrawings`, and `get_image_info` calls
+  and marks the code that reads their dictionaries.
+- `canvas.image` shows a JPEG or PNG as its EXIF orientation asks, mirrored or
+  turned by its placement while the data stays as it is, as image viewers and
+  browsers do; `rotate` then turns the upright image. pymupdf's `insert_image`
+  ignores the orientation, so a phone photo that it drew sideways now stands up.
+- Replace `Document.set_fallback_font()` with `Document.fallback_fonts`, a
+  mapping from `"ja"`, `"ko"`, `"zh-CN"`, or `"zh-TW"` to a
+  `FallbackFont(sans, serif)` record of `Font` values, which a document shares
+  rather than copies. Until it is edited it lists the installed font extras;
+  assigning a language changes that language, assigning a mapping replaces all
+  of them (`{}` turns fallback rendering off), and `del doc.fallback_fonts`
+  returns to the installed extras. The codemod rewrites
+  `set_fallback_font(None)` and marks the other calls.
+- Raise typed errors for unreadable input: input that is not a readable PDF,
+  empty input included, raises the new `MalformedPdfError`, a `PdfError`, and a
+  missing file raises Python's built-in `FileNotFoundError`. They replace
+  `PdfError` when opening a document, probing it, and reading font, image, and
+  OCR model paths; password and limit failures keep `PasswordError` and
+  `LimitError`.
+- `Font` has no public constructor: `Font.standard(name)` takes the PostScript
+  name of a Standard 14 font, which `StandardFontName` lists in place of
+  `Base14_fontnames` and `Base14_fontdict`; `Font.from_file(path)` and
+  `Font.from_bytes(data)` load an OpenType face, with `index=`, `weight=`, and
+  `max_size=` in place of `fontindex=` and `max_font_size=`; and
+  `Font.installed(language=..., family=...)` selects the face of an installed
+  font extra, with `serif=`, `weight=`, and `italic=` in place of `is_serif=`,
+  `is_bold=`, and `is_italic=`, and without `allow_regular_fallback=`.
+  `text_width(text, size)` replaces `text_length(text, fontsize=11)`, and
+  `has_glyph(char)` takes one character and returns whether the face has a
+  glyph for it. `python -m pylopdf.migrate` rewrites these calls, and pymupdf's
+  `get_text_length()`.
+- Filling a text or choice field draws its value in the Standard 14 font,
+  size, and colour of the `/DA` that the widget inherits, where it used to
+  draw every value in black Helvetica fitted to the widget; a size of 0 still
+  fits the text.
+- Replace `Document.get_form_fields()` and `Document.set_form_field()` with
+  `doc.form`, a mapping from full field names to `Field` handles with `name`,
+  `type`, a `FieldType` member, `value`, `flags`, a `FieldFlags` value
+  inherited from parent fields, `choices`, the `FieldChoice(value=, label=)`
+  options of a choice field, `xref`, and `obj`. Assigning
+  `doc.form[name].value` fills the field and regenerates its appearances, and
+  `doc.form.font` sets the OpenType `Font` that fills draw with, which
+  replaces the `font`, `fontfile`, `fontbuffer`, `fontindex`, `font_language`,
+  and `max_font_size` arguments; `Font.installed(language=...)` selects an
+  installed extra's face. `FormFieldInfo` and `FormFieldType` are gone, and a
+  pushbutton's type is `FieldType.PUSHBUTTON`, where it was `"button"`. The
+  codemod rewrites `get_form_fields()` and `set_form_field(name, value)` and
+  marks calls with font arguments.
+- Geometry constants are class attributes: `Matrix.IDENTITY` replaces
+  `Identity` and `IdentityMatrix()`, `Rect.EMPTY` and `Rect.INFINITE` replace
+  `EMPTY_RECT()` and `INFINITE_RECT()`, `IRect` and `Quad` have the same pair
+  in place of the `EMPTY_IRECT()`, `INFINITE_IRECT()`, `EMPTY_QUAD()`, and
+  `INFINITE_QUAD()` functions, `Matrix.planish(p1, p2)` replaces
+  `planish_line(p1, p2)`, and the corners of `Rect.INFINITE` replace
+  `FZ_MIN_INF_RECT` and `FZ_MAX_INF_RECT`. The codemod rewrites each of them,
+  in pymupdf and pylopdf 0.15 code alike.
+- Text extraction leaves out glyphs that the page boundary or the clip paths
+  hide entirely, as pymupdf does by default; `clipped=True` keeps them.
+  Invisible text, such as an OCR layer, is still extracted.
+- `Page.insert_image()` and `Page.show_pdf_page()` go: inside
+  `with page.draw() as canvas:`, `canvas.image(rect, source)` draws a JPEG or
+  PNG path, encoded bytes, or a `Pixmap`, with `keep_aspect=` in place of
+  `keep_proportion=`, and `canvas.page(rect, docsrc.pages[pno])` draws a page of
+  any open document as vectors. `page.draw(underlay=True)` replaces
+  `overlay=False`, and `page.content().images` reports the xref of each placed
+  image. A canvas that places a page of its own document now shares that page's
+  Form with later placements on other pages, as `show_pdf_page` did.
+  `python -m pylopdf.migrate` rewrites both calls, and assignments of the image
+  xref, into canvas blocks; pymupdf's anticlockwise `rotate=` becomes the
+  canvas's clockwise angle.
+- Replace `Page.get_links()`, `Page.insert_link()`, `Document.has_links()`,
+  the `LinkInfo` TypedDict, and the `LinkKind` enum with its `LINK_*`
+  constants by `page.links`, a sequence of `Link` handles whose `rect` and
+  `target` read the document on every access and edit the link when assigned.
+  `page.links.add(rect, target)` adds a link and `del page.links[i]` removes
+  one. Targets are the outline's: a URI string, `Destination(page, point,
+  zoom)`, `RemoteDestination(file, page, name)`, `Launch(file)`, or
+  `NamedAction(name)`, so links can now lead to pages, other files, files to
+  open, and viewer actions, where `insert_link` wrote web links only. A link
+  whose action pylopdf does not read, or whose destination names no page,
+  reads with the target `None` instead of being left out, and a destination
+  that leaves its coordinates unset reads without a point. `Link.xref` and
+  `Link.obj` give the annotation itself; editing or removing a page's links
+  first stores the links that `/Annots` holds as direct dictionaries as
+  objects of their own, as MuPDF does, so a handle never shifts onto another
+  link. The codemod rewrites `get_links()`,
+  `insert_link()` with a dictionary literal, `load_links()`, `first_link`,
+  `links()`, `has_links()`, and pylopdf 0.15's `add_link_annot()`, and marks
+  the rest.
+- Metadata, outline titles, annotation contents, form values, and page labels
+  keep the tabs and line breaks of PDFDocEncoding text strings, which lopdf 0.45
+  dropped, a UTF-8 text string drops its byte order mark, and a UTF-16BE string
+  ignores an odd trailing byte instead of reading it as a character.
+- `pylopdf.open(source, /, *, password=None, limits=None)` opens a PDF from a
+  path or from `bytes`, `bytearray`, or `memoryview`, and `Document(*,
+  limits=None)` creates an empty document; `open` is no longer the `Document`
+  class, and its `filename=`, `stream=`, and `max_decompressed_size=` arguments
+  are gone (set that budget with `DocumentLimits`). `pylopdf.probe(source, /,
+  *, password=None, max_file_size=None)` replaces `peek_metadata` and returns a
+  `Probe` record with `page_count`, `version`, `needs_password`,
+  `is_repaired`, and `metadata` keyed `title`, `author`, `subject`, `keywords`,
+  `creator`, `producer`, `created`, and `modified`. `Document.needs_password`
+  replaces `needs_pass`, and the new `Document.path` is the file the document
+  came from.
+- Replace `Document.get_toc()` and `set_toc(toc)` with `Document.outline`:
+  `doc.outline.entries()` returns `OutlineEntry(level, title, destination)`
+  records, assigning a list of them replaces the outline, and `del doc.outline`
+  removes it. Page numbers in a `Destination` start at 0, like every other
+  pylopdf page number, where `get_toc` counted from 1. Replace
+  `get_page_labels()`, `set_page_labels(labels)`, and `Page.get_label()` with
+  `Document.page_labels`, a list of `PageLabelRange(start, style, prefix,
+  first)` records with the new `PageLabelStyle` enum, and `Page.label`. The
+  codemod rewrites these calls, and renames pymupdf's `Outline` class to
+  `OutlineItem`. The limits are unchanged.
+- A copy of a page within a document (`doc.pages.insert()` or `extend()` with
+  its own pages) gets annotations of its own instead of sharing the original's
+  annotation objects: popups and replies follow, widgets join their fields, and
+  in a tagged document the page's structure elements are copied with
+  parent-tree keys of their own.
+- Replace `Page.set_rotation()`, `mediabox`, `cropbox`, `set_mediabox()`, and
+  `set_cropbox()` with an assignable `Page.rotation` and `Page.boxes`, a
+  `PageBoxes` view whose `media`, `crop`, `bleed`, `trim`, and `art` boxes are
+  read, assigned, and deleted in PDF user space as stored. The BleedBox,
+  TrimBox, and ArtBox are new, and default to the CropBox; only the MediaBox
+  and CropBox inherit from the page tree. `crop` no longer flips y against the
+  top of the MediaBox as pymupdf does, and assigning `media` removes the other
+  boxes as pymupdf's `set_mediabox` does. The new `Page.user_to_display` is the
+  matrix from PDF user space to display space, in place of pymupdf's
+  `transformation_matrix`, `rotation_matrix`, and `derotation_matrix`. The
+  codemod rewrites these calls and marks pymupdf's flipped boxes for review.
+- `Document.pages`, a sequence of `Page` views, replaces the page methods of
+  `Document`: index and slice it (`doc.pages[i]`, `doc.pages[2:5]`), measure it
+  with `len(doc.pages)`, and iterate it instead of `doc[i]`, `len(doc)`,
+  iteration over the document, `page_count`, and `load_page`. `pages.new(size,
+  *, index=None)` replaces `new_page`, `pages.insert(index, pages)` and
+  `pages.extend(pages)` replace `insert_pdf` and `copy_page` for pages of
+  another document or of the same one, `del doc.pages[i]` and
+  `del doc.pages[a:b]` replace `delete_page` and `delete_pages`, and
+  `pages.select(indexes)`, `pages.move(index, to)`, and `pages.labeled(label)`
+  complete it. A copy of a page of the same document is an independent page
+  object that shares content streams and resources until either is edited.
+  `Page.index` and `Page.document` replace `number` and `parent`, and two `Page`
+  views are equal when they view the same page of the same document
+  generation. `doc.pages[i].xref`, `.text()`, and `.pixmap()` replace
+  `page_xref`, `get_page_text`, and `get_page_pixmap`. Indexing or iterating a
+  `Document` raises a `TypeError` that points to `doc.pages`.
+- `Pixmap` is a value with gray and RGB pixels, PNG and JPEG output, and NumPy
+  interchange. `page.pixmap(colorspace="gray")` and
+  `doc.render(colorspace="gray")` render gray pixels (ITU-R BT.601 luma), with
+  straight alpha under `alpha=True`. `Pixmap.channels` (1 to 4) replaces `n`,
+  and `Pixmap.colorspace` returns the new `Colorspace` enum, `GRAY` or `RGB`,
+  which replaces pymupdf's `Colorspace` values and the `csRGB`, `csGRAY`,
+  `csCMYK`, `CS_RGB`, `CS_GRAY`, and `CS_CMYK` constants. The buffer is shaped
+  `(height, width)` for gray and `(height, width, channels)` otherwise, so
+  `numpy.asarray(pix)` reads the pixels without a copy and `bytes(pix)`
+  replaces `samples`; `Pixmap.from_array(array)` builds a pixmap from a
+  `uint8` array. `to_bytes(format="png", *, quality=95, max_size=...)` replaces
+  `tobytes()` and writes PNG or JPEG, `save(path, /, *, format=None,
+  quality=95)` writes either, by the extension unless `format` names it, and
+  `doc.render(format="jpeg", quality=...)` encodes a batch as JPEG; JPEG
+  refuses alpha. A gray Pixmap placed with `canvas.image()` becomes a
+  DeviceGray image, and an opaque one needs no soft mask. The codemod rewrites
+  `samples`, `samples_mv`, `tobytes(output, jpg_quality=...)`,
+  `save(path, output, jpg_quality=...)`, and the color space constants.
+- Replace the `embfile_add`, `embfile_get`, `embfile_del`, and `embfile_names`
+  methods with the `Document.attachments` mapping: iterate it for
+  the sorted names, `add(name, data, /, *, filename=None, description=None,
+  max_size=...)` returns an `Attachment`, `del doc.attachments[name]` deletes
+  one, and a missing name raises `KeyError`. An `Attachment` handle reports
+  pymupdf's `embfile_info` metadata as `filename`, `description`, `size`,
+  `creation_date`, and `mod_date`, reads with `read(*, max_size=...)`, and
+  replaces its data with `write(data, /, *, max_size=...)`, which pymupdf calls
+  `embfile_upd`. The limits are unchanged.
+- Give pymupdf's constant groups their enum types: `Permissions` members take
+  pymupdf's names (`FORM`, `ACCESSIBILITY`, and `PRINT_HQ` replace
+  `FILL_FORMS`, `COPY_FOR_ACCESSIBILITY`, and `PRINT_HIGH_QUALITY`).
+- `Document.metadata` is a live `Metadata` mapping of the Info entries
+  present, under the keys of `Probe.metadata`: `title`, `author`, `subject`,
+  `keywords`, `creator`, `producer`, `created`, `modified`, and `trapped`.
+  Assigning a key or calling `update()` writes in one edit, `del` removes an
+  entry, assigning a mapping replaces every entry, and `clear()` or an empty
+  mapping removes the Info dictionary; values are non-empty strings, and
+  `trapped` is `True`, `False`, or `Unknown`. `Document.version` and
+  `Document.encryption_method` replace the `format` and `encryption` entries,
+  and `Document.pdfa_claim` returns a `PdfaClaim` record or `None` in place of
+  `get_pdfa_claim()`'s tuple. `set_metadata`, `DocumentMetadata`, and
+  `MetadataUpdate` are removed; the codemod rewrites `set_metadata` calls with
+  a literal dictionary and reads of the old keys.
+- Image objects are handles: `doc.images` maps object numbers to
+  `ImageObject` handles, and `page.resources.images` lists the ones that a
+  page's resources and their Form XObjects reach, once each in resource order,
+  in place of `Page.get_images()`, which decoded every drawn placement (now
+  `page.content(text_runs=False, paths=False).images`). A handle reads
+  `width`, `height`, `bits`, `colorspace`, `alternate_colorspace`, `filters`,
+  `soft_mask`, `mask`, and `is_stencil` from the document on every access;
+  `extract()` returns an `EncodedImage` with `format`, `data`, and
+  `resolution` (DCT data as JPEG, anything else as PNG, without masks), and
+  `to_pixmap(alpha=False)` renders the image at its pixel size, applying its
+  masks with `alpha=True`. The codemod rewrites pymupdf's `get_images()` and
+  `extract_image(xref)` calls and the keys read from the extracted image.
+- Adopt pymupdf's page-box convention: `Page.cropbox` and
+  `Page.set_cropbox` use the stored x coordinates and flip y against the top
+  of the MediaBox, `set_cropbox` raises `ValueError` for a box without area or
+  outside the MediaBox, and `Page.mediabox` normalizes its corners.
+  `Page.set_mediabox` now removes the CropBox, BleedBox, TrimBox, and ArtBox,
+  and replaces a CropBox that the page would inherit, so the whole new
+  MediaBox becomes visible.
+- Rendering is `page.pixmap()`, `page.svg()`, and `doc.render()`.
+  `page.pixmap(*, dpi=None, matrix=None, clip=None, alpha=False,
+  background=None, annotations=True)` replaces `Page.render()`,
+  `Document.render_page()`, and pymupdf's `get_pixmap()`: it returns a
+  `Pixmap`, opaque RGB on white by default and straight-alpha RGBA with
+  `alpha=True`, takes `dpi` or a scaling `matrix` (not both) instead of
+  `scale`, and leaves annotation and widget appearances out with
+  `annotations=False`. `page.svg(*, annotations=True, max_size=...)` replaces
+  `Page.render_svg()`, `Document.render_page_svg()`, and pymupdf's
+  `get_svg_image()`, and `doc.render(pages=None, ...)` replaces
+  `render_pages()` with the options of `pixmap()`. `OcrEngine.recognize` takes
+  any `Pixmap` and returns boxes in pixel coordinates. The codemod rewrites
+  `get_pixmap`, `get_page_pixmap`, `get_svg_image`, `render_pages`,
+  `render_page`, `render_page_svg`, and `render_svg` calls.
+- Replace `Document.compress_images(dpi=, quality=)` with pymupdf's
+  `Document.rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0,
+  lossy=True, lossless=True, bitonal=True, color=True, gray=True,
+  set_to_gray=False, options=None)`: an image axis above
+  `dpi_threshold` is resampled to `dpi_target`, `quality=0` means no
+  recompression, and `lossy`, `lossless`, `color`, and `gray` select DCT, Flate,
+  RGB, and gray sources. pylopdf re-encodes rewritten images as JPEG only, so
+  resampling with `quality=0` raises, as do `set_to_gray=True` and `options`;
+  bitonal images count as skipped. The call still returns the
+  `ImageCompressionResult` counts, and its defaults now follow pymupdf, so
+  `rewrite_images()` without arguments changes nothing.
+- Complete pymupdf's geometry types: `Rect` gains pymupdf's
+  constructors, corners, `contains`, `intersects`, `round`, `torect`, `morph`,
+  `get_area`, `normalized`, and the `+`, `-`, `*`, `/`, `|`, `&`, `in`,
+  `abs()`, and truth-testing operators, and its `width` and `height` no longer
+  go negative. New immutable `IRect` and `Quad` values, `IdentityMatrix` and
+  `Identity`, `planish_line`, the `EMPTY_*` and `INFINITE_*` constructors, and
+  `FZ_MIN_INF_RECT` and `FZ_MAX_INF_RECT` follow pymupdf as well. `Rect`
+  coordinates must now be finite, and tuple concatenation, repetition, and
+  membership on a `Rect` give way to the geometric meanings.
+- `Document.save(path, /, *, compress=True, prune=True, dedupe=False,
+  renumber=False, object_streams=False, encryption=None)` and
+  `Document.to_bytes(...)`, which replaces `tobytes`, take one boolean per
+  effect instead of `garbage=` levels and `deflate=`: streams are now
+  compressed and unreachable objects removed by default, `dedupe` merges
+  identical objects and streams, and `renumber` numbers objects consecutively.
+  `encryption=Encryption(user_password=..., owner_password=...,
+  permissions=...)` writes AES-256 encryption and replaces `user_pw=`,
+  `owner_pw=`, and `permissions=`. `Document.unlock(password)` replaces
+  `authenticate` and returns `Access.USER` or `Access.OWNER`, raising
+  `PasswordError` for a wrong password. `Document.needs_password` is now true
+  until the document is unlocked and replaces `is_encrypted`, and
+  `Document.permissions` returns `Permissions` flags. The codemod migrates
+  pymupdf's and pylopdf 0.15's save options and `authenticate` calls,
+  preserves literal `None` password defaults, and flags dynamic pymupdf
+  encryption choices for manual review. It recognizes document variables named
+  `pages` and inline document factory calls. Locked-document errors direct callers
+  to `unlock()`, and permission-restricting examples use separate user and
+  owner passwords.
+- Saving gives a document without a file identifier one and renews the second
+  element of an edited document's identifier, as ISO 32000-2 §14.4 asks; an
+  incremental save renews it in its update when the update writes objects. The
+  new element is a digest of the content, so saving the same content twice
+  still writes the same bytes. Saving compresses streams at zlib level 6
+  instead of lopdf's 9: on the bundled corpus the compressed streams grow by
+  1.9% and compress about five times faster; `compression_level=9` restores
+  the previous effort.
+- `page.layout(chars=True)` lists each space that pylopdf infers from a gap as
+  a `Char` with the new `is_synthetic` flag set, so a span's characters join to
+  its text, and `Layout.to_dict()` gives each character pymupdf's `synthetic`
+  key.
+- `Page.tables(*, strategy="lines", clip=None)` replaces `find_tables()` and
+  returns a list of `Table` records instead of a `TableFinder`. A `Table` holds
+  `bbox`, `rows` (the cell text row by row, replacing `extract()`), `cells`
+  (each cell's `Rect` in the same shape, where 0.15 had a flat list), and
+  `diagnostics`; `len(table.rows)` replaces `row_count`, and
+  `table.diagnostics.confidence` and `strategy` replace the table's own.
+  `TableDiagnostics` is a frozen dataclass. `Page.ocr()` replaces
+  `get_text_ocr()`, and `Page.apply_ocr(words=...)` replaces
+  `insert_ocr_text_layer()`: it takes `OcrWord` records from another engine and,
+  like recognition, skips a page that already has text unless
+  `skip_existing=False`. `OcrWord` is a frozen dataclass with `text`, `bbox`,
+  and `confidence` instead of a dictionary. The codemod rewrites `find_tables`
+  calls, their `tables`, `extract()`, `row_count`, and `col_count`, and
+  `get_text_ocr` calls, and marks the rest.
+- `Page.insert_text()` and `Page.insert_textbox()` go, with `TextAlign` and the
+  `TEXT_ALIGN_*` constants: inside `with page.draw() as canvas:`,
+  `canvas.text(text, at)` and `canvas.textbox(rect, text)` draw the same text,
+  with `size=`, `fill=Color(...)`, `line_height=`, and a `Font` passed as
+  `font=` in place of `fontsize=`, `color=`, `lineheight=`, and the font
+  arguments, and with `align="center"` and the other alignment strings.
+  `canvas.text` draws every line, where `insert_text` left out lines below the
+  page, and `canvas.textbox` places lines and decides whether they fit as
+  `Font.text_height` measures. `python -m pylopdf.migrate` rewrites both calls,
+  and assignments of a textbox's spare height, into canvas blocks, and joins
+  consecutive blocks on one page into one.
+- Reading text has one method per result. `Page.text()`, `Page.words()`, and
+  `Page.layout(*, chars=False)` replace `get_text()` and its `"text"`,
+  `"words"`, `"blocks"`, `"dict"`, and `"rawdict"` options; `Page.search(text)`
+  replaces `search_for`; `Page.markdown()`, `Document.markdown()`, and
+  `Table.markdown()` replace `to_markdown()`; and `Document.text(pages)`
+  replaces `Document.get_text(pages)`. `words()` returns `Word` records with
+  `text`, `bbox`, `block`, `line`, and `index`, and `layout()` returns a
+  `Layout` of `Block`, `Line`, and `Span` records, with `Char` records for every
+  glyph when `chars=True`; these frozen dataclasses replace the `WordEntry` and
+  `BlockEntry` tuples and the `TextPage`, `RawTextPage`, `TextBlock`,
+  `TextLine`, `TextSpan`, and `TextChar` dictionaries. `Layout.to_dict()`
+  returns pymupdf's dictionary shape for JSON. The codemod rewrites
+  `get_text(...)`, `search_for`, and `to_markdown` calls and marks code that
+  reads word and block tuples.
+- Migration hints and `python -m pylopdf.migrate` name the page methods that
+  replace pymupdf's `TextPage`, `Page.get_textpage`, and the `extract*` methods
+  of a text page, because pylopdf caches each page's interpretation instead of
+  exposing a text-page object; `doc.search_page_for(i, text)` points at
+  `doc.pages[i].search(text)`.
+- `Page.draw_line()`, `draw_rect()`, `draw_circle()`, `draw_oval()`,
+  `draw_polyline()`, `draw_quad()`, `draw_bezier()`, `draw_curve()`,
+  `draw_sector()`, `draw_squiggle()`, and `draw_zigzag()`, `Page.new_shape()`,
+  and `Shape` go: `page.draw()` returns a `Canvas` whose `line`, `rect`,
+  `circle`, `ellipse`, `polygon`, `bezier`, and `path` with `PathBuilder` draw
+  the same paths, with a `Color` fill and a `Stroke` in place of pymupdf's
+  `color`, `width`, `dashes`, `lineCap`, `lineJoin`, and opacities.
+  `python -m pylopdf.migrate` rewrites `draw_line`, `draw_rect`,
+  `draw_circle`, `draw_oval`, `draw_polyline`, `draw_bezier`,
+  `draw_squiggle`, and `draw_zigzag` statements into canvas blocks and marks
+  the rest.
+
+### Removed
+- `LimitError` no longer reports `recovery_scan_size`. lopdf 0.46 rebuilds a
+  damaged cross-reference table in linear time however many unterminated
+  `stream` keywords the input holds, so pylopdf no longer scans lenient input
+  beforehand and refuses none of it; 64 MiB of such keywords rebuild in about
+  0.25 s.
+
+### Fixed
+- A canvas that drew new images and pages of another document in one block
+  could lose some of the images, which took object numbers that the placed
+  pages then overwrote.
+- The content engine behind `Page.operations` and redaction reads content as
+  hayro does, including filtered inline images and content that lopdf's strict
+  parser refused, and joins a page's content streams with one space as hayro
+  does.
+- An encrypted file saved from a document without a file identifier gains a
+  random `/ID`, which ISO 32000-2 requires whenever `/Encrypt` is present; qpdf
+  reported AES-256 output without one as invalid.
+- Fallback fonts configured on a document opened with a password now keep
+  rendering after `unlock()` with the other password, which reads the document
+  again; they were lost before.
+- Text painted with both fill and stroke (text render modes 2 and 6) is now
+  extracted once instead of twice by text extraction, search, table detection,
+  and Markdown conversion. Text extraction reads the paths and glyphs of the
+  same device as `Page.content()`.
+- Opening an RC4 or AES-128 document with its owner password now decrypts its
+  content, which lopdf 0.45 decrypted with a wrong key into empty text. Saving
+  with encryption now also encrypts the strings of stream dictionaries, except a
+  signature's `/Contents`, and opening decrypts them.
+  `probe` of an AES-128 document that opens without a password now counts its
+  pages instead of reporting none.
+- Damaged files that only have cross-reference streams now open: lopdf 0.46
+  corrects a slightly miswritten offset onto a nearby cross-reference stream and
+  rebuilds such files from their object headers, where lopdf 0.45 rejected them.
+  A file whose offsets were corrected onto a section that misses its later
+  objects, such as one that gained or lost a few bytes, is now rebuilt instead
+  of opening without those objects.
+- `markdown()` keeps the space between words that end and start adjacent
+  spans of one line, such as a word in another font or style, instead of
+  running them together (`Expandable\inputequivalent`). It inserts a space
+  where the gap between the spans exceeds the word gap that `text()` uses,
+  keeps emphasis markers outside that space, and keeps combining marks attached
+  to their base characters. Inline CJK gaps follow `text()`, while wrapped CJK
+  lines still join directly. Rotated spans account for the font-height padding
+  in their bounding boxes when measuring word gaps.
+- Text that a page sets at an angle other than a right angle is assembled into
+  lines along its baseline instead of one line per glyph or two.
+- Outline file targets preserve Unicode filenames, and destination coordinates
+  and zoom that exceed PDF's real-number range are refused before mutation.
+  Individual title and target edits enforce the complete outline's text limits;
+  invalid imported colors use the viewer's default. Item dictionary handles
+  retain the exact object generation. Open-state edits update direct and aliased
+  outline roots consistently, while null or missing children have no open state.
+
+  Unknown page-label styles in existing PDFs retain their prefix-only labels
+  when read as records. The migration tool preserves pylopdf's `Outline` class
+  when it appears alongside pymupdf imports.
+- Documents whose cross-reference entries miss the catalog or the root
+  page-tree node open with their pages instead of raising on every page
+  operation. lopdf trusts any cross-reference data that it resolves, and it
+  moves a `startxref` that misses by up to 64 bytes onto a nearby table, whose
+  entries can miss their objects in a file that lost bytes: pdf.js
+  `bug1130815.pdf` loaded 2 of its 66 objects and raised
+  `object ID 50 0 not found`. When the objects that lead to the page tree did
+  not load, loading now rebuilds the table by scanning object headers, as
+  hayro, MuPDF, and pdf.js do, keeps the rebuilt document when its page tree
+  is reachable, and reports the `rebuilt` cross-reference warning;
+  `probe` repeats a metadata read that counts no pages in the same way. Nine
+  pdf.js corpus files that raised on every page operation now open with hayro's
+  page count, and every page renders pixel for pixel as hayro renders the
+  original bytes.
+- A saved cross-reference table ends at the highest object that the save
+  keeps, so `/Size` no longer counts objects that pruning removed, which qpdf
+  reported; and a document read with a cross-reference stream and saved with
+  `cross_reference="table"` no longer carries the stream's entries into the
+  trailer.
+- A stream whose wrong `/Length` hides its `endstream` behind another
+  cross-reference entry's offset keeps its data. lopdf and pylopdf's recovery
+  parse searched for `endstream` only up to the next entry offset, even one
+  that points into the stream's own data, and skipped the object, while hayro
+  reads up to the first `endstream`: page 2 of pdf.js `issue11678.pdf` lost
+  its content stream and extracted nothing. An entry offset at which no object
+  header starts no longer ends an object, and the recovery parse takes the
+  first `endstream`, as hayro does, when the declared length and the sole
+  `endstream` that `endobj` follows both fail. The page now extracts 1,014
+  characters and renders pixel for pixel as hayro renders the original bytes.
+
+### Performance
+- Converting a rendered raster to RGB, gray, or gray with alpha takes one pass
+  over the pixels: on a 2x Letter page it took 0.73 ms instead of 1.04 ms for
+  RGB, 0.50 ms instead of 1.13 ms for gray, and 1.39 ms instead of 1.65 ms for
+  gray with alpha.
+
+### Documentation
+- The ecosystem guide's image-processing section gives tested NumPy and Pillow
+  recipes for what pymupdf's `Pixmap` methods do: tinting, gamma, inversion,
+  filling and copying pixels, alpha, colour counts, turning, flipping,
+  shrinking, and perspective warping. The migration hints for those methods
+  point to them.
+- Separate the roadmap's v1.0 release gates from completeness claims, publish
+  intentional exclusions without counting them as coverage, and require exact
+  decimal preservation independently of floating-point approximations.
+
 ## [0.15.0] - 2026-10-20
 
 ### Added

@@ -5,7 +5,7 @@ description: 借助迁移工具、逐个名称的对照表以及需要注意的�
 
 # 从pymupdf迁移
 
-pylopdf的目标是用自己的API完成pymupdf对PDF文件能做的一切。但它不能直接替代pymupdf：它**只能打开PDF文件**（不支持XPS、EPUB或图像），有意改变了少数行为，而且下一个版本将重新设计API，迁移工具会随着各部分的落地而跟进。文档及其页面、保存、文本读取、表格和OCR已经采用新API：`pylopdf.open(source)`、`doc.pages`、`doc.save()`、`page.text()`、`page.layout()`、`page.tables()`和`page.ocr()`。本页列出可以直接沿用的部分、存在差异的部分，以及pylopdf尚未实现的功能应改用什么。
+pylopdf的目标是用自己的API（0.16重新设计了这套API）完成pymupdf对PDF文件能做的一切。但它不能直接替代pymupdf：它**只能打开PDF文件**（不支持XPS、EPUB或图像），并且有意改变了少数行为。本页列出可以直接沿用的部分、存在差异的部分，以及pylopdf尚未实现的功能应改用什么。
 
 ## 自动迁移 { #codemod }
 

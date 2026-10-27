@@ -6,14 +6,10 @@ description: Port pymupdf code to pylopdf with the migration tool, a name-by-nam
 # Migrating from pymupdf
 
 pylopdf aims to do everything pymupdf can do with PDF files, through an API
-of its own. It is not a drop-in replacement: it opens **PDF files only** (not
-XPS, EPUB, or images), changes a few behaviors on purpose, and its next release
-redesigns the API, which the migration tool follows as each part lands.
-Documents and their pages, saving, reading text, tables, and OCR already use
-the new API: `pylopdf.open(source)`, `doc.pages`, `doc.save()`, `page.text()`,
-`page.layout()`, `page.tables()`, and `page.ocr()`. This page lists what
-carries over, what differs, and what to use instead of the parts pylopdf does
-not implement yet.
+of its own, which version 0.16 redesigned. It is not a drop-in replacement:
+it opens **PDF files only** (not XPS, EPUB, or images) and changes a few
+behaviors on purpose. This page lists what carries over, what differs, and
+what to use instead of the parts pylopdf does not implement yet.
 
 ## Automated migration { #codemod }
 

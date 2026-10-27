@@ -7,7 +7,7 @@ description: pylopdfをインストールし、編集・描画・抽出・書き
 
 !!! note "プロジェクトの状況"
 
-    pylopdfは1.0前で、次のリリースでは[ロードマップ](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)のとおりAPIを作り直します。何が変わりうるかは[安定性ポリシー](stability.md)で説明しています。このサイトは`main`ブランチに追従しているため、まだPyPIに公開されていない変更を説明していることがあります。各リリースの内容は[変更履歴](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)を参照してください。
+    pylopdfは1.0前で、0.16で[ロードマップ](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)のとおりAPIを作り直しました。何が変わりうるかは[安定性ポリシー](stability.md)で説明しています。このサイトは`main`ブランチに追従しているため、まだPyPIに公開されていない変更を説明していることがあります。各リリースの内容は[変更履歴](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)を参照してください。
 
 ## インストール { #installation }
 

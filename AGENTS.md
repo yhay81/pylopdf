@@ -3726,8 +3726,10 @@ holds the API rules and the target surface.
   and the first engine work in parallel; Verification starts alongside it.
   Phase 2 adds Verification and Conformance to the capability milestones,
   phase 3 (Specification completion) covers the features pymupdf does not
-  reach, and phase 4 is 1.0. The pymupdf-aligned renames merged
-  since 0.15.0 ship only together with the API reset.
+  reach, and phase 4 is 1.0. v0.16.0 shipped the API reset with the
+  pymupdf-aligned renames merged since 0.15.0; the content model and the
+  canvas stay in phase 1 until their engine work is released (ROADMAP.md
+  D14).
 - Capability map tooling: `tools/check_parity.py` validates the map and
   reports coverage, with the milestone slugs in its `MILESTONES`.
   `tools/generate_migration_hints.py` writes `src/pylopdf/_migration_hints.py`

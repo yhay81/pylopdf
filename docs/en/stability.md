@@ -10,12 +10,12 @@ pylopdf follows [Semantic Versioning](https://semver.org/).
 ## Before v1.0 { #current-status }
 
 pylopdf is pre-1.0. Releases can still contain breaking changes, such as the
-API redesign that the
-[roadmap](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md) plans for
-the next release, and there is no deprecation period for them yet. Every
+API redesign of version 0.16 that the
+[roadmap](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md) describes,
+and there is no deprecation period for them yet. Every
 breaking change is listed, with how to update your code, in the
 [changelog](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md).
-Pin a minor version (for example `pylopdf~=0.15.0`) if you need to upgrade on
+Pin a minor version (for example `pylopdf~=0.16.0`) if you need to upgrade on
 your own schedule.
 
 The rules below take effect from v1.0.

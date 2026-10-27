@@ -29,7 +29,7 @@ Key facts:
 - Wheels for Linux, macOS, and Windows, including free-threaded CPython 3.14t
   and 3.15t, plus a WebAssembly wheel for Pyodide 0.28.3 and Cloudflare
   Python Workers.
-- Pre-1.0: the next release redesigns the API (ROADMAP.md and
+- Pre-1.0: version 0.16 redesigned the API (ROADMAP.md and
   api/DESIGN.md in the repository); the documentation follows the main
   branch.
 - PDF files only. Typesetting, digital signatures, and PDF/A validation are

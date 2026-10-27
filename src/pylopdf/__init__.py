@@ -164,7 +164,7 @@ from pylopdf._types import (
 from pylopdf._widgets import Widget, Widgets
 from pylopdf.pylopdf_core import LimitError, OcrError, PasswordError, PdfError, Pixmap, StaleObjectError
 
-__version__ = "0.15.0"
+__version__ = "0.16.0"
 __all__ = [
     "Access",
     "Annotation",
