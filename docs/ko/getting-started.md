@@ -7,9 +7,9 @@ description: pylopdf를 설치하고 편집, 렌더링, 추출, 그리기의 핵
 
 !!! note "프로젝트 상태"
 
-    pylopdf는 1.0 이전 단계이며, 다음 릴리스에서
+    pylopdf는 1.0 이전 단계이며, 0.16에서
     [로드맵](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)에 따라 API를 다시
-    설계합니다. 무엇이 바뀔 수 있는지는 [안정성 정책](stability.md)에서
+    설계했습니다. 무엇이 바뀔 수 있는지는 [안정성 정책](stability.md)에서
     설명합니다. 이 사이트는 `main` 브랜치를
     따르므로 아직 PyPI에 배포되지 않은 변경을 설명할 수도 있습니다. 각 릴리스에
     포함된 내용은 [변경 이력](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)에서

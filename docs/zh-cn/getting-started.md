@@ -7,7 +7,7 @@ description: 安装pylopdf，并了解编辑、渲染、提取和绘制PDF的核
 
 !!! note "项目状态"
 
-    pylopdf尚处于1.0之前的阶段，下一个版本将按照[路线图](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)重新设计API；哪些内容可能变化，请参阅[稳定性政策](stability.md)。本站跟随`main`分支更新，因此可能介绍尚未发布到PyPI的变更。各版本包含的内容请查看[更新日志](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)。
+    pylopdf尚处于1.0之前的阶段，0.16已按照[路线图](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)重新设计了API；哪些内容可能变化，请参阅[稳定性政策](stability.md)。本站跟随`main`分支更新，因此可能介绍尚未发布到PyPI的变更。各版本包含的内容请查看[更新日志](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)。
 
 ## 安装 { #installation }
 

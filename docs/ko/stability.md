@@ -9,7 +9,7 @@ pylopdf는 [시맨틱 버저닝](https://semver.org/)을 따릅니다.
 
 ## v1.0 이전 { #current-status }
 
-pylopdf는 1.0 이전 단계입니다. [로드맵](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)이 다음 릴리스에 계획한 API 재설계처럼 릴리스에는 여전히 호환되지 않는 변경이 포함될 수 있으며, 아직 사용 중단 기간도 없습니다. 모든 호환되지 않는 변경은 코드를 고치는 방법과 함께 [변경 이력](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)에 기록됩니다. 원하는 시점에 업그레이드하려면 마이너 버전을 고정하세요(예: `pylopdf~=0.15.0`).
+pylopdf는 1.0 이전 단계입니다. 0.16에서 [로드맵](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)에 따라 한 API 재설계처럼 릴리스에는 여전히 호환되지 않는 변경이 포함될 수 있으며, 아직 사용 중단 기간도 없습니다. 모든 호환되지 않는 변경은 코드를 고치는 방법과 함께 [변경 이력](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)에 기록됩니다. 원하는 시점에 업그레이드하려면 마이너 버전을 고정하세요(예: `pylopdf~=0.16.0`).
 
 아래 규칙은 v1.0부터 적용됩니다.
 

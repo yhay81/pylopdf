@@ -7,7 +7,7 @@ description: Install pylopdf and learn its core editing, rendering, extraction a
 
 !!! note "Project status"
 
-    pylopdf is pre-1.0, and the next release redesigns its API, as the
+    pylopdf is pre-1.0, and version 0.16 redesigned its API, as the
     [roadmap](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)
     describes. The [stability policy](stability.md) explains what may
     change. This site follows the `main` branch, so it can describe

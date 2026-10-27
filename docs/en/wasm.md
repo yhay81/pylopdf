@@ -80,7 +80,7 @@ await pyodide.loadPackage("micropip");
 await pyodide.runPythonAsync(`
 import micropip
 await micropip.install(
-    "https://example.com/pylopdf-0.15.0-cp311-abi3-pyodide_2025_0_wasm32.whl"
+    "https://example.com/pylopdf-0.16.0-cp311-abi3-pyodide_2025_0_wasm32.whl"
 )
 `);
 ```

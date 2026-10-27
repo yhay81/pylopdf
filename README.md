@@ -23,9 +23,11 @@ and installs as a single wheel with no required Python dependencies.
 [API reference](https://pylopdf.haya.works/api/) ·
 [Migrating from pymupdf](https://pylopdf.haya.works/migration/)
 
-> **Status:** pylopdf is pre-1.0, and the next release redesigns its API, as
-> the [roadmap](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)
-> describes. Complete control is the goal, not yet the state: the roadmap's
+> **Status:** pylopdf is pre-1.0. Version 0.16 redesigned its API, as the
+> [roadmap](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)
+> describes; the [migration guide](https://pylopdf.haya.works/migration/)
+> covers code written for pymupdf or pylopdf 0.15. Complete control is the
+> goal, not yet the state: the roadmap's
 > [assessment](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#assessment-2026-10-23)
 > lists the gaps. The [stability policy](https://pylopdf.haya.works/stability/)
 > explains what may change.

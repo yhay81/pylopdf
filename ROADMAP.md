@@ -392,7 +392,7 @@ their acceptance criteria.
 
 | Phase | Work that runs in parallel | Gate |
 | --- | --- | --- |
-| 1 — foundations (current) | [Content model](#content-model), [Canvas](#canvas), [API reset](#api-reset), and the first [engine work](#engine-work) | The three milestones are accepted; the next release ships them together |
+| 1 — foundations (current) | [Content model](#content-model), [Canvas](#canvas), [API reset](#api-reset), and the first [engine work](#engine-work) | The three milestones are accepted; v0.16.0 shipped the API reset ahead of the other two ([D14](#decisions)) |
 | 2 — capabilities | [Verification](#verification), [Reading](#reading), [Rendering](#rendering), [Writing](#writing), [Interaction](#interaction), [Rewriting](#rewriting), [Structure](#structure), [Persistence](#persistence), [Conformance](#conformance), and [Understanding](#understanding) | Each milestone's acceptance |
 | 3 — specification | [Specification completion](#specification-completion) | The specification map has no `planned` or `engine` entry, and remaining limitations are published; this is not a completeness claim |
 | 4 — 1.0 | [v1.0 criteria](#v10) | Every criterion |
@@ -401,9 +401,10 @@ Verification starts at once, alongside phase 1, because every other
 milestone records its features in the specification map that it builds and
 is checked by its harnesses.
 
-The pymupdf-aligned renames on main since 0.15.0 are not released on their
-own. The next release carries the API reset, so users of pylopdf 0.15 and of
-pymupdf migrate once, with one codemod.
+v0.16.0 released the pymupdf-aligned renames together with the API reset, so
+users of pylopdf 0.15 and of pymupdf migrate once, with one codemod. It
+shipped before the content model and the canvas were accepted, because
+their remaining work waits on hayro and krilla releases ([D14](#decisions)).
 
 ## Tracking
 
@@ -442,7 +443,7 @@ Workstream Content, with Writing for the shared types.
 
 - `Page.content(*, clip=None, annotations=True, max_elements=262_144)`
   returns the painted items of a page in paint order and display space, as
-  immutable values (available on main):
+  immutable values (available since v0.16.0):
   - `TextRun`: glyphs with glyph ID, Unicode, matrix, advance, and the exact
     box of their outline or Type 3 procedure; a font reference; render mode;
     and fill and stroke paint.
@@ -548,8 +549,8 @@ inline images, and image masks.
 
 ### API reset
 
-All workstreams. It ships in the next release, with the content model and
-the canvas.
+All workstreams. It shipped in v0.16.0, ahead of the content model and the
+canvas ([D14](#decisions)).
 
 - Apply [api/DESIGN.md](api/DESIGN.md) to the existing surface; its API reset
   table is the work list. Constants become enum members only, collections
@@ -1215,6 +1216,11 @@ Three capabilities stay with ecosystem tools, through tested recipes:
   this requirement. Preservation tests compare against source tokens or an
   independent exact-decimal oracle so matching rounded readings cannot
   conceal a loss.
+- **D14** (2026-10-27): v0.16.0 ships the API reset before the Content
+  model and Canvas milestones are accepted. Their remaining work waits on
+  hayro and krilla releases and adds to `Page.content()` and the canvas
+  without renaming what the reset defined, so users of pylopdf 0.15 and of
+  pymupdf still migrate once, as D5 intends.
 
 ## Evidence log
 
