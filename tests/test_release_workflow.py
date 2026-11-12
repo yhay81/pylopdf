@@ -64,13 +64,12 @@ def test_every_native_release_wheel_runs_on_its_own_architecture() -> None:
 
 def test_documentation_announcement_tracks_package_version() -> None:
     version = pylopdf.__version__
-    expected_prefix = f'announcement: "pylopdf {version} ·'
-    expected_url = f'announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v{version}"'
 
     for config_path in _DOC_CONFIGS:
         config = config_path.read_text(encoding="utf-8")
-        assert expected_prefix in config, config_path.name
-        assert expected_url in config, config_path.name
+        assert version in config, config_path.name
+        assert "pyropdf" in config, config_path.name
+        assert 'announcement_url: "https://pyropdf.haya.works/' in config, config_path.name
 
 
 def test_font_release_attests_a_content_complete_reproducible_sbom() -> None:

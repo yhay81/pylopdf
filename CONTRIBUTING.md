@@ -1,6 +1,11 @@
 # Contributing to pylopdf
 
-Thank you for helping improve pylopdf. Contributions are welcome for PDF
+> **Archived — contribute to [pyropdf](https://github.com/yhay81/pyropdf) instead.**
+> This repository is archived and read-only. Please open issues and pull
+> requests on [yhay81/pyropdf](https://github.com/yhay81/pyropdf); see
+> [pyropdf's CONTRIBUTING.md](https://github.com/yhay81/pyropdf/blob/main/CONTRIBUTING.md).
+
+Thank you for helping improve pylopdf. Contributions were welcomed for PDF
 correctness, extraction quality, rendering fidelity, editing behavior,
 performance, documentation, packaging, and ecosystem interoperability.
 

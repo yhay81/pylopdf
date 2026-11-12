@@ -8,6 +8,15 @@ Changes that are not released yet may also wait as fragments in
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-11-12
+
+### Deprecated
+- `pylopdf` is archived; `0.16.1` is its final release. Migrate to
+  [`pyropdf`](https://github.com/yhay81/pyropdf) (`pip install pyropdf`,
+  [documentation](https://pyropdf.haya.works/)), which keeps `pylopdf`'s concept
+  and API design on a single versioned object store in Rust. The documentation
+  site at <https://pylopdf.haya.works/> is now a migration notice.
+
 ## [0.16.0] - 2026-10-27
 
 ### Added

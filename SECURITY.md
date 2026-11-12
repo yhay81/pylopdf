@@ -1,8 +1,16 @@
 # Security Policy
 
+> **Archived — migrate to [pyropdf](https://github.com/yhay81/pyropdf).**
+> `pylopdf` is archived after `0.16.1` and no longer receives updates or
+> security fixes. Migrate to [`pyropdf`](https://github.com/yhay81/pyropdf)
+> ([status and safety](https://pyropdf.haya.works/status/)), and report
+> vulnerabilities in `pyropdf` privately through
+> [pyropdf's GitHub Security Advisories](https://github.com/yhay81/pyropdf/security/advisories/new).
+
 ## Supported Versions
 
-Only the latest release on PyPI receives security fixes.
+No versions of `pylopdf` receive new security fixes (`0.16.1` is the final
+archived release).
 
 ## Reporting a Vulnerability
 

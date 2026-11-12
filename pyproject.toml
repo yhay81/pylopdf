@@ -1,7 +1,7 @@
 [project]
 name = "pylopdf"
-version = "0.16.0"
-description = "PDF editing, rendering, extraction, and generation for Python, powered by Rust. MIT, no mandatory Python dependencies, lightweight wheels."
+version = "0.16.1"
+description = "Archived; succeeded by pyropdf. PDF editing, rendering, extraction, and generation for Python, powered by Rust."
 authors = [{ "name" = "Yusuke Hayashi", "email" = "yusuke8h@gmail.com" }]
 readme = "README.md"
 requires-python = ">=3.11"
@@ -9,7 +9,7 @@ license = "MIT"
 license-files = ["LICENSE", "NOTICE.md", "LICENSES/*"]
 dependencies = []
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 7 - Inactive",
     "Environment :: WebAssembly :: Emscripten",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",

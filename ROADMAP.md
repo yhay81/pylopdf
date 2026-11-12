@@ -1,6 +1,16 @@
 # pylopdf roadmap
 
-This is the canonical medium-term plan. It was rewritten on 2026-10-22 around
+> **Archived — succeeded by [pyropdf](https://github.com/yhay81/pyropdf).**
+> `pylopdf` is archived at `0.16.1`. Active development continues in
+> [pyropdf](https://github.com/yhay81/pyropdf); see its
+> [foundation design](https://github.com/yhay81/pyropdf/blob/main/DESIGN.md)
+> (including [section 2, Evidence from pylopdf](https://github.com/yhay81/pyropdf/blob/main/DESIGN.md#2-evidence-from-pylopdf),
+> and [section 14, Moving from pylopdf](https://github.com/yhay81/pyropdf/blob/main/DESIGN.md#14-moving-from-pylopdf)),
+> its [documentation](https://pyropdf.haya.works/), and its
+> [roadmap issue tree](https://github.com/yhay81/pyropdf/issues/1). The rest
+> of this file is preserved as the historical record of `pylopdf`'s plan.
+
+This was the canonical medium-term plan. It was rewritten on 2026-10-22 around
 one direction: **the best PDF library for Python, built as the Python face of
 the Rust PDF engines**, with lopdf for objects and persistence, hayro for
 interpretation and rendering, and krilla for writing. On 2026-10-23 its goal

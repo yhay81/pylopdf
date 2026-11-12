@@ -1,11 +1,10 @@
 site_name: pylopdf
 site_url: https://pylopdf.haya.works/ko/
-site_description: Python에서 PDF를 편집, 렌더링, 추출, 생성합니다. Rust 코어 위의 pymupdf 스타일 API, MIT 라이선스, 필수 의존성 없음.
+site_description: pylopdf는 아카이브되었습니다. 후속 프로젝트인 pyropdf로 이전해 주세요.
 site_author: Yusuke Hayashi
 copyright: Copyright &copy; 2026 Yusuke Hayashi · MIT License
 repo_url: https://github.com/yhay81/pylopdf
 repo_name: yhay81/pylopdf
-edit_uri: edit/main/docs/ko/
 docs_dir: docs/ko
 site_dir: site/ko
 
@@ -20,20 +19,10 @@ theme:
     repo: fontawesome/brands/github
     alternate: material/translate
   features:
-    - announce.dismiss
-    - navigation.footer
     - navigation.instant
     - navigation.instant.prefetch
     - navigation.instant.progress
-    - navigation.path
-    - navigation.sections
-    - navigation.tabs
-    - navigation.tabs.sticky
     - navigation.top
-    - search.highlight
-    - search.suggest
-    - content.action.edit
-    - content.action.view
     - content.code.annotate
     - content.code.copy
     - toc.follow
@@ -55,20 +44,6 @@ theme:
 
 nav:
   - 홈: index.md
-  - 가이드:
-      - 시작하기: getting-started.md
-      - pymupdf에서 이전: migration.md
-      - 오프라인 OCR: ocr.md
-      - 동시성: concurrency.md
-      - WebAssembly: wasm.md
-      - 생태계 연동: ecosystem.md
-  - API 레퍼런스: api.md
-  - 프로젝트:
-      - 보안: security.md
-      - API 안정성: stability.md
-      - 벤치마크: benchmarks.md
-      - 기여 및 지원: contributing.md
-      - 변경 이력: https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md
 
 markdown_extensions:
   - admonition
@@ -85,13 +60,12 @@ markdown_extensions:
   - pymdownx.tabbed:
       alternate_style: true
 
-plugins:
-  - search
+plugins: []
 
 extra:
   current_language: ko
-  announcement: "pylopdf 0.16.0 · API 재설계, 페이지 내용, 캔버스 그리기"
-  announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v0.16.0"
+  announcement: "pylopdf는 0.16.1을 끝으로 아카이브되었습니다 · pyropdf로 이전해 주세요"
+  announcement_url: "https://pyropdf.haya.works/"
   social_image: "https://pylopdf.haya.works/assets/images/pylopdf-social-card.png"
   alternate:
     - name: English
@@ -108,8 +82,8 @@ extra:
       lang: ko
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/yhay81/pylopdf
-      name: GitHub의 pylopdf
+      link: https://github.com/yhay81/pyropdf
+      name: GitHub의 pyropdf
     - icon: fontawesome/brands/python
-      link: https://pypi.org/project/pylopdf/
-      name: PyPI의 pylopdf
+      link: https://pypi.org/project/pyropdf/
+      name: PyPI의 pyropdf
