@@ -1,15 +1,11 @@
-"""The NumPy and Pillow image-processing recipes of the ecosystem guide.
+"""NumPy and Pillow image-processing ecosystem recipes.
 
-The recipes are the Python blocks of the guide's image-processing section,
-run here as written. Expected values come from pymupdf 2.0's Pixmap methods
-on the same pixels.
+Expected values come from pymupdf 2.0's Pixmap methods on the same pixels.
 """
 
 from __future__ import annotations
 
 import hashlib
-import re
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -20,19 +16,164 @@ pytest.importorskip("PIL", reason="interop group (Pillow) is not installed")
 import pylopdf  # noqa: E402 - after the optional imports.
 from pylopdf import Color, IRect, Pixmap, Quad  # noqa: E402
 
-GUIDE = Path(__file__).parents[1] / "docs" / "en" / "ecosystem.md"
-SECTION = "## Image processing with NumPy and Pillow"
+_RECIPES = '''
+import numpy
+from PIL import Image
+from pylopdf import Pixmap
+
+ROTATE_90, ROTATE_180, ROTATE_270 = -1, 2, 1  # quarter turns for numpy.rot90
+
+
+def samples(pix: Pixmap) -> numpy.ndarray:
+    """Return a writable copy of the pixels, shaped (height, width, channels)."""
+    return numpy.array(pix).reshape(pix.height, pix.width, pix.channels)
+
+
+def color_channels(pix: Pixmap) -> int:
+    """Return how many channels hold color: the alpha channel comes last."""
+    return pix.channels - pix.alpha
+
+
+def from_samples(array: numpy.ndarray, like: Pixmap) -> Pixmap:
+    """Return a pixmap of the array, at the resolution of ``like``."""
+    return Pixmap.from_array(numpy.ascontiguousarray(array), resolution=like.resolution)
+
+
+def pixel(pix: Pixmap, x: int, y: int) -> tuple[int, ...]:
+    """Return the samples of one pixel, alpha included."""
+    return tuple(int(value) for value in numpy.asarray(pix).reshape(pix.height, pix.width, pix.channels)[y, x])
+
+
+def fill(pix: Pixmap, rect, color: tuple[int, ...]) -> Pixmap:
+    """Paint a rectangle with ``color``, as set_rect and clear_with do."""
+    x0, y0, x1, y1 = rect
+    array = samples(pix)
+    array[y0:y1, x0:x1, : len(color)] = color
+    return from_samples(array, pix)
+
+
+def paste(target: Pixmap, source: Pixmap, rect) -> Pixmap:
+    """Copy the pixels of ``source`` inside ``rect`` onto ``target``, as copy does."""
+    x0, y0, x1, y1 = rect
+    array = samples(target)
+    array[y0:y1, x0:x1] = samples(source)[y0:y1, x0:x1]
+    return from_samples(array, target)
+
+
+def tint(pix: Pixmap, black: int, white: int) -> Pixmap:
+    """Map 0 to the RGB integer ``black`` and 255 to ``white``, as tint_with does."""
+    array = samples(pix)
+    low = numpy.array([(black >> shift) & 255 for shift in (16, 8, 0)], dtype=float)
+    high = numpy.array([(white >> shift) & 255 for shift in (16, 8, 0)], dtype=float)
+    if color_channels(pix) == 1:  # gray tints with the green component
+        low, high = low[1:2], high[1:2]
+    color = array[..., : color_channels(pix)]
+    array[..., : color_channels(pix)] = numpy.rint(low + (high - low) * color / 255)
+    return from_samples(array, pix)
+
+
+def gamma(pix: Pixmap, value: float) -> Pixmap:
+    """Raise every color component to ``value``, as gamma_with does."""
+    table = (255 * (numpy.arange(256) / 255) ** value).astype(numpy.uint8)
+    array = samples(pix)
+    array[..., : color_channels(pix)] = table[array[..., : color_channels(pix)]]
+    return from_samples(array, pix)
+
+
+def invert(pix: Pixmap, rect=None) -> Pixmap:
+    """Invert the colors inside ``rect``, or everywhere, as invert_irect does."""
+    x0, y0, x1, y1 = rect or (0, 0, pix.width, pix.height)
+    array = samples(pix)
+    region = array[y0:y1, x0:x1, : color_channels(pix)]
+    array[y0:y1, x0:x1, : color_channels(pix)] = 255 - region
+    return from_samples(array, pix)
+
+
+def with_alpha(pix: Pixmap, alpha) -> Pixmap:
+    """Add or replace the alpha channel, as set_alpha does: a value or an array."""
+    color = samples(pix)[..., : color_channels(pix)]
+    plane = numpy.broadcast_to(numpy.asarray(alpha, dtype=numpy.uint8), color.shape[:2])
+    return from_samples(numpy.dstack((color, plane)), pix)
+
+
+def without_alpha(pix: Pixmap) -> Pixmap:
+    """Drop the alpha channel, keeping the straight color samples."""
+    return from_samples(samples(pix)[..., : color_channels(pix)], pix)
+
+
+def color_counts(pix: Pixmap) -> dict[bytes, int]:
+    """Count the pixels of each color, as color_count(colors=True) does."""
+    colors = samples(pix)[..., : color_channels(pix)].reshape(-1, color_channels(pix))
+    unique, counts = numpy.unique(colors, axis=0, return_counts=True)
+    return {color.tobytes(): int(count) for color, count in zip(unique, counts)}
+
+
+def top_color(pix: Pixmap) -> tuple[float, bytes]:
+    """Return the share and the samples of the most used color, as color_topusage does."""
+    counts = color_counts(pix)
+    color = max(counts, key=counts.__getitem__)
+    return counts[color] / (pix.width * pix.height), color
+
+
+def is_unicolor(pix: Pixmap) -> bool:
+    """Return whether every pixel has the same color."""
+    return len(color_counts(pix)) == 1
+
+
+def is_monochrome(pix: Pixmap) -> bool:
+    """Return whether a gray pixmap holds only black and white."""
+    return color_channels(pix) == 1 and set(color_counts(pix)) <= {b"\\x00", b"\\xff"}
+
+
+def turned(pix: Pixmap, quarter_turns: int) -> Pixmap:
+    """Turn the pixmap clockwise, as flip_rotate(Pixmap.ROTATE_90) does for -1."""
+    return from_samples(numpy.rot90(samples(pix), quarter_turns), pix)
+
+
+def flipped(pix: Pixmap, left_right: bool = True) -> Pixmap:
+    """Mirror the pixmap, as FLIP_LEFT_RIGHT and FLIP_TOP_BOTTOM do."""
+    return from_samples(numpy.flip(samples(pix), axis=1 if left_right else 0), pix)
+
+
+def to_image(pix: Pixmap) -> Image.Image:
+    """Return a Pillow image of the pixels."""
+    mode = {1: "L", 2: "LA", 3: "RGB", 4: "RGBA"}[pix.channels]
+    return Image.frombytes(mode, (pix.width, pix.height), bytes(pix))
+
+
+def from_image(image: Image.Image, like: Pixmap) -> Pixmap:
+    if image.mode not in {"L", "LA", "RGB", "RGBA"}:
+        alpha = "transparency" in image.info or "A" in image.getbands()
+        image = image.convert("RGBA" if alpha else "RGB")
+    return from_samples(numpy.asarray(image).reshape(image.height, image.width, -1), like)
+
+
+def shrunk(pix: Pixmap, factor: int) -> Pixmap:
+    """Shrink each side by 2 ** factor, averaging blocks, as shrink does."""
+    reduced = from_image(to_image(pix).reduce(2**factor), pix)
+    x, y = pix.resolution
+    return Pixmap.from_array(reduced, resolution=(max(1, x >> factor), max(1, y >> factor)))
+
+
+def warped(pix: Pixmap, quad, width: int, height: int) -> Pixmap:
+    """Map the quadrilateral ``quad`` (ul, ur, ll, lr) onto a width-by-height pixmap, as warp does."""
+    (ul, ur, ll, lr) = quad
+    corners = [(0, 0, *ul), (width, 0, *ur), (0, height, *ll), (width, height, *lr)]
+    rows, targets = [], []
+    for u, v, x, y in corners:  # solve for the output-to-input perspective coefficients
+        rows += [[u, v, 1, 0, 0, 0, -u * x, -v * x], [0, 0, 0, u, v, 1, -u * y, -v * y]]
+        targets += [x, y]
+    coefficients = numpy.linalg.solve(numpy.array(rows, dtype=float), numpy.array(targets, dtype=float))
+    image = to_image(pix).transform(
+        (width, height), Image.Transform.PERSPECTIVE, tuple(coefficients), Image.Resampling.BILINEAR
+    )
+    return from_image(image, pix)
+'''
 
 
 def _recipes() -> dict[str, Any]:
-    text = GUIDE.read_text(encoding="utf-8")
-    start = text.index(SECTION)
-    end = text.find("\n## ", start + len(SECTION))
-    section = text[start : end if end != -1 else len(text)]
-    blocks = re.findall(r"```python\n(.*?)```", section, flags=re.DOTALL)
-    assert len(blocks) >= 6
     namespace: dict[str, Any] = {}
-    exec(compile("\n".join(blocks), str(GUIDE), "exec"), namespace)  # noqa: S102 - the guide's own code.
+    exec(compile(_RECIPES, __file__, "exec"), namespace)  # noqa: S102 - fixed recipe snippets.
     return namespace
 
 

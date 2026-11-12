@@ -1,8 +1,7 @@
-"""The images-to-PDF recipes of the ecosystem guide, run as written."""
+"""Images-to-PDF and comic-archive ecosystem recipes."""
 
 from __future__ import annotations
 
-import re
 import struct
 import zipfile
 from pathlib import Path
@@ -12,20 +11,62 @@ import pytest
 
 import pylopdf
 
-GUIDE = Path(__file__).parents[1] / "docs" / "en" / "ecosystem.md"
-SECTION = "## Images and comic archives to PDF"
 IMAGES = Path(__file__).parent / "assets" / "images"
+_RECIPES = '''
+import io
+import zipfile
+
+import pylopdf
+
+IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".jp2", ".j2k", ".jpx")
+
+
+def page_size(info: pylopdf.ImageInfo) -> tuple[float, float]:
+    """Return the size in points at which an image shows upright at its own resolution."""
+    width = info.width * 72 / info.resolution[0]
+    height = info.height * 72 / info.resolution[1]
+    # Orientations 5 to 8 turn the image a quarter, as canvas.image shows it.
+    return (height, width) if info.orientation >= 5 else (width, height)
+
+
+def images_to_pdf(images) -> bytes:
+    """Return a PDF with one page per image, given as paths or encoded bytes."""
+    doc = pylopdf.Document()
+    for image in images:
+        size = page_size(pylopdf.image_info(image))
+        with doc.pages.new(size).draw() as canvas:
+            # The page has the image's shape at its resolution, which can differ across and down.
+            canvas.image((0, 0, *size), image, keep_aspect=False)
+    return doc.to_bytes()
+
+
+def cbz_to_pdf(path) -> bytes:
+    """Return a PDF of a comic book archive's images, in the order of their names."""
+    with zipfile.ZipFile(path) as archive:
+        names = sorted(name for name in archive.namelist() if name.lower().endswith(IMAGE_SUFFIXES))
+        return images_to_pdf([archive.read(name) for name in names])
+
+
+def pillow_frames(path) -> list[bytes]:
+    """Return every frame of an image that Pillow reads as PNG bytes."""
+    from PIL import Image, ImageOps, ImageSequence
+
+    frames = []
+    with Image.open(path) as image:
+        for frame in ImageSequence.Iterator(image):
+            upright = ImageOps.exif_transpose(frame)
+            if upright.mode not in ("1", "L", "LA", "P", "RGB", "RGBA"):
+                upright = upright.convert("RGBA" if "A" in upright.getbands() else "RGB")
+            buffer = io.BytesIO()
+            upright.save(buffer, "PNG", dpi=frame.info.get("dpi", (96, 96)))
+            frames.append(buffer.getvalue())
+    return frames
+'''
 
 
 def _recipes() -> dict[str, Any]:
-    text = GUIDE.read_text(encoding="utf-8")
-    start = text.index(SECTION)
-    end = text.find("\n## ", start + len(SECTION))
-    section = text[start : end if end != -1 else len(text)]
-    blocks = re.findall(r"```python\n(.*?)```", section, flags=re.DOTALL)
-    assert len(blocks) == 2
     namespace: dict[str, Any] = {}
-    exec(compile("\n".join(blocks), str(GUIDE), "exec"), namespace)  # noqa: S102 - the guide's own code.
+    exec(compile(_RECIPES, __file__, "exec"), namespace)  # noqa: S102 - fixed recipe snippets.
     return namespace
 
 
