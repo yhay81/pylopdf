@@ -1,153 +1,87 @@
 ---
-title: pylopdf
-description: 基于Rust PDF引擎lopdf、hayro和krilla，用Python编辑、渲染、提取和创建PDF，采用MIT许可。
+title: 迁移至 pyropdf
+description: pylopdf 已归档；在 Python 中读取、渲染、编辑和签署 PDF 请迁移至 pyropdf。
 hide:
   - navigation
-  - toc
 ---
 
-<div class="living-home" id="__skip">
-  <section class="living-hero" aria-labelledby="living-hero-title">
-    <div>
-      <p class="living-eyebrow">Python原生PDF工具包</p>
-      <h1 id="living-hero-title">用<span class="living-annotated">Python的方式</span>处理PDF，核心由Rust驱动。</h1>
-      <p class="living-lede">
-        基于Rust引擎lopdf、hayro和krilla编辑、渲染、提取和创建PDF，采用MIT许可，无需安装其他依赖。
-      </p>
+<p class="living-eyebrow">Archived project · 最终版本 0.16.1</p>
 
-      <div class="living-actions">
-        <a class="living-button living-button--primary" href="getting-started/">快速开始&nbsp; →</a>
-        <a class="living-button" href="api/">浏览API</a>
-      </div>
+# 从 pylopdf 迁移至 pyropdf { #migration-notice }
 
-      <div class="living-install" aria-label="安装命令">
-        <span class="living-install__prompt" aria-hidden="true">$</span>
-        <code tabindex="0">pip install pylopdf</code>
-        <button
-          class="living-install__copy"
-          type="button"
-          data-copy-command="pip install pylopdf"
-          data-copied-label="已复制"
-          aria-label="复制安装命令"
-        ><span data-copy-label>复制</span></button>
-      </div>
+`pylopdf` 已归档，不再提供新功能、缺陷修复或安全更新。后续开发已全面转向在全新 Rust 基础之上重构的继任项目 **[pyropdf](https://github.com/yhay81/pyropdf)**。
 
-      <ul class="living-proofs" aria-label="项目信息">
-        <li>MIT许可</li>
-        <li>7.8–9.1 MB wheel</li>
-        <li>无必需依赖</li>
-        <li>Python 3.11–3.15</li>
-      </ul>
-    </div>
-
-    <div
-      class="living-stage"
-      role="img"
-      aria-label="带有搜索结果、校对标记和渲染输出预览的抽象PDF页面"
-    >
-      <span class="living-stage__coordinate">612 × 792 pt</span>
-      <div class="living-page" aria-hidden="true">
-        <div class="living-page__inner">
-          <p class="living-page__kicker">Portable document</p>
-          <h2>一份鲜活的<span class="living-search-target">PDF</span>，<br>交给Python。</h2>
-          <div class="living-page__rule"></div>
-          <div class="living-line"></div>
-          <div class="living-line living-line--medium"></div>
-          <div class="living-line living-line--cobalt"></div>
-          <div class="living-line living-line--short"></div>
-          <div class="living-code-sample">doc = pylopdf.open("input.pdf")<br>page = doc.pages[0]<br>hits = page.search("合计")</div>
-        </div>
-        <span class="living-markup-circle"></span>
-        <span class="living-margin-note" aria-hidden="true">search()</span>
-      </div>
-      <aside class="living-output" aria-hidden="true">
-        <div class="living-output__head">
-          <span>Output</span>
-          <span>PNG · 144 dpi</span>
-        </div>
-        <div class="living-output__sheet">
-          <span class="living-selection-tag">match 01</span>
-        </div>
-      </aside>
-    </div>
-  </section>
-
-  <section class="living-capabilities" aria-label="核心功能">
-    <article class="living-capability">
-      <span class="living-capability__number">01 / EDIT</span>
-      <h2>精准编辑</h2>
-      <p>合并、重排和旋转页面，绘制文本与图像，添加批注，填写表单。</p>
-      <a class="living-capability__link" href="getting-started/#editing" aria-label="了解PDF编辑">↗</a>
-    </article>
-    <article class="living-capability">
-      <span class="living-capability__number">02 / RENDER</span>
-      <h2>忠实渲染</h2>
-      <p>将页面转换为PNG或SVG，可逐页处理，也可多页并行。</p>
-      <a class="living-capability__link" href="getting-started/#rendering" aria-label="了解PDF渲染">↗</a>
-    </article>
-    <article class="living-capability">
-      <span class="living-capability__number">03 / EXTRACT</span>
-      <h2>提取信息</h2>
-      <p>从电子文档和扫描页面中读取带位置的文本，并进行搜索、表格识别和Markdown转换。</p>
-      <a class="living-capability__link" href="getting-started/#pages-text-search" aria-label="了解文本提取">↗</a>
-    </article>
-  </section>
-
-  <section class="living-section" aria-labelledby="living-evidence-title">
-    <div class="living-section__header">
-      <p class="living-eyebrow">Python能运行的地方都能运行</p>
-      <h2 id="living-evidence-title">足够轻，便于部署；足够完整，胜任真实工作流。</h2>
-      <p>
-        pylopdf使用lopdf进行编辑，使用hayro进行渲染与提取，并通过krilla和HarfRust生成文本与表单外观。
-      </p>
-    </div>
-    <div class="living-evidence">
-      <a class="living-evidence__item" href="wasm/">
-        <span class="living-evidence__value">Wasm</span>
-        <span class="living-evidence__label">同一套API可在Pyodide与Cloudflare Python Workers中运行。</span>
-      </a>
-      <a class="living-evidence__item" href="concurrency/">
-        <span class="living-evidence__value">3.14t</span>
-        <span class="living-evidence__label">面向自由线程CPython的wheel，可在无GIL的情况下并行提取互相独立的文档。</span>
-      </a>
-      <a class="living-evidence__item" href="ocr/">
-        <span class="living-evidence__value">OCR</span>
-        <span class="living-evidence__label">可选的离线OCR在原生核心中运行，无需云服务或系统程序。</span>
-      </a>
-      <a class="living-evidence__item" href="security/">
-        <span class="living-evidence__value">Limits</span>
-        <span class="living-evidence__label">DocumentLimits可为不受信任的输入限制页数、对象数与解压大小。</span>
-      </a>
-    </div>
-  </section>
-
-  <section class="living-section" aria-labelledby="living-scope-title">
-    <div class="living-section__header">
-      <p class="living-eyebrow">明确的边界</p>
-      <h2 id="living-scope-title">专注的PDF核心，与Python生态系统协同工作。</h2>
-      <p>
-        pylopdf专注于处理PDF，排版、签名和验证则交给成熟的工具。
-      </p>
-    </div>
-    <div class="living-scope">
-      <div class="living-scope__column">
-        <h3>pylopdf负责</h3>
-        <ul>
-          <li>页面管理、元数据、书签与加密</li>
-          <li>带位置的文本提取、搜索、表格与Markdown</li>
-          <li>PNG与SVG渲染、图像、绘图、批注与OCR</li>
-          <li>表单填写、附件与页码标签</li>
-        </ul>
-      </div>
-      <div class="living-scope__column">
-        <h3>通过生态协作</h3>
-        <ul>
-          <li>使用<a href="ecosystem/#typesetting">Typst</a>排版并生成新的PDF/A文档</li>
-          <li>使用<a href="ecosystem/#signatures">pyHanko</a>添加PAdES签名</li>
-          <li>使用<a href="ecosystem/#new-pdfa">veraPDF</a>验证PDF/A</li>
-          <li>任何能够返回单词与矩形的<a href="ecosystem/#ocr">OCR引擎</a></li>
-        </ul>
-      </div>
-    </div>
-  </section>
+<div class="living-actions">
+  <a class="living-button living-button--primary" href="https://pyropdf.haya.works/">pyropdf 文档&nbsp; →</a>
+  <a class="living-button" href="https://github.com/yhay81/pyropdf">GitHub (yhay81/pyropdf)</a>
+  <a class="living-button" href="https://pypi.org/project/pyropdf/">PyPI (pyropdf)</a>
 </div>
+
+<div class="living-install" aria-label="安装命令">
+  <span class="living-install__prompt" aria-hidden="true">$</span>
+  <code tabindex="0">pip install pyropdf</code>
+  <button
+    class="living-install__copy"
+    type="button"
+    data-copy-command="pip install pyropdf"
+    data-copied-label="已复制"
+    aria-label="复制安装命令"
+  ><span data-copy-label>复制</span></button>
+</div>
+
+## 为什么由 pyropdf 取代 pylopdf { #why }
+
+`pylopdf` 同时维护了三套对象模型——`lopdf` 的可编辑对象图、`hayro` 对序列化字节的解析结果以及 `krilla` 生成的 PDF——并在事后进行协调。每次编辑都会丢弃 `hayro` 的快照并重新序列化整份文档，事务需要克隆整个对象图，且 `lopdf` 使用 32 位浮点数存储实数。
+
+`pyropdf` 延续了 `pylopdf` 的理念与 Python API 设计，并在 Rust 中基于**单一版本化对象存储**重新构建（详见[基础设计与实测数据](https://github.com/yhay81/pyropdf/blob/main/DESIGN.md)）：
+
+- **编辑开销仅与修改内容成正比。** 所有引擎直接从同一存储读取当前版本，无需在编辑后重新序列化整份文档。
+- **原生版本化与撤销重做。** 每次编辑都会生成不可变的新版本；失败的事务无需复制文档即可回滚，并可通过 `doc.history` 撤销与重做。
+- **无损保存与变更报告。** 未修改的对象保留原始字节；`incremental=True` 增量保存仅追加变更对象以保持已有数字签名有效；`doc.changes` 可在保存前报告将被破坏的签名或 PDF/A、PDF/UA 合规声明。
+- **更完整的 PDF 能力。** 支持数字签名与验签、内容清理、色彩转换、画布上的可变字体与彩色字体，以及由 Arlington PDF Model 生成的类型化对象。
+
+## 如何迁移 { #migrate }
+
+替换安装包并更新 `import`：
+
+```bash
+pip uninstall pylopdf
+pip install pyropdf
+```
+
+```python
+import pyropdf
+
+with pyropdf.open("input.pdf") as doc:
+    page = doc.pages[0]
+    text = page.text()
+    hits = page.search("合计")
+    page.pixmap(dpi=150).save("page.png")
+
+    with doc.transaction("annotate"):
+        page.annotations.add(pyropdf.Highlight(hits))
+    doc.save("output.pdf", incremental=True)
+```
+
+- **从 `pylopdf` 0.16 迁移：** 将 `import pylopdf` 改为 `import pyropdf` 后，绝大多数文档、页面、提取、渲染、画布、批注、表单、大纲、附件与图层接口均可直接使用。请核对下方差异表。
+- **从 `pylopdf` 0.15 或 `pymupdf` 迁移：** 如需先自动转换旧接口，可使用 `pylopdf[migrate]==0.16.1` 运行 `python -m pylopdf.migrate src/` 升级到 0.16 风格，再将 `import pylopdf` 替换为 `import pyropdf`。
+
+## 与 pylopdf 0.16 的主要差异 { #differences }
+
+| 方面 | `pylopdf` 0.16 | `pyropdf` |
+|---|---|---|
+| 导入与警告类 | `import pylopdf`、`PylopdfWarning` | `import pyropdf`、`PyropdfWarning` |
+| 可选依赖（extras） | `ocr`, `jp`, `ko`, `zh-cn`, `zh-tw`, `ar`, `he`, `hi`, `th`, `migrate` | `ocr`, `jp`, `ko`, `zh-cn`, `zh-tw`（直接复用相同的数据包）；其他文字字体请使用 `pyropdf.Font.from_file(...)` 加载 |
+| 页面框 | `page.boxes.media`, `.crop`, `.bleed`, `.trim`, `.art`（PDF 用户空间） | `page.media_box`, `page.crop_box`, `page.bleed_box`, `page.trim_box`, `page.art_box`（显示坐标系） |
+| 创建新文档 | `pylopdf.Document()` 或 `pylopdf.create()` | 统一使用 `doc = pyropdf.Document()`、`doc.pages.new(...)` 或 `doc.pages.new_from_image(...)` 与 `page.draw()` |
+| `doc.save()` 默认行为 | 默认压缩流并清理未使用对象（`compress=True, prune=True`） | 默认保留未修改对象（`compress=False, prune=False`）；需要压缩体积时传入 `compress=True, prune=True`，增量保存时传入 `incremental=True` |
+| 不受信任的输入 | 嵌套扫描 + `DocumentLimits.web()` | 在上游有界构造发布前，请参阅[状态与安全说明](https://pyropdf.haya.works/status/)并在受限工作进程中处理不受信任的 PDF（[限制与错误](https://pyropdf.haya.works/limits/#reading-a-pdf-in-a-worker)） |
+| WebAssembly | 发布包提供 Pyodide 0.28.3 wheel | 在 [pyropdf 路线图](https://github.com/yhay81/pyropdf/issues/1)中跟进；已发布的 `pylopdf` 0.16 wheel 仍可从 PyPI 与 GitHub Releases 安装 |
+
+## 相关链接 { #links }
+
+- **pyropdf 文档：** <https://pyropdf.haya.works/>（[`llms.txt`](https://pyropdf.haya.works/llms.txt)）
+- **pyropdf 仓库与 Issue：** <https://github.com/yhay81/pyropdf>
+- **pyropdf (PyPI)：** <https://pypi.org/project/pyropdf/>
+- **pyropdf 基础设计文档：** <https://github.com/yhay81/pyropdf/blob/main/DESIGN.md>
+- **已归档的 pylopdf 仓库与发布记录：** <https://github.com/yhay81/pylopdf> · [PyPI (`pylopdf`)](https://pypi.org/project/pylopdf/) · [更新日志](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)

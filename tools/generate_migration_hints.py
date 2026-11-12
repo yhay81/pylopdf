@@ -10,12 +10,11 @@ capability map, and lists those names in ``PYLOPDF_015_REMOVED``, which the
 codemod uses to keep pymupdf hints out of pylopdf programs, and the names
 that only pylopdf 0.15 had in ``PYLOPDF_015_ONLY``, which it keeps out of
 pymupdf programs. AttributeError
-messages and ``python -m pylopdf.migrate`` read it. The script also writes
-the replaced-name maps at the end of ``docs/en/llms.txt`` for coding
-assistants. Run it after editing ``api/pymupdf-parity.json``,
-``api/pylopdf-0.15.json``, or ``api/public-api.json``; ``--check`` reports
-stale output without writing it, and every run fails when a removed 0.15
-name has no hint or a replacement names a symbol that is not public.
+messages and ``python -m pylopdf.migrate`` read it. Run it after editing
+``api/pymupdf-parity.json``, ``api/pylopdf-0.15.json``, or
+``api/public-api.json``; ``--check`` reports stale output without writing it,
+and every run fails when a removed 0.15 name has no hint or a replacement
+names a symbol that is not public.
 """
 
 from __future__ import annotations
@@ -33,8 +32,6 @@ MANIFEST_PATH = ROOT / "api" / "pymupdf-parity.json"
 RELEASE_PATH = ROOT / "api" / "pylopdf-0.15.json"
 PUBLIC_API_PATH = ROOT / "api" / "public-api.json"
 HINTS_PATH = ROOT / "src" / "pylopdf" / "_migration_hints.py"
-LLMS_PATH = ROOT / "docs" / "en" / "llms.txt"
-LLMS_MARKER = "pymupdf name map (generated from api/pymupdf-parity.json"
 
 HEADER = '''"""Migration hints for pymupdf names and pylopdf 0.15 names that pylopdf does not provide.
 
@@ -128,53 +125,22 @@ def render(manifest: dict[str, object], release: dict[str, object], public: set[
     return "".join(lines)
 
 
-def render_llms(manifest: dict[str, object], release: dict[str, object], current: str) -> str:
-    """Replace everything from the map's heading line in ``llms.txt`` with the current maps."""
-    entries = manifest["entries"]
-    if not isinstance(entries, dict):
-        msg = "the manifest's entries must be an object"
-        raise TypeError(msg)
-    head = current.split(LLMS_MARKER, 1)[0].rstrip("\n")
-    lines = [
-        head,
-        "",
-        f"{LLMS_MARKER}; each pymupdf name that pylopdf replaced, its",
-        "replacement, and the migration hint):",
-    ]
-    for name in sorted(entries):
-        entry = entries[name]
-        if entry["status"] == "available" and entry["relation"] == "replaced":
-            lines.append(f"- {name} -> {entry['pylopdf']}: {entry['hint']}")
-    lines.extend(["", "pylopdf 0.15 name map (replaced names that the capability map does not list):"])
-    replacements = cast("dict[str, dict[str, str]]", release["replacements"])
-    lines.extend(f"- {name} -> {item['pylopdf']}: {item['hint']}" for name, item in replacements.items())
-    return "\n".join(lines) + "\n"
-
-
 def main(argv: list[str] | None = None) -> int:
-    """Write the hints module and the llms.txt map, or with ``--check`` report whether they are current."""
+    """Write the hints module, or with ``--check`` report whether it is current."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--check", action="store_true", help="fail instead of writing stale output")
     args = parser.parse_args(argv)
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     release = json.loads(RELEASE_PATH.read_text(encoding="utf-8"))
     public = public_symbols(json.loads(PUBLIC_API_PATH.read_text(encoding="utf-8")))
-    current_llms = LLMS_PATH.read_text(encoding="utf-8")
-    outputs = {
-        HINTS_PATH: render(manifest, release, public),
-        LLMS_PATH: render_llms(manifest, release, current_llms),
-    }
-    stale = [
-        path for path, text in outputs.items() if (path.read_text(encoding="utf-8") if path.exists() else "") != text
-    ]
-    if not stale:
+    expected = render(manifest, release, public)
+    current = HINTS_PATH.read_text(encoding="utf-8") if HINTS_PATH.exists() else ""
+    if current == expected:
         return 0
     if args.check:
-        for path in stale:
-            sys.stderr.write(f"{path.relative_to(ROOT)} is stale; run tools/generate_migration_hints.py\n")
+        sys.stderr.write(f"{HINTS_PATH.relative_to(ROOT)} is stale; run tools/generate_migration_hints.py\n")
         return 1
-    for path in stale:
-        path.write_text(outputs[path], encoding="utf-8")
+    HINTS_PATH.write_text(expected, encoding="utf-8")
     return 0
 
 

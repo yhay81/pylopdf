@@ -1,156 +1,96 @@
 # pylopdf
 
 [![PyPI](https://img.shields.io/pypi/v/pylopdf)](https://pypi.org/project/pylopdf/)
-[![CI](https://github.com/yhay81/pylopdf/actions/workflows/ci.yml/badge.svg)](https://github.com/yhay81/pylopdf/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/pypi/pyversions/pylopdf)](https://pypi.org/project/pylopdf/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/yhay81/pylopdf/blob/main/LICENSE)
 
-**Edit, render, extract, and create PDFs in Python.**
+> **Archived — migrate to [pyropdf](https://github.com/yhay81/pyropdf).**
+>
+> `pylopdf` is archived; `0.16.1` is its final release, and this repository no
+> longer accepts issues, pull requests, or security fixes. Development
+> continues in **[pyropdf](https://github.com/yhay81/pyropdf)**
+> ([documentation](https://pyropdf.haya.works/) ·
+> [PyPI](https://pypi.org/project/pyropdf/) ·
+> [design](https://github.com/yhay81/pyropdf/blob/main/DESIGN.md)).
 
-pylopdf aims to give Python programs complete control of PDF: every feature
-of the PDF 2.0 specification read, interpreted, created, edited, and
-preserved, including everything that [pymupdf](https://pymupdf.readthedocs.io/)
-does with PDF files, through a smaller API of its own. The roadmap defines
-the [scope, exclusions, and evidence required for a completeness claim](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#completeness-claims);
-API stability at v1.0 alone will not establish complete coverage. It is built
-on the Rust PDF engines [lopdf](https://github.com/J-F-Liu/lopdf),
-[hayro](https://github.com/LaurenzV/hayro), and
-[krilla](https://github.com/LaurenzV/krilla), released under the MIT license,
-and installs as a single wheel with no required Python dependencies.
-
-[Documentation](https://pylopdf.haya.works/) ·
-[Getting started](https://pylopdf.haya.works/getting-started/) ·
-[API reference](https://pylopdf.haya.works/api/) ·
-[Migrating from pymupdf](https://pylopdf.haya.works/migration/)
-
-> **Status:** pylopdf is pre-1.0. Version 0.16 redesigned its API, as the
-> [roadmap](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)
-> describes; the [migration guide](https://pylopdf.haya.works/migration/)
-> covers code written for pymupdf or pylopdf 0.15. Complete control is the
-> goal, not yet the state: the roadmap's
-> [assessment](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#assessment-2026-10-23)
-> lists the gaps. The [stability policy](https://pylopdf.haya.works/stability/)
-> explains what may change.
-
-## Install
+## Migrate to pyropdf
 
 ```bash
-pip install pylopdf
+pip uninstall pylopdf
+pip install pyropdf
 ```
 
-Python 3.11 or newer. Wheels are available for Linux, macOS, and Windows,
-including free-threaded Python 3.14t and 3.15t.
+`pyropdf` keeps `pylopdf`'s concept and API design, rebuilt on a single
+versioned object store in Rust
+([why the foundation changed](https://github.com/yhay81/pyropdf/blob/main/DESIGN.md#2-evidence-from-pylopdf)):
 
-Optional extras add fonts and OCR models:
-
-| Extra | Adds |
-|---|---|
-| `jp`, `ko`, `zh-cn`, `zh-tw` | Japanese, Korean, and Chinese fonts for displaying and writing text |
-| `ar`, `he`, `hi`, `th` | Arabic, Hebrew, Hindi, and Thai fonts for writing text |
-| `ocr` | An offline OCR engine for scanned pages |
-
-```bash
-pip install "pylopdf[jp,ocr]"
-```
-
-## Quickstart
+- Every engine reads the current document version from one store instead of
+  reserializing a `lopdf` graph after each edit, so edits cost what they touch.
+- Every edit produces an immutable version: failed transactions roll back
+  without cloning the document, and `doc.history` undoes and redoes changes.
+- Untouched objects keep their original bytes on save, and `doc.changes`
+  reports signatures or PDF/A and PDF/UA claims that a save would invalidate.
 
 ```python
-import pylopdf
+import pyropdf
 
-doc = pylopdf.open("input.pdf")
-page = doc.pages[0]
+with pyropdf.open("input.pdf") as doc:
+    page = doc.pages[0]
+    text = page.text()
+    hits = page.search("invoice")
+    page.pixmap(dpi=150).save("page.png")
 
-# Extract
-text = page.text()                     # plain text
-words = page.words()                   # words with their positions
-hits = page.search("invoice")          # rectangles of each match
-tables = page.tables()                 # tables with their cell text
-markdown = doc.markdown()              # whole document as Markdown
-
-# Render
-page.pixmap(dpi=150).save("page.png")
-svg = page.svg()
-
-# Add content
-with page.draw() as canvas:
-    canvas.text("Approved", (72, 72), size=20, fill=pylopdf.Color(0.8, 0, 0))
-    canvas.image((72, 100, 200, 200), "logo.png")
-page.annotations.add(pylopdf.Highlight(hits))
-
-# Reorganize pages (fetch pages again with doc.pages[i] afterwards)
-del doc.pages[1:3]
-doc.pages.extend(pylopdf.open("appendix.pdf").pages)   # append another document
-
-# Save, compressed and without unused objects
-doc.save("output.pdf")
+    with doc.transaction("annotate"):
+        page.annotations.add(pyropdf.Highlight(hits))
+    doc.save("output.pdf", incremental=True)
 ```
 
-The [getting started guide](https://pylopdf.haya.works/getting-started/)
-covers each area in more detail.
+### Updating existing code
 
-## Features
+1. **From `pylopdf` 0.16:** replace `import pylopdf` with `import pyropdf` and
+   check the differences below.
+2. **From `pylopdf` 0.15 or `pymupdf`:** if you want mechanical rewrites to the
+   0.16 API first, run `python -m pylopdf.migrate src/` from
+   `pylopdf[migrate]==0.16.1`, then replace `import pylopdf` with
+   `import pyropdf`.
 
-- **Pages and documents**: merge, split, reorder, rotate, and delete pages;
-  table of contents, page labels, metadata, and file attachments
-- **Text extraction**: plain or positioned text, search, tables, Markdown
-  output, and vertical Japanese/Chinese text
-- **Rendering**: pages to PNG or SVG, with parallel rendering of many pages
-- **Adding content**: text in any font with proper shaping, images, vector
-  drawings, pages from other PDFs, highlights, and links
-- **Forms**: fill in form fields
-- **OCR**: make scanned pages searchable without installing Tesseract
-- **Saving**: compression, cleanup of unused objects, incremental updates that
-  keep signatures valid, and AES-256 or AES-128 encryption
+Key differences between `pylopdf` 0.16 and `pyropdf`:
 
-## Why pylopdf
+- **Extras:** `pyropdf[ocr]`, `pyropdf[jp]`, `pyropdf[ko]`, `pyropdf[zh-cn]`,
+  and `pyropdf[zh-tw]` reuse the existing `pylopdf-ocr-models` and
+  `pylopdf-fonts-*` data packages. For other scripts (`ar`, `he`, `hi`, `th`),
+  pass a font file to `pyropdf.Font.from_file(...)`.
+- **Page boxes:** read and assign `page.media_box`, `page.crop_box`,
+  `page.bleed_box`, `page.trim_box`, and `page.art_box` (in display space)
+  instead of `page.boxes.*`.
+- **Creating documents:** create an empty document with `pyropdf.Document()`,
+  add pages with `doc.pages.new(...)` or `doc.pages.new_from_image(...)`, and
+  draw with `page.draw()`, in place of `pylopdf.create()`.
+- **Saving defaults:** `doc.save()` preserves untouched objects by default
+  (`compress=False, prune=False`); pass `compress=True, prune=True` when
+  rewriting for size, or `incremental=True` to append only changed objects.
+- **Warnings:** `PyropdfWarning` replaces `PylopdfWarning`.
+- **Untrusted input and WebAssembly:** see
+  [pyropdf's status and safety notes](https://pyropdf.haya.works/status/) and
+  [limits guide](https://pyropdf.haya.works/limits/#reading-a-pdf-in-a-worker)
+  before processing untrusted PDFs; WebAssembly wheels for `pyropdf` are
+  tracked on [its roadmap](https://github.com/yhay81/pyropdf/issues/1).
+  Existing `pylopdf` releases remain installable from
+  [PyPI](https://pypi.org/project/pylopdf/) and
+  [GitHub Releases](https://github.com/yhay81/pylopdf/releases).
 
-- **MIT licensed.** pymupdf is AGPL or commercial.
-- **Small and self-contained.** About 7 MB per wheel, with nothing else to
-  install, so it fits AWS Lambda and similar environments. It also runs in
-  WebAssembly, including [Cloudflare Python Workers](https://pylopdf.haya.works/wasm/).
-- **Safe with untrusted files.** Size and complexity limits raise a clear
-  `LimitError` instead of exhausting memory; `DocumentLimits.web()` enables
-  all of them. See the [security model](https://pylopdf.haya.works/security/).
-- **Built for concurrency.** Heavy operations release the GIL, and
-  free-threaded Python is supported. See the
-  [concurrency guide](https://pylopdf.haya.works/concurrency/).
+## About pylopdf (archived)
 
-## Not supported yet
-
-Redaction, editing or deleting annotations, creating form fields, and
-validated PDF/A and PDF/UA output are planned; the
-[roadmap](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md) lists them.
-
-Typesetting with HTML and CSS and digital signatures stay with ecosystem
-tools. The [ecosystem guide](https://pylopdf.haya.works/ecosystem/) shows how
-to pair pylopdf with [typst](https://typst.app/) and
-[pyHanko](https://pypi.org/project/pyHanko/) for those.
-
-## Benchmarks
-
-Benchmarks against pymupdf are reproducible from this repository, and the
-results include the cases where pylopdf is slower. See the
-[benchmark page](https://pylopdf.haya.works/benchmarks/).
-
-## Contributing
-
-Bug reports and pull requests are welcome. Building from source needs a Rust
-toolchain and [uv](https://docs.astral.sh/uv/):
-
-```bash
-uv sync
-uv run pytest
-```
-
-[CONTRIBUTING.md](https://github.com/yhay81/pylopdf/blob/main/CONTRIBUTING.md) has the full development guide. Please
-report security issues privately through
-[GitHub Security Advisories](https://github.com/yhay81/pylopdf/security/advisories/new).
+`pylopdf` was a Python PDF library built on the Rust PDF engines
+[lopdf](https://github.com/J-F-Liu/lopdf),
+[hayro](https://github.com/LaurenzV/hayro),
+[krilla](https://github.com/LaurenzV/krilla), and
+[HarfRust](https://github.com/harfbuzz/harfrust). Its
+[changelog](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md) and
+[roadmap](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md) remain in
+this repository as a record.
 
 ## License
 
-[MIT](https://github.com/yhay81/pylopdf/blob/main/LICENSE). pylopdf is built on [lopdf](https://github.com/J-F-Liu/lopdf),
-[hayro](https://github.com/LaurenzV/hayro),
-[krilla](https://github.com/LaurenzV/krilla), and
-[HarfRust](https://github.com/harfbuzz/harfrust); see [NOTICE.md](https://github.com/yhay81/pylopdf/blob/main/NOTICE.md)
-for third-party licenses.
+[MIT](https://github.com/yhay81/pylopdf/blob/main/LICENSE). See
+[NOTICE.md](https://github.com/yhay81/pylopdf/blob/main/NOTICE.md) for
+third-party licenses.

@@ -1,11 +1,10 @@
 site_name: pylopdf
 site_url: https://pylopdf.haya.works/
-site_description: Edit, render, extract, and create PDFs in Python. A pymupdf-style API with a Rust core, MIT licensed, with no required dependencies.
+site_description: pylopdf is archived; migrate to pyropdf for PDF reading, rendering, editing, and signing in Python.
 site_author: Yusuke Hayashi
 copyright: Copyright &copy; 2026 Yusuke Hayashi · MIT License
 repo_url: https://github.com/yhay81/pylopdf
 repo_name: yhay81/pylopdf
-edit_uri: edit/main/docs/en/
 docs_dir: docs/en
 site_dir: site
 
@@ -20,20 +19,10 @@ theme:
     repo: fontawesome/brands/github
     alternate: material/translate
   features:
-    - announce.dismiss
-    - navigation.footer
     - navigation.instant
     - navigation.instant.prefetch
     - navigation.instant.progress
-    - navigation.path
-    - navigation.sections
-    - navigation.tabs
-    - navigation.tabs.sticky
     - navigation.top
-    - search.highlight
-    - search.suggest
-    - content.action.edit
-    - content.action.view
     - content.code.annotate
     - content.code.copy
     - toc.follow
@@ -55,20 +44,6 @@ theme:
 
 nav:
   - Home: index.md
-  - Guide:
-      - Getting started: getting-started.md
-      - Migrating from pymupdf: migration.md
-      - Offline OCR: ocr.md
-      - Concurrency: concurrency.md
-      - WebAssembly: wasm.md
-      - Ecosystem recipes: ecosystem.md
-  - API reference: api.md
-  - Project:
-      - Security: security.md
-      - API stability: stability.md
-      - Benchmarks: benchmarks.md
-      - Contributing and support: contributing.md
-      - Changelog: https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md
 
 markdown_extensions:
   - admonition
@@ -85,13 +60,12 @@ markdown_extensions:
   - pymdownx.tabbed:
       alternate_style: true
 
-plugins:
-  - search
+plugins: []
 
 extra:
   current_language: en
-  announcement: "pylopdf 0.16.0 · a redesigned API, page content, and canvas drawing"
-  announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v0.16.0"
+  announcement: "pylopdf 0.16.1 is archived · Migrate to pyropdf"
+  announcement_url: "https://pyropdf.haya.works/"
   social_image: "https://pylopdf.haya.works/assets/images/pylopdf-social-card.png"
   alternate:
     - name: English
@@ -108,8 +82,8 @@ extra:
       lang: ko
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/yhay81/pylopdf
-      name: pylopdf on GitHub
+      link: https://github.com/yhay81/pyropdf
+      name: pyropdf on GitHub
     - icon: fontawesome/brands/python
-      link: https://pypi.org/project/pylopdf/
-      name: pylopdf on PyPI
+      link: https://pypi.org/project/pyropdf/
+      name: pyropdf on PyPI

@@ -1,155 +1,87 @@
 ---
-title: pylopdf
-description: Edit, render, extract, and create PDFs in Python on the Rust PDF engines lopdf, hayro, and krilla, under the MIT license.
+title: Migrate to pyropdf
+description: pylopdf is archived; migrate to pyropdf for PDF reading, rendering, editing, and signing in Python.
 hide:
   - navigation
-  - toc
 ---
 
-<div class="living-home" id="__skip">
-  <section class="living-hero" aria-labelledby="living-hero-title">
-    <div>
-      <p class="living-eyebrow">Python-native PDF toolkit</p>
-      <h1 id="living-hero-title">PDFs, with <span class="living-annotated">Python ergonomics</span> and a Rust core.</h1>
-      <p class="living-lede">
-        Edit, render, extract, and create PDFs on the Rust engines lopdf, hayro, and krilla, under the MIT license and with nothing else to install.
-      </p>
+<p class="living-eyebrow">Archived project · Final release 0.16.1</p>
 
-      <div class="living-actions">
-        <a class="living-button living-button--primary" href="getting-started/">Get started&nbsp; →</a>
-        <a class="living-button" href="api/">Explore the API</a>
-      </div>
+# Migrate from pylopdf to pyropdf { #migration-notice }
 
-      <div class="living-install" aria-label="Installation command">
-        <span class="living-install__prompt" aria-hidden="true">$</span>
-        <code tabindex="0">pip install pylopdf</code>
-        <button
-          class="living-install__copy"
-          type="button"
-          data-copy-command="pip install pylopdf"
-          data-copied-label="Copied"
-          aria-label="Copy installation command"
-        ><span data-copy-label>Copy</span></button>
-      </div>
+`pylopdf` is archived and no longer receives features, bug fixes, or security updates. Development continues in **[pyropdf](https://github.com/yhay81/pyropdf)**, its successor on a rebuilt Rust foundation.
 
-      <ul class="living-proofs" aria-label="Project facts">
-        <li>MIT licensed</li>
-        <li>7.8–9.1 MB wheels</li>
-        <li>No required dependencies</li>
-        <li>Python 3.11–3.15</li>
-      </ul>
-    </div>
-
-    <div
-      class="living-stage"
-      role="img"
-      aria-label="An abstract PDF page with a search result, editorial proof marks and a rendered output preview"
-    >
-      <span class="living-stage__coordinate">612 × 792 pt</span>
-      <div class="living-page" aria-hidden="true">
-        <div class="living-page__inner">
-          <p class="living-page__kicker">Portable document</p>
-          <h2>A living <span class="living-search-target">PDF</span>,<br>ready for Python.</h2>
-          <div class="living-page__rule"></div>
-          <div class="living-line"></div>
-          <div class="living-line living-line--medium"></div>
-          <div class="living-line living-line--cobalt"></div>
-          <div class="living-line living-line--short"></div>
-          <div class="living-code-sample">doc = pylopdf.open("input.pdf")<br>page = doc.pages[0]<br>hits = page.search("total")</div>
-        </div>
-        <span class="living-markup-circle"></span>
-        <span class="living-margin-note" aria-hidden="true">search()</span>
-      </div>
-      <aside class="living-output" aria-hidden="true">
-        <div class="living-output__head">
-          <span>Output</span>
-          <span>PNG · 144 dpi</span>
-        </div>
-        <div class="living-output__sheet">
-          <span class="living-selection-tag">match 01</span>
-        </div>
-      </aside>
-    </div>
-  </section>
-
-  <section class="living-capabilities" aria-label="Core capabilities">
-    <article class="living-capability">
-      <span class="living-capability__number">01 / EDIT</span>
-      <h2>Edit precisely</h2>
-      <p>Merge, reorder, and rotate pages, draw text and images, annotate, and fill forms.</p>
-      <a class="living-capability__link" href="getting-started/#editing" aria-label="Explore PDF editing">↗</a>
-    </article>
-    <article class="living-capability">
-      <span class="living-capability__number">02 / RENDER</span>
-      <h2>Render faithfully</h2>
-      <p>Turn pages into PNG or SVG, one at a time or many in parallel.</p>
-      <a class="living-capability__link" href="getting-started/#rendering" aria-label="Explore PDF rendering">↗</a>
-    </article>
-    <article class="living-capability">
-      <span class="living-capability__number">03 / EXTRACT</span>
-      <h2>Extract meaning</h2>
-      <p>Read text with positions, search, tables, and Markdown, from digital and scanned pages.</p>
-      <a class="living-capability__link" href="getting-started/#pages-text-search" aria-label="Explore text extraction">↗</a>
-    </article>
-  </section>
-
-  <section class="living-section" aria-labelledby="living-evidence-title">
-    <div class="living-section__header">
-      <p class="living-eyebrow">Runs where Python runs</p>
-      <h2 id="living-evidence-title">Small enough for deployment. Complete enough for real workflows.</h2>
-      <p>
-        pylopdf combines lopdf for editing, hayro for rendering and extraction,
-        and krilla with HarfRust for generated text and form appearances.
-      </p>
-    </div>
-    <div class="living-evidence">
-      <a class="living-evidence__item" href="wasm/">
-        <span class="living-evidence__value">Wasm</span>
-        <span class="living-evidence__label">The same API runs in Pyodide and Cloudflare Python Workers.</span>
-      </a>
-      <a class="living-evidence__item" href="concurrency/">
-        <span class="living-evidence__value">3.14t</span>
-        <span class="living-evidence__label">Free-threaded CPython wheels extract independent documents in parallel without the GIL.</span>
-      </a>
-      <a class="living-evidence__item" href="ocr/">
-        <span class="living-evidence__value">OCR</span>
-        <span class="living-evidence__label">Optional offline OCR runs in the native core, with no cloud service or system binary.</span>
-      </a>
-      <a class="living-evidence__item" href="security/">
-        <span class="living-evidence__value">Limits</span>
-        <span class="living-evidence__label">DocumentLimits caps pages, objects and decompression for untrusted input.</span>
-      </a>
-    </div>
-  </section>
-
-  <section class="living-section" aria-labelledby="living-scope-title">
-    <div class="living-section__header">
-      <p class="living-eyebrow">Deliberate scope</p>
-      <h2 id="living-scope-title">A focused PDF core that works with the Python ecosystem.</h2>
-      <p>
-        pylopdf concentrates on working with PDFs and pairs with established
-        tools for typesetting, signatures, and validation.
-      </p>
-    </div>
-    <div class="living-scope">
-      <div class="living-scope__column">
-        <h3>Inside pylopdf</h3>
-        <ul>
-          <li>Page management, metadata, outlines, and encryption</li>
-          <li>Text extraction with positions, search, tables, and Markdown</li>
-          <li>PNG and SVG rendering, images, drawing, annotations, and OCR</li>
-          <li>Form filling, attachments, and page labels</li>
-        </ul>
-      </div>
-      <div class="living-scope__column">
-        <h3>Connected by design</h3>
-        <ul>
-          <li>Typesetting and new PDF/A documents with <a href="ecosystem/#typesetting">Typst</a></li>
-          <li>PAdES signatures with <a href="ecosystem/#signatures">pyHanko</a></li>
-          <li>PDF/A validation with <a href="ecosystem/#new-pdfa">veraPDF</a></li>
-          <li>Any <a href="ecosystem/#ocr">OCR engine</a> that returns words and rectangles</li>
-        </ul>
-      </div>
-    </div>
-  </section>
+<div class="living-actions">
+  <a class="living-button living-button--primary" href="https://pyropdf.haya.works/">pyropdf documentation&nbsp; →</a>
+  <a class="living-button" href="https://github.com/yhay81/pyropdf">yhay81/pyropdf on GitHub</a>
+  <a class="living-button" href="https://pypi.org/project/pyropdf/">pyropdf on PyPI</a>
 </div>
+
+<div class="living-install" aria-label="Installation command">
+  <span class="living-install__prompt" aria-hidden="true">$</span>
+  <code tabindex="0">pip install pyropdf</code>
+  <button
+    class="living-install__copy"
+    type="button"
+    data-copy-command="pip install pyropdf"
+    data-copied-label="Copied"
+    aria-label="Copy installation command"
+  ><span data-copy-label>Copy</span></button>
+</div>
+
+## Why pyropdf replaces pylopdf { #why }
+
+`pylopdf` held three separate object models — `lopdf`'s editable graph, `hayro`'s parse of serialized bytes, and the PDFs generated by `krilla` — and reconciled them after the fact. Every edit dropped `hayro`'s snapshot, transactions cloned the whole graph, and `lopdf` stored real numbers as 32-bit floats.
+
+`pyropdf` keeps `pylopdf`'s concept and Python API design on **one versioned object store** in Rust ([foundation design and measurements](https://github.com/yhay81/pyropdf/blob/main/DESIGN.md)):
+
+- **Edits cost what they touch.** Engines read the current version from the store instead of reserializing the whole document.
+- **Versions and undo by construction.** Every edit produces an immutable version; failed transactions roll back without copying the document, and `doc.history` undoes and redoes steps.
+- **Lossless saves and change reports.** Untouched objects keep their original bytes, incremental saves append only modified objects so existing signatures remain valid, and `doc.changes` reports broken signatures or PDF/A and PDF/UA claims before saving.
+- **Broader PDF support.** Digital signing and verification, content sanitizing, recoloring, variable and color fonts on the canvas, and typed objects generated from the Arlington PDF Model.
+
+## How to migrate { #migrate }
+
+Replace the package and update your import:
+
+```bash
+pip uninstall pylopdf
+pip install pyropdf
+```
+
+```python
+import pyropdf
+
+with pyropdf.open("input.pdf") as doc:
+    page = doc.pages[0]
+    text = page.text()
+    hits = page.search("invoice")
+    page.pixmap(dpi=150).save("page.png")
+
+    with doc.transaction("annotate"):
+        page.annotations.add(pyropdf.Highlight(hits))
+    doc.save("output.pdf", incremental=True)
+```
+
+- **Migrating from `pylopdf` 0.16:** most document, page, reading, rendering, canvas, annotation, form, outline, attachment, and layer calls work unchanged once `import pylopdf` becomes `import pyropdf`. Check the differences below.
+- **Migrating from `pylopdf` 0.15 or `pymupdf`:** if you want automated rewrites to the 0.16 API shape first, run `python -m pylopdf.migrate src/` with `pylopdf[migrate]==0.16.1`, then switch imports from `pylopdf` to `pyropdf`.
+
+## Differences from pylopdf 0.16 { #differences }
+
+| Area | `pylopdf` 0.16 | `pyropdf` |
+|---|---|---|
+| Import & warning | `import pylopdf`, `PylopdfWarning` | `import pyropdf`, `PyropdfWarning` |
+| Extras | `ocr`, `jp`, `ko`, `zh-cn`, `zh-tw`, `ar`, `he`, `hi`, `th`, `migrate` | `ocr`, `jp`, `ko`, `zh-cn`, `zh-tw` (reusing the same data packages); load other script fonts with `pyropdf.Font.from_file(...)` |
+| Page boxes | `page.boxes.media`, `.crop`, `.bleed`, `.trim`, `.art` (PDF user space) | `page.media_box`, `page.crop_box`, `page.bleed_box`, `page.trim_box`, `page.art_box` (display space) |
+| New documents | `pylopdf.Document()` or `pylopdf.create()` | `doc = pyropdf.Document()`, `doc.pages.new(...)` or `doc.pages.new_from_image(...)`, and `page.draw()` |
+| `doc.save()` defaults | Compresses streams and prunes unused objects by default (`compress=True, prune=True`) | Preserves untouched objects by default (`compress=False, prune=False`); pass `compress=True, prune=True` when rewriting for size, or `incremental=True` |
+| Untrusted input | Nesting scanners + `DocumentLimits.web()` | Check [Status and safety](https://pyropdf.haya.works/status/) and run untrusted files in a bounded worker ([Limits and errors](https://pyropdf.haya.works/limits/#reading-a-pdf-in-a-worker)) until upstream bounded construction lands |
+| WebAssembly | Pyodide 0.28.3 wheel in releases | Tracked on the [pyropdf roadmap](https://github.com/yhay81/pyropdf/issues/1); existing `pylopdf` 0.16 wheels remain available on PyPI and GitHub Releases |
+
+## Links { #links }
+
+- **pyropdf documentation:** <https://pyropdf.haya.works/> ([Japanese](https://pyropdf.haya.works/ja/) · [`llms.txt`](https://pyropdf.haya.works/llms.txt))
+- **pyropdf repository & issues:** <https://github.com/yhay81/pyropdf>
+- **pyropdf on PyPI:** <https://pypi.org/project/pyropdf/>
+- **pyropdf foundation design:** <https://github.com/yhay81/pyropdf/blob/main/DESIGN.md>
+- **Archived pylopdf repository & releases:** <https://github.com/yhay81/pylopdf> · [PyPI (`pylopdf`)](https://pypi.org/project/pylopdf/) · [Changelog](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)

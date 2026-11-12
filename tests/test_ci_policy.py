@@ -13,6 +13,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 _WORKFLOWS = _ROOT / ".github" / "workflows"
 _HOSTED_RUNNERS = {
     "ubuntu-latest",
+    "ubuntu-24.04",
     "ubuntu-24.04-arm",
     "macos-latest",
     "macos-15-intel",

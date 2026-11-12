@@ -30,7 +30,7 @@ jobs:
       - name: Verify tag matches the package version
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          package_version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          package_version="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
           test "v${package_version}" = "${GITHUB_REF_NAME}"
 
   build-wheels:
@@ -135,7 +135,7 @@ jobs:
   build-pyemscripten-wheel:
     name: PyEmscripten wheel (Pyodide 0.28.3)
     needs: verify
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       RUSTUP_TOOLCHAIN: 1.95.0
@@ -258,7 +258,7 @@ jobs:
   verify-pyemscripten-pypi:
     name: Verify PyEmscripten wheel from PyPI
     needs: publish
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       UV_PYTHON_DOWNLOADS: automatic
